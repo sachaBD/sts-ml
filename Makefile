@@ -1,7 +1,7 @@
-.PHONY: jaw_worm jaw_worm_mcts smoke dataset build clean python-env
+.PHONY: jaw_worm jaw_worm_mcts smoke dataset test build clean python-env
 
 BUILD_DIR := build
-PYTHON ?= python3.13
+PYTHON ?= python3
 VENV := .venv/bin/python3
 SEED ?= 1
 SIMULATIONS ?= 2000
@@ -11,10 +11,13 @@ python-env:
 	$(VENV) -m pip install -r requirements.txt
 
 smoke: build python-env
-	$(VENV) python/smoke.py ./$(BUILD_DIR)/dump_slime_boss_encoding
+	PYTHONPATH=python $(VENV) -m sts_combat_rl.cli.smoke
 
 dataset: build python-env
-	$(VENV) python/generate_mcts_dataset.py data/mcts-slime-v1-pilot --seed-count 32 --simulations $(SIMULATIONS)
+	PYTHONPATH=python $(VENV) -m sts_combat_rl.data.dataset data/mcts-slime-v1-pilot --seed-count 32 --simulations $(SIMULATIONS)
+
+test: build
+	ctest --test-dir $(BUILD_DIR) --output-on-failure
 
 jaw_worm: build
 	./$(BUILD_DIR)/play_jaw_worm $(SEED)

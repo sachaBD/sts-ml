@@ -6,6 +6,8 @@
 #include <optional>
 #include <vector>
 
+#include <nlohmann/json.hpp>
+
 namespace stsrl {
 
 inline constexpr std::uint32_t combat_encoding_schema_version = 2;
@@ -67,5 +69,51 @@ struct EncodedCombatState {
     std::vector<ActionToken> legal_actions;
     auto operator==(const EncodedCombatState&) const -> bool = default;
 };
+
+inline void to_json(nlohmann::json& j, const CardToken& x) {
+    j = nlohmann::json{
+        {"card_id", x.card_id},
+        {"zone", static_cast<int>(x.zone)},
+        {"card_type", static_cast<int>(x.card_type)},
+        {"target_type", static_cast<int>(x.target_type)},
+        {"numeric", x.numeric}
+    };
+}
+
+inline void to_json(nlohmann::json& j, const MonsterToken& x) {
+    j = nlohmann::json{
+        {"monster_id", x.monster_id},
+        {"move_id", x.move_id},
+        {"numeric", x.numeric}
+    };
+}
+
+inline void to_json(nlohmann::json& j, const CardMonsterInteraction& x) {
+    j = nlohmann::json{
+        {"card_index", x.card_index},
+        {"monster_index", x.monster_index},
+        {"numeric", x.numeric}
+    };
+}
+
+inline void to_json(nlohmann::json& j, const GlobalFeatures& g) {
+    j = nlohmann::json{
+        {"numeric", g.numeric},
+        {"input_state", g.input_state},
+        {"card_selection_task", g.card_selection_task}
+    };
+}
+
+inline void to_json(nlohmann::json& j, const EncodedCombatState& s) {
+    j = nlohmann::json{
+        {"encoding_version", s.version},
+        {"global_numeric", s.global.numeric},
+        {"input_state", s.global.input_state},
+        {"card_selection_task", s.global.card_selection_task},
+        {"cards", s.cards},
+        {"monsters", s.monsters},
+        {"card_monster_interactions", s.card_monster_interactions}
+    };
+}
 
 } // namespace stsrl

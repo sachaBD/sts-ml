@@ -11,7 +11,7 @@ file(GLOB_RECURSE STS_LIGHTSPEED_SOURCES CONFIGURE_DEPENDS
 
 add_library(sts_lightspeed_core STATIC ${STS_LIGHTSPEED_SOURCES})
 target_include_directories(sts_lightspeed_core
-    PUBLIC
+    SYSTEM PUBLIC
         "${CMAKE_CURRENT_SOURCE_DIR}/sts_lightspeed/include"
         "${CMAKE_CURRENT_SOURCE_DIR}/sts_lightspeed/json/include")
 target_compile_options(sts_lightspeed_core PRIVATE -Wno-shift-count-overflow)
@@ -40,11 +40,7 @@ target_compile_options(play_jaw_worm_mcts PRIVATE -Wall -Wextra -Wpedantic)
 add_executable(generate_mcts_records apps/generate_mcts_records.cpp)
 target_link_libraries(generate_mcts_records PRIVATE combat_core)
 target_compile_features(generate_mcts_records PRIVATE cxx_std_23)
-
-add_executable(dump_slime_boss_encoding apps/dump_slime_boss_encoding.cpp)
-target_link_libraries(dump_slime_boss_encoding PRIVATE combat_core)
-target_compile_features(dump_slime_boss_encoding PRIVATE cxx_std_23)
-target_compile_options(dump_slime_boss_encoding PRIVATE -Wall -Wextra -Wpedantic)
+target_compile_options(generate_mcts_records PRIVATE -Wall -Wextra -Wpedantic)
 
 enable_testing()
 add_executable(encoding_test tests/encoding_test.cpp)

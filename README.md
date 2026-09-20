@@ -28,13 +28,13 @@ make jaw_worm_mcts SEED=42 SIMULATIONS=2000
 
 ### PyTorch value-model smoke test
 
-Create the project-local virtual environment, build the C++ JSON dump, and run one value-model forward pass:
+Create the project-local virtual environment, build the C++ record generator, and run one value-model forward pass against Parquet records:
 
 ```sh
 make smoke
 ```
 
-This prints the complete public JSON encoding, model topology, tensor shapes, and one untrained value. The tensor adapter intentionally ignores legal actions.
+This prints the public JSON encoding of the record, model topology, tensor shapes, and one untrained value. The tensor adapter intentionally ignores legal actions.
 
 MCTS uses the random agent for terminal rollouts. Each simulation independently
 reshuffles the unknown remainder of the draw pile and resamples future RNG, so
@@ -48,10 +48,14 @@ Generate a value-only Slime Boss shard (the C++ generator streams MessagePack; P
 
 ```sh
 make dataset SIMULATIONS=2000
-# or: .venv/bin/python python/generate_mcts_dataset.py dataset --seed-count 32 --simulations 2000
+# or: PYTHONPATH=python .venv/bin/python -m sts_combat_rl generate dataset --seed-count 32 --simulations 2000
 ```
 
-The output directory contains `mcts_slime_v1.parquet` and `manifest.toml`.
+The output directory contains `mcts_slime_v2.parquet` and `manifest.toml`. Inspect rows as JSON with:
+
+```sh
+PYTHONPATH=python .venv/bin/python -m sts_combat_rl inspect <path-to-parquet> --row 0
+```
 
 ## Layout
 

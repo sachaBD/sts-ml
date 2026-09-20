@@ -1,9 +1,10 @@
 import torch
 
 
-def value_tensors(state: dict) -> dict:
-    if state.get("version") != 2:
-        raise ValueError(f"unsupported encoding version: {state.get('version')!r} (expected 2)")
+def value_tensors(state: dict) -> dict[str, torch.Tensor]:
+    version = state.get("encoding_version") if "encoding_version" in state else state.get("version")
+    if version != 2:
+        raise ValueError(f"unsupported encoding version: {version!r} (expected 2)")
     cards, monsters, interactions = state["cards"], state["monsters"], state["card_monster_interactions"]
     return {
         "global_numeric": torch.tensor(state["global_numeric"], dtype=torch.float32),
