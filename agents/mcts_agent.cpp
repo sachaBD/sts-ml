@@ -1,6 +1,5 @@
 #include "agents/mcts_agent.hpp"
 
-#include "agents/random_agent.hpp"
 #include "combat/environment.hpp"
 
 #include <algorithm>
@@ -43,7 +42,7 @@ struct Candidate {
 
 struct MctsAgent::Impl {
     Impl(const std::uint64_t seed, MctsConfig config)
-        : config{config}, random{seed}, rollout_policy{seed ^ 0xd1b54a32d192ed03ULL} {
+        : config{config}, random{seed} {
         if (config.simulations == 0) {
             throw std::invalid_argument{"MCTS requires at least one simulation"};
         }
@@ -165,7 +164,6 @@ struct MctsAgent::Impl {
 
     MctsConfig config;
     std::mt19937_64 random;
-    RandomAgent rollout_policy;
 };
 
 MctsAgent::MctsAgent(const std::uint64_t seed, MctsConfig config)

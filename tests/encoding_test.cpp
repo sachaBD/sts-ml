@@ -111,4 +111,5 @@ int main() {
     const auto result = mcts.search(mcts_environment);
     check(result.root_visits == 16 && std::isfinite(result.root_value) && result.root_value >= -1 && result.root_value <= 1);
     check(std::any_of(result.actions.begin(), result.actions.end(), [&](const auto& x) { return x.execution_index == result.chosen_action && std::isfinite(x.q) && x.q >= -1 && x.q <= 1; }));
+    check(!mcts_environment.action_description(result.chosen_action).empty());
 }

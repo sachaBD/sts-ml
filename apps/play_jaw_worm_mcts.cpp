@@ -40,9 +40,8 @@ int main(const int argc, char* argv[]) try {
                   << state.enemy_block << " block\n";
 
         const auto chosen = agent.choose_action(environment);
-        const auto refreshed = environment.decision();
         std::cout << "MCTS action: "
-                  << refreshed.legal_actions.at(chosen).description << '\n';
+                  << environment.action_description(chosen) << '\n';
         environment.step(chosen);
         ++decisions;
     }

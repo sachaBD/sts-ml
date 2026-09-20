@@ -248,6 +248,15 @@ std::vector<SearchAction> CombatEnvironment::search_actions() {
     return result;
 }
 
+std::string CombatEnvironment::action_description(const std::size_t action_index) const {
+    if (action_index >= impl_->current_actions.size()) {
+        throw std::out_of_range{"action index is outside the current legal action set"};
+    }
+    std::ostringstream description;
+    impl_->current_actions[action_index].printDesc(description, impl_->state);
+    return description.str();
+}
+
 CombatEnvironment CombatEnvironment::determinized(const std::uint64_t seed) const {
     auto state = impl_->state;
     std::mt19937_64 random{seed};

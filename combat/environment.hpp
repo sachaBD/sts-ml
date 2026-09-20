@@ -39,6 +39,7 @@ public:
 
     [[nodiscard]] Decision decision();
     [[nodiscard]] std::vector<SearchAction> search_actions();
+    [[nodiscard]] std::string action_description(std::size_t action_index) const;
     [[nodiscard]] CombatEnvironment determinized(std::uint64_t seed) const;
     void step(std::size_t action_index);
     [[nodiscard]] bool done() const noexcept;
