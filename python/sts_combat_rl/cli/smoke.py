@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 import sys
+from pathlib import Path
 
 import torch
 
@@ -15,7 +15,9 @@ from ..models.encoding import value_tensors
 def run_smoke(parquet_path: Path | None = None) -> None:
     root = Path(__file__).resolve().parents[3]
     if parquet_path is None:
-        default_probe = root / "data" / "mcts-slime-v2-probe-4x100" / "mcts_slime_v2.parquet"
+        default_probe = (
+            root / "data" / "mcts-slime-v2-probe-4x100" / "mcts_slime_v2.parquet"
+        )
         if default_probe.exists():
             parquet_path = default_probe
         else:
@@ -40,7 +42,11 @@ def run_smoke(parquet_path: Path | None = None) -> None:
 
 
 def main(argv: list[str] | None = None) -> None:
-    parquet_path = Path(argv[0]) if argv and len(argv) > 0 else (Path(sys.argv[1]) if len(sys.argv) > 1 else None)
+    parquet_path = (
+        Path(argv[0])
+        if argv and len(argv) > 0
+        else (Path(sys.argv[1]) if len(sys.argv) > 1 else None)
+    )
     run_smoke(parquet_path)
 
 

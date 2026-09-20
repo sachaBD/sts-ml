@@ -4,12 +4,12 @@ from .models.deep_sets import DeepSetsValue
 from .models.encoding import value_tensors
 
 __all__ = [
-    "DeepSetsValue",
-    "value_tensors",
     "SCHEMA",
+    "DeepSetsValue",
     "generate_dataset",
-    "validate_records",
+    "parquet_to_json",
     "read_parquet_records",
     "read_parquet_row",
-    "parquet_to_json",
+    "validate_records",
+    "value_tensors",
 ]

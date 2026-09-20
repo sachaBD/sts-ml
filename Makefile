@@ -14,7 +14,7 @@ smoke: build python-env
 	PYTHONPATH=python $(VENV) -m sts_combat_rl.cli.smoke
 
 dataset: build python-env
-	PYTHONPATH=python $(VENV) -m sts_combat_rl.data.dataset data/mcts-slime-v1-pilot --seed-count 32 --simulations $(SIMULATIONS)
+	PYTHONPATH=python $(VENV) -m sts_combat_rl.data.dataset data/mcts-slime-v2-pilot --seed-count 32 --simulations $(SIMULATIONS)
 
 test: build
 	ctest --test-dir $(BUILD_DIR) --output-on-failure

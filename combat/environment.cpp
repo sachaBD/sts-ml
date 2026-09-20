@@ -53,6 +53,10 @@ bool monster_less(const MonsterToken& a, const MonsterToken& b) { return std::ti
 
 const sts::CardInstance* selected_card(const sts::BattleContext& state, const sts::search::Action& action,
                                        CardZone& zone) {
+    if (state.inputState != sts::InputState::CARD_SELECT) {
+        zone = CardZone::hand;
+        return nullptr;
+    }
     const auto index = action.getSelectIdx();
     switch (state.cardSelectInfo.cardSelectTask) {
     case sts::CardSelectTask::CODEX:
@@ -114,6 +118,9 @@ Decision CombatEnvironment::decision() {
         const auto damage = monster.getMoveBaseDamage(impl_->state);
         incoming += monster.calculateDamageToPlayer(impl_->state, damage.damage) * damage.attackCount;
     }
+    const int select_task = impl_->state.inputState == sts::InputState::CARD_SELECT
+        ? static_cast<int>(impl_->state.cardSelectInfo.cardSelectTask)
+        : static_cast<int>(sts::CardSelectTask::INVALID);
     result.encoding.global = {{impl_->state.turn / 20.f, player.curHp / 100.f,
         player.maxHp ? player.curHp / float(player.maxHp) : 0.f, player.block / 100.f, player.energy / 10.f,
         player.energyPerTurn / 10.f, player.strength / 10.f, player.dexterity / 10.f,
@@ -124,7 +131,7 @@ Decision CombatEnvironment::decision() {
         incoming / 100.f, std::max(0, incoming - player.block) / 100.f,
         player.getStatusRuntime(PlayerStatus::COMBUST) / 10.f, player.combustHpLoss / 10.f,
         player.getStatusRuntime(PlayerStatus::FLAME_BARRIER) / 50.f, float(player.hasStatus<PlayerStatus::NO_DRAW>())},
-        static_cast<int>(impl_->state.inputState), static_cast<int>(impl_->state.cardSelectInfo.cardSelectTask)};
+        static_cast<int>(impl_->state.inputState), select_task};
     struct PendingCard { CardToken token; int hand_index = -1; const sts::CardInstance* card = nullptr; };
     struct PendingMonster { MonsterToken token; int slot; const sts::Monster* monster; };
     std::vector<PendingCard> cards;
@@ -170,8 +177,9 @@ Decision CombatEnvironment::decision() {
         result.legal_actions.push_back({index, std::move(description).str()});
         ActionToken token{.kind = static_cast<EncodedActionKind>(edge.action.getActionType()),
                           .source_card = std::nullopt, .target_monster = std::nullopt, .potion_id = std::nullopt,
-                          .card_selection_task = static_cast<int>(impl_->state.cardSelectInfo.cardSelectTask),
-                          .skips_selection = edge.action.getActionType() == sts::search::ActionType::SINGLE_CARD_SELECT &&
+                          .card_selection_task = select_task,
+                          .skips_selection = impl_->state.inputState == sts::InputState::CARD_SELECT &&
+                              edge.action.getActionType() == sts::search::ActionType::SINGLE_CARD_SELECT &&
                               impl_->state.cardSelectInfo.cardSelectTask == sts::CardSelectTask::CODEX && edge.action.getSelectIdx() == 3,
                           .execution_index = index};
         if (edge.action.getActionType() == sts::search::ActionType::CARD) {
@@ -183,7 +191,9 @@ Decision CombatEnvironment::decision() {
             if (source >= 0 && source < static_cast<int>(impl_->state.potions.size()))
                 token.potion_id = static_cast<int>(impl_->state.potions[source]);
         } else if (edge.action.getActionType() == sts::search::ActionType::SINGLE_CARD_SELECT) {
-            const auto task = impl_->state.cardSelectInfo.cardSelectTask;
+            const auto task = impl_->state.inputState == sts::InputState::CARD_SELECT
+                ? impl_->state.cardSelectInfo.cardSelectTask
+                : sts::CardSelectTask::INVALID;
             const auto selected = edge.action.getSelectIdx();
             if ((task == sts::CardSelectTask::CODEX || task == sts::CardSelectTask::DISCOVERY) && selected >= 0 && selected < 3) {
                 const auto id = task == sts::CardSelectTask::CODEX ? impl_->state.cardSelectInfo.codexCards()[selected]
@@ -222,7 +232,10 @@ std::vector<SearchAction> CombatEnvironment::search_actions() {
     std::vector<SearchAction> result;
     for (const auto& edge : node.edges) {
         const auto& action = edge.action;
-        SearchActionKey key{.kind = static_cast<int>(action.getActionType()), .selection_task = static_cast<int>(impl_->state.cardSelectInfo.cardSelectTask)};
+        const int select_task = impl_->state.inputState == sts::InputState::CARD_SELECT
+            ? static_cast<int>(impl_->state.cardSelectInfo.cardSelectTask)
+            : static_cast<int>(sts::CardSelectTask::INVALID);
+        SearchActionKey key{.kind = static_cast<int>(action.getActionType()), .selection_task = select_task};
         bool target_required = false;
         if (action.getActionType() == sts::search::ActionType::CARD) {
             const auto& card = impl_->state.cards.hand[action.getSourceIdx()];

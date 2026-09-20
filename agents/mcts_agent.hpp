@@ -2,12 +2,14 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <vector>
 
 namespace stsrl {
 
 class CombatEnvironment;
+using LeafEvaluator = std::function<double(CombatEnvironment&)>;
 
 struct MctsActionStats { std::size_t execution_index{}; std::size_t visits{}; double q{}; };
 struct MctsResult { std::size_t chosen_action{}; double root_value{}; std::size_t root_visits{}; std::vector<MctsActionStats> actions; };
@@ -20,7 +22,7 @@ struct MctsConfig {
 
 class MctsAgent final {
 public:
-    explicit MctsAgent(std::uint64_t seed, MctsConfig config = {});
+    explicit MctsAgent(std::uint64_t seed, MctsConfig config = {}, LeafEvaluator leaf_evaluator = {});
     ~MctsAgent();
 
     MctsAgent(MctsAgent&&) noexcept;

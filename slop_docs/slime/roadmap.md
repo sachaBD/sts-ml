@@ -5,42 +5,52 @@
 1. Public semantic state/action encoding in C++.
 2. Slime Boss scenario and multi-monster evaluation.
 3. C++ state dump and PyTorch Deep Sets smoke pass.
+4. Variable-token training batches with segmented sum pooling.
+5. Validated streaming MCTS records and immutable Parquet output.
+6. Bootstrap value training with an episode-level held-out split.
+7. Neural leaf evaluation inside determinization-based MCTS.
+8. Held-out gameplay comparison against equal-budget rollout MCTS.
+
+The v1 model won 200/200 unseen fixed-deck fights at 100 simulations per
+decision. See [results_v1.md](results_v1.md) for the dataset, value metrics,
+gameplay results, hashes, and limitations.
 
 ## Next
 
-### 4. Training tensor encoding
+### 9. Controlled scenario generalization
 
-- Convert semantic tokens to the feature vectors in `encoding.md`.
-- Keep card and monster sets variable length.
-- Batch with token-to-state indices and segmented sum pooling.
-- Use the same field order and scaling in dataset generation and inference.
+- Define a reproducible distribution of feasible Ironclad decks and starting
+  combat conditions.
+- Preserve scenario parameters in every episode's provenance.
+- Stratify train, validation, and gameplay evaluation by deck rather than only
+  by combat seed.
+- Establish coverage and minimum-performance gates for weak, average, and
+  strong decks and for relevant starting-HP bands.
+- Generate MCTS labels over this controlled distribution and measure
+  out-of-deck as well as in-distribution generalization.
 
-### 5. MCTS training records
+### 10. Iterative neural search
 
-- Return root visit counts and Q values from MCTS.
-- Record one decision per row.
-- Write immutable Parquet shards with PyArrow.
-- Store MCTS configuration and dataset provenance in a small manifest.
+- Generate on-policy records from neural-guided MCTS.
+- Mix bootstrap and on-policy examples to avoid abrupt distribution collapse.
+- Retrain and compare against fixed held-out scenario suites.
 
-### 6. Bootstrap value training
+### 11. Policy head
 
-- Generate teacher episodes with MCTS.
-- Measure win rate before adding curriculum.
-- Train the value model first on MCTS root values.
-- Retain terminal outcomes for comparison and later target changes.
-
-### 7. Neural-guided MCTS
-
-- Replace leaf rollouts with value inference.
-- Compare against the same MCTS budget and held-out seeds.
-- Regenerate data from the improved search.
-
-### 8. Policy head
-
-- Add padded semantic action tensors and masks.
+- Add semantic action tensors and masks.
 - Train against MCTS visit distributions.
-- Use policy priors in PUCT.
+- Use learned priors with PUCT.
+
+### 12. Inference optimization
+
+- Remove the synchronous subprocess round trip after the learning design is
+  stable.
+- Batch leaf inference or adopt an in-process model runtime.
+- Compare decisions as well as outcomes before and after optimization.
 
 ## Slime Boss acceptance signal
 
-Log boss HP before the triggering attack, split HP, child HP, player HP, final outcome, and final player HP. The learned agent should prefer lower or better-timed splits when immediate damage is strategically worse.
+For every evaluation family, log boss HP before the triggering attack, split
+HP, child HP, player HP at split, final outcome, and final player HP. The
+learned agent should prefer lower or better-timed splits when immediate damage
+is strategically worse.

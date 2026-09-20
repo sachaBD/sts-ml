@@ -2,7 +2,7 @@
 /build-*/
 gmon.out
 .venv/
-runs/
-data/
+/runs/
+/data/
 __pycache__/
 *.py[cod]

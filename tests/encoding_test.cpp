@@ -106,6 +106,99 @@ int main() {
     stsrl::CombatEnvironment duplicate_environment{std::move(duplicate_state)};
     const auto duplicate_actions = duplicate_environment.search_actions();
     check(std::count_if(duplicate_actions.begin(), duplicate_actions.end(), [](const auto& x) { return x.key.card_id == static_cast<int>(sts::CardId::STRIKE_RED); }) == 1);
+
+    auto multi_base = state();
+    multi_base.monsters.monsterCount = 2;
+    multi_base.monsters.monstersAlive = 2;
+    multi_base.monsters.arr[1] = multi_base.monsters.arr[0];
+    multi_base.monsters.arr[1].idx = 1;
+
+    {
+        auto identical_state = multi_base;
+        stsrl::CombatEnvironment identical_env{std::move(identical_state)};
+        const auto actions = identical_env.search_actions();
+        check(std::count_if(actions.begin(), actions.end(), [](const auto& x) {
+            return x.key.card_id == static_cast<int>(sts::CardId::STRIKE_RED);
+        }) == 1);
+    }
+
+    {
+        auto vuln_state = multi_base;
+        vuln_state.monsters.arr[0].vulnerable = 0;
+        vuln_state.monsters.arr[1].vulnerable = 1;
+        stsrl::CombatEnvironment vuln_env{std::move(vuln_state)};
+        const auto actions = vuln_env.search_actions();
+        std::vector<stsrl::SearchActionKey> strike_keys;
+        for (const auto& x : actions) {
+            if (x.key.card_id == static_cast<int>(sts::CardId::STRIKE_RED)) {
+                strike_keys.push_back(x.key);
+            }
+        }
+        check(strike_keys.size() == 2);
+        check(strike_keys[0] != strike_keys[1]);
+        check(strike_keys[0].target_vulnerable != strike_keys[1].target_vulnerable);
+    }
+
+    {
+        auto move_state = multi_base;
+        move_state.monsters.arr[0].vulnerable = 0;
+        move_state.monsters.arr[1].vulnerable = 0;
+        move_state.monsters.arr[0].moveHistory[0] = sts::MMID::JAW_WORM_CHOMP;
+        move_state.monsters.arr[1].moveHistory[0] = sts::MMID::JAW_WORM_BELLOW;
+        stsrl::CombatEnvironment move_env{std::move(move_state)};
+        const auto actions = move_env.search_actions();
+        std::vector<stsrl::SearchActionKey> strike_keys;
+        for (const auto& x : actions) {
+            if (x.key.card_id == static_cast<int>(sts::CardId::STRIKE_RED)) {
+                strike_keys.push_back(x.key);
+            }
+        }
+        check(strike_keys.size() == 2);
+        check(strike_keys[0] != strike_keys[1]);
+        check(strike_keys[0].target_move != strike_keys[1].target_move);
+    }
+
+    {
+        auto select_state = state();
+        select_state.inputState = sts::InputState::CARD_SELECT;
+        select_state.cardSelectInfo.cardSelectTask = sts::CardSelectTask::ARMAMENTS;
+        select_state.cardSelectInfo.pickCount = 1;
+        stsrl::CombatEnvironment select_env{std::move(select_state)};
+        bool caught = false;
+        try {
+            (void)select_env.search_actions();
+        } catch (const std::logic_error&) {
+            caught = true;
+        }
+        check(caught);
+    }
+
+    for (const auto seed : {1ULL, 2ULL, 7ULL, 42ULL, 100ULL, 1234ULL}) {
+        auto jaw_env = stsrl::scenarios::jaw_worm(seed);
+        const auto jaw_dec = jaw_env.decision();
+        check(jaw_dec.encoding.global.card_selection_task == static_cast<int>(sts::CardSelectTask::INVALID));
+        for (const auto& a : jaw_dec.encoding.legal_actions) {
+            check(a.card_selection_task == static_cast<int>(sts::CardSelectTask::INVALID));
+        }
+        const auto jaw_actions = jaw_env.search_actions();
+        for (const auto& a : jaw_actions) {
+            check(a.key.selection_task == static_cast<int>(sts::CardSelectTask::INVALID));
+            check(a.key.kind >= 0 && a.key.card_id >= 0 && a.key.cost >= 0 && a.key.target_id >= 0 && a.key.target_hp >= 0);
+        }
+
+        auto slime_env = stsrl::scenarios::slime_boss(seed);
+        const auto slime_dec = slime_env.decision();
+        check(slime_dec.encoding.global.card_selection_task == static_cast<int>(sts::CardSelectTask::INVALID));
+        for (const auto& a : slime_dec.encoding.legal_actions) {
+            check(a.card_selection_task == static_cast<int>(sts::CardSelectTask::INVALID));
+        }
+        const auto slime_actions = slime_env.search_actions();
+        for (const auto& a : slime_actions) {
+            check(a.key.selection_task == static_cast<int>(sts::CardSelectTask::INVALID));
+            check(a.key.kind >= 0 && a.key.card_id >= 0 && a.key.cost >= 0 && a.key.target_id >= 0 && a.key.target_hp >= 0);
+        }
+    }
+
     auto mcts_environment = stsrl::scenarios::slime_boss(1);
     stsrl::MctsAgent mcts{1, {.simulations = 16, .rollout_limit = 32}};
     const auto result = mcts.search(mcts_environment);

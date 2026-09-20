@@ -3,10 +3,11 @@
 Small experiments toward a learned Slay the Spire combat agent, built on
 [`sts_lightspeed`](https://github.com/gamerpuppy/sts_lightspeed).
 
-The first milestone is intentionally small: an Ascension 1 Ironclad starter
-deck fighting Jaw Worm, controlled by a random policy. The project code targets
-C++23. The agent only receives a public observation and legal actions; the
-simulator's hidden state remains behind the environment boundary.
+The current milestone is an AlphaZero-style combat prototype for an Ascension
+1 Ironclad fight against Slime Boss. A PyTorch Deep Sets value model trained
+from MCTS records now guides the C++ search. The project targets C++23. The
+agent only receives public observations and legal actions; hidden simulator
+state remains behind the environment boundary.
 
 ## Build and run
 
@@ -36,11 +37,47 @@ make smoke
 
 This prints the public JSON encoding of the record, model topology, tensor shapes, and one untrained value. The tensor adapter intentionally ignores legal actions.
 
-MCTS uses the random agent for terminal rollouts. Each simulation independently
-reshuffles the unknown remainder of the draw pile and resamples future RNG, so
-the search cannot condition its root choice on the simulator's true hidden
-order. This is an initial determinization-based information-set search, not a
-perfect-information oracle.
+### Bootstrap value training
+
+Train the batched, permutation-invariant Deep Sets value model on an episode-level held-out split (CPU single-threaded):
+
+```sh
+PYTHONPATH=python .venv/bin/python -m sts_combat_rl.training.train_value \
+  data/mcts-slime-v2-bootstrap-1000x500/mcts_slime_v2.parquet \
+  --output runs/slime-v2-value-first/value_checkpoint.pt
+```
+
+The checkpoint and adjacent JSON record exact episode split IDs, source digest, configuration, and metrics.
+
+### Neural-guided gameplay evaluation
+
+Run matched Slime Boss rollout and neural-leaf MCTS games (JSONL per episode plus aggregates):
+
+```sh
+PYTHONPATH=python .venv/bin/python -m sts_combat_rl.training.evaluate_gameplay \
+  runs/slime-v2-value-first/value_checkpoint.pt \
+  runs/gameplay.jsonl \
+  --first-seed 2001 --count 200 --simulations 100
+```
+
+The neural controller keeps the checkpoint loaded once and communicates with one C++ child per episode over framed MessagePack. Evaluate its held-out episode IDs (MSE, MAE, Pearson correlation, mean baseline, and decision-phase slices) with:
+
+```sh
+PYTHONPATH=python .venv/bin/python -m sts_combat_rl.training.evaluate_value \
+  runs/slime-v2-value-first/value_checkpoint.pt \
+  data/mcts-slime-v2-bootstrap-1000x500/mcts_slime_v2.parquet
+```
+
+The first held-out gameplay evaluation won 200/200 unseen fights. Detailed
+configuration, metrics, hashes, and limitations are recorded in
+[`slop_docs/slime/results_v1.md`](slop_docs/slime/results_v1.md).
+
+The baseline MCTS uses the random agent for terminal rollouts; neural MCTS uses
+the learned value for newly expanded nonterminal leaves and exact returns for
+terminal leaves. Each simulation independently reshuffles the unknown remainder
+of the draw pile and resamples future RNG, so search cannot condition its root
+choice on the simulator's true hidden order. This is an initial
+determinization-based information-set search, not a perfect-information oracle.
 
 ### MCTS Parquet pilot
 

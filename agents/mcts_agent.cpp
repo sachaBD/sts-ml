@@ -41,8 +41,8 @@ struct Candidate {
 }  // namespace
 
 struct MctsAgent::Impl {
-    Impl(const std::uint64_t seed, MctsConfig config)
-        : config{config}, random{seed} {
+    Impl(const std::uint64_t seed, MctsConfig config, LeafEvaluator leaf_evaluator)
+        : config{config}, random{seed}, leaf_evaluator{std::move(leaf_evaluator)} {
         if (config.simulations == 0) {
             throw std::invalid_argument{"MCTS requires at least one simulation"};
         }
@@ -112,7 +112,17 @@ struct MctsAgent::Impl {
         double value{};
         if (expanded) {
             edge.child = std::make_unique<Node>();
-            value = rollout(std::move(environment));
+            if (environment.done()) {
+                // Terminal leaves always use the exact player-perspective outcome.
+                value = environment.combat_value();
+            } else if (leaf_evaluator) {
+                value = leaf_evaluator(environment);
+                if (!std::isfinite(value) || value < -1.0 || value > 1.0) {
+                    throw std::runtime_error{"leaf evaluator returned an invalid value"};
+                }
+            } else {
+                value = rollout(std::move(environment));
+            }
         } else {
             value = search(environment, *edge.child);
         }
@@ -146,7 +156,12 @@ struct MctsAgent::Impl {
         }
 
         if (best_edge == nullptr) throw std::logic_error{"MCTS produced no legal root action"};
-        MctsResult result{.chosen_action = best_action};
+        MctsResult result{
+            .chosen_action = best_action,
+            .root_value = 0.0,
+            .root_visits = 0,
+            .actions = {},
+        };
         std::vector<SearchActionKey> seen;
         for (const auto& action : actions) {
             if (std::find(seen.begin(), seen.end(), action.key) != seen.end()) continue;
@@ -164,10 +179,11 @@ struct MctsAgent::Impl {
 
     MctsConfig config;
     std::mt19937_64 random;
+    LeafEvaluator leaf_evaluator;
 };
 
-MctsAgent::MctsAgent(const std::uint64_t seed, MctsConfig config)
-    : impl_{std::make_unique<Impl>(seed, config)} {}
+MctsAgent::MctsAgent(const std::uint64_t seed, MctsConfig config, LeafEvaluator leaf_evaluator)
+    : impl_{std::make_unique<Impl>(seed, config, std::move(leaf_evaluator))} {}
 
 MctsAgent::~MctsAgent() = default;
 MctsAgent::MctsAgent(MctsAgent&&) noexcept = default;
