@@ -48,6 +48,9 @@ public:
     [[nodiscard]] double combat_value() const noexcept;
     [[nodiscard]] int player_hp() const noexcept;
     [[nodiscard]] int player_max_hp() const noexcept;
+    // Raw simulator access for external teachers (e.g. sts_ml's search).
+    [[nodiscard]] const sts::BattleContext& battle() const noexcept;
+    [[nodiscard]] std::uint32_t action_bits(std::size_t action_index) const;
 
 private:
     struct Impl;

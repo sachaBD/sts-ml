@@ -439,6 +439,12 @@ bool CombatEnvironment::won() const noexcept {
 int CombatEnvironment::player_hp() const noexcept { return impl_->state.player.curHp; }
 int CombatEnvironment::player_max_hp() const noexcept { return impl_->state.player.maxHp; }
 
+const sts::BattleContext& CombatEnvironment::battle() const noexcept { return impl_->state; }
+
+std::uint32_t CombatEnvironment::action_bits(const std::size_t action_index) const {
+    return impl_->current_actions.at(action_index).bits;
+}
+
 double CombatEnvironment::combat_value() const noexcept {
     const auto player_hp_fraction = static_cast<double>(impl_->state.player.curHp)
         / static_cast<double>(impl_->state.player.maxHp);

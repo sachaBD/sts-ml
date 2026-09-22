@@ -1,11 +1,15 @@
-"""Atomic streaming writer and deck-group splitting for natural Slime roots."""
+"""Entry-root combat data writer (data/combat/README.md format) and deck-group splitting."""
 
 from __future__ import annotations
 
 import argparse
+import datetime
 import hashlib
 import json
+import shutil
 import subprocess
+import threading
+import time
 from pathlib import Path
 from random import Random
 
@@ -13,21 +17,41 @@ import msgpack
 import pyarrow as pa
 import pyarrow.parquet as pq
 
-from .dataset import SCHEMA, validate_row
-
-ENTRY_SCHEMA = pa.schema(
-    list(SCHEMA)
-    + [
+F32 = pa.float32()
+COMBAT_SCHEMA = pa.schema(
+    [
+        ("episode_id", pa.int64()),
+        ("decision_index", pa.int32()),
+        ("turn", pa.int32()),
         ("entry_id", pa.string()),
-        ("source_seed", pa.uint64()),
-        ("public_snapshot_sha256", pa.string()),
         ("deck_signature", pa.string()),
+        ("combat_seed", pa.uint64()),
         ("starting_hp", pa.int16()),
         ("starting_max_hp", pa.int16()),
-        ("combat_seed", pa.uint64()),
-        ("replicate", pa.int32()),
+        ("encoding_version", pa.int32()),
+        ("global_numeric", pa.list_(F32, 50)),
+        ("cards", pa.list_(pa.struct([("card_id", pa.int16()), ("zone", pa.int8()), ("card_type", pa.int8()),
+                                      ("target_type", pa.int8()), ("numeric", pa.list_(F32, 14))]))),
+        ("monsters", pa.list_(pa.struct([("monster_id", pa.int16()), ("move_id", pa.int16()),
+                                         ("numeric", pa.list_(F32, 9))]))),
+        ("card_monster_interactions", pa.list_(pa.struct([("card_index", pa.int16()), ("monster_index", pa.int8()),
+                                                          ("numeric", pa.list_(F32, 6))]))),
+        ("input_state", pa.int16()),
+        ("card_selection_task", pa.int16()),
+        ("actions", pa.list_(pa.struct([("action", pa.int32()), ("description", pa.string()),
+                                        ("visits", pa.int64()), ("mean_value", F32)]))),
+        ("chosen_action", pa.int32()),
+        ("was_random", pa.bool_()),
+        ("root_value", F32),
+        ("won", pa.bool_()),
+        ("final_hp", pa.int16()),
+        ("potions", pa.int8()),
+        ("terminal_value", F32),
     ]
 )
+PARTITION = Path("act=1/floor=16/encounter=slime_boss")
+TEACHER = "sts_ml PublicBeliefCombatSearch, rollout mode 2 (guided), objective mode 0"
+PARTICLES = 8
 
 
 def git_provenance(path: Path) -> tuple[str, bool]:
@@ -60,174 +84,154 @@ def deck_signature_split(rows, validation_fraction, seed):
     )
 
 
-def write_entry_roots(
-    source,
-    output,
-    generator,
-    simulations,
-    rollout,
-    replicates,
-    root_limit,
-    overwrite=False,
-):
-    source, output = Path(source), Path(output)
-    shard, manifest, partial = (
-        output / "entry_roots.parquet",
-        output / "manifest.toml",
-        output / "entry_roots.parquet.partial",
-    )
-    if output.exists() and not overwrite:
-        raise FileExistsError(f"{output} exists; pass overwrite=True")
-    rows_in = [json.loads(line) for line in source.read_text().splitlines() if line]
-    accepted = [row for row in rows_in if row.get("status") == "accepted"][:root_limit]
-    output.mkdir(parents=True, exist_ok=True)
-    partial.unlink(missing_ok=True)
-    shard.unlink(missing_ok=True)
-    manifest.unlink(missing_ok=True)
-    process = None
+def _run_worker(command, part, result, on_episode):
+    """Stream one generator process into one parquet part; store (rows, episodes, stderr) or an error."""
+    process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    stderr = []
+    drain = threading.Thread(target=lambda: stderr.extend(process.stderr), daemon=True)
+    drain.start()
     try:
-        process = subprocess.Popen(
-            [
-                generator,
-                str(source),
-                str(simulations),
-                str(rollout),
-                str(replicates),
-                str(root_limit),
-            ],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-        )
-        assert process.stdout is not None
         episodes, batch, count = {}, [], 0
-        with pq.ParquetWriter(partial, ENTRY_SCHEMA, compression="zstd") as writer:
+        with pq.ParquetWriter(part, COMBAT_SCHEMA, compression="zstd") as writer:
             for row in msgpack.Unpacker(process.stdout, raw=False):
-                validate_row(row, simulations)
-                if any(value is None for value in row.values()):
-                    raise ValueError("null generated value")
-                ep = row["episode_id"]
-                provenance = tuple(
-                    row[x]
-                    for x in (
-                        "entry_id",
-                        "source_seed",
-                        "public_snapshot_sha256",
-                        "deck_signature",
-                        "starting_hp",
-                        "starting_max_hp",
-                        "combat_seed",
-                        "replicate",
-                    )
-                )
-                terminal = (
-                    row["terminal_outcome"],
-                    row["final_player_hp"],
-                    row["final_player_max_hp"],
-                    row["terminal_value"],
-                )
-                old = episodes.setdefault(ep, [0, provenance, terminal])
-                if (
-                    row["decision_index"] != old[0]
-                    or old[1] != provenance
-                    or old[2] != terminal
-                ):
-                    raise ValueError("episode stream/provenance invariant failed")
-                old[0] += 1
+                if row["decision_index"] != episodes.get(row["episode_id"], (0,))[0]:
+                    raise ValueError(f"decision stream broken at episode {row['episode_id']}")
+                if row["decision_index"] == 0:  # the generator emits a fight's rows once it has finished
+                    on_episode(row["won"])
+                episodes[row["episode_id"]] = (row["decision_index"] + 1, row["won"])
                 batch.append(row)
                 count += 1
                 if len(batch) >= 256:
-                    writer.write_table(pa.Table.from_pylist(batch, schema=ENTRY_SCHEMA))
+                    writer.write_table(pa.Table.from_pylist(batch, schema=COMBAT_SCHEMA))
                     batch = []
             if batch:
-                writer.write_table(pa.Table.from_pylist(batch, schema=ENTRY_SCHEMA))
-        stderr = process.stderr.read().decode() if process.stderr else ""
-        if (
-            process.wait()
-            or len(episodes) != len(accepted) * replicates
-            or len({(x[1][0], x[1][-1]) for x in episodes.values()}) != len(episodes)
-        ):
-            raise RuntimeError(stderr or "episode invariant failed")
+                writer.write_table(pa.Table.from_pylist(batch, schema=COMBAT_SCHEMA))
+        code = process.wait()
+        drain.join()
+        text = b"".join(stderr).decode()
+        if code:
+            raise RuntimeError(f"generator exited {code}: {text}")
+        result.update(rows=count, episodes=episodes, stderr=text)
+    except Exception as error:  # reported by the caller
+        process.kill()
+        result["error"] = error
+
+
+def write_combat_run(
+    source,
+    tag,
+    generator,
+    simulations=20000,
+    max_actions=512,
+    replicates=1,
+    root_limit=10**9,
+    random_window=24,
+    workers=1,
+    root="data/combat",
+):
+    source, root = Path(source), Path(root)
+    run_id = f"{datetime.date.today().isoformat()}_slime_pbcs{simulations // 1000}k_{tag}"
+    final = root / f"run_id={run_id}"
+    temp = root.parent / f".combat-tmp-{run_id}"  # outside the query glob until complete
+    if final.exists():
+        raise FileExistsError(f"{final} exists; runs are never modified, pick a new tag")
+    accepted = sum(
+        json.loads(line).get("status") == "accepted" for line in source.read_text().splitlines() if line
+    )
+    roots = min(accepted, root_limit)
+    workers = max(1, min(workers, roots))
+    shutil.rmtree(temp, ignore_errors=True)
+    (temp / PARTITION).mkdir(parents=True)
+    start = time.monotonic()
+    total, done, wins, lock = roots * replicates, 0, 0, threading.Lock()
+    print(f"{run_id}: {total} fights, {workers} workers", flush=True)
+
+    def on_episode(won):
+        nonlocal done, wins
+        with lock:
+            done, wins = done + 1, wins + bool(won)
+            elapsed = time.monotonic() - start
+            eta = elapsed / done * (total - done)
+            print(f"{time.strftime('%H:%M:%S')} {done}/{total} fights, {wins} wins, "
+                  f"elapsed {elapsed / 60:.1f} min, eta {eta / 60:.1f} min", flush=True)
+
+    try:
+        results, threads = [], []
+        for index in range(workers):
+            command = [str(generator), str(source), str(simulations), str(max_actions), str(replicates),
+                       str(root_limit), str(random_window), str(index), str(workers)]
+            results.append({})
+            threads.append(threading.Thread(
+                target=_run_worker, args=(command, temp / PARTITION / f"part-{index:03d}.parquet", results[-1], on_episode)))
+            threads[-1].start()
+        for thread in threads:
+            thread.join()
+        for result in results:
+            if "error" in result:
+                raise result["error"]
+        episodes = {k: v for r in results for k, v in r["episodes"].items()}
+        if len(episodes) != roots * replicates:
+            raise RuntimeError(f"expected {roots * replicates} episodes, got {len(episodes)}")
         project = Path(__file__).resolve().parents[3]
-        project_revision, project_dirty = git_provenance(project)
-        generator_revision, generator_dirty = git_provenance(
-            Path(generator).resolve().parent
-        )
-        partial.replace(shard)
-        (output / "generator.stderr.log").write_text(stderr)
-        lines = [
-            f"{k} = {json.dumps(v)}"
-            for k, v in {
-                "dataset_id": "a1-slime-entry-roots-v1",
-                "projection": "deck_hp_only",
-                "source_jsonl": str(source),
-                "source_sha256": hashlib.sha256(source.read_bytes()).hexdigest(),
-                "source_accepted_roots": sum(
-                    r.get("status") == "accepted" for r in rows_in
-                ),
-                "included_roots": len(accepted),
-                "skipped_rows": len(rows_in)
-                - sum(r.get("status") == "accepted" for r in rows_in),
-                "episodes": len(episodes),
-                "decisions": count,
-                "wins": sum(x[2][0] == 1 for x in episodes.values()),
-                "simulations": simulations,
-                "rollout": rollout,
-                "replicates": replicates,
-                "root_limit": root_limit,
-                "encoding_version": 3,
-                "schema_version": 1,
-                "group_split_key": "deck_signature",
-                "combat_seed_contract": "source_seed xor 0x9e3779b97f4a7c15*(replicate+1)",
-                "shard": shard.name,
-                "shard_sha256": hashlib.sha256(shard.read_bytes()).hexdigest(),
-                "generator": generator,
-                "project_git_revision": project_revision,
-                "project_git_dirty": project_dirty,
-                "generator_git_revision": generator_revision,
-                "generator_git_dirty": generator_dirty,
-            }.items()
-        ]
-        manifest.write_text("\n".join(lines) + "\n")
-        return shard, count, stderr
-    except Exception:
-        partial.unlink(missing_ok=True)
-        shard.unlink(missing_ok=True)
-        manifest.unlink(missing_ok=True)
+        repos = {name: project.parent / name for name in ("sts_lightspeed", "sts_ml")}
+        manifest = {
+            "run_id": run_id,
+            "teacher": TEACHER,
+            "simulations": simulations,
+            "max_actions": max_actions,
+            "particles": PARTICLES,
+            "random_move": f"one per fight, uniformly random legal action at decision U[0, {random_window})",
+            "workers": workers,
+            "root_source": str(source.resolve()),
+            "root_source_sha256": hashlib.sha256(source.read_bytes()).hexdigest(),
+            "roots": roots,
+            "replicates": replicates,
+            "seeds": {
+                "combat_seed": "source_seed xor 0x9e3779b97f4a7c15*(replicate+1)",
+                "random_move_rng": "mt19937_64(combat_seed xor 0xe9510)",
+                "search": "particle seeds from PublicBeliefCombatSearch::publicObservation",
+            },
+            "terminal_value": "win: (35 + final_hp + 4*potions) / (55 + max_hp); loss: 0",
+            "rows": sum(r["rows"] for r in results),
+            "episodes": len(episodes),
+            "wins": sum(bool(won) for _, won in episodes.values()),
+            "wall_seconds": round(time.monotonic() - start, 1),
+            "generator": str(Path(generator).resolve()),
+            "git": {
+                name: dict(zip(("revision", "dirty"), git_provenance(path)))
+                for name, path in {"sts_combat_rl": project, **repos}.items()
+                if path.exists()
+            },
+            "created": datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds"),
+        }
+        (temp / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
+        (temp / "generator.stderr.log").write_text("".join(r["stderr"] for r in results))
+        root.mkdir(parents=True, exist_ok=True)
+        temp.rename(final)
+        return final, manifest
+    except BaseException:
+        shutil.rmtree(temp, ignore_errors=True)
         raise
-    finally:
-        if process is not None:
-            if process.poll() is None:
-                process.terminate()
-            process.wait()
-            if process.stdout:
-                process.stdout.close()
-            if process.stderr:
-                process.stderr.close()
 
 
 def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument("source", type=Path)
-    parser.add_argument("output", type=Path)
+    parser = argparse.ArgumentParser(description="Write one data/combat run from natural Slime entry roots.")
+    parser.add_argument("source", type=Path, help="entry-root JSONL (e.g. ../sts_ml/runs/slime-entry-natural-220.jsonl)")
+    parser.add_argument("--tag", required=True)
     parser.add_argument("--generator", default="build/generate_entry_mcts_records")
-    parser.add_argument("--simulations", type=int, default=8)
-    parser.add_argument("--rollout", type=int, default=128)
+    parser.add_argument("--simulations", type=int, default=20000)
+    parser.add_argument("--max-actions", type=int, default=512)
     parser.add_argument("--replicates", type=int, default=1)
-    parser.add_argument("--root-limit", type=int, default=2)
-    parser.add_argument("--overwrite", action="store_true")
+    parser.add_argument("--root-limit", type=int, default=10**9)
+    parser.add_argument("--random-window", type=int, default=24, help="one random move per fight at decision U[0, N); 0 disables")
+    parser.add_argument("--workers", type=int, default=1)
+    parser.add_argument("--root", type=Path, default=Path("data/combat"))
     args = parser.parse_args()
-    print(
-        write_entry_roots(
-            args.source,
-            args.output,
-            args.generator,
-            args.simulations,
-            args.rollout,
-            args.replicates,
-            args.root_limit,
-            args.overwrite,
-        )[:2]
+    final, manifest = write_combat_run(
+        args.source, args.tag, args.generator, args.simulations, args.max_actions, args.replicates,
+        args.root_limit, args.random_window, args.workers, args.root,
     )
+    print(final, manifest["rows"], "rows", manifest["episodes"], "episodes", manifest["wall_seconds"], "s")
 
 
 if __name__ == "__main__":

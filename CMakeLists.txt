@@ -6,15 +6,9 @@ set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
-file(GLOB_RECURSE STS_LIGHTSPEED_SOURCES CONFIGURE_DEPENDS
-    "${CMAKE_CURRENT_SOURCE_DIR}/sts_lightspeed/src/*.cpp")
-
-add_library(sts_lightspeed_core STATIC ${STS_LIGHTSPEED_SOURCES})
-target_include_directories(sts_lightspeed_core
-    SYSTEM PUBLIC
-        "${CMAKE_CURRENT_SOURCE_DIR}/sts_lightspeed/include"
-        "${CMAKE_CURRENT_SOURCE_DIR}/sts_lightspeed/json/include")
-target_compile_options(sts_lightspeed_core PRIVATE -Wno-shift-count-overflow)
+# Shared simulator repo (also used by sts_ml).
+set(STS_LIGHTSPEED_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../sts_lightspeed" CACHE PATH "sts_lightspeed checkout")
+add_subdirectory("${STS_LIGHTSPEED_DIR}" "${CMAKE_CURRENT_BINARY_DIR}/sts_lightspeed")
 
 add_library(combat_core STATIC
     agents/mcts_agent.cpp
@@ -24,7 +18,7 @@ add_library(combat_core STATIC
     scenarios/slime_boss.cpp
     scenarios/slime_entry_projection.cpp)
 target_include_directories(combat_core PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
-target_link_libraries(combat_core PUBLIC sts_lightspeed_core)
+target_link_libraries(combat_core PUBLIC sts_lightspeed)
 target_compile_features(combat_core PUBLIC cxx_std_23)
 target_compile_options(combat_core PRIVATE -Wall -Wextra -Wpedantic)
 

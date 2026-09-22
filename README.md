@@ -1,7 +1,9 @@
 # sts_combat_rl
 
 Small experiments toward a learned Slay the Spire combat agent, built on
-[`sts_lightspeed`](https://github.com/gamerpuppy/sts_lightspeed).
+[`sts_lightspeed`](https://github.com/gamerpuppy/sts_lightspeed), via the shared
+sibling checkout `../sts_lightspeed` (the `sts_ml` fork; override with
+`STS_LIGHTSPEED_DIR`).
 
 The current milestone is an AlphaZero-style combat prototype for an Ascension
 1 Ironclad fight against Slime Boss. A PyTorch Deep Sets value model trained
@@ -12,7 +14,7 @@ state remains behind the environment boundary.
 ## Build and run
 
 ```sh
-git submodule update --init --recursive
+# requires ../sts_lightspeed (shared simulator checkout)
 make jaw_worm
 ```
 
@@ -100,7 +102,7 @@ PYTHONPATH=python .venv/bin/python -m sts_combat_rl inspect <path-to-parquet> --
 - `combat/` adapts `sts_lightspeed` into observations, legal actions, and steps.
 - `scenarios/` constructs reproducible combat starting states.
 - `apps/` contains runnable experiments.
-- `sts_lightspeed/` is the pinned upstream simulator submodule.
+- `../sts_lightspeed` is the shared simulator, also used by `../sts_ml`.
 
 The observation is deliberately a small human-readable view, not the final ML
 state encoding. We can evolve that representation once the environment loop is

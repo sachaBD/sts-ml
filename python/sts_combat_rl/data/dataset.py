@@ -425,11 +425,7 @@ def write_manifest(
     assert episodes is not None and decisions is not None and wins is not None
 
     digest = hashlib.sha256(shard.read_bytes()).hexdigest()
-    root = output_dir.resolve()
-    while root.parent != root and not (root / "sts_lightspeed").exists():
-        root = root.parent
-    if not (root / "sts_lightspeed").exists():
-        root = Path(__file__).resolve().parents[3]
+    root = Path(__file__).resolve().parents[3]
 
     text = f'''dataset_id = "a1-slime-boss-mcts-value-v3"
 created_utc = "{datetime.datetime.now(datetime.timezone.utc).isoformat()}"
@@ -437,7 +433,7 @@ schema_version = 3
 scenario = "A1 Slime Boss fixed enhanced Ironclad deck"
 project_git_revision = "{git_revision(root)}"
 project_git_dirty = {str(git_dirty(root)).lower()}
-simulator_git_revision = "{git_revision(root / "sts_lightspeed")}"
+simulator_git_revision = "{git_revision(root.parent / "sts_lightspeed")}"
 seed_start = {seed_start}
 seed_count = {seed_count}
 simulations = {simulations}
