@@ -60,13 +60,30 @@ def evaluate(model: DeepSetsValue, loader: DataLoader) -> tuple[float, float]:
     ).abs().mean().item()
 
 
+def _provenance(source: Path) -> tuple[str, Path, Any]:
+    """(sha256, manifest path, manifest) for one Parquet shard or data/combat run directory."""
+    if source.is_dir():
+        digest = hashlib.sha256()
+        for f in sorted(source.rglob("*.parquet")):
+            digest.update(str(f.relative_to(source)).encode())
+            digest.update(hashlib.sha256(f.read_bytes()).digest())
+        manifests = {
+            str(m.parent.name): json.loads(m.read_text())
+            for m in sorted(source.rglob("manifest.json"))
+        }
+        return digest.hexdigest(), source, manifests
+    manifest_path = source.parent / "manifest.toml"
+    manifest = tomllib.loads(manifest_path.read_text()) if manifest_path.exists() else {}
+    return hashlib.sha256(source.read_bytes()).hexdigest(), manifest_path, manifest
+
+
 def run(args: argparse.Namespace) -> dict[str, Any]:
     torch.set_num_threads(1)
     torch.set_num_interop_threads(1)
     random.seed(args.seed)
     np.random.seed(args.seed)
     torch.manual_seed(args.seed)
-    rows = load_rows(args.data, args.limit)
+    rows = [row for path in args.data for row in load_rows(path, args.limit)]
     assign_targets(rows, args.label, args.blend)
     # Entry-root shards must split by canonical deck signature so decisions and
     # combat replicates from the same natural deck never leak across folds.
@@ -140,25 +157,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             f"epoch={epoch} train_mse={train_mse:.6f} train_mae={train_mae:.6f} validation_mse={valid_mse:.6f} validation_mae={valid_mae:.6f} baseline_mse={baseline_mse:.6f} teacher_mse={teacher_mse:.6f}",
             flush=True,
         )
-    source = Path(args.data)
-    if source.is_dir():
-        files = sorted(source.rglob("*.parquet"))
-        digest = hashlib.sha256()
-        for f in files:
-            digest.update(str(f.relative_to(source)).encode())
-            digest.update(hashlib.sha256(f.read_bytes()).digest())
-        source_sha256 = digest.hexdigest()
-        manifest_path = source
-        manifest = {
-            str(m.parent.name): json.loads(m.read_text())
-            for m in sorted(source.rglob("manifest.json"))
-        }
-    else:
-        source_sha256 = hashlib.sha256(source.read_bytes()).hexdigest()
-        manifest_path = source.parent / "manifest.toml"
-        manifest = (
-            tomllib.loads(manifest_path.read_text()) if manifest_path.exists() else {}
-        )
+    provenance = [_provenance(Path(path)) for path in args.data]
     checkpoint = {
         "model_state": model.state_dict(),
         "architecture": model.config,
@@ -171,10 +170,10 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         "encoding_version": 3,
         "target_name": args.label,
         "target_blend": args.blend,
-        "source_shard": str(source),
-        "source_sha256": source_sha256,
-        "manifest_path": str(manifest_path),
-        "manifest": manifest,
+        "source_shard": [str(path) for path in args.data],
+        "source_sha256": [p[0] for p in provenance],
+        "manifest_path": [str(p[1]) for p in provenance],
+        "manifest": [p[2] for p in provenance],
         "project_git_revision": subprocess.check_output(
             ["git", "rev-parse", "HEAD"], text=True
         ).strip(),
@@ -205,7 +204,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(
         description="CPU single-threaded Deep Sets bootstrap value trainer"
     )
-    parser.add_argument("data", type=Path)
+    parser.add_argument("data", type=Path, nargs="+", help="Parquet shards or data/combat run directories")
     parser.add_argument("--output", type=Path, default=Path("value_checkpoint.pt"))
     parser.add_argument("--epochs", type=int, default=20)
     parser.add_argument("--batch-size", type=int, default=128)
