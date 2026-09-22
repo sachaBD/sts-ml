@@ -113,12 +113,17 @@ int main(int argc, char** argv) {
     constexpr int particles = 8;       // as generate_entry_mcts_records
     constexpr int max_actions = 512;   // as the gen0 data run
     constexpr int batch = 64;
+    // Block-stacking decks (e.g. Barricade + Entrench) can stall for hundreds of decisions;
+    // a fight still undecided at this turn counts as a loss, flagged as a timeout.
+    constexpr int max_turns = 30;
 
     auto env = stsrl::scenarios::slime_entry_projection(*found, seed);
     const auto start = std::chrono::steady_clock::now();
     int decisions = 0;
     std::int64_t leaf_evaluations = 0;
+    bool timeout = false;
     while (!env.done()) {
+        if (env.battle().turn >= max_turns) { timeout = true; break; }
         auto d = env.decision();
         const auto& observed = env.battle();
         const auto public_seed = sts::search::PublicBeliefCombatSearch::publicObservation(observed);
@@ -139,7 +144,8 @@ int main(int argc, char** argv) {
     }
     write_frame({
         {"type", "result"}, {"deck_signature", found->deck_signature}, {"source_seed", found->source_seed},
-        {"seed", seed}, {"mode", mode}, {"simulations", simulations}, {"won", env.won()},
+        {"seed", seed}, {"mode", mode}, {"simulations", simulations}, {"won", !timeout && env.won()}, {"timeout", timeout},
+        {"turns", env.battle().turn},
         {"final_hp", env.player_hp()}, {"max_hp", env.player_max_hp()}, {"potions", env.battle().potionCount},
         {"decisions", decisions}, {"leaf_evaluations", leaf_evaluations},
         {"wall_seconds", std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count()},
