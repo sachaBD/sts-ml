@@ -62,6 +62,11 @@ target_link_libraries(generate_entry_mcts_records PRIVATE combat_core)
 target_compile_features(generate_entry_mcts_records PRIVATE cxx_std_23)
 target_compile_options(generate_entry_mcts_records PRIVATE -Wall -Wextra -Wpedantic)
 
+add_executable(play_entry_pbcs apps/play_entry_pbcs.cpp)
+target_link_libraries(play_entry_pbcs PRIVATE combat_core)
+target_compile_features(play_entry_pbcs PRIVATE cxx_std_23)
+target_compile_options(play_entry_pbcs PRIVATE -Wall -Wextra -Wpedantic)
+
 add_executable(generate_mcts_records apps/generate_mcts_records.cpp)
 target_link_libraries(generate_mcts_records PRIVATE combat_core)
 target_compile_features(generate_mcts_records PRIVATE cxx_std_23)
