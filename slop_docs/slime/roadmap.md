@@ -1,56 +1,21 @@
-# Slime Boss neural-search roadmap
+# Slime Boss roadmap
 
-## Completed
-
-1. Public semantic state/action encoding in C++.
-2. Slime Boss scenario and multi-monster evaluation.
-3. C++ state dump and PyTorch Deep Sets smoke pass.
-4. Variable-token training batches with segmented sum pooling.
-5. Validated streaming MCTS records and immutable Parquet output.
-6. Bootstrap value training with an episode-level held-out split.
-7. Neural leaf evaluation inside determinization-based MCTS.
-8. Held-out gameplay comparison against equal-budget rollout MCTS.
-
-The v1 model won 200/200 unseen fixed-deck fights at 100 simulations per
-decision. See [results_v1.md](results_v1.md) for the dataset, value metrics,
-gameplay results, hashes, and limitations.
+Current state: a value net inside the teacher search (`PublicBeliefCombatSearch`, native C++ inference) at 2k simulations roughly matches the 20k rollout teacher on held-out decks, at about 2 s per fight.
 
 ## Next
 
-### 9. Controlled scenario generalization
+1. **Gen 1 data:** generate with the net-guided search as teacher, with early stopping and child rows. Retrain on the combined data. Evaluate on the fixed held-out decks.
+2. **Deeper training positions:** store well-visited positions two or three levels down the search tree, not only root children, to cover what search actually queries.
+3. **Turn penalty in the label:** stop the net preferring slow wins, which block-stacking decks exploit (the 50-turn cap is only a guardrail).
+4. **Tree reuse:** keep the played move's subtree between decisions (`rebase`).
+5. **Full entry states:** encode relics and potions, and drop the `deck_hp_only` projection.
 
-- Define a reproducible distribution of feasible Ironclad decks and starting
-  combat conditions.
-- Preserve scenario parameters in every episode's provenance.
-- Stratify train, validation, and gameplay evaluation by deck rather than only
-  by combat seed.
-- Establish coverage and minimum-performance gates for weak, average, and
-  strong decks and for relevant starting-HP bands.
-- Generate MCTS labels over this controlled distribution and measure
-  out-of-deck as well as in-distribution generalization.
+## Later
 
-### 10. Iterative neural search
+- Policy head trained on root visit counts (`actions` column), used as a PUCT prior.
+- Pull-queue workers instead of static root splits.
+- Other encounters beyond Slime Boss.
 
-- Generate on-policy records from neural-guided MCTS.
-- Mix bootstrap and on-policy examples to avoid abrupt distribution collapse.
-- Retrain and compare against fixed held-out scenario suites.
+## Evaluation
 
-### 11. Policy head
-
-- Add semantic action tensors and masks.
-- Train against MCTS visit distributions.
-- Use learned priors with PUCT.
-
-### 12. Inference optimization
-
-- Remove the synchronous subprocess round trip after the learning design is
-  stable.
-- Batch leaf inference or adopt an in-process model runtime.
-- Compare decisions as well as outcomes before and after optimization.
-
-## Slime Boss acceptance signal
-
-For every evaluation family, log boss HP before the triggering attack, split
-HP, child HP, player HP at split, final outcome, and final player HP. The
-learned agent should prefer lower or better-timed splits when immediate damage
-is strategically worse.
+Every change is judged on the same held-out decks (split by `deck_signature`), paired against saved teacher results. Report wins, paired win/loss swaps, final HP difference and time per fight.
