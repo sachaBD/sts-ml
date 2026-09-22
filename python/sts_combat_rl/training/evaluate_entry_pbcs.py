@@ -110,7 +110,7 @@ def main() -> None:
     p.add_argument("--binary", type=Path, default=Path("build/play_entry_pbcs"))
     p.add_argument(
         "--arms",
-        default="rollout:20000,neural:200,neural:1000,neural:5000",
+        default="rollout:20000,neural:400",
         help="comma-separated mode:simulations; the first arm is the paired baseline",
     )
     p.add_argument("--workers", type=int, default=10)
