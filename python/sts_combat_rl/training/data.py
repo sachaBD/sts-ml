@@ -177,7 +177,9 @@ def assign_targets(rows: list[dict[str, Any]], label: str, blend: float = 0.5) -
             random_at[key] = max(random_at.get(key, -1), r["decision_index"])
     for r in rows:
         v, z = r["root_value"], r["terminal_value"]
-        if label == "root":
+        if r.get("row_kind") == "child":  # off-trajectory position: the fight outcome is not its outcome
+            r["target"] = v
+        elif label == "root":
             r["target"] = v
         elif label == "terminal":
             r["target"] = z

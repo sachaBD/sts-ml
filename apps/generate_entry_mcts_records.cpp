@@ -54,8 +54,8 @@ static sts::BattleContext particle(const sts::BattleContext& observed, std::uint
 int main(int argc, char** argv) {
     // Rows follow data/combat/README.md. `max_actions` is the search's maximumActions.
     // Roots are taken with index % worker_count == worker_index; episode ids stay global.
-    if (argc != 9) {
-        std::cerr << "usage: generate_entry_mcts_records input.jsonl simulations max_actions replicates root_limit random_window worker_index worker_count\n";
+    if (argc != 10) {
+        std::cerr << "usage: generate_entry_mcts_records input.jsonl simulations max_actions replicates root_limit random_window worker_index worker_count child_min_visits\n";
         return 2;
     }
     int skipped = 0;
@@ -67,6 +67,8 @@ int main(int argc, char** argv) {
     const auto random_window = std::stoull(argv[6]);
     const auto worker_index = std::stoull(argv[7]);
     const auto worker_count = std::stoull(argv[8]);
+    // Also emit the position after each non-chosen root move tried at least this often (0 disables).
+    const auto child_min_visits = std::stoll(argv[9]);
     constexpr int particles = 8;  // sts_ml agent/config.json boss_particles.
     entries.resize(std::min(entries.size(), static_cast<std::size_t>(std::stoull(argv[5]))));
     for (std::size_t root = worker_index; root < entries.size(); root += worker_count) {
@@ -79,7 +81,7 @@ int main(int argc, char** argv) {
             ? std::uniform_int_distribution<std::uint64_t>(0, random_window - 1)(explore) : UINT64_MAX;
         auto env = stsrl::scenarios::slime_entry_projection(entry, seed);
         const auto fight_start = std::chrono::steady_clock::now();
-        std::vector<nlohmann::json> rows; int decision = 0, random_moves = 0;
+        std::vector<nlohmann::json> rows, child_rows; int decision = 0, random_moves = 0;
         while (!env.done()) {
             auto d = env.decision();
             const auto& observed = env.battle();
@@ -97,12 +99,15 @@ int main(int argc, char** argv) {
             std::size_t chosen = legal_index(search.selectedAction());
             nlohmann::json actions = nlohmann::json::array();
             double value_sum = 0;
+            struct Tried { std::size_t index; std::int64_t visits; double q; };
+            std::vector<Tried> tried;
             for (const auto& e : search.root().edges) {
                 value_sum += e.valueSum;
                 if (e.visits == 0) continue;
                 const auto i = legal_index(e.action);
                 actions.push_back({{"action", i}, {"description", env.action_description(i)},
                                    {"visits", e.visits}, {"mean_value", e.valueSum / e.visits}});
+                tried.push_back({i, static_cast<std::int64_t>(e.visits), e.valueSum / e.visits});
             }
             const auto root_visits = search.root().visits;
             const bool was_random = static_cast<std::uint64_t>(decision) == random_at;
@@ -116,6 +121,23 @@ int main(int argc, char** argv) {
             row["starting_hp"] = entry.hp; row["starting_max_hp"] = entry.max_hp;
             row["actions"] = std::move(actions); row["chosen_action"] = chosen; row["was_random"] = was_random;
             row["root_value"] = root_visits ? value_sum / root_visits : 0.0;
+            row["row_kind"] = "decision"; row["parent_action"] = -1;
+            // Child rows: positions search asks about but the teacher did not play, labelled by the
+            // teacher's mean value for that move. Applied to the true state; only the public encoding is kept.
+            for (const auto& t : tried) {
+                if (child_min_visits <= 0 || t.index == chosen || t.visits < child_min_visits) continue;
+                stsrl::CombatEnvironment child{observed};
+                (void)child.decision();
+                child.step(t.index);
+                if (child.done()) continue;  // terminal values are exact in search; no label needed
+                nlohmann::json c = child.decision().encoding;
+                c["episode_id"] = episode; c["decision_index"] = decision - 1; c["turn"] = child.battle().turn;
+                c["entry_id"] = entry.entry_id; c["deck_signature"] = entry.deck_signature; c["combat_seed"] = seed;
+                c["starting_hp"] = entry.hp; c["starting_max_hp"] = entry.max_hp;
+                c["actions"] = nlohmann::json::array(); c["chosen_action"] = -1; c["was_random"] = false;
+                c["root_value"] = t.q; c["row_kind"] = "child"; c["parent_action"] = t.index;
+                child_rows.push_back(std::move(c));
+            }
             rows.push_back(std::move(row));
             env.step(chosen);
         }
@@ -124,6 +146,7 @@ int main(int argc, char** argv) {
         const int hp = env.player_hp(), max_hp = env.player_max_hp(), potions = env.battle().potionCount;
         // sts_ml PublicBeliefCombatSearch::scorePrediction with default weights.
         const double terminal_value = won ? (35.0 + hp + 4.0 * potions) / (55.0 + max_hp) : 0.0;
+        for (auto& c : child_rows) rows.push_back(std::move(c));  // after the fight's decision rows
         for (auto& row : rows) {
             row["won"] = won; row["final_hp"] = hp; row["potions"] = potions; row["terminal_value"] = terminal_value;
             auto b = nlohmann::json::to_msgpack(row); std::cout.write((char*)b.data(), b.size());

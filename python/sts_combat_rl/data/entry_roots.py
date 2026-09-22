@@ -47,6 +47,8 @@ COMBAT_SCHEMA = pa.schema(
         ("final_hp", pa.int16()),
         ("potions", pa.int8()),
         ("terminal_value", F32),
+        ("row_kind", pa.string()),
+        ("parent_action", pa.int32()),
     ]
 )
 PARTITION = Path("act=1/floor=16/encounter=slime_boss")
@@ -98,11 +100,12 @@ def _run_worker(command, part, result, on_episode):
             rows = (row for chunk in iter(lambda: process.stdout.read1(1 << 16), b"")
                     for row in (unpacker.feed(chunk), unpacker)[1])
             for row in rows:
-                if row["decision_index"] != episodes.get(row["episode_id"], (0,))[0]:
-                    raise ValueError(f"decision stream broken at episode {row['episode_id']}")
-                if row["decision_index"] == 0:  # the generator emits a fight's rows once it has finished
-                    on_episode(row["won"])
-                episodes[row["episode_id"]] = (row["decision_index"] + 1, row["won"])
+                if row["row_kind"] == "decision":
+                    if row["decision_index"] != episodes.get(row["episode_id"], (0,))[0]:
+                        raise ValueError(f"decision stream broken at episode {row['episode_id']}")
+                    if row["decision_index"] == 0:  # the generator emits a fight's rows once it has finished
+                        on_episode(row["won"])
+                    episodes[row["episode_id"]] = (row["decision_index"] + 1, row["won"])
                 batch.append(row)
                 count += 1
                 if len(batch) >= 256:
@@ -132,6 +135,7 @@ def write_combat_run(
     random_window=24,
     workers=1,
     root="data/combat",
+    child_min_visits=50,
 ):
     source, root = Path(source), Path(root)
     run_id = f"{datetime.date.today().isoformat()}_slime_pbcs{simulations // 1000}k_{tag}"
@@ -163,7 +167,8 @@ def write_combat_run(
         results, threads = [], []
         for index in range(workers):
             command = [str(generator), str(source), str(simulations), str(max_actions), str(replicates),
-                       str(root_limit), str(random_window), str(index), str(workers)]
+                       str(root_limit), str(random_window), str(index), str(workers),
+                       str(child_min_visits)]
             results.append({})
             threads.append(threading.Thread(
                 target=_run_worker, args=(command, temp / PARTITION / f"part-{index:03d}.parquet", results[-1], on_episode)))
@@ -197,6 +202,7 @@ def write_combat_run(
             },
             "terminal_value": "win: (35 + final_hp + 4*potions) / (55 + max_hp); loss: 0",
             "rows": sum(r["rows"] for r in results),
+            "child_rows": f"non-chosen root moves with >= {child_min_visits} visits; label = teacher mean value (root_value)",
             "episodes": len(episodes),
             "wins": sum(bool(won) for _, won in episodes.values()),
             "wall_seconds": round(time.monotonic() - start, 1),
@@ -230,10 +236,11 @@ def main():
     parser.add_argument("--random-window", type=int, default=24, help="one random move per fight at decision U[0, N); 0 disables")
     parser.add_argument("--workers", type=int, default=1)
     parser.add_argument("--root", type=Path, default=Path("data/combat"))
+    parser.add_argument("--child-min-visits", type=int, default=50, help="0 disables child rows")
     args = parser.parse_args()
     final, manifest = write_combat_run(
         args.source, args.tag, args.generator, args.simulations, args.max_actions, args.replicates,
-        args.root_limit, args.random_window, args.workers, args.root,
+        args.root_limit, args.random_window, args.workers, args.root, args.child_min_visits,
     )
     print(final, manifest["rows"], "rows", manifest["episodes"], "episodes", manifest["wall_seconds"], "s")
 
