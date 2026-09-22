@@ -43,6 +43,16 @@ target_link_libraries(play_slime_mcts_rollout PRIVATE combat_core)
 target_compile_features(play_slime_mcts_rollout PRIVATE cxx_std_23)
 target_compile_options(play_slime_mcts_rollout PRIVATE -Wall -Wextra -Wpedantic)
 
+add_executable(play_entry_mcts_rollout apps/play_entry_mcts_rollout.cpp)
+target_link_libraries(play_entry_mcts_rollout PRIVATE combat_core)
+target_compile_features(play_entry_mcts_rollout PRIVATE cxx_std_23)
+target_compile_options(play_entry_mcts_rollout PRIVATE -Wall -Wextra -Wpedantic)
+
+add_executable(play_entry_mcts_neural apps/play_entry_mcts_neural.cpp)
+target_link_libraries(play_entry_mcts_neural PRIVATE combat_core)
+target_compile_features(play_entry_mcts_neural PRIVATE cxx_std_23)
+target_compile_options(play_entry_mcts_neural PRIVATE -Wall -Wextra -Wpedantic)
+
 add_executable(play_slime_mcts_neural apps/play_slime_mcts_neural.cpp)
 target_link_libraries(play_slime_mcts_neural PRIVATE combat_core)
 target_compile_features(play_slime_mcts_neural PRIVATE cxx_std_23)
