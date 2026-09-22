@@ -115,7 +115,7 @@ int main(int argc, char** argv) {
     constexpr int batch = 64;
     // Block-stacking decks (e.g. Barricade + Entrench) can stall for hundreds of decisions;
     // a fight still undecided at this turn counts as a loss, flagged as a timeout.
-    constexpr int max_turns = 30;
+    constexpr int max_turns = 50;
 
     auto env = stsrl::scenarios::slime_entry_projection(*found, seed);
     const auto start = std::chrono::steady_clock::now();
