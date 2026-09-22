@@ -10,7 +10,7 @@ const path = require("path");
 const os = require("os");
 const readline = require("readline");
 
-const RUNTIME_DIR = path.join(os.homedir(), ".local/share/antigravity-intercom");
+const RUNTIME_DIR = process.env.INTERCOM_RUNTIME_DIR || path.join(os.homedir(), ".local/share/antigravity-intercom");
 const BRIDGE_SOCK = path.join(RUNTIME_DIR, "bridge.sock");
 
 function sendBridgeRequest(req) {

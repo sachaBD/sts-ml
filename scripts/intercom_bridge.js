@@ -15,7 +15,9 @@ const crypto = require("crypto");
 const { spawn } = require("child_process");
 
 const BROKER_SOCK = process.env.PI_INTERCOM_SOCKET || path.join(os.homedir(), ".pi/agent/intercom/broker.sock");
-const RUNTIME_DIR = path.join(os.homedir(), ".local/share/antigravity-intercom");
+const RUNTIME_DIR = process.env.INTERCOM_RUNTIME_DIR || path.join(os.homedir(), ".local/share/antigravity-intercom");
+const AGENT_NAME = process.env.INTERCOM_AGENT_NAME || process.env.ANTIGRAVITY_AGENT_NAME || "antigravity";
+const AGENT_MODEL = process.env.INTERCOM_AGENT_MODEL || "gemini-3.8-flash";
 const BRIDGE_SOCK = path.join(RUNTIME_DIR, "bridge.sock");
 const BRIDGE_PID = path.join(RUNTIME_DIR, "bridge.pid");
 const INBOX_FILE = path.join(RUNTIME_DIR, "inbox.jsonl");
@@ -61,8 +63,8 @@ class IntercomDaemon {
     this.connected = false;
     this.reconnectTimer = null;
     this.heartbeatTimer = null;
-    this.agentName = process.env.ANTIGRAVITY_AGENT_NAME || "antigravity";
-    this.agentModel = "gemini-3.8-flash";
+    this.agentName = AGENT_NAME;
+    this.agentModel = AGENT_MODEL;
     this.agentCwd = process.cwd();
   }
 
@@ -369,7 +371,7 @@ class IntercomDaemon {
           messageId: message.id,
           status: "acknowledged",
           timestamp: Date.now(),
-          detail: "accepted by antigravity bridge"
+          detail: `accepted by ${this.agentName} bridge`
         }
       });
     } catch (e) {
@@ -627,7 +629,7 @@ async function main() {
     console.log(`\nActive Pi Intercom Sessions (${res.sessions.length}):`);
     console.log("--------------------------------------------------------------------------------");
     for (const s of res.sessions) {
-      const isSelf = s.name === "antigravity";
+      const isSelf = s.name === AGENT_NAME;
       const tag = isSelf ? " (you)" : "";
       console.log(`• ${s.name || s.id}${tag}`);
       console.log(`  ID:     ${s.id}`);
