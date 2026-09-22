@@ -1,7 +1,9 @@
 """Paired rollout-vs-neural teacher-search evaluation on the held-out entry decks.
 
 Runs build/play_entry_pbcs once per (arm, deck, seed) in a process pool. Each worker
-loads the value net once and answers the binary's batched leaf requests. Appends one
+loads the value net once and answers the binary's batched leaf requests. With --weights
+(a file from export_value_weights.py) the binary scores leaves natively in C++ and the
+workers load no model. Appends one
 JSON line per fight to <output>/episodes.jsonl (fights already there are skipped) and
 one progress line per finished fight to <output>/eval.log.
 """
@@ -49,25 +51,37 @@ def play(task: dict) -> dict:
         task["arm"],
         str(task["simulations"]),
     ] + ([task["param"]] if task["param"] is not None else [])
+    if task["weights"] is not None and task["arm"] != "rollout":
+        command += ["--weights", task["weights"]]
     process = subprocess.Popen(command, stdin=subprocess.PIPE, stdout=subprocess.PIPE)
     assert process.stdin and process.stdout
+    controller = {"unpack": 0.0, "collate": 0.0, "forward": 0.0, "reply": 0.0}
     try:
         while True:
             size = struct.unpack("!I", exact_read(process.stdout, 4))[0]
+            t0 = time.perf_counter()  # time blocked on the binary is not counted
             message = msgpack.unpackb(exact_read(process.stdout, size), raw=False)
             if message["type"] == "result":
                 if process.wait() != 0:
                     raise RuntimeError(f"play_entry_pbcs failed: {command}")
                 message.pop("type")
+                if message["mode"] != "rollout" and not message["native"]:
+                    message["profile"]["controller"] = controller
                 return message
             if message["type"] != "leaves":
                 raise ValueError(f"unknown message {message['type']}")
+            t1 = time.perf_counter()
             with torch.no_grad():
                 batch = collate_states(message["states"])
                 batch.pop("target")
+                t2 = time.perf_counter()
                 values = _model(**batch).reshape(-1).tolist()
+            t3 = time.perf_counter()
             process.stdin.write(struct.pack(f"!{len(values)}f", *values))
             process.stdin.flush()
+            t4 = time.perf_counter()
+            for key, dt in zip(controller, (t1 - t0, t2 - t1, t3 - t2, t4 - t3)):
+                controller[key] += dt
     finally:
         if process.poll() is None:
             process.kill()
@@ -76,7 +90,8 @@ def play(task: dict) -> dict:
 
 def arm_name(r: dict) -> str:
     name = f"{r['mode']}-{r['simulations']}"
-    return name if r.get("param") is None else f"{name}-{r['param']}"
+    name = name if r.get("param") is None else f"{name}-{r['param']}"
+    return f"{name}-native" if r.get("native") else name
 
 
 def summarize(results: list[dict], baseline: str) -> dict:
@@ -116,6 +131,12 @@ def main() -> None:
         "the first arm is the paired baseline",
     )
     p.add_argument("--workers", type=int, default=10)
+    p.add_argument(
+        "--weights",
+        type=Path,
+        default=None,
+        help="native value net file: neural arms score leaves in C++ and workers load no model",
+    )
     p.add_argument("--decks", type=int, default=None, help="limit to the first N decks (smoke runs)")
     p.add_argument("--seeds", type=int, default=2)
     args = p.parse_args()
@@ -137,7 +158,12 @@ def main() -> None:
         done = [json.loads(x) for x in episodes.read_text().splitlines() if x.strip()]
     done_keys = {(arm_name(r), r["deck_signature"], r["seed"]) for r in done}
     arms = [
-        {"mode": m, "simulations": int(n), "param": rest[0] if rest else None}
+        {
+            "mode": m,
+            "simulations": int(n),
+            "param": rest[0] if rest else None,
+            "native": args.weights is not None and m != "rollout",
+        }
         for m, n, *rest in (a.split(":") for a in args.arms.split(","))
     ]
     tasks = [
@@ -149,6 +175,7 @@ def main() -> None:
             "arm": arm["mode"],
             "simulations": arm["simulations"],
             "param": arm["param"],
+            "weights": str(args.weights.resolve()) if args.weights else None,
         }
         for d in signatures
         for x in SEED_XORS[: args.seeds]
@@ -170,8 +197,9 @@ def main() -> None:
     results = list(done)
     counts = {arm_name(a): [0, 0] for a in arms}  # [wins, fights] this session
     start = time.monotonic()
+    initializer = (None, ()) if args.weights else (_init_worker, (str(args.checkpoint),))
     with episodes.open("a") as out, mp.get_context("spawn").Pool(
-        args.workers, initializer=_init_worker, initargs=(str(args.checkpoint),)
+        args.workers, initializer=initializer[0], initargs=initializer[1]
     ) as pool:
         for n, result in enumerate(pool.imap_unordered(play, tasks), 1):
             out.write(json.dumps(result, sort_keys=True) + "\n")

@@ -11,12 +11,16 @@
 //            exactly, otherwise the net scores the stopping state.
 //   mixed:   like neural, but each leaf value is lambda*V(leaf) + (1-lambda)*score of one
 //            full guided rollout from the leaf (AlphaGo 2016); <param> is lambda (default 0.5).
-// The final result is written as a framed msgpack {"type":"result", ...}.
+//   --weights <file>: neural/truncated/mixed score leaves in-process with the native C++ value
+//            net (models/value_net.hpp) instead of the controller; nothing is read from stdin.
+// The final result is written as a framed msgpack {"type":"result", ...}, including a
+// wall-clock profile (search, encode, send, rollout, net seconds).
 #include "combat/BattleContext.h"
 #include "game/Random.h"
 #include "scenarios/slime_entry_projection.hpp"
 #include "sim/search/PublicBeliefCombatSearch.h"
 #include "apps/teacher_budget.hpp"
+#include "models/value_net.hpp"
 
 #include <arpa/inet.h>
 
@@ -25,6 +29,7 @@
 #include <chrono>
 #include <cmath>
 #include <iostream>
+#include <optional>
 #include <stdexcept>
 #include <tuple>
 
@@ -94,44 +99,87 @@ double full_rollout_score(sts::search::PublicBeliefCombatSearch& search, sts::Ba
 // Scores every pending leaf with the net, one round trip per batch.
 //   rollout_turns: guided-rollout turn increments before a leaf is left pending (truncated).
 //   lambda: weight on the net value; below 1 it is mixed with one full rollout (mixed).
+// Wall-clock split of neural-mode time (seconds).
+struct Profile {
+    double search = 0, encode = 0, send = 0, rollout = 0;
+    double net = 0;  // native forward, or waiting for the controller (unpack, collate, forward)
+    std::int64_t batches = 0;
+};
+
+double seconds_since(std::chrono::steady_clock::time_point& t) {
+    const auto now = std::chrono::steady_clock::now();
+    const double s = std::chrono::duration<double>(now - t).count();
+    t = now;
+    return s;
+}
+
+// Scores every pending leaf with the net, one batch at a time: in-process when `native` is
+// given, else one round trip per batch to the controller.
+//   rollout_turns: guided-rollout turn increments before a leaf is left pending (truncated).
+//   lambda: weight on the net value; below 1 it is mixed with one full rollout (mixed).
 void neural_search(sts::search::PublicBeliefCombatSearch& search, std::int64_t simulations, int batch,
-                   int rollout_turns, double lambda, std::int64_t& leaf_evaluations) {
+                   int rollout_turns, double lambda, const stsrl::ValueNet* native,
+                   std::int64_t& leaf_evaluations, Profile& profile) {
+    std::vector<stsrl::EncodedCombatState> encoded;
+    std::vector<float> values;
     while (search.simulations < simulations) {
+        auto t = std::chrono::steady_clock::now();
         const auto ids = search.requestBatch(batch, simulations, rollout_turns,
                                              rollout_turns > 0 ? search.maximumActions : 0);
+        profile.search += seconds_since(t);
         if (ids.empty()) continue;  // every simulation in this batch hit a terminal state
-        nlohmann::json states = nlohmann::json::array();
+        encoded.clear();
         for (const auto id : ids) {
             // Same encoder as env.decision().encoding, applied to the raw leaf state.
             stsrl::CombatEnvironment leaf(search.pending.at(id).state);
-            states.push_back(leaf.decision().encoding);
+            encoded.push_back(leaf.decision().encoding);
         }
-        write_frame({{"type", "leaves"}, {"states", std::move(states)}});
+        profile.encode += seconds_since(t);
+        if (!native) write_frame({{"type", "leaves"}, {"states", encoded}});
+        profile.send += seconds_since(t);
         std::vector<double> rollout_scores;  // computed while the controller runs the net
         if (lambda < 1.0)
             for (const auto id : ids) rollout_scores.push_back(full_rollout_score(search, search.pending.at(id).state));
-        for (std::size_t i = 0; i < ids.size(); ++i) {
-            const auto id = ids[i];
-            std::uint32_t bits{};
-            if (!std::cin.read(reinterpret_cast<char*>(&bits), sizeof(bits)))
-                throw std::runtime_error{"missing leaf value"};
-            const double value = std::clamp(static_cast<double>(std::bit_cast<float>(ntohl(bits))), 0.0, 2.0);
-            if (!std::isfinite(value)) throw std::runtime_error{"non-finite leaf value"};
-            search.submit(id, lambda < 1.0 ? lambda * value + (1.0 - lambda) * rollout_scores[i] : value);
+        profile.rollout += seconds_since(t);
+        values.resize(ids.size());
+        if (native) {
+            native->evaluate(encoded, values);
+        } else {
+            for (auto& value : values) {
+                std::uint32_t bits{};
+                if (!std::cin.read(reinterpret_cast<char*>(&bits), sizeof(bits)))
+                    throw std::runtime_error{"missing leaf value"};
+                value = std::bit_cast<float>(ntohl(bits));
+            }
         }
+        profile.net += seconds_since(t);
+        for (std::size_t i = 0; i < ids.size(); ++i) {
+            const double value = std::clamp(static_cast<double>(values[i]), 0.0, 2.0);
+            if (!std::isfinite(value)) throw std::runtime_error{"non-finite leaf value"};
+            search.submit(ids[i], lambda < 1.0 ? lambda * value + (1.0 - lambda) * rollout_scores[i] : value);
+        }
+        profile.search += seconds_since(t);
         leaf_evaluations += static_cast<std::int64_t>(ids.size());
+        ++profile.batches;
     }
 }
 
 }  // namespace
 
 int main(int argc, char** argv) {
+    // --weights <file> (last arguments): neural modes score leaves in-process with the native
+    // value net instead of asking the controller.
+    std::optional<stsrl::ValueNet> native;
+    if (argc > 2 && std::string(argv[argc - 2]) == "--weights") {
+        native.emplace(argv[argc - 1]);
+        argc -= 2;
+    }
     // --no-early-stop (last argument): rollout mode spends the full budget on every decision.
     const bool early_stop = !(argc > 1 && std::string(argv[argc - 1]) == "--no-early-stop");
     if (!early_stop) --argc;
     if (argc != 6 && argc != 7) {
         std::cerr << "usage: play_entry_pbcs source.jsonl deck_signature combat_seed rollout|neural|truncated|mixed"
-                     " simulations [turns|lambda] [--no-early-stop]\n";
+                     " simulations [turns|lambda] [--no-early-stop] [--weights value_weights.bin]\n";
         return 2;
     }
     int skipped = 0;
@@ -165,6 +213,7 @@ int main(int argc, char** argv) {
     int decisions = 0;
     std::int64_t leaf_evaluations = 0, terminal_evaluations = 0, simulations_used = 0;
     bool timeout = false;
+    Profile profile;
     while (!env.done()) {
         if (env.battle().turn >= max_turns) { timeout = true; break; }
         auto d = env.decision();
@@ -178,7 +227,8 @@ int main(int argc, char** argv) {
         if (mode == "rollout") {
             simulations_used += stsrl::run_teacher_search(search, simulations, d.legal_actions.size(), early_stop);
         } else {
-            neural_search(search, simulations, batch, rollout_turns, lambda, leaf_evaluations);
+            neural_search(search, simulations, batch, rollout_turns, lambda, native ? &*native : nullptr,
+                          leaf_evaluations, profile);
             simulations_used += search.simulations;
         }
         terminal_evaluations += search.terminalEvaluations;
@@ -197,7 +247,9 @@ int main(int argc, char** argv) {
         {"turns", env.battle().turn},
         {"final_hp", env.player_hp()}, {"max_hp", env.player_max_hp()}, {"potions", env.battle().potionCount},
         {"decisions", decisions}, {"leaf_evaluations", leaf_evaluations}, {"terminal_evaluations", terminal_evaluations},
-        {"simulations_used", simulations_used},
+        {"simulations_used", simulations_used}, {"native", native.has_value()},
+        {"profile", {{"search", profile.search}, {"encode", profile.encode}, {"send", profile.send},
+                     {"rollout", profile.rollout}, {"net", profile.net}, {"batches", profile.batches}}},
         {"wall_seconds", std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count()},
     });
 }
