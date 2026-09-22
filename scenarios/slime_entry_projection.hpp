@@ -24,6 +24,8 @@ struct SlimeEntryProjection {
 // strategic/run context are deliberately cleared rather than approximated.
 [[nodiscard]] std::vector<SlimeEntryProjection> load_slime_entry_projections(
     const std::string& jsonl_path, int& skipped_nonaccepted);
+// One accepted entry row (the JSON object, already extracted from its JSONL line).
+[[nodiscard]] SlimeEntryProjection parse_slime_entry_projection(const std::string& json_object);
 [[nodiscard]] CombatEnvironment slime_entry_projection(const SlimeEntryProjection& entry, std::uint64_t combat_seed = 0);
 
 }  // namespace stsrl::scenarios

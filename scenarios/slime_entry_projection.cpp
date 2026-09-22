@@ -60,6 +60,12 @@ std::vector<SlimeEntryProjection> load_slime_entry_projections(
     return result;
 }
 
+SlimeEntryProjection parse_slime_entry_projection(const std::string& json_object) {
+    const auto row = nlohmann::json::parse(json_object);
+    if (row.value("status", "accepted") != "accepted") throw std::invalid_argument{"entry is not accepted"};
+    return parse_accepted(row);
+}
+
 CombatEnvironment slime_entry_projection(const SlimeEntryProjection& entry, const std::uint64_t combat_seed) {
     if (entry.card_ids.size() != entry.upgrades.size() || entry.card_ids.size() != entry.misc.size()) {
         throw std::invalid_argument{"projected deck fields have inconsistent lengths"};

@@ -13,7 +13,6 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
-import tomllib
 import torch
 from torch.utils.data import DataLoader
 
@@ -60,21 +59,25 @@ def evaluate(model: DeepSetsValue, loader: DataLoader) -> tuple[float, float]:
     ).abs().mean().item()
 
 
-def _provenance(source: Path) -> tuple[str, Path, Any]:
-    """(sha256, manifest path, manifest) for one Parquet shard or data/combat run directory."""
+def _run_json(source: Path) -> Path | None:
+    """The run.json of the run this data came from: runs/run_id=.../out/schema=.../... (runs/README.md)."""
+    for parent in [source, *source.parents]:
+        if parent.name.startswith("run_id=") and (parent / "run.json").exists():
+            return parent / "run.json"
+    return None
+
+
+def _provenance(source: Path) -> tuple[str, Path | None, Any]:
+    """(sha256, run.json path, run.json) for one Parquet shard or a directory of parts."""
+    record = _run_json(source.resolve())
+    metadata = json.loads(record.read_text()) if record else {}
     if source.is_dir():
         digest = hashlib.sha256()
         for f in sorted(source.rglob("*.parquet")):
             digest.update(str(f.relative_to(source)).encode())
             digest.update(hashlib.sha256(f.read_bytes()).digest())
-        manifests = {
-            str(m.parent.name): json.loads(m.read_text())
-            for m in sorted(source.rglob("manifest.json"))
-        }
-        return digest.hexdigest(), source, manifests
-    manifest_path = source.parent / "manifest.toml"
-    manifest = tomllib.loads(manifest_path.read_text()) if manifest_path.exists() else {}
-    return hashlib.sha256(source.read_bytes()).hexdigest(), manifest_path, manifest
+        return digest.hexdigest(), record, metadata
+    return hashlib.sha256(source.read_bytes()).hexdigest(), record, metadata
 
 
 def run(args: argparse.Namespace) -> dict[str, Any]:
@@ -204,7 +207,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(
         description="CPU single-threaded Deep Sets bootstrap value trainer"
     )
-    parser.add_argument("data", type=Path, nargs="+", help="Parquet shards or data/combat run directories")
+    parser.add_argument("data", type=Path, nargs="+", help="Parquet shards or runs/ output directories")
     parser.add_argument("--output", type=Path, default=Path("value_checkpoint.pt"))
     parser.add_argument("--epochs", type=int, default=20)
     parser.add_argument("--batch-size", type=int, default=128)

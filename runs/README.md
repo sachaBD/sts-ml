@@ -20,8 +20,8 @@ runs/
 
 ```bash
 PYTHONPATH=python .venv/bin/python -m sts_combat_rl.run --help
-PYTHONPATH=python .venv/bin/python -m sts_combat_rl.run gen slime-pbcs20k-gen1 \
-    --input 2026-09-22_train_gen0b-value -- build/generate_entry_mcts_records --out {out} ...
+PYTHONPATH=python .venv/bin/python -m sts_combat_rl.run gen slime-bootstrap \
+    -- apps/bootstrap/run.sh --out {out} --workers 12 --forever
 ```
 
 The launcher creates the directory, writes `run.json` (`status: running`), sends the job's stdout/stderr to
@@ -88,8 +88,8 @@ SELECT * FROM read_json('runs/run_id=*_eval_*/out/episodes.jsonl', filename = tr
 
 | schema | status | written by | layout |
 |---|---|---|---|
-| `combat_v1` | current | `apps/generate_entry_mcts_records` | `act=/floor=/encounter=` partitions; columns below |
-| `entry_roots_v1` | legacy | old `generate_entry_mcts_records` (entry-root bootstrap) | single part; `mcts_value`, `root_visits`, `replicate`, ... |
+| `combat_v1` | current | `apps/bootstrap/generate.py` | `act=/floor=/encounter=` partitions; columns below |
+| `entry_roots_v1` | legacy | old entry-root bootstrap writer | single part; `mcts_value`, `root_visits`, `replicate`, ... |
 | `mcts_slime_v2` | legacy | `generate_mcts_records` (fixed Slime Boss deck, encoding v2) | single part |
 | `mcts_slime_v1` | legacy | `generate_mcts_records` pilot | single part |
 

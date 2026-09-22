@@ -1,4 +1,4 @@
-// Teacher-search budget shared by generate_entry_mcts_records and play_entry_pbcs.
+// Teacher-search budget shared by bootstrap_fight_worker and play_entry_pbcs.
 // Plays the same move as search.search(simulations), with less compute:
 //   forced: one legal move -> only forced_simulations (for root_value and the actions row).
 //   early stop: search in chunks; stop once N_best - N_second > simulations left, so the

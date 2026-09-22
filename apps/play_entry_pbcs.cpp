@@ -1,5 +1,5 @@
 // Plays one entry-root Slime fight with the teacher search (PublicBeliefCombatSearch,
-// 8 particles, rollout mode 2, objective mode 0), exactly as generate_entry_mcts_records
+// 8 particles, rollout mode 2, objective mode 0), exactly as bootstrap_fight_worker
 // does but with no random moves.
 //   rollout: plain teacher search.
 //   neural:  same search, but every non-terminal leaf is scored by an external value
@@ -37,7 +37,7 @@
 
 namespace {
 
-// Copied from generate_entry_mcts_records.cpp (teacher particle construction).
+// Copied from the bootstrap fight worker (teacher particle construction).
 std::uint64_t next_particle_seed(std::uint64_t& state) {
     state += 0x9E3779B97F4A7C15ULL;
     auto value = state;
@@ -201,7 +201,7 @@ int main(int argc, char** argv) {
     if (mode == "truncated" && (rollout_turns < 0 || rollout_turns != param))
         throw std::invalid_argument{"turns must be a non-negative integer"};
     if (!(lambda >= 0.0 && lambda <= 1.0)) throw std::invalid_argument{"lambda must be in [0, 1]"};
-    constexpr int particles = 8;       // as generate_entry_mcts_records
+    constexpr int particles = 8;       // as bootstrap_fight_worker
     constexpr int max_actions = 512;   // as the gen0 data run
     constexpr int batch = 64;
     // Block-stacking decks (e.g. Barricade + Entrench) can stall for hundreds of decisions;

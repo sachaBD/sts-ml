@@ -32,7 +32,7 @@ Exit code of the job is returned. Status ends as "done" (exit 0) or "failed".
 
 examples:
   PYTHONPATH=python .venv/bin/python -m sts_combat_rl.run gen slime-pbcs20k-gen1 \\
-      --input 2026-09-22_train_gen0b-value -- build/generate_entry_mcts_records --out {out} ...
+      -- apps/bootstrap/run.sh --out {out} --workers 12 --forever
   PYTHONPATH=python .venv/bin/python -m sts_combat_rl.run train gen1-value \\
       --input 2026-09-23_gen_slime-pbcs20k-gen1 -- python -m sts_combat_rl.training.train_value ...
   PYTHONPATH=python .venv/bin/python -m sts_combat_rl.run eval quick-check --scratch -- ...
@@ -122,6 +122,7 @@ def main(argv: list[str] | None = None) -> int:
     }
     env = {**os.environ, "RUN_ID": run_id, "RUN_DIR": str(run_dir), "RUN_OUT": str(out)}
     print(f"run: {run_dir}", file=sys.stderr)
+    print(f"log: {logs / 'stdout.log'} (stderr: {logs / 'stderr.log'})", file=sys.stderr)
 
     with open(logs / "stdout.log", "wb") as so, open(logs / "stderr.log", "wb") as se:
         try:
