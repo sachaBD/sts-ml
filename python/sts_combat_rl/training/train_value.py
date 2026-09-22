@@ -20,7 +20,7 @@ from torch.utils.data import DataLoader
 from sts_combat_rl.models.deep_sets import DeepSetsValue
 
 from ..data.entry_roots import deck_signature_split
-from .data import ValueDataset, collate_states, episode_split, load_rows
+from .data import ValueDataset, assign_targets, collate_states, episode_split, load_rows
 
 
 def atomic_save(value: Any, path: Path) -> None:
@@ -67,6 +67,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     np.random.seed(args.seed)
     torch.manual_seed(args.seed)
     rows = load_rows(args.data, args.limit)
+    assign_targets(rows, args.label, args.blend)
     # Entry-root shards must split by canonical deck signature so decisions and
     # combat replicates from the same natural deck never leak across folds.
     train_signature_ids, valid_signature_ids = [], []
@@ -101,7 +102,18 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     optimizer = torch.optim.AdamW(
         model.parameters(), lr=args.lr, weight_decay=args.weight_decay
     )
-    baseline = float(np.mean([row["mcts_value"] for row in train]))
+    baseline = float(np.mean([row["target"] for row in train]))
+    # The teacher's own estimate as a predictor of the label: the bar the net should approach.
+    teacher_mse = (
+        float(np.mean([(row["root_value"] - row["target"]) ** 2 for row in valid]))
+        if "root_value" in valid[0]
+        else float("nan")
+    )
+    print(
+        f"rows train={len(train)} valid={len(valid)} decks train={len(train_signature_ids)} "
+        f"valid={len(valid_signature_ids)} label={args.label} blend={args.blend}",
+        flush=True,
+    )
     metrics = {}
     for epoch in range(1, args.epochs + 1):
         model.train()
@@ -114,7 +126,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         train_mse, train_mae = evaluate(model, train_loader)
         valid_mse, valid_mae = evaluate(model, valid_loader)
         baseline_mse = float(
-            np.mean([(row["mcts_value"] - baseline) ** 2 for row in valid])
+            np.mean([(row["target"] - baseline) ** 2 for row in valid])
         )
         metrics = {
             "train_mse": train_mse,
@@ -122,16 +134,31 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             "validation_mse": valid_mse,
             "validation_mae": valid_mae,
             "baseline_validation_mse": baseline_mse,
+            "teacher_root_value_validation_mse": teacher_mse,
         }
         print(
-            f"epoch={epoch} train_mse={train_mse:.6f} train_mae={train_mae:.6f} validation_mse={valid_mse:.6f} validation_mae={valid_mae:.6f} baseline_mse={baseline_mse:.6f}",
+            f"epoch={epoch} train_mse={train_mse:.6f} train_mae={train_mae:.6f} validation_mse={valid_mse:.6f} validation_mae={valid_mae:.6f} baseline_mse={baseline_mse:.6f} teacher_mse={teacher_mse:.6f}",
             flush=True,
         )
     source = Path(args.data)
-    manifest_path = source.parent / "manifest.toml"
-    manifest = (
-        tomllib.loads(manifest_path.read_text()) if manifest_path.exists() else {}
-    )
+    if source.is_dir():
+        files = sorted(source.rglob("*.parquet"))
+        digest = hashlib.sha256()
+        for f in files:
+            digest.update(str(f.relative_to(source)).encode())
+            digest.update(hashlib.sha256(f.read_bytes()).digest())
+        source_sha256 = digest.hexdigest()
+        manifest_path = source
+        manifest = {
+            str(m.parent.name): json.loads(m.read_text())
+            for m in sorted(source.rglob("manifest.json"))
+        }
+    else:
+        source_sha256 = hashlib.sha256(source.read_bytes()).hexdigest()
+        manifest_path = source.parent / "manifest.toml"
+        manifest = (
+            tomllib.loads(manifest_path.read_text()) if manifest_path.exists() else {}
+        )
     checkpoint = {
         "model_state": model.state_dict(),
         "architecture": model.config,
@@ -142,9 +169,10 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         },
         "training_config": vars(args),
         "encoding_version": 3,
-        "target_name": "mcts_value",
+        "target_name": args.label,
+        "target_blend": args.blend,
         "source_shard": str(source),
-        "source_sha256": hashlib.sha256(source.read_bytes()).hexdigest(),
+        "source_sha256": source_sha256,
         "manifest_path": str(manifest_path),
         "manifest": manifest,
         "project_git_revision": subprocess.check_output(
@@ -187,6 +215,13 @@ def main() -> None:
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--validation-fraction", type=float, default=0.2)
     parser.add_argument("--limit", type=int)
+    parser.add_argument(
+        "--label",
+        choices=["blend", "root", "terminal", "mcts"],
+        default="blend",
+        help="training target (see data.assign_targets); mcts = legacy mcts_value column",
+    )
+    parser.add_argument("--blend", type=float, default=0.5, help="weight on terminal_value for --label blend")
     run(parser.parse_args())
 
 

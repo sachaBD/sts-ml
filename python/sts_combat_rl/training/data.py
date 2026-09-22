@@ -6,6 +6,7 @@ import random
 from pathlib import Path
 from typing import Any
 
+import pyarrow.dataset as ds
 import pyarrow.parquet as pq
 import torch
 from torch.utils.data import Dataset
@@ -76,7 +77,13 @@ def episode_split(
 
 
 def load_rows(path: str | Path, limit: int | None = None) -> list[dict[str, Any]]:
-    table = pq.read_table(path)
+    """Load one Parquet shard, or every part under a hive-partitioned data/combat directory."""
+    if Path(path).is_dir():
+        table = ds.dataset(
+            path, format="parquet", partitioning="hive", exclude_invalid_files=True
+        ).to_table()
+    else:
+        table = pq.read_table(path)
     rows = table.slice(0, limit).to_pylist() if limit else table.to_pylist()
     validate_rows(rows)
     return rows
@@ -100,9 +107,7 @@ def collate_states(rows: list[dict[str, Any]]) -> dict[str, torch.Tensor]:
         ),
         "input_state": torch.tensor([r["input_state"] for r in rows]),
         "card_selection_task": torch.tensor([r["card_selection_task"] for r in rows]),
-        "target": torch.tensor(
-            [r.get("mcts_value", 0.0) for r in rows], dtype=torch.float32
-        ),
+        "target": torch.tensor([r.get("target", 0.0) for r in rows], dtype=torch.float32),
     }
     cards = []
     monsters = []
@@ -150,3 +155,34 @@ def collate_states(rows: list[dict[str, Any]]) -> dict[str, torch.Tensor]:
         interaction_state_indices=torch.tensor(interaction_owners),
     )
     return output
+
+
+def assign_targets(rows: list[dict[str, Any]], label: str, blend: float = 0.5) -> None:
+    """Set row["target"].
+
+    mcts:     legacy mcts_value column (old single-shard datasets)
+    root:     teacher search estimate v = root_value
+    terminal: fight outcome z = terminal_value
+    blend:    blend*z + (1-blend)*v, except rows at or before the fight's random move
+              use v only, because their z includes a move the teacher did not choose.
+    """
+    if label == "mcts":
+        for r in rows:
+            r["target"] = r["mcts_value"]
+        return
+    random_at: dict[tuple[Any, Any], int] = {}
+    for r in rows:
+        if r.get("was_random"):
+            key = (r.get("run_id"), r["episode_id"])
+            random_at[key] = max(random_at.get(key, -1), r["decision_index"])
+    for r in rows:
+        v, z = r["root_value"], r["terminal_value"]
+        if label == "root":
+            r["target"] = v
+        elif label == "terminal":
+            r["target"] = z
+        elif label == "blend":
+            k = random_at.get((r.get("run_id"), r["episode_id"]), -1)
+            r["target"] = v if r["decision_index"] <= k else blend * z + (1 - blend) * v
+        else:
+            raise ValueError(f"unknown label {label!r}")
