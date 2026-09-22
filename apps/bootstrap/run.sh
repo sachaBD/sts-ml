@@ -1,15 +1,24 @@
 #!/usr/bin/env bash
-# Bootstrap data generation: build the worker if needed, then run the orchestrator.
-# Everything after this script's own flags is passed through to apps/bootstrap/generate.py.
+# User-facing bootstrap launcher.
 #
-#   PYTHONPATH=python .venv/bin/python -m sts_combat_rl.run gen slime-bootstrap -- \
-#       apps/bootstrap/run.sh --out {out} --workers 12 --forever
+#   ./apps/bootstrap/run.sh slime-bootstrap --workers 12 --forever
 #
-# Ctrl+C (or SIGTERM) stops it cleanly: fights in flight finish, shards flush, summary.json is written.
+# The generic run launcher creates runs/run_id=... and supplies --out privately.
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 
-cmake -S . -B build -DCMAKE_BUILD_TYPE=Release >/dev/null
-cmake --build build --target bootstrap_fight_worker --parallel >/dev/null
+if (($# == 0)) || [[ $1 == -* ]]; then
+    echo "usage: $0 RUN_NAME [bootstrap generator options]" >&2
+    echo "example: $0 slime-bootstrap --workers 12 --forever" >&2
+    exit 2
+fi
 
-exec .venv/bin/python apps/bootstrap/generate.py "$@"
+name=$1
+shift
+run_args=()
+if [[ ${1:-} == "--scratch" ]]; then
+    run_args+=(--scratch)
+    shift
+fi
+PYTHONPATH="$PWD/python${PYTHONPATH:+:$PYTHONPATH}" exec .venv/bin/python -m sts_combat_rl.run gen "$name" "${run_args[@]}" -- \
+    apps/bootstrap/job.sh --out '{out}' "$@"

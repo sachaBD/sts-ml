@@ -20,8 +20,7 @@ runs/
 
 ```bash
 PYTHONPATH=python .venv/bin/python -m sts_combat_rl.run --help
-PYTHONPATH=python .venv/bin/python -m sts_combat_rl.run gen slime-bootstrap \
-    -- apps/bootstrap/run.sh --out {out} --workers 12 --forever
+./apps/bootstrap/run.sh slime-bootstrap --workers 12 --forever
 ```
 
 The launcher creates the directory, writes `run.json` (`status: running`), sends the job's stdout/stderr to

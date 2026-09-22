@@ -31,8 +31,7 @@ If the job writes out/summary.json, it is merged into run.json as "summary".
 Exit code of the job is returned. Status ends as "done" (exit 0) or "failed".
 
 examples:
-  PYTHONPATH=python .venv/bin/python -m sts_combat_rl.run gen slime-pbcs20k-gen1 \\
-      -- apps/bootstrap/run.sh --out {out} --workers 12 --forever
+  ./apps/bootstrap/run.sh slime-bootstrap --workers 12 --forever
   PYTHONPATH=python .venv/bin/python -m sts_combat_rl.run train gen1-value \\
       --input 2026-09-23_gen_slime-pbcs20k-gen1 -- python -m sts_combat_rl.training.train_value ...
   PYTHONPATH=python .venv/bin/python -m sts_combat_rl.run eval quick-check --scratch -- ...

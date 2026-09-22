@@ -8,8 +8,7 @@ finish the fight in hand, shards flush, and everything already on disk stays val
 
 Output contract: runs/README.md. Launch through the run launcher, e.g.
 
-    PYTHONPATH=python .venv/bin/python -m sts_combat_rl.run gen slime-bootstrap -- \\
-        apps/bootstrap/run.sh --out {out} --workers 12 --forever
+    ./apps/bootstrap/run.sh slime-bootstrap --workers 12 --forever
 """
 
 from __future__ import annotations
