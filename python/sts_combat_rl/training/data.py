@@ -1,4 +1,4 @@
-"""Validated Parquet rows and batching for schema-v2 value training."""
+"""Validated Parquet rows and batching for schema-v3 value training."""
 
 from __future__ import annotations
 
@@ -17,10 +17,10 @@ def validate_rows(rows: list[dict[str, Any]]) -> None:
     card_bounds = {"card_id": 512, "zone": 5, "card_type": 5, "target_type": 4}
     monster_bounds = {"monster_id": 128, "move_id": 512}
     for row_number, row in enumerate(rows):
-        if row.get("encoding_version") != 2:
-            raise ValueError(f"row {row_number}: encoding_version must be 2")
-        if len(row.get("global_numeric", [])) != 22:
-            raise ValueError(f"row {row_number}: global_numeric must have width 22")
+        if row.get("encoding_version") != 3:
+            raise ValueError(f"row {row_number}: encoding_version must be 3")
+        if len(row.get("global_numeric", [])) != 50:
+            raise ValueError(f"row {row_number}: global_numeric must have width 50")
         for name, limit in bounds.items():
             if not 0 <= row[name] < limit:
                 raise ValueError(

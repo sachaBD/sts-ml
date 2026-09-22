@@ -1,4 +1,4 @@
-"""Permutation-invariant value network for v2 public-state encodings."""
+"""Permutation-invariant value network for v3 public-state encodings."""
 
 import torch
 from torch import nn
@@ -34,7 +34,7 @@ class DeepSetsValue(nn.Module):
             nn.ReLU(),
         )
         self.head = nn.Sequential(
-            nn.Linear(22 + 8 + 6 * width, width),
+            nn.Linear(50 + 8 + 6 * width, width),
             nn.ReLU(),
             nn.Linear(width, 1),
             nn.Tanh(),

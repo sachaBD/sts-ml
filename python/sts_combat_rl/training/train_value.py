@@ -19,6 +19,7 @@ from torch.utils.data import DataLoader
 
 from sts_combat_rl.models.deep_sets import DeepSetsValue
 
+from ..data.entry_roots import deck_signature_split
 from .data import ValueDataset, collate_states, episode_split, load_rows
 
 
@@ -66,9 +67,19 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     np.random.seed(args.seed)
     torch.manual_seed(args.seed)
     rows = load_rows(args.data, args.limit)
-    train, valid, train_ids, valid_ids = episode_split(
-        rows, args.validation_fraction, args.seed
-    )
+    # Entry-root shards must split by canonical deck signature so decisions and
+    # combat replicates from the same natural deck never leak across folds.
+    train_signature_ids, valid_signature_ids = [], []
+    if rows and "deck_signature" in rows[0]:
+        train, valid, train_signature_ids, valid_signature_ids = deck_signature_split(
+            rows, args.validation_fraction, args.seed
+        )
+        train_ids = sorted({row["episode_id"] for row in train})
+        valid_ids = sorted({row["episode_id"] for row in valid})
+    else:
+        train, valid, train_ids, valid_ids = episode_split(
+            rows, args.validation_fraction, args.seed
+        )
     if not train or not valid:
         raise ValueError("episode split requires at least two episodes")
     train_loader = DataLoader(
@@ -130,7 +141,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             "weight_decay": args.weight_decay,
         },
         "training_config": vars(args),
-        "encoding_version": 2,
+        "encoding_version": 3,
         "target_name": "mcts_value",
         "source_shard": str(source),
         "source_sha256": hashlib.sha256(source.read_bytes()).hexdigest(),
@@ -145,6 +156,12 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         != 0,
         "train_episode_ids": train_ids,
         "validation_episode_ids": valid_ids,
+        "train_deck_signatures": train_signature_ids
+        if rows and "deck_signature" in rows[0]
+        else [],
+        "validation_deck_signatures": valid_signature_ids
+        if rows and "deck_signature" in rows[0]
+        else [],
         "epoch": args.epochs,
         "metrics": metrics,
     }

@@ -7,8 +7,8 @@ def value_tensors(state: dict) -> dict[str, torch.Tensor]:
         if "encoding_version" in state
         else state.get("version")
     )
-    if version != 2:
-        raise ValueError(f"unsupported encoding version: {version!r} (expected 2)")
+    if version != 3:
+        raise ValueError(f"unsupported encoding version: {version!r} (expected 3)")
     cards, monsters, interactions = (
         state["cards"],
         state["monsters"],

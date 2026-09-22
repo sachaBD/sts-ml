@@ -11,10 +11,10 @@ from sts_combat_rl.training.evaluate_value import (
 
 def row(ep, card=1):
     return {
-        "encoding_version": 2,
+        "encoding_version": 3,
         "episode_id": ep,
         "mcts_value": 0.2,
-        "global_numeric": [0.0] * 22,
+        "global_numeric": [0.0] * 50,
         "input_state": 1,
         "card_selection_task": 0,
         "cards": [
@@ -118,7 +118,7 @@ class ValueTests(unittest.TestCase):
             validate_checkpoint_source(
                 {
                     "source_sha256": "not-a-real-digest",
-                    "encoding_version": 2,
+                    "encoding_version": 3,
                     "target_name": "mcts_value",
                 },
                 __file__,

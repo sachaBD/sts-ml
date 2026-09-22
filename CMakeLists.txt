@@ -21,7 +21,8 @@ add_library(combat_core STATIC
     agents/random_agent.cpp
     combat/environment.cpp
     scenarios/jaw_worm.cpp
-    scenarios/slime_boss.cpp)
+    scenarios/slime_boss.cpp
+    scenarios/slime_entry_projection.cpp)
 target_include_directories(combat_core PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
 target_link_libraries(combat_core PUBLIC sts_lightspeed_core)
 target_compile_features(combat_core PUBLIC cxx_std_23)
@@ -47,6 +48,16 @@ target_link_libraries(play_slime_mcts_neural PRIVATE combat_core)
 target_compile_features(play_slime_mcts_neural PRIVATE cxx_std_23)
 target_compile_options(play_slime_mcts_neural PRIVATE -Wall -Wextra -Wpedantic)
 
+add_executable(smoke_slime_entry_projections apps/smoke_slime_entry_projections.cpp)
+target_link_libraries(smoke_slime_entry_projections PRIVATE combat_core)
+target_compile_features(smoke_slime_entry_projections PRIVATE cxx_std_23)
+target_compile_options(smoke_slime_entry_projections PRIVATE -Wall -Wextra -Wpedantic)
+
+add_executable(generate_entry_mcts_records apps/generate_entry_mcts_records.cpp)
+target_link_libraries(generate_entry_mcts_records PRIVATE combat_core)
+target_compile_features(generate_entry_mcts_records PRIVATE cxx_std_23)
+target_compile_options(generate_entry_mcts_records PRIVATE -Wall -Wextra -Wpedantic)
+
 add_executable(generate_mcts_records apps/generate_mcts_records.cpp)
 target_link_libraries(generate_mcts_records PRIVATE combat_core)
 target_compile_features(generate_mcts_records PRIVATE cxx_std_23)
@@ -70,3 +81,9 @@ target_link_libraries(mcts_leaf_evaluator_test PRIVATE combat_core)
 target_compile_features(mcts_leaf_evaluator_test PRIVATE cxx_std_23)
 target_compile_options(mcts_leaf_evaluator_test PRIVATE -Wall -Wextra -Wpedantic)
 add_test(NAME mcts_leaf_evaluator_test COMMAND mcts_leaf_evaluator_test)
+
+add_executable(slime_entry_projection_test tests/slime_entry_projection_test.cpp)
+target_link_libraries(slime_entry_projection_test PRIVATE combat_core)
+target_compile_features(slime_entry_projection_test PRIVATE cxx_std_23)
+target_compile_options(slime_entry_projection_test PRIVATE -Wall -Wextra -Wpedantic)
+add_test(NAME slime_entry_projection_test COMMAND slime_entry_projection_test)

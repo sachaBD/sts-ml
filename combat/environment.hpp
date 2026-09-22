@@ -3,6 +3,7 @@
 #include "agents/agent.hpp"
 #include "combat/encoding.hpp"
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <memory>
@@ -16,7 +17,7 @@ namespace stsrl {
 
 struct SearchActionKey {
     int kind{}; int card_id{}; int upgraded{}; int cost{}; int cost_for_turn{}; int special{}; int free{}; int retain{};
-    int target_id{}; int target_hp{}; int target_max_hp{}; int target_block{}; int target_move{}; int target_strength{}; int target_weak{}; int target_vulnerable{}; int selection_task{}; int potion{};
+    int target_id{}; int target_hp{}; int target_max_hp{}; int target_block{}; int target_move{}; int target_strength{}; int target_weak{}; int target_vulnerable{}; int selection_task{}; int selection_zone{}; int selection_count{}; std::array<int, 10> selected_cards{}; std::array<int, 10> selected_upgraded{}; std::array<int, 10> selected_cost{}; std::array<int, 10> selected_special{}; int potion{};
     auto operator==(const SearchActionKey&) const -> bool = default;
 };
 struct SearchAction { std::size_t index{}; SearchActionKey key{}; };

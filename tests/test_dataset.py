@@ -13,11 +13,11 @@ from sts_combat_rl.data.reader import read_parquet_records, read_parquet_row
 
 def make_valid_row() -> dict:
     return {
-        "encoding_version": 2,
+        "encoding_version": 3,
         "episode_id": 0,
         "seed": 1,
         "decision_index": 0,
-        "global_numeric": [0.0] * 22,
+        "global_numeric": [0.0] * 50,
         "input_state": 1,
         "card_selection_task": 0,
         "cards": [
@@ -169,7 +169,7 @@ class TestDatasetValidation(unittest.TestCase):
             records = read_parquet_records(shard)
             self.assertEqual(len(records), decisions)
             row0 = read_parquet_row(shard, 0)
-            self.assertEqual(row0["encoding_version"], 2)
+            self.assertEqual(row0["encoding_version"], 3)
             self.assertEqual(row0["card_selection_task"], 0)
             self.assertEqual(row0["episode_id"], 0)
             self.assertEqual(row0["seed"], 1)
@@ -177,7 +177,7 @@ class TestDatasetValidation(unittest.TestCase):
             manifest = tmp_dir / "manifest.toml"
             self.assertTrue(manifest.exists())
             manifest_text = manifest.read_text()
-            self.assertIn('dataset_id = "a1-slime-boss-mcts-value-v2"', manifest_text)
+            self.assertIn('dataset_id = "a1-slime-boss-mcts-value-v3"', manifest_text)
             self.assertIn(f"decisions = {decisions}", manifest_text)
         finally:
             shutil.rmtree(tmp_dir, ignore_errors=True)

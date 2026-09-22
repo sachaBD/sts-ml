@@ -24,10 +24,10 @@ def validate_checkpoint_source(checkpoint: dict[str, Any], path: Path) -> None:
     if sha256(path) != checkpoint["source_sha256"]:
         raise ValueError("source shard SHA256 does not match checkpoint provenance")
     if (
-        checkpoint.get("encoding_version") != 2
+        checkpoint.get("encoding_version") != 3
         or checkpoint.get("target_name") != "mcts_value"
     ):
-        raise ValueError("checkpoint is not compatible with schema-v2 mcts_value")
+        raise ValueError("checkpoint is not compatible with schema-v3 mcts_value")
 
 
 def infer_boss_id(rows: list[dict[str, Any]]) -> int:

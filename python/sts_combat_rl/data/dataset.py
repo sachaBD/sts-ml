@@ -28,7 +28,7 @@ SCHEMA = pa.schema(
         ("episode_id", pa.int64()),
         ("seed", pa.uint64()),
         ("decision_index", pa.int32()),
-        ("global_numeric", pa.list_(F32, 22)),
+        ("global_numeric", pa.list_(F32, 50)),
         ("input_state", pa.int16()),
         ("card_selection_task", pa.int16()),
         (
@@ -117,17 +117,17 @@ def validate_int_range(name: str, val: Any, min_val: int, max_val: int) -> None:
 
 
 def validate_row(row: dict[str, Any], simulations: int) -> None:
-    validate_int_range("encoding_version", row.get("encoding_version"), 2, 2)
+    validate_int_range("encoding_version", row.get("encoding_version"), 3, 3)
     validate_int_range("episode_id", row.get("episode_id"), 0, INT64_MAX)
     validate_int_range("seed", row.get("seed"), UINT64_MIN, UINT64_MAX)
     validate_int_range("decision_index", row.get("decision_index"), 0, INT32_MAX)
 
     global_num = row.get("global_numeric")
-    if not isinstance(global_num, (list, tuple)) or len(global_num) != 22:
+    if not isinstance(global_num, (list, tuple)) or len(global_num) != 50:
         length = (
             len(global_num) if isinstance(global_num, (list, tuple)) else "non-sequence"
         )
-        raise ValueError(f"global_numeric must have length 22, got {length}")
+        raise ValueError(f"global_numeric must have length 50, got {length}")
     for i, x in enumerate(global_num):
         if (
             not isinstance(x, (int, float))
@@ -431,9 +431,9 @@ def write_manifest(
     if not (root / "sts_lightspeed").exists():
         root = Path(__file__).resolve().parents[3]
 
-    text = f'''dataset_id = "a1-slime-boss-mcts-value-v2"
+    text = f'''dataset_id = "a1-slime-boss-mcts-value-v3"
 created_utc = "{datetime.datetime.now(datetime.timezone.utc).isoformat()}"
-schema_version = 2
+schema_version = 3
 scenario = "A1 Slime Boss fixed enhanced Ironclad deck"
 project_git_revision = "{git_revision(root)}"
 project_git_dirty = {str(git_dirty(root)).lower()}
@@ -464,7 +464,7 @@ def generate_dataset(
     chunk_size: int = 2000,
 ) -> tuple[Path, int, int]:
     output_dir.mkdir(parents=True, exist_ok=True)
-    shard = output_dir / "mcts_slime_v2.parquet"
+    shard = output_dir / "mcts_slime_v3.parquet"
     partial_shard = output_dir / (shard.name + ".partial")
 
     if partial_shard.exists():

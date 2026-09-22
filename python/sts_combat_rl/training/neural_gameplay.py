@@ -32,10 +32,10 @@ def exact_read(stream: BinaryIO, size: int) -> bytes:
 def load_model(path: Path) -> DeepSetsValue:
     checkpoint = torch.load(path, map_location="cpu", weights_only=False)
     if (
-        checkpoint.get("encoding_version") != 2
+        checkpoint.get("encoding_version") != 3
         or checkpoint.get("target_name") != "mcts_value"
     ):
-        raise ValueError("checkpoint is not schema-v2 mcts_value")
+        raise ValueError("checkpoint is not schema-v3 mcts_value")
     model = DeepSetsValue(**checkpoint["architecture"])
     model.load_state_dict(checkpoint["model_state"])
     model.eval()

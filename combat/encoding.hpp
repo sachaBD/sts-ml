@@ -10,7 +10,7 @@
 
 namespace stsrl {
 
-inline constexpr std::uint32_t combat_encoding_schema_version = 2;
+inline constexpr std::uint32_t combat_encoding_schema_version = 3;
 
 enum class CardZone : std::uint8_t { hand, draw, discard, exhaust, offered };
 enum class EncodedActionKind : std::uint8_t { card, potion, single_card_selection, multi_card_selection, end_turn };
@@ -19,7 +19,7 @@ enum class CardType : std::uint8_t { attack, skill, power, status, curse };
 enum class TargetType : std::uint8_t { none, one_enemy, all_enemies, random_enemy };
 
 struct GlobalFeatures {
-    std::array<float, 22> numeric{};
+    std::array<float, 50> numeric{};
     int input_state{};
     int card_selection_task{};
     auto operator==(const GlobalFeatures&) const -> bool = default;
