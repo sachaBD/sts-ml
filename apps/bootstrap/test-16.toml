@@ -1,0 +1,6 @@
+# Sixteen fresh seeded runs, eight at a time.
+[run]
+name = "slime-test-16x8-3"
+binary = "./build/bootstrap_fight_worker"
+workers = 8
+fights = 16

@@ -10,6 +10,7 @@ import signal
 import socket
 import subprocess
 import sys
+import threading
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[2]
@@ -31,7 +32,7 @@ If the job writes out/summary.json, it is merged into run.json as "summary".
 Exit code of the job is returned. Status ends as "done" (exit 0) or "failed".
 
 examples:
-  ./apps/bootstrap/run.sh slime-bootstrap --workers 12 --forever
+  ./apps/bootstrap/run.sh apps/bootstrap/slime.toml [--scratch]
   PYTHONPATH=python .venv/bin/python -m sts_combat_rl.run train gen1-value \\
       --input 2026-09-23_gen_slime-pbcs20k-gen1 -- python -m sts_combat_rl.training.train_value ...
   PYTHONPATH=python .venv/bin/python -m sts_combat_rl.run eval quick-check --scratch -- ...
@@ -82,6 +83,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("name", help="short lowercase name, e.g. slime-pbcs20k-gen1 ([a-z0-9.-])")
     parser.add_argument("--input", action="append", default=[], metavar="RUN_ID|PATH", help="run this job reads from (repeatable); recorded as lineage")
     parser.add_argument("--scratch", action="store_true", help="smoke/preflight/probe: put in runs/scratch/ (excluded from normal queries, safe to delete)")
+    parser.add_argument("--live", action="store_true", help="also print job output to the terminal while retaining logs")
     parser.add_argument("--note", default="", help="free-text note stored in run.json")
     parser.usage = "%(prog)s {gen,train,eval} NAME [--input RUN_ID|PATH ...] [--scratch] [--note TEXT] -- COMMAND..."
     argv = sys.argv[1:] if argv is None else argv
@@ -125,7 +127,8 @@ def main(argv: list[str] | None = None) -> int:
 
     with open(logs / "stdout.log", "wb") as so, open(logs / "stderr.log", "wb") as se:
         try:
-            proc = subprocess.Popen(cmd, stdout=so, stderr=se, env=env)
+            proc = subprocess.Popen(cmd, stdout=subprocess.PIPE if args.live else so,
+                                    stderr=subprocess.PIPE if args.live else se, env=env)
         except OSError as e:
             record.update(status="failed", finished=now(), exit_code=127, summary={"error": str(e)})
             write_json(run_dir / "run.json", record)
@@ -134,7 +137,25 @@ def main(argv: list[str] | None = None) -> int:
         write_json(run_dir / "run.json", record)
         for sig in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP):
             signal.signal(sig, lambda s, _f: proc.send_signal(s))
+        if args.live:
+            terminal_lock = threading.Lock()
+
+            def relay(source, logfile):
+                for line in source:
+                    logfile.write(line)
+                    logfile.flush()
+                    with terminal_lock:
+                        sys.stdout.buffer.write(line)
+                        sys.stdout.buffer.flush()
+
+            relays = [threading.Thread(target=relay, args=(proc.stdout, so)),
+                      threading.Thread(target=relay, args=(proc.stderr, se))]
+            for thread in relays:
+                thread.start()
         code = proc.wait()
+        if args.live:
+            for thread in relays:
+                thread.join()
 
     summary = out / "summary.json"
     if summary.exists():

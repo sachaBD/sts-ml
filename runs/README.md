@@ -20,7 +20,7 @@ runs/
 
 ```bash
 PYTHONPATH=python .venv/bin/python -m sts_combat_rl.run --help
-./apps/bootstrap/run.sh slime-bootstrap --workers 12 --forever
+./apps/bootstrap/run.sh apps/bootstrap/slime.toml [--scratch]
 ```
 
 The launcher creates the directory, writes `run.json` (`status: running`), sends the job's stdout/stderr to
@@ -43,10 +43,10 @@ Git state, command, timings, host, and inputs are recorded by the launcher, so j
 
 - **gen**: hive-partitioned parquet under a schema dir:
   `out/schema=<schema>/<key>=<value>/.../part-<NNN>.parquet`, e.g.
-  `out/schema=combat_v1/act=1/floor=16/encounter=slime_boss/part-000.parquet`.
+  `out/schema=combat_v1/act=1/floor=16/encounter=slime_boss/seed=0/part-000.parquet`.
   - `schema` names the column layout. Adding a nullable column keeps the name (`union_by_name` fills NULLs);
     renaming, removing or changing the meaning of a column means a new name (`combat_v2`).
-  - Partition keys after `schema` are fixed per schema and low-cardinality only (act, floor, encounter), never episode ids.
+  - Bootstrap fights also partition by seed: each independent worker writes its own seed directory.
   - Don't also store `run_id` / `schema` / partition keys as columns; they come from the path.
   - Several parts per partition are fine (one per worker); aim for ~100 MB to 1 GB per part.
 - **train**: `out/value_checkpoint.pt` (+ `.json` sidecar), metrics on stdout.
@@ -103,7 +103,7 @@ One row per decision recorded from teacher search.
 | `episode_id` | fight within the run |
 | `decision_index` | decision number within the fight, from 0 |
 | `turn` | combat turn |
-| `entry_id`, `deck_signature` | the starting deck/state |
+| `entry_id`, `deck_signature` | legacy entry-root identifiers; null for full seeded runs |
 | `combat_seed` | seed; with the start state and the chosen actions, replays the fight exactly |
 | `starting_hp`, `starting_max_hp` | player HP at fight start |
 | `encoding_version`, `global_numeric`, `cards`, `monsters`, `card_monster_interactions`, `input_state`, `card_selection_task` | encoded public state |

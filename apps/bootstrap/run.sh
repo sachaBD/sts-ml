@@ -1,24 +1,15 @@
 #!/usr/bin/env bash
-# User-facing bootstrap launcher.
-#
-#   ./apps/bootstrap/run.sh slime-bootstrap --workers 12 --forever
-#
-# The generic run launcher creates runs/run_id=... and supplies --out privately.
+# Launch a config-driven bootstrap run; the generic launcher owns the run directory.
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 
-if (($# == 0)) || [[ $1 == -* ]]; then
-    echo "usage: $0 RUN_NAME [bootstrap generator options]" >&2
-    echo "example: $0 slime-bootstrap --workers 12 --forever" >&2
+if (($# < 1 || $# > 2)) || { (($# == 2)) && [[ $2 != --scratch ]]; }; then
+    echo "usage: $0 CONFIG.toml [--scratch]" >&2
     exit 2
 fi
-
-name=$1
-shift
-run_args=()
-if [[ ${1:-} == "--scratch" ]]; then
-    run_args+=(--scratch)
-    shift
-fi
+config=$(realpath "$1")
+name=$(.venv/bin/python -c 'import sys, tomllib; print(tomllib.load(open(sys.argv[1], "rb"))["run"]["name"])' "$config")
+run_args=(--live)
+if [[ ${2:-} == --scratch ]]; then run_args+=(--scratch); fi
 PYTHONPATH="$PWD/python${PYTHONPATH:+:$PYTHONPATH}" exec .venv/bin/python -m sts_combat_rl.run gen "$name" "${run_args[@]}" -- \
-    apps/bootstrap/job.sh --out '{out}' "$@"
+    apps/bootstrap/job.sh "$config" --out '{out}'

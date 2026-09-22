@@ -1,40 +1,64 @@
-// Bootstrap fight worker. Plays one Act-1 Slime Boss fight per job, with sts_ml's
-// PublicBeliefCombatSearch as the teacher (guided rollouts, rollout mode 2).
-//
-// Jobs arrive on stdin, one JSON object per line:
-//   {"episode_id": 7, "combat_seed": 123, "entry": {<accepted slime entry row>}}
-// Closing stdin is the graceful stop: the current fight finishes, then the worker exits 0.
-//
-// stdout: one msgpack object per finished fight, {"episode_id", "won", "rows": [...]},
-//         rows as described by runs/README.md (schema combat_v1).
-// stderr: progress lines, "hb ..." per decision and "fight ..." per finished fight.
-#include "combat/BattleContext.h"
-#include "game/Random.h"
-#include "scenarios/slime_entry_projection.hpp"
-#include "sim/search/PublicBeliefCombatSearch.h"
+// One seeded Ironclad run. SimpleAgent plays to the Act-1 Slime Boss;
+// public-belief search teaches the boss fight. Output: OUTPUT_DIR/fight.msgpack.
 #include "apps/teacher_budget.hpp"
+#include "combat/environment.hpp"
+#include "combat/BattleContext.h"
+#include "constants/CharacterClasses.h"
+#include "constants/MonsterEncounters.h"
+#include "constants/Rooms.h"
+#include "game/GameContext.h"
+#include "game/Random.h"
+#include "sim/search/PublicBeliefCombatSearch.h"
+#include "sim/search/SimpleAgent.h"
 
 #include <algorithm>
-#include <chrono>
+#include <charconv>
+#include <cstdint>
+#include <filesystem>
+#include <fstream>
 #include <iostream>
+#include <optional>
 #include <random>
 #include <stdexcept>
 #include <string>
-#include <nlohmann/json.hpp>
+#include <string_view>
 #include <tuple>
+#include <utility>
+#include <vector>
+#include <nlohmann/json.hpp>
 
 namespace {
+namespace fs = std::filesystem;
+using Json = nlohmann::json;
 
-struct Options {
-    std::int64_t simulations = 15000;
-    int max_actions = 512;
-    std::uint64_t random_window = 24;  // one random move per fight at decision U[0, N); 0 disables
-    std::int64_t child_min_visits = 50;  // child rows for non-chosen root moves; 0 disables
-    bool early_stop = true;
-    int particles = 8;  // sts_ml agent/config.json boss_particles
-};
+constexpr std::int64_t simulations = 15'000;
+constexpr int particles = 8;
+constexpr int max_actions = 512;
+constexpr std::int64_t child_min_visits = 50;
+constexpr int random_window = 24;
 
-std::uint64_t next_particle_seed(std::uint64_t& state) {
+std::optional<sts::BattleContext> reach_slime_boss(std::uint64_t seed) {
+    sts::GameContext game{sts::CharacterClass::IRONCLAD, seed, 1};
+    sts::search::SimpleAgent agent;
+    agent.curGameContext = &game;
+    while (game.outcome == sts::GameOutcome::UNDECIDED && game.act == 1) {
+        if (game.screenState != sts::ScreenState::BATTLE) {
+            agent.stepOutOfCombat(game);
+            continue;
+        }
+        sts::BattleContext battle;
+        battle.init(game);
+        if (game.curRoom == sts::Room::BOSS) {
+            if (battle.encounter == sts::MonsterEncounter::SLIME_BOSS) return battle;
+            return std::nullopt;
+        }
+        agent.playoutBattle(battle);
+        battle.exitBattle(game);
+    }
+    return std::nullopt;
+}
+
+std::uint64_t next_seed(std::uint64_t& state) {
     state += 0x9E3779B97F4A7C15ULL;
     auto value = state;
     value = (value ^ (value >> 30)) * 0xBF58476D1CE4E5B9ULL;
@@ -42,159 +66,180 @@ std::uint64_t next_particle_seed(std::uint64_t& state) {
     return value ^ (value >> 31);
 }
 
-// Battle-only part of sts_ml RLEnvironment::resampleHidden, then resampleDraw.
-sts::BattleContext particle(const sts::BattleContext& observed, std::uint64_t particle_seed) {
-    sts::BattleContext bc = observed;
-    const auto draw_seed = particle_seed;
-    auto next = [&] { return next_particle_seed(particle_seed); };
-    const auto sampled_run_seed = next();
-    for (int i = 0; i < 14; ++i) next();  // GameContext RNG draws, kept for seed-stream parity.
-    bc.seed = sampled_run_seed;
-    bc.aiRng = sts::Random(next());
-    bc.cardRandomRng = sts::Random(next());
-    bc.miscRng = sts::Random(next());
-    bc.monsterHpRng = sts::Random(next());
-    bc.potionRng = sts::Random(next());
-    bc.shuffleRng = sts::Random(next());
-    if (bc.inputState != sts::InputState::CARD_SELECT) {
-        std::sort(bc.cards.drawPile.begin(), bc.cards.drawPile.end(), [](const auto& l, const auto& r) {
-            return std::tie(l.id, l.upgraded, l.specialData, l.cost, l.costForTurn, l.uniqueId)
-                 < std::tie(r.id, r.upgraded, r.specialData, r.cost, r.costForTurn, r.uniqueId);
+sts::BattleContext sample_particle(const sts::BattleContext& observed, std::uint64_t seed) {
+    sts::BattleContext sampled = observed;
+    const auto draw_seed = seed;
+    const auto next = [&] { return next_seed(seed); };
+    sampled.seed = next();
+    for (int i = 0; i < 14; ++i) next();
+    sampled.aiRng = sts::Random(next());
+    sampled.cardRandomRng = sts::Random(next());
+    sampled.miscRng = sts::Random(next());
+    sampled.monsterHpRng = sts::Random(next());
+    sampled.potionRng = sts::Random(next());
+    sampled.shuffleRng = sts::Random(next());
+    if (sampled.inputState != sts::InputState::CARD_SELECT) {
+        std::sort(sampled.cards.drawPile.begin(), sampled.cards.drawPile.end(), [](const auto& a, const auto& b) {
+            return std::tie(a.id, a.upgraded, a.specialData, a.cost, a.costForTurn, a.uniqueId)
+                 < std::tie(b.id, b.upgraded, b.specialData, b.cost, b.costForTurn, b.uniqueId);
         });
-        java::Collections::shuffle(bc.cards.drawPile.begin(), bc.cards.drawPile.end(), java::Random(next()));
+        java::Collections::shuffle(sampled.cards.drawPile.begin(), sampled.cards.drawPile.end(), java::Random(next()));
     }
-    sts::search::PublicBeliefCombatSearch::resampleDraw(bc, observed, draw_seed);
-    return bc;
+    sts::search::PublicBeliefCombatSearch::resampleDraw(sampled, observed, draw_seed);
+    return sampled;
 }
 
-void play_fight(const Options& options, std::uint64_t episode, std::uint64_t seed,
-                const stsrl::scenarios::SlimeEntryProjection& entry) {
-    std::mt19937_64 explore(seed ^ 0xe9510ULL);  // random-move stream, derived from combat_seed
-    const auto random_at = options.random_window
-        ? std::uniform_int_distribution<std::uint64_t>(0, options.random_window - 1)(explore) : UINT64_MAX;
-    auto env = stsrl::scenarios::slime_entry_projection(entry, seed);
-    const auto fight_start = std::chrono::steady_clock::now();
-    std::vector<nlohmann::json> rows, child_rows;
-    int decision = 0, random_moves = 0;
-    std::int64_t fight_simulations = 0;
-    while (!env.done()) {
-        const auto decision_start = std::chrono::steady_clock::now();
-        auto d = env.decision();
-        const auto& observed = env.battle();
-        const auto public_seed = sts::search::PublicBeliefCombatSearch::publicObservation(observed);
-        std::vector<sts::BattleContext> states;
-        auto particle_seed = public_seed;
-        for (int i = 0; i < options.particles; ++i) states.push_back(particle(observed, next_particle_seed(particle_seed)));
-        sts::search::PublicBeliefCombatSearch search(std::move(states), public_seed, 2);
-        search.maximumActions = options.max_actions;
-        const auto used = stsrl::run_teacher_search(search, options.simulations, d.legal_actions.size(), options.early_stop);
-        fight_simulations += used;
-        auto legal_index = [&](sts::search::Action action) {
-            const auto bits = sts::search::PublicBeliefCombatSearch::mapAction(search.particles.front(), action, observed).bits;
-            for (std::size_t i = 0; i < d.legal_actions.size(); ++i) if (env.action_bits(i) == bits) return i;
-            throw std::runtime_error("teacher action not in legal set");
-        };
-        std::size_t chosen = legal_index(search.selectedAction());
-        nlohmann::json actions = nlohmann::json::array();
-        double value_sum = 0;
-        struct Tried { std::size_t index; std::int64_t visits; double q; };
-        std::vector<Tried> tried;
-        for (const auto& e : search.root().edges) {
-            value_sum += e.valueSum;
-            if (e.visits == 0) continue;
-            const auto i = legal_index(e.action);
-            actions.push_back({{"action", i}, {"description", env.action_description(i)},
-                               {"visits", e.visits}, {"mean_value", e.valueSum / e.visits}});
-            tried.push_back({i, static_cast<std::int64_t>(e.visits), e.valueSum / e.visits});
-        }
-        const auto root_visits = search.root().visits;
-        const bool was_random = static_cast<std::uint64_t>(decision) == random_at;
-        if (was_random) {
-            chosen = std::uniform_int_distribution<std::size_t>(0, d.legal_actions.size() - 1)(explore);
-            ++random_moves;
-        }
-        nlohmann::json row = d.encoding;
-        row["episode_id"] = episode; row["decision_index"] = decision; row["turn"] = observed.turn;
-        row["entry_id"] = entry.entry_id; row["deck_signature"] = entry.deck_signature; row["combat_seed"] = seed;
-        row["starting_hp"] = entry.hp; row["starting_max_hp"] = entry.max_hp;
-        row["actions"] = std::move(actions); row["chosen_action"] = chosen; row["was_random"] = was_random;
-        row["root_value"] = root_visits ? value_sum / root_visits : 0.0;
-        row["row_kind"] = "decision"; row["parent_action"] = -1; row["simulations_used"] = used;
-        // Child rows: positions search asks about but the teacher did not play, labelled by the
-        // teacher's mean value for that move. Applied to the true state; only the public encoding is kept.
-        for (const auto& t : tried) {
-            if (options.child_min_visits <= 0 || t.index == chosen || t.visits < options.child_min_visits) continue;
-            stsrl::CombatEnvironment child{observed};
-            (void)child.decision();
-            child.step(t.index);
-            if (child.done()) continue;  // terminal values are exact in search; no label needed
-            nlohmann::json c = child.decision().encoding;
-            c["episode_id"] = episode; c["decision_index"] = decision; c["turn"] = child.battle().turn;
-            c["entry_id"] = entry.entry_id; c["deck_signature"] = entry.deck_signature; c["combat_seed"] = seed;
-            c["starting_hp"] = entry.hp; c["starting_max_hp"] = entry.max_hp;
-            c["actions"] = nlohmann::json::array(); c["chosen_action"] = -1; c["was_random"] = false;
-            c["root_value"] = t.q; c["row_kind"] = "child"; c["parent_action"] = t.index;
-            c["simulations_used"] = 0;
-            child_rows.push_back(std::move(c));
-        }
+sts::search::PublicBeliefCombatSearch make_search(const sts::BattleContext& observed) {
+    const auto public_seed = sts::search::PublicBeliefCombatSearch::publicObservation(observed);
+    auto stream = public_seed;
+    std::vector<sts::BattleContext> states;
+    states.reserve(particles);
+    for (int i = 0; i < particles; ++i) states.push_back(sample_particle(observed, next_seed(stream)));
+    sts::search::PublicBeliefCombatSearch search{std::move(states), public_seed, 2};
+    search.maximumActions = max_actions;
+    return search;
+}
+
+std::size_t legal_index(const stsrl::CombatEnvironment& env, std::size_t count,
+                        const sts::search::PublicBeliefCombatSearch& search, sts::search::Action action) {
+    const auto bits = sts::search::PublicBeliefCombatSearch::mapAction(
+        search.particles.front(), action, env.battle()).bits;
+    for (std::size_t i = 0; i < count; ++i)
+        if (env.action_bits(i) == bits) return i;
+    throw std::runtime_error{"search action is not legal in the real battle"};
+}
+
+struct TriedAction {
+    std::size_t index;
+    std::int64_t visits;
+    double value;
+};
+
+struct SearchDecision {
+    Json actions = Json::array();
+    std::vector<TriedAction> tried;
+    std::size_t chosen;
+    double value;
+    std::int64_t used;
+};
+
+SearchDecision search_decision(const stsrl::CombatEnvironment& env, std::size_t legal_count) {
+    auto search = make_search(env.battle());
+    SearchDecision result;
+    result.used = stsrl::run_teacher_search(search, simulations, legal_count, true);
+    result.chosen = legal_index(env, legal_count, search, search.selectedAction());
+    double value_sum = 0;
+    for (const auto& edge : search.root().edges) {
+        value_sum += edge.valueSum;
+        if (!edge.visits) continue;
+        const auto index = legal_index(env, legal_count, search, edge.action);
+        const auto mean = edge.valueSum / edge.visits;
+        result.actions.push_back({{"action", index}, {"description", env.action_description(index)},
+                                  {"visits", edge.visits}, {"mean_value", mean}});
+        result.tried.push_back({index, static_cast<std::int64_t>(edge.visits), mean});
+    }
+    result.value = search.root().visits ? value_sum / search.root().visits : 0.0;
+    return result;
+}
+
+void set_identity(Json& row, std::uint64_t seed, int decision, int turn, int starting_hp, int max_hp) {
+    row["episode_id"] = static_cast<std::int64_t>(seed);
+    row["decision_index"] = decision;
+    row["turn"] = turn;
+    row["entry_id"] = nullptr; // This is a full run, not a saved boss-entry projection.
+    row["deck_signature"] = nullptr;
+    row["combat_seed"] = seed;
+    row["starting_hp"] = starting_hp;
+    row["starting_max_hp"] = max_hp;
+}
+
+void record_children(std::vector<Json>& rows, const stsrl::CombatEnvironment& env,
+                     const SearchDecision& decision, std::uint64_t seed, int index, int hp, int max_hp) {
+    for (const auto& tried : decision.tried) {
+        if (tried.index == decision.chosen || tried.visits < child_min_visits) continue;
+        stsrl::CombatEnvironment child{env.battle()};
+        (void)child.decision();
+        child.step(tried.index);
+        if (child.done()) continue;
+        Json row = child.decision().encoding;
+        set_identity(row, seed, index, child.battle().turn, hp, max_hp);
+        row["actions"] = Json::array();
+        row["chosen_action"] = -1;
+        row["was_random"] = false;
+        row["root_value"] = tried.value;
+        row["row_kind"] = "child";
+        row["parent_action"] = tried.index;
+        row["simulations_used"] = 0;
         rows.push_back(std::move(row));
-        env.step(chosen);
-        std::cerr << "hb episode=" << episode << " decision=" << decision << " turn=" << observed.turn
-                  << " sims=" << used << " secs="
-                  << std::chrono::duration<double>(std::chrono::steady_clock::now() - decision_start).count()
-                  << std::endl;
-        ++decision;
     }
-    const auto seconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - fight_start).count();
-    const bool won = env.won();
-    const int hp = env.player_hp(), max_hp = env.player_max_hp(), potions = env.battle().potionCount;
-    // sts_ml PublicBeliefCombatSearch::scorePrediction with default weights.
-    const double terminal_value = won ? (35.0 + hp + 4.0 * potions) / (55.0 + max_hp) : 0.0;
-    for (auto& c : child_rows) rows.push_back(std::move(c));  // after the fight's decision rows
-    nlohmann::json fight = {{"episode_id", episode}, {"won", won}, {"rows", nlohmann::json::array()}};
-    for (auto& row : rows) {
-        row["won"] = won; row["final_hp"] = hp; row["potions"] = potions; row["terminal_value"] = terminal_value;
-        fight["rows"].push_back(std::move(row));
-    }
-    const auto packed = nlohmann::json::to_msgpack(fight);
-    std::cout.write(reinterpret_cast<const char*>(packed.data()), static_cast<std::streamsize>(packed.size()));
-    std::cout.flush();
-    std::cerr << "fight episode=" << episode << " won=" << won << " hp=" << hp << "/" << max_hp
-              << " potions=" << potions << " decisions=" << decision << " rows=" << rows.size()
-              << " sims=" << fight_simulations << " random=" << random_moves << " secs=" << seconds << std::endl;
 }
 
-std::int64_t integer_argument(int argc, char** argv, int index, const char* flag) {
-    if (index >= argc) throw std::invalid_argument(std::string("missing value for ") + flag);
-    return std::stoll(argv[index]);
+Json play_boss(sts::BattleContext battle, std::uint64_t seed) {
+    stsrl::CombatEnvironment env{std::move(battle)};
+    const int starting_hp = env.player_hp(), max_hp = env.player_max_hp();
+    std::mt19937_64 rng(seed ^ 0xe9510ULL);
+    const int random_at = std::uniform_int_distribution<int>{0, random_window - 1}(rng);
+    std::vector<Json> rows, children;
+    int index = 0;
+    while (!env.done()) {
+        auto state = env.decision();
+        auto choice = search_decision(env, state.legal_actions.size());
+        const bool random = index == random_at;
+        if (random) choice.chosen = std::uniform_int_distribution<std::size_t>{0, state.legal_actions.size() - 1}(rng);
+        record_children(children, env, choice, seed, index, starting_hp, max_hp);
+        Json row = state.encoding;
+        set_identity(row, seed, index, env.battle().turn, starting_hp, max_hp);
+        row.update({{"actions", std::move(choice.actions)}, {"chosen_action", choice.chosen},
+                    {"was_random", random}, {"root_value", choice.value}, {"row_kind", "decision"},
+                    {"parent_action", -1}, {"simulations_used", choice.used}});
+        rows.push_back(std::move(row));
+        env.step(choice.chosen);
+        ++index;
+    }
+    for (auto& child : children) rows.push_back(std::move(child));
+    const int hp = env.player_hp(), potions = env.battle().potionCount;
+    const double terminal = env.won() ? (35.0 + hp + 4.0 * potions) / (55.0 + max_hp) : 0.0;
+    for (auto& row : rows) row.update({{"won", env.won()}, {"final_hp", hp},
+                                       {"potions", potions}, {"terminal_value", terminal}});
+    return {{"seed", seed}, {"status", "boss_fight"}, {"won", env.won()}, {"rows", rows}};
 }
 
-}  // namespace
+std::uint64_t parse_seed(std::string_view text) {
+    std::uint64_t seed{};
+    const auto [end, error] = std::from_chars(text.data(), text.data() + text.size(), seed);
+    if (error != std::errc{} || end != text.data() + text.size())
+        throw std::invalid_argument{"SEED must be an unsigned integer"};
+    return seed;
+}
 
-int main(int argc, char** argv) {
-    Options options;
-    for (int i = 1; i < argc; ++i) {
-        const std::string flag = argv[i];
-        if (flag == "--simulations") options.simulations = integer_argument(argc, argv, ++i, "--simulations");
-        else if (flag == "--max-actions") options.max_actions = static_cast<int>(integer_argument(argc, argv, ++i, "--max-actions"));
-        else if (flag == "--random-window") options.random_window = static_cast<std::uint64_t>(integer_argument(argc, argv, ++i, "--random-window"));
-        else if (flag == "--child-min-visits") options.child_min_visits = integer_argument(argc, argv, ++i, "--child-min-visits");
-        else if (flag == "--particles") options.particles = static_cast<int>(integer_argument(argc, argv, ++i, "--particles"));
-        else if (flag == "--no-early-stop") options.early_stop = false;
-        else {
-            std::cerr << "usage: bootstrap_fight_worker [--simulations N] [--max-actions N] [--random-window N]"
-                         " [--child-min-visits N] [--particles N] [--no-early-stop]   (jobs on stdin)\n";
-            return 2;
-        }
+void write_result(const fs::path& directory, const Json& result) {
+    const auto bytes = Json::to_msgpack(result);
+    const auto path = directory / "fight.msgpack";
+    std::ofstream output{path, std::ios::binary};
+    if (!output.write(reinterpret_cast<const char*>(bytes.data()), static_cast<std::streamsize>(bytes.size())))
+        throw std::runtime_error{"failed to write " + path.string()};
+    output.close();
+    if (!output) throw std::runtime_error{"failed to close " + path.string()};
+}
+
+} // namespace
+
+int main(int argc, char* argv[]) {
+    if (argc != 3) {
+        std::cerr << "usage: bootstrap_fight_worker SEED OUTPUT_DIR\n";
+        return 2;
     }
-    std::string line;
-    while (std::getline(std::cin, line)) {
-        if (line.empty()) continue;
-        const auto job = nlohmann::json::parse(line);
-        play_fight(options,
-                   job.at("episode_id").get<std::uint64_t>(),
-                   job.at("combat_seed").get<std::uint64_t>(),
-                   stsrl::scenarios::parse_slime_entry_projection(job.at("entry").dump()));
+    try {
+        const auto seed = parse_seed(argv[1]);
+        const fs::path directory{argv[2]};
+        fs::create_directories(directory);
+        const auto boss = reach_slime_boss(seed);
+        const Json result = boss ? play_boss(*boss, seed)
+                                 : Json{{"seed", seed}, {"status", "no_boss"}, {"rows", Json::array()}};
+        write_result(directory, result);
+        return 0;
+    } catch (const std::exception& error) {
+        std::cerr << "fight worker (seed " << argv[1] << "): " << error.what() << '\n';
+        return 1;
     }
-    return 0;
 }
