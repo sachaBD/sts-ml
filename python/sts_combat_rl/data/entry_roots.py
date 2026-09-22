@@ -49,6 +49,7 @@ COMBAT_SCHEMA = pa.schema(
         ("terminal_value", F32),
         ("row_kind", pa.string()),
         ("parent_action", pa.int32()),
+        ("simulations_used", pa.int64()),
     ]
 )
 PARTITION = Path("act=1/floor=16/encounter=slime_boss")
@@ -187,6 +188,7 @@ def write_combat_run(
             "run_id": run_id,
             "teacher": TEACHER,
             "simulations": simulations,
+            "early_stop": "forced moves get 500 simulations; otherwise stop once the top root move can't be overtaken",
             "max_actions": max_actions,
             "particles": PARTICLES,
             "random_move": f"one per fight, uniformly random legal action at decision U[0, {random_window})",

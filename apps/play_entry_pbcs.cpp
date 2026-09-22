@@ -16,6 +16,7 @@
 #include "game/Random.h"
 #include "scenarios/slime_entry_projection.hpp"
 #include "sim/search/PublicBeliefCombatSearch.h"
+#include "apps/teacher_budget.hpp"
 
 #include <arpa/inet.h>
 
@@ -125,9 +126,12 @@ void neural_search(sts::search::PublicBeliefCombatSearch& search, std::int64_t s
 }  // namespace
 
 int main(int argc, char** argv) {
+    // --no-early-stop (last argument): rollout mode spends the full budget on every decision.
+    const bool early_stop = !(argc > 1 && std::string(argv[argc - 1]) == "--no-early-stop");
+    if (!early_stop) --argc;
     if (argc != 6 && argc != 7) {
         std::cerr << "usage: play_entry_pbcs source.jsonl deck_signature combat_seed rollout|neural|truncated|mixed"
-                     " simulations [turns|lambda]\n";
+                     " simulations [turns|lambda] [--no-early-stop]\n";
         return 2;
     }
     int skipped = 0;
@@ -159,7 +163,7 @@ int main(int argc, char** argv) {
     auto env = stsrl::scenarios::slime_entry_projection(*found, seed);
     const auto start = std::chrono::steady_clock::now();
     int decisions = 0;
-    std::int64_t leaf_evaluations = 0, terminal_evaluations = 0;
+    std::int64_t leaf_evaluations = 0, terminal_evaluations = 0, simulations_used = 0;
     bool timeout = false;
     while (!env.done()) {
         if (env.battle().turn >= max_turns) { timeout = true; break; }
@@ -171,8 +175,12 @@ int main(int argc, char** argv) {
         for (int i = 0; i < particles; ++i) states.push_back(particle(observed, next_particle_seed(particle_seed)));
         sts::search::PublicBeliefCombatSearch search(std::move(states), public_seed, 2);
         search.maximumActions = max_actions;
-        if (mode == "rollout") search.search(simulations);
-        else neural_search(search, simulations, batch, rollout_turns, lambda, leaf_evaluations);
+        if (mode == "rollout") {
+            simulations_used += stsrl::run_teacher_search(search, simulations, d.legal_actions.size(), early_stop);
+        } else {
+            neural_search(search, simulations, batch, rollout_turns, lambda, leaf_evaluations);
+            simulations_used += search.simulations;
+        }
         terminal_evaluations += search.terminalEvaluations;
         const auto bits = sts::search::PublicBeliefCombatSearch::mapAction(
             search.particles.front(), search.selectedAction(), observed).bits;
@@ -189,6 +197,7 @@ int main(int argc, char** argv) {
         {"turns", env.battle().turn},
         {"final_hp", env.player_hp()}, {"max_hp", env.player_max_hp()}, {"potions", env.battle().potionCount},
         {"decisions", decisions}, {"leaf_evaluations", leaf_evaluations}, {"terminal_evaluations", terminal_evaluations},
+        {"simulations_used", simulations_used},
         {"wall_seconds", std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count()},
     });
 }

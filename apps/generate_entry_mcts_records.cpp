@@ -5,6 +5,7 @@
 #include "game/Random.h"
 #include "scenarios/slime_entry_projection.hpp"
 #include "sim/search/PublicBeliefCombatSearch.h"
+#include "apps/teacher_budget.hpp"
 
 #include <algorithm>
 #include <chrono>
@@ -54,8 +55,10 @@ static sts::BattleContext particle(const sts::BattleContext& observed, std::uint
 int main(int argc, char** argv) {
     // Rows follow data/combat/README.md. `max_actions` is the search's maximumActions.
     // Roots are taken with index % worker_count == worker_index; episode ids stay global.
-    if (argc != 10) {
-        std::cerr << "usage: generate_entry_mcts_records input.jsonl simulations max_actions replicates root_limit random_window worker_index worker_count child_min_visits\n";
+    // --no-early-stop: always spend the full budget (forced moves included); for checking.
+    const bool early_stop = !(argc == 11 && std::string(argv[10]) == "--no-early-stop");
+    if (argc != 10 && early_stop) {
+        std::cerr << "usage: generate_entry_mcts_records input.jsonl simulations max_actions replicates root_limit random_window worker_index worker_count child_min_visits [--no-early-stop]\n";
         return 2;
     }
     int skipped = 0;
@@ -82,6 +85,7 @@ int main(int argc, char** argv) {
         auto env = stsrl::scenarios::slime_entry_projection(entry, seed);
         const auto fight_start = std::chrono::steady_clock::now();
         std::vector<nlohmann::json> rows, child_rows; int decision = 0, random_moves = 0;
+        std::int64_t fight_simulations = 0;
         while (!env.done()) {
             auto d = env.decision();
             const auto& observed = env.battle();
@@ -90,7 +94,8 @@ int main(int argc, char** argv) {
             for (int i = 0; i < particles; ++i) states.push_back(particle(observed, next_particle_seed(particle_seed)));
             sts::search::PublicBeliefCombatSearch search(std::move(states), public_seed, 2);
             search.maximumActions = max_actions;
-            search.search(simulations);
+            const auto used = stsrl::run_teacher_search(search, simulations, d.legal_actions.size(), early_stop);
+            fight_simulations += used;
             auto legal_index = [&](sts::search::Action action) {
                 const auto bits = sts::search::PublicBeliefCombatSearch::mapAction(search.particles.front(), action, observed).bits;
                 for (std::size_t i = 0; i < d.legal_actions.size(); ++i) if (env.action_bits(i) == bits) return i;
@@ -121,7 +126,7 @@ int main(int argc, char** argv) {
             row["starting_hp"] = entry.hp; row["starting_max_hp"] = entry.max_hp;
             row["actions"] = std::move(actions); row["chosen_action"] = chosen; row["was_random"] = was_random;
             row["root_value"] = root_visits ? value_sum / root_visits : 0.0;
-            row["row_kind"] = "decision"; row["parent_action"] = -1;
+            row["row_kind"] = "decision"; row["parent_action"] = -1; row["simulations_used"] = used;
             // Child rows: positions search asks about but the teacher did not play, labelled by the
             // teacher's mean value for that move. Applied to the true state; only the public encoding is kept.
             for (const auto& t : tried) {
@@ -136,6 +141,7 @@ int main(int argc, char** argv) {
                 c["starting_hp"] = entry.hp; c["starting_max_hp"] = entry.max_hp;
                 c["actions"] = nlohmann::json::array(); c["chosen_action"] = -1; c["was_random"] = false;
                 c["root_value"] = t.q; c["row_kind"] = "child"; c["parent_action"] = t.index;
+                c["simulations_used"] = 0;
                 child_rows.push_back(std::move(c));
             }
             rows.push_back(std::move(row));
@@ -153,7 +159,7 @@ int main(int argc, char** argv) {
         }
         std::cout.flush();
         std::cerr << "episode " << episode << " won=" << won << " hp=" << hp << "/" << max_hp << " potions=" << potions
-                  << " decisions=" << decision << " random=" << random_moves << " seconds=" << seconds << '\n';
+                  << " decisions=" << decision << " simulations=" << fight_simulations << " random=" << random_moves << " seconds=" << seconds << '\n';
         }
     }
 }
