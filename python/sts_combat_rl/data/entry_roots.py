@@ -93,7 +93,11 @@ def _run_worker(command, part, result, on_episode):
     try:
         episodes, batch, count = {}, [], 0
         with pq.ParquetWriter(part, COMBAT_SCHEMA, compression="zstd") as writer:
-            for row in msgpack.Unpacker(process.stdout, raw=False):
+            # read1 returns whatever is available, so each fight is seen as soon as it is written.
+            unpacker = msgpack.Unpacker(raw=False)
+            rows = (row for chunk in iter(lambda: process.stdout.read1(1 << 16), b"")
+                    for row in (unpacker.feed(chunk), unpacker)[1])
+            for row in rows:
                 if row["decision_index"] != episodes.get(row["episode_id"], (0,))[0]:
                     raise ValueError(f"decision stream broken at episode {row['episode_id']}")
                 if row["decision_index"] == 0:  # the generator emits a fight's rows once it has finished
