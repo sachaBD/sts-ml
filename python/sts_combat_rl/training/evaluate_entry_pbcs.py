@@ -48,7 +48,7 @@ def play(task: dict) -> dict:
         str(task["seed"]),
         task["arm"],
         str(task["simulations"]),
-    ]
+    ] + ([task["param"]] if task["param"] is not None else [])
     process = subprocess.Popen(command, stdin=subprocess.PIPE, stdout=subprocess.PIPE)
     assert process.stdin and process.stdout
     try:
@@ -75,7 +75,8 @@ def play(task: dict) -> dict:
 
 
 def arm_name(r: dict) -> str:
-    return f"{r['mode']}-{r['simulations']}"
+    name = f"{r['mode']}-{r['simulations']}"
+    return name if r.get("param") is None else f"{name}-{r['param']}"
 
 
 def summarize(results: list[dict], baseline: str) -> dict:
@@ -111,7 +112,8 @@ def main() -> None:
     p.add_argument(
         "--arms",
         default="rollout:20000,neural:400",
-        help="comma-separated mode:simulations; the first arm is the paired baseline",
+        help="comma-separated mode:simulations[:param] (truncated:N:turns, mixed:N:lambda); "
+        "the first arm is the paired baseline",
     )
     p.add_argument("--workers", type=int, default=10)
     p.add_argument("--decks", type=int, default=None, help="limit to the first N decks (smoke runs)")
@@ -134,20 +136,24 @@ def main() -> None:
     if episodes.exists():
         done = [json.loads(x) for x in episodes.read_text().splitlines() if x.strip()]
     done_keys = {(arm_name(r), r["deck_signature"], r["seed"]) for r in done}
-    arms = [(m, int(n)) for m, n in (a.split(":") for a in args.arms.split(","))]
+    arms = [
+        {"mode": m, "simulations": int(n), "param": rest[0] if rest else None}
+        for m, n, *rest in (a.split(":") for a in args.arms.split(","))
+    ]
     tasks = [
         {
             "binary": str(args.binary.resolve()),
             "source": str(args.source.resolve()),
             "deck_signature": d,
             "seed": source_seed[d] ^ x,
-            "arm": mode,
-            "simulations": n,
+            "arm": arm["mode"],
+            "simulations": arm["simulations"],
+            "param": arm["param"],
         }
         for d in signatures
         for x in SEED_XORS[: args.seeds]
-        for mode, n in arms
-        if (f"{mode}-{n}", d, source_seed[d] ^ x) not in done_keys
+        for arm in arms
+        if (arm_name(arm), d, source_seed[d] ^ x) not in done_keys
     ]
 
     log = (args.output / "eval.log").open("a", buffering=1)
@@ -162,7 +168,7 @@ def main() -> None:
         f"arms={args.arms} workers={args.workers}"
     )
     results = list(done)
-    counts = {f"{m}-{n}": [0, 0] for m, n in arms}  # [wins, fights] this session
+    counts = {arm_name(a): [0, 0] for a in arms}  # [wins, fights] this session
     start = time.monotonic()
     with episodes.open("a") as out, mp.get_context("spawn").Pool(
         args.workers, initializer=_init_worker, initargs=(str(args.checkpoint),)
@@ -182,7 +188,7 @@ def main() -> None:
                 f"seed={result['seed']} won={int(result['won'])} hp={result['final_hp']}/{result['max_hp']} "
                 f"fight_s={result['wall_seconds']:.0f} wins: {wins} elapsed={elapsed / 60:.1f}m eta={eta / 60:.1f}m"
             )
-    baseline = f"{arms[0][0]}-{arms[0][1]}"
+    baseline = arm_name(arms[0])
     say(f"summary (baseline {baseline}) " + json.dumps(summarize(results, baseline), sort_keys=True))
 
 

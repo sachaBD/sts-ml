@@ -6,6 +6,11 @@
 //            net via requestBatch/submit. Leaves are sent in batches over stdout as
 //            framed msgpack {"type":"leaves","states":[encoding...]}; the controller
 //            answers with one big-endian float32 per state on stdin.
+//   truncated: like neural, but each new leaf first plays the search's guided rollout for
+//            up to <param> turn increments (default 1); a fight that ends there is scored
+//            exactly, otherwise the net scores the stopping state.
+//   mixed:   like neural, but each leaf value is lambda*V(leaf) + (1-lambda)*score of one
+//            full guided rollout from the leaf (AlphaGo 2016); <param> is lambda (default 0.5).
 // The final result is written as a framed msgpack {"type":"result", ...}.
 #include "combat/BattleContext.h"
 #include "game/Random.h"
@@ -68,11 +73,31 @@ void write_frame(const nlohmann::json& message) {
     if (!std::cout) throw std::runtime_error{"failed to write frame"};
 }
 
+// Same as PublicBeliefCombatSearch::boundedRollout + terminalValue (objective mode 0) with
+// no turn limit: the search's guided rollout to the end, scored exactly; unfinished scores 0.
+double full_rollout_score(sts::search::PublicBeliefCombatSearch& search, sts::BattleContext state) {
+    sts::search::BattleScumSearcher2::Node temporary;
+    for (int step = 0; step < search.maximumActions && state.outcome == sts::Outcome::UNDECIDED; ++step) {
+        temporary.edges.clear();
+        search.rollout.enumerateActionsForNode(temporary, state);
+        if (temporary.edges.empty()) throw std::runtime_error("empty public rollout support");
+        const auto choice = search.rollout.selectRolloutAction(temporary, state);
+        temporary.edges[choice].action.execute(state);
+    }
+    if (state.unsupportedEffectKind != sts::UnsupportedEffectKind::NONE)
+        throw std::runtime_error("unsupported effect in mixed rollout");
+    if (state.outcome == sts::Outcome::UNDECIDED) return 0.0;
+    return std::clamp(sts::search::BattleScumSearcher2::evaluateEndState(state) / search.normalization, -0.1, 2.0);
+}
+
 // Scores every pending leaf with the net, one round trip per batch.
+//   rollout_turns: guided-rollout turn increments before a leaf is left pending (truncated).
+//   lambda: weight on the net value; below 1 it is mixed with one full rollout (mixed).
 void neural_search(sts::search::PublicBeliefCombatSearch& search, std::int64_t simulations, int batch,
-                   std::int64_t& leaf_evaluations) {
+                   int rollout_turns, double lambda, std::int64_t& leaf_evaluations) {
     while (search.simulations < simulations) {
-        const auto ids = search.requestBatch(batch, simulations, 0, 0);
+        const auto ids = search.requestBatch(batch, simulations, rollout_turns,
+                                             rollout_turns > 0 ? search.maximumActions : 0);
         if (ids.empty()) continue;  // every simulation in this batch hit a terminal state
         nlohmann::json states = nlohmann::json::array();
         for (const auto id : ids) {
@@ -81,13 +106,17 @@ void neural_search(sts::search::PublicBeliefCombatSearch& search, std::int64_t s
             states.push_back(leaf.decision().encoding);
         }
         write_frame({{"type", "leaves"}, {"states", std::move(states)}});
-        for (const auto id : ids) {
+        std::vector<double> rollout_scores;  // computed while the controller runs the net
+        if (lambda < 1.0)
+            for (const auto id : ids) rollout_scores.push_back(full_rollout_score(search, search.pending.at(id).state));
+        for (std::size_t i = 0; i < ids.size(); ++i) {
+            const auto id = ids[i];
             std::uint32_t bits{};
             if (!std::cin.read(reinterpret_cast<char*>(&bits), sizeof(bits)))
                 throw std::runtime_error{"missing leaf value"};
             const double value = std::clamp(static_cast<double>(std::bit_cast<float>(ntohl(bits))), 0.0, 2.0);
             if (!std::isfinite(value)) throw std::runtime_error{"non-finite leaf value"};
-            search.submit(id, value);
+            search.submit(id, lambda < 1.0 ? lambda * value + (1.0 - lambda) * rollout_scores[i] : value);
         }
         leaf_evaluations += static_cast<std::int64_t>(ids.size());
     }
@@ -96,8 +125,9 @@ void neural_search(sts::search::PublicBeliefCombatSearch& search, std::int64_t s
 }  // namespace
 
 int main(int argc, char** argv) {
-    if (argc != 6) {
-        std::cerr << "usage: play_entry_pbcs source.jsonl deck_signature combat_seed rollout|neural simulations\n";
+    if (argc != 6 && argc != 7) {
+        std::cerr << "usage: play_entry_pbcs source.jsonl deck_signature combat_seed rollout|neural|truncated|mixed"
+                     " simulations [turns|lambda]\n";
         return 2;
     }
     int skipped = 0;
@@ -108,8 +138,17 @@ int main(int argc, char** argv) {
     if (found == entries.end()) throw std::invalid_argument{"deck signature not found"};
     const auto seed = std::stoull(argv[3]);
     const std::string mode = argv[4];
-    if (mode != "rollout" && mode != "neural") throw std::invalid_argument{"mode must be rollout or neural"};
+    if (mode != "rollout" && mode != "neural" && mode != "truncated" && mode != "mixed")
+        throw std::invalid_argument{"mode must be rollout, neural, truncated or mixed"};
     const auto simulations = std::stoll(argv[5]);
+    const bool hybrid = mode == "truncated" || mode == "mixed";
+    if (argc == 7 && !hybrid) throw std::invalid_argument{"only truncated and mixed take a parameter"};
+    const double param = argc == 7 ? std::stod(argv[6]) : mode == "truncated" ? 1.0 : 0.5;
+    const int rollout_turns = mode == "truncated" ? static_cast<int>(param) : 0;
+    const double lambda = mode == "mixed" ? param : 1.0;
+    if (mode == "truncated" && (rollout_turns < 0 || rollout_turns != param))
+        throw std::invalid_argument{"turns must be a non-negative integer"};
+    if (!(lambda >= 0.0 && lambda <= 1.0)) throw std::invalid_argument{"lambda must be in [0, 1]"};
     constexpr int particles = 8;       // as generate_entry_mcts_records
     constexpr int max_actions = 512;   // as the gen0 data run
     constexpr int batch = 64;
@@ -120,7 +159,7 @@ int main(int argc, char** argv) {
     auto env = stsrl::scenarios::slime_entry_projection(*found, seed);
     const auto start = std::chrono::steady_clock::now();
     int decisions = 0;
-    std::int64_t leaf_evaluations = 0;
+    std::int64_t leaf_evaluations = 0, terminal_evaluations = 0;
     bool timeout = false;
     while (!env.done()) {
         if (env.battle().turn >= max_turns) { timeout = true; break; }
@@ -133,7 +172,8 @@ int main(int argc, char** argv) {
         sts::search::PublicBeliefCombatSearch search(std::move(states), public_seed, 2);
         search.maximumActions = max_actions;
         if (mode == "rollout") search.search(simulations);
-        else neural_search(search, simulations, batch, leaf_evaluations);
+        else neural_search(search, simulations, batch, rollout_turns, lambda, leaf_evaluations);
+        terminal_evaluations += search.terminalEvaluations;
         const auto bits = sts::search::PublicBeliefCombatSearch::mapAction(
             search.particles.front(), search.selectedAction(), observed).bits;
         std::size_t chosen = d.legal_actions.size();
@@ -144,10 +184,11 @@ int main(int argc, char** argv) {
     }
     write_frame({
         {"type", "result"}, {"deck_signature", found->deck_signature}, {"source_seed", found->source_seed},
-        {"seed", seed}, {"mode", mode}, {"simulations", simulations}, {"won", !timeout && env.won()}, {"timeout", timeout},
+        {"seed", seed}, {"mode", mode}, {"simulations", simulations},
+        {"param", argc == 7 ? nlohmann::json(argv[6]) : nlohmann::json(nullptr)}, {"won", !timeout && env.won()}, {"timeout", timeout},
         {"turns", env.battle().turn},
         {"final_hp", env.player_hp()}, {"max_hp", env.player_max_hp()}, {"potions", env.battle().potionCount},
-        {"decisions", decisions}, {"leaf_evaluations", leaf_evaluations},
+        {"decisions", decisions}, {"leaf_evaluations", leaf_evaluations}, {"terminal_evaluations", terminal_evaluations},
         {"wall_seconds", std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count()},
     });
 }
