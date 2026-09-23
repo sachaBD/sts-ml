@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run one C++ fight per seed and convert each result to parquet."""
+"""Play one seeded act 1 per seed in C++ (every combat teacher-searched) and write its rows as combat_v3 parquet."""
 import argparse
 import itertools
 import json
@@ -19,23 +19,23 @@ from threading import Event, Lock, Thread, current_thread
 import msgpack
 import pyarrow as pa
 import pyarrow.parquet as pq
-from schema import COMBAT_V2
+from schema import COMBAT_V3, NAME
 
 log = logging.getLogger(__name__)
-FIGHT = {"act": 1, "floor": 16, "encounter": "slime_boss"}  # the only fight the worker plays
+STATUSES = ("other_boss", "died", "act_complete")  # what the worker reports per run
 
 
 @dataclass
-class Fight:
+class Run:
     seed: int
     status: str
-    won: bool
+    floor: int
+    fights: int
     rows: int
     seconds: float
 
     def __str__(self):
-        outcome = f"boss {'killed' if self.won else 'survived'}" if self.status == "boss_fight" else self.status
-        return f"seed {self.seed}: {outcome}, {self.rows} rows, {self.seconds:.1f}s"
+        return f"seed {self.seed}: {self.status} on floor {self.floor}, {self.fights} fights, {self.rows} rows, {self.seconds:.1f}s"
 
 
 class Status:
@@ -45,7 +45,8 @@ class Status:
 
     def __init__(self, workers, interval):
         self.workers = workers
-        self.runs = self.boss_fights = self.bosses_killed = self.rows = 0
+        self.runs = self.fights = self.rows = 0
+        self.statuses = dict.fromkeys(STATUSES, 0)
         self.last_finished = {}  # worker thread name -> monotonic time
         self.lock = Lock()
         self.stopped = Event()
@@ -63,31 +64,31 @@ class Status:
         with self.lock:
             self.last_finished[current_thread().name] = time.monotonic()
 
-    def record(self, fight):
+    def record(self, run):
         with self.lock:
             self.runs += 1
-            self.boss_fights += fight.status == "boss_fight"
-            self.bosses_killed += fight.won
-            self.rows += fight.rows
+            self.statuses[run.status] = self.statuses.get(run.status, 0) + 1
+            self.fights += run.fights
+            self.rows += run.rows
             self.last_finished[current_thread().name] = time.monotonic()
-        log.debug("%s", fight)
+        log.debug("%s", run)
 
     def summary(self):
         with self.lock:
-            return {"runs": self.runs, "boss_fights": self.boss_fights,
-                    "bosses_killed": self.bosses_killed, "rows": self.rows}
+            return {"schema": NAME, "runs": self.runs, **self.statuses, "fights": self.fights, "rows": self.rows}
 
     def header(self):
         workers = "".join(f"{f'w{i}':>5}" for i in range(self.workers))
-        return f"{'runs':>7} {'boss kills':>11} {'rows':>10}  {workers}"
+        return f"{'runs':>7} {'other boss':>10} {'died':>6} {'cleared':>7} {'fights':>7} {'rows':>10}  {workers}"
 
     def line(self):
         now = time.monotonic()
         with self.lock:
-            kills = f"{self.bosses_killed}/{self.boss_fights}"
+            s = self.statuses
             since = [f"{now - last:>5.0f}" for last in self.last_finished.values()]
             since += [f"{'-':>5}"] * (self.workers - len(since))
-            return f"{self.runs:>7,} {kills:>11} {self.rows:>10,}  {''.join(since)}"
+            return (f"{self.runs:>7,} {s['other_boss']:>10,} {s['died']:>6,} {s['act_complete']:>7,} "
+                    f"{self.fights:>7,} {self.rows:>10,}  {''.join(since)}")
 
     def report_every(self, interval):
         for count in itertools.count():
@@ -99,16 +100,17 @@ class Status:
 
 
 def to_parquet(msgpack_path, part, seconds):
+    """Rows arrive in play order: by fight_index, then decision rows, then child rows."""
     with msgpack_path.open("rb") as source:
         result = msgpack.unpack(source, raw=False)
-    rows = [{**FIGHT, **row} for row in result["rows"]]
+    rows = result["rows"]
     if rows:
-        pq.write_table(pa.Table.from_pylist(rows, schema=COMBAT_V2), part, compression="zstd")
-    return Fight(result["seed"], result["status"], result.get("won", False), len(rows), seconds)
+        pq.write_table(pa.Table.from_pylist(rows, schema=COMBAT_V3), part, compression="zstd")
+    return Run(result["seed"], result["status"], result["floor"], result["fights"], len(rows), seconds)
 
 
-def fight(seed, binary, ascension, out, status):
-    """One fight -> out/part-<seed>.parquet (no file if the run never reached the boss)."""
+def play(seed, binary, ascension, out, status):
+    """One act 1 -> out/part-<seed>.parquet (no file for a run with no fights, e.g. other_boss)."""
     with tempfile.TemporaryDirectory() as tmp:
         start = time.monotonic()
         subprocess.run([binary, str(seed), str(ascension), tmp], check=True)
@@ -117,16 +119,16 @@ def fight(seed, binary, ascension, out, status):
 
 def generate(config, out):
     run = tomllib.loads(config.read_text())["run"]
-    seeds = itertools.count() if run.get("forever") else range(run["fights"])
+    seeds = itertools.count() if run.get("forever") else range(run["runs"])
     workers = run["workers"]
     start = time.monotonic()
-    log.info("starting %s seeds on %d workers -> %s", "unlimited" if run.get("forever") else run["fights"], workers, out)
+    log.info("starting %s seeds on %d workers -> %s", "unlimited" if run.get("forever") else run["runs"], workers, out)
     log.info("w0..w%d: seconds since that worker last finished a run", workers - 1)
     with Status(workers, run.get("status_seconds", 10)) as status, ThreadPoolExecutor(
             workers, thread_name_prefix="w", initializer=status.worker_started) as pool:
-        play = partial(fight, binary=run["binary"], ascension=run.get("ascension", 1), out=out, status=status)
+        run_seed = partial(play, binary=run["binary"], ascension=run.get("ascension", 1), out=out, status=status)
         for batch in batched(seeds, workers):
-            for _ in pool.map(play, batch):
+            for _ in pool.map(run_seed, batch):
                 pass
     (out / "summary.json").write_text(json.dumps(status.summary(), indent=2) + "\n")
     log.info("%s", status.header())

@@ -1,5 +1,7 @@
-// One seeded Ironclad run. SimpleAgent plays to the Act-1 Slime Boss;
-// public-belief search teaches the boss fight. Output: OUTPUT_DIR/fight.msgpack.
+// One seeded Ironclad act 1 (combat_v3, see apps/bootstrap/schema.py). Runs whose act 1 boss isn't
+// Slime Boss stop at game creation. SimpleAgent plays everything out of combat; public-belief search
+// teaches (plays and records) every combat until death or the boss is beaten.
+// Output: OUTPUT_DIR/fight.msgpack = {seed, status, floor, fights, rows}.
 #include "apps/teacher_budget.hpp"
 #include "combat/environment.hpp"
 #include "combat/BattleContext.h"
@@ -17,7 +19,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iostream>
-#include <optional>
+#include <cctype>
 #include <random>
 #include <stdexcept>
 #include <string>
@@ -36,28 +38,6 @@ constexpr int particles = 8;
 constexpr int max_actions = 512;
 constexpr std::int64_t child_min_visits = 50;
 constexpr int random_window = 24;
-
-std::optional<sts::BattleContext> reach_slime_boss(std::uint64_t seed, int ascension) {
-    sts::GameContext game{sts::CharacterClass::IRONCLAD, seed, ascension};
-    if (game.boss != sts::MonsterEncounter::SLIME_BOSS) return std::nullopt;  // act 1 boss is fixed at game creation
-    sts::search::SimpleAgent agent;
-    agent.curGameContext = &game;
-    while (game.outcome == sts::GameOutcome::UNDECIDED && game.act == 1) {
-        if (game.screenState != sts::ScreenState::BATTLE) {
-            agent.stepOutOfCombat(game);
-            continue;
-        }
-        sts::BattleContext battle;
-        battle.init(game);
-        if (game.curRoom == sts::Room::BOSS) {
-            if (battle.encounter == sts::MonsterEncounter::SLIME_BOSS) return battle;
-            return std::nullopt;
-        }
-        agent.playoutBattle(battle);
-        battle.exitBattle(game);
-    }
-    return std::nullopt;
-}
 
 std::uint64_t next_seed(std::uint64_t& state) {
     state += 0x9E3779B97F4A7C15ULL;
@@ -143,19 +123,38 @@ SearchDecision search_decision(const stsrl::CombatEnvironment& env, std::size_t 
     return result;
 }
 
-void set_identity(Json& row, std::uint64_t seed, int decision, int turn, int starting_hp, int max_hp) {
-    row["episode_id"] = static_cast<std::int64_t>(seed);
-    row["decision_index"] = decision;
-    row["turn"] = turn;
-    row["entry_id"] = nullptr; // This is a full run, not a saved boss-entry projection.
-    row["deck_signature"] = nullptr;
-    row["combat_seed"] = seed;
-    row["starting_hp"] = starting_hp;
-    row["starting_max_hp"] = max_hp;
+// easy / hard: act 1 hallway pools; event: a fight started by an event ("?" room).
+std::string category(const sts::GameContext& game, sts::MonsterEncounter encounter) {
+    namespace pool = sts::MonsterEncounterPool;
+    if (game.curRoom == sts::Room::BOSS) return "boss";
+    if (game.curRoom == sts::Room::ELITE) return "elite";
+    if (game.curRoom == sts::Room::MONSTER) {
+        const auto act = game.act - 1;
+        const auto in = [&](const auto* list, int count) { return std::find(list, list + count, encounter) != list + count; };
+        if (in(pool::weakEnemies[act], pool::weakCount[act])) return "easy";
+        if (in(pool::strongEnemies[act], pool::strongCount[act])) return "hard";
+    }
+    return "event";
+}
+
+std::string encounter_name(sts::MonsterEncounter encounter) {
+    std::string name = sts::monsterEncounterEnumNames[static_cast<int>(encounter)];
+    for (auto& c : name) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    return name;
+}
+
+// Columns shared by every row of one fight.
+Json fight_columns(const sts::GameContext& game, const sts::BattleContext& battle, std::uint64_t seed,
+                   int fight_index) {
+    return {{"run_seed", seed}, {"episode_id", static_cast<std::int64_t>(seed) * 100 + fight_index},
+            {"fight_index", fight_index}, {"act", game.act}, {"floor", game.floorNum},
+            {"encounter", encounter_name(battle.encounter)}, {"category", category(game, battle.encounter)},
+            {"ascension", game.ascension}, {"starting_hp", battle.player.curHp},
+            {"starting_max_hp", battle.player.maxHp}};
 }
 
 void record_children(std::vector<Json>& rows, const stsrl::CombatEnvironment& env,
-                     const SearchDecision& decision, std::uint64_t seed, int index, int hp, int max_hp) {
+                     const SearchDecision& decision, const Json& fight, int index) {
     for (const auto& tried : decision.tried) {
         if (tried.index == decision.chosen || tried.visits < child_min_visits) continue;
         stsrl::CombatEnvironment child{env.battle()};
@@ -163,46 +162,70 @@ void record_children(std::vector<Json>& rows, const stsrl::CombatEnvironment& en
         child.step(tried.index);
         if (child.done()) continue;
         Json row = child.decision().encoding;
-        set_identity(row, seed, index, child.battle().turn, hp, max_hp);
-        row["actions"] = Json::array();
-        row["chosen_action"] = -1;
-        row["was_random"] = false;
-        row["root_value"] = tried.value;
-        row["row_kind"] = "child";
-        row["parent_action"] = tried.index;
-        row["simulations_used"] = 0;
+        row.update(fight);
+        row.update({{"decision_index", index}, {"turn", child.battle().turn}, {"actions", Json::array()},
+                    {"chosen_action", -1}, {"was_random", false}, {"root_value", tried.value},
+                    {"row_kind", "child"}, {"parent_action", tried.index}, {"simulations_used", 0}});
         rows.push_back(std::move(row));
     }
 }
 
-Json play_boss(sts::BattleContext battle, std::uint64_t seed) {
+// Teacher plays one fight; its rows are appended to `rows`. Returns the finished battle.
+sts::BattleContext play_fight(sts::BattleContext battle, const Json& fight, std::vector<Json>& rows) {
     stsrl::CombatEnvironment env{std::move(battle)};
-    const int starting_hp = env.player_hp(), max_hp = env.player_max_hp();
-    std::mt19937_64 rng(seed ^ 0xe9510ULL);
+    const int max_hp = env.player_max_hp();
+    std::mt19937_64 rng(fight.at("episode_id").get<std::uint64_t>() ^ 0xe9510ULL);
     const int random_at = std::uniform_int_distribution<int>{0, random_window - 1}(rng);
-    std::vector<Json> rows, children;
+    std::vector<Json> decisions, children;
     int index = 0;
     while (!env.done()) {
         auto state = env.decision();
         auto choice = search_decision(env, state.legal_actions.size());
         const bool random = index == random_at;
         if (random) choice.chosen = std::uniform_int_distribution<std::size_t>{0, state.legal_actions.size() - 1}(rng);
-        record_children(children, env, choice, seed, index, starting_hp, max_hp);
+        record_children(children, env, choice, fight, index);
         Json row = state.encoding;
-        set_identity(row, seed, index, env.battle().turn, starting_hp, max_hp);
-        row.update({{"actions", std::move(choice.actions)}, {"chosen_action", choice.chosen},
-                    {"was_random", random}, {"root_value", choice.value}, {"row_kind", "decision"},
-                    {"parent_action", -1}, {"simulations_used", choice.used}});
-        rows.push_back(std::move(row));
+        row.update(fight);
+        row.update({{"decision_index", index}, {"turn", env.battle().turn}, {"actions", std::move(choice.actions)},
+                    {"chosen_action", choice.chosen}, {"was_random", random}, {"root_value", choice.value},
+                    {"row_kind", "decision"}, {"parent_action", -1}, {"simulations_used", choice.used}});
+        decisions.push_back(std::move(row));
         env.step(choice.chosen);
         ++index;
     }
-    for (auto& child : children) rows.push_back(std::move(child));
     const int hp = env.player_hp(), potions = env.battle().potionCount;
     const double terminal = env.won() ? (35.0 + hp + 4.0 * potions) / (55.0 + max_hp) : 0.0;
-    for (auto& row : rows) row.update({{"won", env.won()}, {"final_hp", hp},
-                                       {"potions", potions}, {"terminal_value", terminal}});
-    return {{"seed", seed}, {"status", "boss_fight"}, {"won", env.won()}, {"rows", rows}};
+    const Json outcome = {{"won", env.won()}, {"final_hp", hp}, {"potions", potions}, {"terminal_value", terminal}};
+    for (auto* part : {&decisions, &children})
+        for (auto& row : *part) {
+            row.update(outcome);
+            rows.push_back(std::move(row));
+        }
+    return env.battle();
+}
+
+Json play_run(std::uint64_t seed, int ascension) {
+    sts::GameContext game{sts::CharacterClass::IRONCLAD, seed, ascension};
+    if (game.boss != sts::MonsterEncounter::SLIME_BOSS)  // act 1 boss is fixed at game creation
+        return {{"seed", seed}, {"status", "other_boss"}, {"floor", 0}, {"fights", 0}, {"rows", Json::array()}};
+    sts::search::SimpleAgent agent;
+    agent.curGameContext = &game;
+    std::vector<Json> rows;
+    int fights = 0;
+    bool boss_beaten = false;
+    while (game.outcome == sts::GameOutcome::UNDECIDED && game.act == 1 && !boss_beaten) {
+        if (game.screenState != sts::ScreenState::BATTLE) {
+            agent.stepOutOfCombat(game);
+            continue;
+        }
+        sts::BattleContext battle;
+        battle.init(game);
+        const auto end = play_fight(battle, fight_columns(game, battle, seed, fights++), rows);
+        end.exitBattle(game);
+        boss_beaten = game.curRoom == sts::Room::BOSS && game.outcome == sts::GameOutcome::UNDECIDED;
+    }
+    const auto status = boss_beaten ? "act_complete" : game.outcome == sts::GameOutcome::PLAYER_LOSS ? "died" : "stopped";
+    return {{"seed", seed}, {"status", status}, {"floor", game.floorNum}, {"fights", fights}, {"rows", rows}};
 }
 
 std::uint64_t parse_seed(std::string_view text) {
@@ -243,10 +266,7 @@ int main(int argc, char* argv[]) {
         const auto ascension = parse_ascension(argv[2]);
         const fs::path directory{argv[3]};
         fs::create_directories(directory);
-        const auto boss = reach_slime_boss(seed, ascension);
-        const Json result = boss ? play_boss(*boss, seed)
-                                 : Json{{"seed", seed}, {"status", "no_boss"}, {"rows", Json::array()}};
-        write_result(directory, result);
+        write_result(directory, play_run(seed, ascension));
         return 0;
     } catch (const std::exception& error) {
         std::cerr << "fight worker (seed " << argv[1] << "): " << error.what() << '\n';

@@ -9,7 +9,8 @@ if (($# < 1 || $# > 2)) || { (($# == 2)) && [[ $2 != --scratch ]]; }; then
 fi
 config=$(realpath "$1")
 id=$(.venv/bin/python -c 'import sys, tomllib; print(tomllib.load(open(sys.argv[1], "rb"))["run"]["id"])' "$config")
+schema=$(PYTHONPATH=apps/bootstrap .venv/bin/python -c 'import schema; print(schema.NAME)')  # apps/bootstrap/schema.py
 run_args=(--live)
 if [[ ${2:-} == --scratch ]]; then run_args+=(--scratch); fi
-PYTHONPATH="$PWD/python${PYTHONPATH:+:$PYTHONPATH}" exec .venv/bin/python -m sts_combat_rl.run combat_v2 "$id" "${run_args[@]}" -- \
+PYTHONPATH="$PWD/python${PYTHONPATH:+:$PYTHONPATH}" exec .venv/bin/python -m sts_combat_rl.run "$schema" "$id" "${run_args[@]}" -- \
     apps/bootstrap/job.sh "$config" --out '{out}'

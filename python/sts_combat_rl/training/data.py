@@ -7,7 +7,6 @@ from pathlib import Path
 from typing import Any
 
 import pyarrow.dataset as ds
-import pyarrow.parquet as pq
 import torch
 from torch.utils.data import Dataset
 
@@ -59,31 +58,50 @@ def validate_rows(rows: list[dict[str, Any]]) -> None:
 def episode_split(
     rows: list[dict[str, Any]], validation_fraction: float = 0.2, seed: int = 0
 ):
-    episode_ids = sorted({row["episode_id"] for row in rows})
-    shuffled = episode_ids[:]
+    """Split by run (combat_v3 run_seed; else episode_id) so one run's fights never land on both sides.
+
+    Returns train rows, validation rows, train episode_ids, validation episode_ids.
+    """
+    group = lambda r: r.get("run_seed", r["episode_id"])
+    groups = sorted({group(row) for row in rows})
+    shuffled = groups[:]
     random.Random(seed).shuffle(shuffled)
     validation_count = (
-        max(1, round(len(episode_ids) * validation_fraction))
-        if len(episode_ids) > 1
-        else 0
+        max(1, round(len(groups) * validation_fraction)) if len(groups) > 1 else 0
     )
-    validation_ids = set(shuffled[:validation_count])
+    validation_groups = set(shuffled[:validation_count])
+    train = [r for r in rows if group(r) not in validation_groups]
+    valid = [r for r in rows if group(r) in validation_groups]
     return (
-        [r for r in rows if r["episode_id"] not in validation_ids],
-        [r for r in rows if r["episode_id"] in validation_ids],
-        sorted(set(episode_ids) - validation_ids),
-        sorted(validation_ids),
+        train,
+        valid,
+        sorted({r["episode_id"] for r in train}),
+        sorted({r["episode_id"] for r in valid}),
     )
 
 
-def load_rows(path: str | Path, limit: int | None = None) -> list[dict[str, Any]]:
-    """Load one Parquet shard, or every part in a run's out/ directory."""
+def load_rows(
+    path: str | Path,
+    limit: int | None = None,
+    categories: list[str] | None = None,
+    encounters: list[str] | None = None,
+) -> list[dict[str, Any]]:
+    """Load one Parquet shard, or every part in a run's out/ directory.
+
+    categories / encounters keep only matching combat_v3 rows, e.g. ["boss"] / ["slime_boss"].
+    """
     if Path(path).is_dir():
-        table = ds.dataset(
+        dataset = ds.dataset(
             path, format="parquet", partitioning="hive", exclude_invalid_files=True
-        ).to_table()
+        )
     else:
-        table = pq.read_table(path)
+        dataset = ds.dataset(path, format="parquet")
+    keep = None
+    for column, values in (("category", categories), ("encounter", encounters)):
+        if values:
+            match = ds.field(column).isin(values)
+            keep = match if keep is None else keep & match
+    table = dataset.to_table(filter=keep)
     rows = table.slice(0, limit).to_pylist() if limit else table.to_pylist()
     validate_rows(rows)
     return rows

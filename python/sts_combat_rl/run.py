@@ -31,13 +31,13 @@ If the job writes out/summary.json, it is merged into run.json as "summary".
 Exit code of the job is returned. Status ends as "done" (exit 0) or "failed".
 
 examples:
-  ./apps/bootstrap/run.sh apps/bootstrap/slime.toml [--scratch]
+  ./apps/bootstrap/run.sh apps/bootstrap/act1.toml [--scratch]
   PYTHONPATH=python .venv/bin/python -m sts_combat_rl.run value_net_v1 gen1-value \\
       --input combat_v2/2026-09-23/slime-gen1 -- python -m sts_combat_rl.training.train_value ...
   PYTHONPATH=python .venv/bin/python -m sts_combat_rl.run episodes_v1 quick-check --scratch -- ...
 
 query with duckdb:
-  SELECT * FROM read_parquet('runs/schema=combat_v2/*/*/out/*.parquet', hive_partitioning = true, union_by_name = true);
+  SELECT * FROM read_parquet('runs/schema=combat_v3/*/*/out/*.parquet', hive_partitioning = true, union_by_name = true);
   SELECT * FROM read_json('runs/*/*/*/run.json');
 
 full contract for jobs, schemas and columns: runs/README.md
@@ -83,7 +83,7 @@ def write_json(path: Path, data: dict) -> None:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="python -m sts_combat_rl.run", description=HELP, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("schema", help="what the run produces, e.g. combat_v2, value_net_v1, episodes_v1 (runs/README.md)")
+    parser.add_argument("schema", help="what the run produces, e.g. combat_v3, value_net_v1, episodes_v1 (runs/README.md)")
     parser.add_argument("id", help="short lowercase free text, e.g. slime-pbcs20k-gen1 ([a-z0-9_.-])")
     parser.add_argument("--input", action="append", default=[], metavar="RUN_ID|PATH", help="run this job reads from (repeatable); recorded as lineage")
     parser.add_argument("--scratch", action="store_true", help="smoke/preflight/probe: put in scratch/ (never queried, safe to delete)")
