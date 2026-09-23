@@ -81,7 +81,7 @@ class Status:
 
     def header(self):
         workers = "".join(f"{f'w{i}':>5}" for i in range(self.workers))
-        return f"{'runs':>7} {'skipped':>8} {'died':>6} {'reached slime':>13} {'beat slime':>10} {'fights':>7} {'rows':>10}  {workers}"
+        return f"{'runs':>7} {'skipped':>8} {'died':>6} {'boss':>6} {'cleared':>7} {'fights':>7} {'rows':>10}  {workers}"
 
     def line(self):
         now = time.monotonic()
@@ -89,7 +89,7 @@ class Status:
             s = self.statuses
             since = [f"{now - last:>5.0f}" for last in self.last_finished.values()]
             since += [f"{'-':>5}"] * (self.workers - len(since))
-            return (f"{self.runs:>7,} {s['other_boss']:>8,} {s['died']:>6,} {self.bosses:>13,} {s['act_complete']:>10,} "
+            return (f"{self.runs:>7,} {s['other_boss']:>8,} {s['died']:>6,} {self.bosses:>6,} {s['act_complete']:>7,} "
                     f"{self.fights:>7,} {self.rows:>10,}  {''.join(since)}")
 
     def report_every(self, interval):
