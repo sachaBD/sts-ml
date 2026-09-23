@@ -31,6 +31,7 @@ class Run:
     status: str
     floor: int
     fights: int
+    boss: bool  # reached the Slime Boss fight
     rows: int
     seconds: float
 
@@ -45,7 +46,7 @@ class Status:
 
     def __init__(self, workers, interval):
         self.workers = workers
-        self.runs = self.fights = self.rows = 0
+        self.runs = self.fights = self.bosses = self.rows = 0
         self.statuses = dict.fromkeys(STATUSES, 0)
         self.last_finished = {}  # worker thread name -> monotonic time
         self.lock = Lock()
@@ -69,17 +70,18 @@ class Status:
             self.runs += run.status != "other_boss"  # a run = a seed actually played
             self.statuses[run.status] = self.statuses.get(run.status, 0) + 1
             self.fights += run.fights
+            self.bosses += run.boss
             self.rows += run.rows
             self.last_finished[current_thread().name] = time.monotonic()
         log.debug("%s", run)
 
     def summary(self):
         with self.lock:
-            return {"schema": NAME, "runs": self.runs, **self.statuses, "fights": self.fights, "rows": self.rows}
+            return {"schema": NAME, "runs": self.runs, **self.statuses, "slime_fights": self.bosses, "fights": self.fights, "rows": self.rows}
 
     def header(self):
         workers = "".join(f"{f'w{i}':>5}" for i in range(self.workers))
-        return f"{'runs':>7} {'skipped':>8} {'died':>6} {'cleared':>7} {'fights':>7} {'rows':>10}  {workers}"
+        return f"{'runs':>7} {'skipped':>8} {'died':>6} {'slime':>6} {'cleared':>7} {'fights':>7} {'rows':>10}  {workers}"
 
     def line(self):
         now = time.monotonic()
@@ -87,7 +89,7 @@ class Status:
             s = self.statuses
             since = [f"{now - last:>5.0f}" for last in self.last_finished.values()]
             since += [f"{'-':>5}"] * (self.workers - len(since))
-            return (f"{self.runs:>7,} {s['other_boss']:>8,} {s['died']:>6,} {s['act_complete']:>7,} "
+            return (f"{self.runs:>7,} {s['other_boss']:>8,} {s['died']:>6,} {self.bosses:>6,} {s['act_complete']:>7,} "
                     f"{self.fights:>7,} {self.rows:>10,}  {''.join(since)}")
 
     def report_every(self, interval):
@@ -106,7 +108,8 @@ def to_parquet(msgpack_path, part, seconds):
     rows = result["rows"]
     if rows:
         pq.write_table(pa.Table.from_pylist(rows, schema=COMBAT_V3), part, compression="zstd")
-    return Run(result["seed"], result["status"], result["floor"], result["fights"], len(rows), seconds)
+    return Run(result["seed"], result["status"], result["floor"], result["fights"],
+               any(row["category"] == "boss" for row in rows), len(rows), seconds)
 
 
 def play(seed, binary, ascension, out, status):
