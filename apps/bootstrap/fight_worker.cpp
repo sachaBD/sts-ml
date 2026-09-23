@@ -37,8 +37,8 @@ constexpr int max_actions = 512;
 constexpr std::int64_t child_min_visits = 50;
 constexpr int random_window = 24;
 
-std::optional<sts::BattleContext> reach_slime_boss(std::uint64_t seed) {
-    sts::GameContext game{sts::CharacterClass::IRONCLAD, seed, 1};
+std::optional<sts::BattleContext> reach_slime_boss(std::uint64_t seed, int ascension) {
+    sts::GameContext game{sts::CharacterClass::IRONCLAD, seed, ascension};
     if (game.boss != sts::MonsterEncounter::SLIME_BOSS) return std::nullopt;  // act 1 boss is fixed at game creation
     sts::search::SimpleAgent agent;
     agent.curGameContext = &game;
@@ -213,6 +213,14 @@ std::uint64_t parse_seed(std::string_view text) {
     return seed;
 }
 
+int parse_ascension(std::string_view text) {
+    int ascension{};
+    const auto [end, error] = std::from_chars(text.data(), text.data() + text.size(), ascension);
+    if (error != std::errc{} || end != text.data() + text.size() || ascension < 0 || ascension > 20)
+        throw std::invalid_argument{"ASCENSION must be an integer in [0, 20]"};
+    return ascension;
+}
+
 void write_result(const fs::path& directory, const Json& result) {
     const auto bytes = Json::to_msgpack(result);
     const auto path = directory / "fight.msgpack";
@@ -226,15 +234,16 @@ void write_result(const fs::path& directory, const Json& result) {
 } // namespace
 
 int main(int argc, char* argv[]) {
-    if (argc != 3) {
-        std::cerr << "usage: bootstrap_fight_worker SEED OUTPUT_DIR\n";
+    if (argc != 4) {
+        std::cerr << "usage: bootstrap_fight_worker SEED ASCENSION OUTPUT_DIR\n";
         return 2;
     }
     try {
         const auto seed = parse_seed(argv[1]);
-        const fs::path directory{argv[2]};
+        const auto ascension = parse_ascension(argv[2]);
+        const fs::path directory{argv[3]};
         fs::create_directories(directory);
-        const auto boss = reach_slime_boss(seed);
+        const auto boss = reach_slime_boss(seed, ascension);
         const Json result = boss ? play_boss(*boss, seed)
                                  : Json{{"seed", seed}, {"status", "no_boss"}, {"rows", Json::array()}};
         write_result(directory, result);

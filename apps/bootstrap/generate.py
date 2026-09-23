@@ -107,11 +107,11 @@ def to_parquet(msgpack_path, part, seconds):
     return Fight(result["seed"], result["status"], result.get("won", False), len(rows), seconds)
 
 
-def fight(seed, binary, out, status):
+def fight(seed, binary, ascension, out, status):
     """One fight -> out/part-<seed>.parquet (no file if the run never reached the boss)."""
     with tempfile.TemporaryDirectory() as tmp:
         start = time.monotonic()
-        subprocess.run([binary, str(seed), tmp], check=True)
+        subprocess.run([binary, str(seed), str(ascension), tmp], check=True)
         status.record(to_parquet(Path(tmp) / "fight.msgpack", out / f"part-{seed:06d}.parquet", time.monotonic() - start))
 
 
@@ -124,7 +124,7 @@ def generate(config, out):
     log.info("w0..w%d: seconds since that worker last finished a run", workers - 1)
     with Status(workers, run.get("status_seconds", 10)) as status, ThreadPoolExecutor(
             workers, thread_name_prefix="w", initializer=status.worker_started) as pool:
-        play = partial(fight, binary=run["binary"], out=out, status=status)
+        play = partial(fight, binary=run["binary"], ascension=run.get("ascension", 1), out=out, status=status)
         for batch in batched(seeds, workers):
             for _ in pool.map(play, batch):
                 pass
