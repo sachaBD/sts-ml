@@ -3,18 +3,28 @@
 Every job is a run: inputs in, outputs out. All results live here, one directory per run.
 
 ```
-runs/
-  run_id=<YYYY-MM-DD>_<kind>_<name>/
-    run.json      written by the launcher (never by the job)
-    logs/         stdout.log, stderr.log
-    out/          everything the job produces
-  scratch/run_id=.../   smoke / preflight / probe runs, same layout; safe to delete
+runs/schema=<schema>/date=<YYYY-MM-DD>/id=<id>/
+  run.json         written by the launcher (never by the job)
+  logs/            stdout.log, stderr.log
+  out/             everything the job produces; optional summary.json
+scratch/schema=<schema>/date=<YYYY-MM-DD>/id=<id>/   same layout; smoke / preflight / probe runs; safe to delete
 ```
 
-- `kind`: `gen` (training data), `train` (checkpoint), `eval` (episodes / metrics).
+| level | form | rule |
+|---|---|---|
+| root | `runs/` or `scratch/` | `scratch/` is never queried |
+| schema | `schema=<schema>` | what the run produces. Exactly one per run, declared at launch. A schema with no table is valid (no data) |
+| date | `date=<YYYY-MM-DD>` | UTC start date, set by the launcher |
+| id | `id=<id>` | free text, `a-z0-9_.-`, describes the run. Unique within schema + date |
+| run.json | `run.json` | launcher only |
+| logs | `logs/` | the job's stdout and stderr |
+| out | `out/` | the only place the job writes |
+
+- **run_id** is `<schema>/<date>/<id>`, e.g. `combat_v2/2026-09-22/slime-gen0` → `runs/schema=combat_v2/date=2026-09-22/id=slime-gen0/`.
+  It is what `--input`, `inputs` in `run.json` and notes refer to.
 - Runs are never modified after they finish. New results = new run.
-- Scratch runs are outside the `runs/run_id=*` glob, so they never leak into queries.
-- Parquet always sits under `out/schema=<name>/`, so a query names the schema it wants and never mixes layouts.
+- A job that produces two schemas is two runs, the second taking the first as `--input`.
+- `schema`, `date` and `id` come from the path; don't also store them as columns.
 
 ## Starting a run
 
@@ -25,7 +35,7 @@ PYTHONPATH=python .venv/bin/python -m sts_combat_rl.run --help
 
 The launcher creates the directory, writes `run.json` (`status: running`), sends the job's stdout/stderr to
 `logs/`, and on exit sets `status` to `done` / `failed` with `exit_code`. `--input` records lineage (run_ids this
-job read from). `--scratch` puts the run under `runs/scratch/`.
+job read from). `--scratch` puts the run under `scratch/`.
 
 ## Contract for jobs (writers)
 
@@ -39,24 +49,19 @@ A job only has to:
 
 Git state, command, timings, host, and inputs are recorded by the launcher, so jobs don't need to.
 
-### Output layout by kind
+### Tables
 
-- **gen**: hive-partitioned parquet under a schema dir:
-  `out/schema=<schema>/<key>=<value>/.../part-<NNN>.parquet`, e.g.
-  `out/schema=combat_v1/act=1/floor=16/encounter=slime_boss/seed=0/part-000.parquet`.
-  - `schema` names the column layout. Adding a nullable column keeps the name (`union_by_name` fills NULLs);
-    renaming, removing or changing the meaning of a column means a new name (`combat_v2`).
-  - Bootstrap fights also partition by seed: each independent worker writes its own seed directory.
-  - Don't also store `run_id` / `schema` / partition keys as columns; they come from the path.
-  - Several parts per partition are fine (one per worker); aim for ~100 MB to 1 GB per part.
-- **train**: `out/value_checkpoint.pt` (+ `.json` sidecar), metrics on stdout.
-- **eval**: `out/episodes.jsonl` (one JSON object per fight), metrics in `summary.json`.
+- Parquet goes directly in `out/` as `part-<NNN>.parquet` (`combat_v2`: one per fight, `NNN` = seed).
+- No partition directories. Encounter, seed, etc. are ordinary columns; sort or group rows by the column you
+  filter on most so duckdb can skip row groups.
+- Adding a nullable column keeps the schema name (`union_by_name` fills NULLs). Renaming, removing or changing
+  the meaning of a column means a new name (`combat_v3`).
 
 ## run.json
 
 | field | meaning |
 |---|---|
-| `run_id`, `kind`, `scratch`, `note` | identity |
+| `run_id`, `schema`, `scratch`, `note` | identity |
 | `status` | `running` / `done` / `failed` |
 | `started`, `finished`, `exit_code`, `host`, `pid`, `cwd` | execution |
 | `command` | argv of the job (with `{out}` substituted) |
@@ -67,39 +72,38 @@ Git state, command, timings, host, and inputs are recorded by the launcher, so j
 ## Querying (duckdb)
 
 ```sql
--- all combat training data
--- (union_by_name: older runs lack newer columns, e.g. gen0 has no row_kind / parent_action; they read as NULL)
-SELECT * FROM read_parquet('runs/run_id=*/out/schema=combat_v1/**/*.parquet', hive_partitioning = true, union_by_name = true);
-
--- which schemas exist, in which runs
--- (one read_parquet = one schema: each schema has its own partition keys and columns)
-SELECT DISTINCT regexp_extract(file, 'run_id=([^/]+)', 1) AS run_id, regexp_extract(file, 'schema=([^/]+)', 1) AS schema
-FROM glob('runs/run_id=*/out/schema=*/**/*.parquet');
+-- all combat training data, with schema / date / id columns from the path
+-- (union_by_name: older runs lack newer columns; they read as NULL)
+SELECT * FROM read_parquet('runs/schema=combat_v2/*/*/out/*.parquet', hive_partitioning = true, union_by_name = true);
 
 -- all runs
-SELECT run_id, kind, status, inputs, summary FROM read_json('runs/run_id=*/run.json');
+SELECT run_id, schema, status, inputs, summary FROM read_json('runs/*/*/*/run.json');
 
 -- all eval episodes, tagged with run
-SELECT * FROM read_json('runs/run_id=*_eval_*/out/episodes.jsonl', filename = true, union_by_name = true);
+SELECT * FROM read_json('runs/schema=episodes_v1/*/*/out/episodes.jsonl', filename = true, union_by_name = true);
 ```
 
 ## Schemas
 
-| schema | status | written by | layout |
+| schema | status | written by | out/ |
 |---|---|---|---|
-| `combat_v1` | current | `apps/bootstrap/generate.py` | `act=/floor=/encounter=` partitions; columns below |
+| `combat_v2` | current | `apps/bootstrap/generate.py` | parquet; columns below |
+| `combat_v1` | legacy | `apps/bootstrap/generate.py` before combat_v2 | as `combat_v2`, but `act`/`floor`/`encounter`/`seed` were partition directories |
+| `value_net_v1` | current | `sts_combat_rl.training.train_value` | `value_checkpoint.pt` + `.json` sidecar (+ `value_weights.bin`) |
+| `episodes_v1` | current | eval jobs | `episodes.jsonl`, one JSON object per fight; metrics in `summary.json` |
 | `entry_roots_v1` | legacy | old entry-root bootstrap writer | single part; `mcts_value`, `root_visits`, `replicate`, ... |
 | `mcts_slime_v2` | legacy | `generate_mcts_records` (fixed Slime Boss deck, encoding v2) | single part |
 | `mcts_slime_v1` | legacy | `generate_mcts_records` pilot | single part |
 
 New schema = new row here.
 
-### `combat_v1` columns
+### `combat_v2` columns
 
 One row per decision recorded from teacher search.
 
 | Column | Meaning |
 |---|---|
+| `act`, `floor`, `encounter` | where the fight is (bootstrap: act 1, floor 16, `slime_boss`) |
 | `episode_id` | fight within the run |
 | `decision_index` | decision number within the fight, from 0 |
 | `turn` | combat turn |

@@ -6,6 +6,7 @@ import json
 import logging
 import subprocess
 import sys
+import tempfile
 import time
 import tomllib
 from concurrent.futures import ThreadPoolExecutor
@@ -18,10 +19,10 @@ from threading import Event, Lock, Thread, current_thread
 import msgpack
 import pyarrow as pa
 import pyarrow.parquet as pq
-from schema import COMBAT_V1
+from schema import COMBAT_V2
 
 log = logging.getLogger(__name__)
-PARTITION = "schema=combat_v1/act=1/floor=16/encounter=slime_boss"
+FIGHT = {"act": 1, "floor": 16, "encounter": "slime_boss"}  # the only fight the worker plays
 
 
 @dataclass
@@ -97,22 +98,21 @@ class Status:
             log.info("%s", self.line())
 
 
-def to_parquet(directory, seconds):
-    with (directory / "fight.msgpack").open("rb") as source:
+def to_parquet(msgpack_path, part, seconds):
+    with msgpack_path.open("rb") as source:
         result = msgpack.unpack(source, raw=False)
-    rows = result["rows"]
+    rows = [{**FIGHT, **row} for row in result["rows"]]
     if rows:
-        table = pa.Table.from_pylist(rows, schema=COMBAT_V1)
-        pq.write_table(table, directory / "part-000.parquet", compression="zstd")
+        pq.write_table(pa.Table.from_pylist(rows, schema=COMBAT_V2), part, compression="zstd")
     return Fight(result["seed"], result["status"], result.get("won", False), len(rows), seconds)
 
 
 def fight(seed, binary, out, status):
-    directory = out / PARTITION / f"seed={seed}"
-    directory.mkdir(parents=True, exist_ok=True)
-    start = time.monotonic()
-    subprocess.run([binary, str(seed), str(directory)], check=True)
-    status.record(to_parquet(directory, time.monotonic() - start))
+    """One fight -> out/part-<seed>.parquet (no file if the run never reached the boss)."""
+    with tempfile.TemporaryDirectory() as tmp:
+        start = time.monotonic()
+        subprocess.run([binary, str(seed), tmp], check=True)
+        status.record(to_parquet(Path(tmp) / "fight.msgpack", out / f"part-{seed:06d}.parquet", time.monotonic() - start))
 
 
 def generate(config, out):

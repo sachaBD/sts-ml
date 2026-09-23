@@ -6,3 +6,4 @@ gmon.out
 !/runs/README.md
 __pycache__/
 *.py[cod]
+/scratch/

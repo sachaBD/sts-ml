@@ -1,6 +1,6 @@
 # ./apps/bootstrap/run.sh apps/bootstrap/slime.toml [--scratch]
 [run]
-name = "slime-bootstrap-1"
+id = "slime-bootstrap-1"
 binary = "./build/bootstrap_fight_worker"
 workers = 10
 forever = true # alternatively: fights = 100

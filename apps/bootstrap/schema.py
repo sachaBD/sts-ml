@@ -1,10 +1,13 @@
-"""Stable PyArrow layout for combat_v1 parquet parts (see runs/README.md)."""
+"""Stable PyArrow layout for combat_v2 parquet parts (see runs/README.md)."""
 
 import pyarrow as pa
 
 F32 = pa.float32()
-COMBAT_V1 = pa.schema(
+COMBAT_V2 = pa.schema(
     [
+        ("act", pa.int8()),
+        ("floor", pa.int16()),
+        ("encounter", pa.string()),
         ("episode_id", pa.int64()),
         ("decision_index", pa.int32()),
         ("turn", pa.int32()),

@@ -77,7 +77,7 @@ def episode_split(
 
 
 def load_rows(path: str | Path, limit: int | None = None) -> list[dict[str, Any]]:
-    """Load one Parquet shard, or every part under a hive-partitioned runs/ output directory."""
+    """Load one Parquet shard, or every part in a run's out/ directory."""
     if Path(path).is_dir():
         table = ds.dataset(
             path, format="parquet", partitioning="hive", exclude_invalid_files=True

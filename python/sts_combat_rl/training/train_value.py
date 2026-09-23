@@ -60,9 +60,9 @@ def evaluate(model: DeepSetsValue, loader: DataLoader) -> tuple[float, float]:
 
 
 def _run_json(source: Path) -> Path | None:
-    """The run.json of the run this data came from: runs/run_id=.../out/schema=.../... (runs/README.md)."""
+    """The run.json of the run this data came from: runs/schema=/date=/id=/out/... (runs/README.md)."""
     for parent in [source, *source.parents]:
-        if parent.name.startswith("run_id=") and (parent / "run.json").exists():
+        if parent.name.startswith("id=") and (parent / "run.json").exists():
             return parent / "run.json"
     return None
 
@@ -207,7 +207,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(
         description="CPU single-threaded Deep Sets bootstrap value trainer"
     )
-    parser.add_argument("data", type=Path, nargs="+", help="Parquet shards or runs/ output directories")
+    parser.add_argument("data", type=Path, nargs="+", help="Parquet shards or run out/ directories")
     parser.add_argument("--output", type=Path, default=Path("value_checkpoint.pt"))
     parser.add_argument("--epochs", type=int, default=20)
     parser.add_argument("--batch-size", type=int, default=128)

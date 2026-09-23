@@ -5,7 +5,7 @@ loads the value net once and answers the binary's batched leaf requests. With --
 (a file from export_value_weights.py) the binary scores leaves natively in C++ and the
 workers load no model. Appends one
 JSON line per fight to <output>/episodes.jsonl (fights already there are skipped) and
-one progress line per finished fight to <output>/eval.log.
+prints one progress line per finished fight.
 """
 
 from __future__ import annotations
@@ -183,12 +183,8 @@ def main() -> None:
         if (arm_name(arm), d, source_seed[d] ^ x) not in done_keys
     ]
 
-    log = (args.output / "eval.log").open("a", buffering=1)
-
     def say(text: str) -> None:
         print(text, flush=True)
-        log.write(text + "\n")
-        log.flush()
 
     say(
         f"start {time.strftime('%Y-%m-%d %H:%M:%S')} tasks={len(tasks)} already_done={len(done)} "

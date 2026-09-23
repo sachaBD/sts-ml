@@ -14,18 +14,17 @@ import threading
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[2]
-RUNS = REPO / "runs"
+RUNS, SCRATCH = REPO / "runs", REPO / "scratch"
 REPOS = {"sts_combat_rl": REPO, "sts_lightspeed": REPO.parent / "sts_lightspeed", "sts_ml": REPO.parent / "sts_ml"}
-KINDS = ("gen", "train", "eval")
-NAME = re.compile(r"^[a-z0-9][a-z0-9.-]*$")
+NAME = re.compile(r"^[a-z0-9][a-z0-9_.-]*$")
 
 HELP = """\
 Run a job in a new run directory:
 
-  runs/run_id=<YYYY-MM-DD>_<kind>_<name>/     (or runs/scratch/... with --scratch)
+  runs/schema=<schema>/date=<YYYY-MM-DD>/id=<id>/     (or scratch/... with --scratch)
     run.json   written by this launcher: status, command, git, inputs, summary
     logs/      stdout.log, stderr.log of the job
-    out/       the job's outputs: parquet under out/schema=<schema>/..., checkpoint, episodes.jsonl, ...
+    out/       the job's outputs: part-<NNN>.parquet, checkpoint, episodes.jsonl, ...
 
 The job gets its output dir as {out} in the command, or as $RUN_OUT (run dir: $RUN_DIR).
 If the job writes out/summary.json, it is merged into run.json as "summary".
@@ -33,13 +32,13 @@ Exit code of the job is returned. Status ends as "done" (exit 0) or "failed".
 
 examples:
   ./apps/bootstrap/run.sh apps/bootstrap/slime.toml [--scratch]
-  PYTHONPATH=python .venv/bin/python -m sts_combat_rl.run train gen1-value \\
-      --input 2026-09-23_gen_slime-pbcs20k-gen1 -- python -m sts_combat_rl.training.train_value ...
-  PYTHONPATH=python .venv/bin/python -m sts_combat_rl.run eval quick-check --scratch -- ...
+  PYTHONPATH=python .venv/bin/python -m sts_combat_rl.run value_net_v1 gen1-value \\
+      --input combat_v2/2026-09-23/slime-gen1 -- python -m sts_combat_rl.training.train_value ...
+  PYTHONPATH=python .venv/bin/python -m sts_combat_rl.run episodes_v1 quick-check --scratch -- ...
 
 query with duckdb:
-  SELECT * FROM read_parquet('runs/run_id=*/out/schema=combat_v1/**/*.parquet', hive_partitioning = true, union_by_name = true);
-  SELECT * FROM read_json('runs/run_id=*/run.json');
+  SELECT * FROM read_parquet('runs/schema=combat_v2/*/*/out/*.parquet', hive_partitioning = true, union_by_name = true);
+  SELECT * FROM read_json('runs/*/*/*/run.json');
 
 full contract for jobs, schemas and columns: runs/README.md
 """
@@ -61,14 +60,19 @@ def git_state() -> dict:
     return state
 
 
+def run_path(run_id: str) -> str:
+    """'<schema>/<date>/<id>' -> 'schema=<schema>/date=<date>/id=<id>'."""
+    schema, date, id_ = run_id.split("/")
+    return f"schema={schema}/date={date}/id={id_}"
+
+
 def resolve_input(value: str) -> str:
-    """A run_id (with or without the 'run_id=' prefix) or an existing path."""
-    run_id = value.removeprefix("run_id=")
-    if any((d / f"run_id={run_id}").is_dir() for d in (RUNS, RUNS / "scratch")):
-        return run_id
+    """A run_id (<schema>/<date>/<id>) or an existing path."""
+    if value.count("/") == 2 and any((d / run_path(value)).is_dir() for d in (RUNS, SCRATCH)):
+        return value
     if Path(value).exists():
         return str(Path(value).resolve())
-    sys.exit(f"--input {value!r}: no such run_id in runs/ or runs/scratch/, and no such path")
+    sys.exit(f"--input {value!r}: no such run_id in runs/ or scratch/, and no such path")
 
 
 def write_json(path: Path, data: dict) -> None:
@@ -79,26 +83,27 @@ def write_json(path: Path, data: dict) -> None:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="python -m sts_combat_rl.run", description=HELP, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("kind", choices=KINDS, help="what the job produces: gen=training data, train=checkpoint, eval=episodes/metrics")
-    parser.add_argument("name", help="short lowercase name, e.g. slime-pbcs20k-gen1 ([a-z0-9.-])")
+    parser.add_argument("schema", help="what the run produces, e.g. combat_v2, value_net_v1, episodes_v1 (runs/README.md)")
+    parser.add_argument("id", help="short lowercase free text, e.g. slime-pbcs20k-gen1 ([a-z0-9_.-])")
     parser.add_argument("--input", action="append", default=[], metavar="RUN_ID|PATH", help="run this job reads from (repeatable); recorded as lineage")
-    parser.add_argument("--scratch", action="store_true", help="smoke/preflight/probe: put in runs/scratch/ (excluded from normal queries, safe to delete)")
+    parser.add_argument("--scratch", action="store_true", help="smoke/preflight/probe: put in scratch/ (never queried, safe to delete)")
     parser.add_argument("--live", action="store_true", help="also print job output to the terminal while retaining logs")
     parser.add_argument("--note", default="", help="free-text note stored in run.json")
-    parser.usage = "%(prog)s {gen,train,eval} NAME [--input RUN_ID|PATH ...] [--scratch] [--note TEXT] -- COMMAND..."
+    parser.usage = "%(prog)s SCHEMA ID [--input RUN_ID|PATH ...] [--scratch] [--note TEXT] -- COMMAND..."
     argv = sys.argv[1:] if argv is None else argv
     split = argv.index("--") if "--" in argv else len(argv)
     args, cmd = parser.parse_args(argv[:split]), argv[split + 1:]
     if not cmd:
         parser.error("missing job command: put it after --")
-    if not NAME.match(args.name):
-        parser.error(f"name {args.name!r} must match {NAME.pattern}")
+    for field in ("schema", "id"):
+        if not NAME.match(getattr(args, field)):
+            parser.error(f"{field} {getattr(args, field)!r} must match {NAME.pattern}")
     inputs = [resolve_input(v) for v in args.input]
 
-    run_id = f"{dt.datetime.now(dt.timezone.utc):%Y-%m-%d}_{args.kind}_{args.name}"
-    run_dir = (RUNS / "scratch" if args.scratch else RUNS) / f"run_id={run_id}"
+    run_id = f"{args.schema}/{dt.datetime.now(dt.timezone.utc):%Y-%m-%d}/{args.id}"
+    run_dir = (SCRATCH if args.scratch else RUNS) / run_path(run_id)
     if run_dir.exists():
-        sys.exit(f"{run_dir} already exists; pick another name (runs are never overwritten)")
+        sys.exit(f"{run_dir} already exists; pick another id (runs are never overwritten)")
     out, logs = run_dir / "out", run_dir / "logs"
     out.mkdir(parents=True)
     logs.mkdir()
@@ -106,7 +111,7 @@ def main(argv: list[str] | None = None) -> int:
     cmd = [c.replace("{out}", str(out)) for c in cmd]
     record = {
         "run_id": run_id,
-        "kind": args.kind,
+        "schema": args.schema,
         "scratch": args.scratch,
         "status": "running",
         "note": args.note,
