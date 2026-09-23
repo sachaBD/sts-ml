@@ -39,6 +39,7 @@ constexpr int random_window = 24;
 
 std::optional<sts::BattleContext> reach_slime_boss(std::uint64_t seed) {
     sts::GameContext game{sts::CharacterClass::IRONCLAD, seed, 1};
+    if (game.boss != sts::MonsterEncounter::SLIME_BOSS) return std::nullopt;  // act 1 boss is fixed at game creation
     sts::search::SimpleAgent agent;
     agent.curGameContext = &game;
     while (game.outcome == sts::GameOutcome::UNDECIDED && game.act == 1) {
