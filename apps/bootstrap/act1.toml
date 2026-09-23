@@ -4,4 +4,4 @@ id = "act1-a20"
 binary = "./build/bootstrap_fight_worker"
 workers = 10
 ascension = 20
-forever = true # alternatively: runs = 100
+forever = true # alternatively: seeds = 100

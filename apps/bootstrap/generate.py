@@ -22,7 +22,7 @@ import pyarrow.parquet as pq
 from schema import COMBAT_V3, NAME
 
 log = logging.getLogger(__name__)
-STATUSES = ("other_boss", "died", "act_complete")  # what the worker reports per run
+STATUSES = ("other_boss", "died", "act_complete")  # what the worker reports per seed; other_boss = not played
 
 
 @dataclass
@@ -66,7 +66,7 @@ class Status:
 
     def record(self, run):
         with self.lock:
-            self.runs += 1
+            self.runs += run.status != "other_boss"  # a run = a seed actually played
             self.statuses[run.status] = self.statuses.get(run.status, 0) + 1
             self.fights += run.fights
             self.rows += run.rows
@@ -79,7 +79,7 @@ class Status:
 
     def header(self):
         workers = "".join(f"{f'w{i}':>5}" for i in range(self.workers))
-        return f"{'runs':>7} {'other boss':>10} {'died':>6} {'cleared':>7} {'fights':>7} {'rows':>10}  {workers}"
+        return f"{'runs':>7} {'skipped':>8} {'died':>6} {'cleared':>7} {'fights':>7} {'rows':>10}  {workers}"
 
     def line(self):
         now = time.monotonic()
@@ -87,7 +87,7 @@ class Status:
             s = self.statuses
             since = [f"{now - last:>5.0f}" for last in self.last_finished.values()]
             since += [f"{'-':>5}"] * (self.workers - len(since))
-            return (f"{self.runs:>7,} {s['other_boss']:>10,} {s['died']:>6,} {s['act_complete']:>7,} "
+            return (f"{self.runs:>7,} {s['other_boss']:>8,} {s['died']:>6,} {s['act_complete']:>7,} "
                     f"{self.fights:>7,} {self.rows:>10,}  {''.join(since)}")
 
     def report_every(self, interval):
@@ -119,10 +119,10 @@ def play(seed, binary, ascension, out, status):
 
 def generate(config, out):
     run = tomllib.loads(config.read_text())["run"]
-    seeds = itertools.count() if run.get("forever") else range(run["runs"])
+    seeds = itertools.count() if run.get("forever") else range(run["seeds"])
     workers = run["workers"]
     start = time.monotonic()
-    log.info("starting %s seeds on %d workers -> %s", "unlimited" if run.get("forever") else run["runs"], workers, out)
+    log.info("starting %s seeds on %d workers -> %s", "unlimited" if run.get("forever") else run["seeds"], workers, out)
     log.info("w0..w%d: seconds since that worker last finished a run", workers - 1)
     with Status(workers, run.get("status_seconds", 10)) as status, ThreadPoolExecutor(
             workers, thread_name_prefix="w", initializer=status.worker_started) as pool:
