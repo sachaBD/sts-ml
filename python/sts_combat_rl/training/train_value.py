@@ -9,6 +9,7 @@ import os
 import random
 import subprocess
 import tempfile
+import time
 from pathlib import Path
 from typing import Any
 
@@ -86,12 +87,23 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     random.seed(args.seed)
     np.random.seed(args.seed)
     torch.manual_seed(args.seed)
-    rows = [row for path in args.data for row in load_rows(path, args.limit)]
+    rows = [
+        row
+        for path in args.data
+        for row in load_rows(path, args.limit, args.categories, args.encounters)
+    ]
+    if not rows:
+        raise ValueError("no rows match the data paths and category/encounter filters")
     assign_targets(rows, args.label, args.blend)
     # Entry-root shards must split by canonical deck signature so decisions and
     # combat replicates from the same natural deck never leak across folds.
     train_signature_ids, valid_signature_ids = [], []
-    if rows and "deck_signature" in rows[0]:
+    deck_signatures = (
+        {row.get("deck_signature") for row in rows if row.get("deck_signature") is not None}
+        if rows and "deck_signature" in rows[0]
+        else set()
+    )
+    if len(deck_signatures) >= 2:
         train, valid, train_signature_ids, valid_signature_ids = deck_signature_split(
             rows, args.validation_fraction, args.seed
         )
@@ -129,20 +141,98 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         if "root_value" in valid[0]
         else float("nan")
     )
+    provenance = [_provenance(Path(path)) for path in args.data]
+    git_revision = subprocess.check_output(
+        ["git", "rev-parse", "HEAD"], text=True
+    ).strip()
+    git_dirty = (
+        subprocess.run(["git", "diff", "--quiet"], check=False).returncode != 0
+    )
+
+    def save_checkpoint(epoch: int, metrics: dict[str, float]) -> dict[str, Any]:
+        checkpoint = {
+            "model_state": model.state_dict(),
+            "architecture": model.config,
+            "optimizer_config": {
+                "name": "AdamW",
+                "lr": args.lr,
+                "weight_decay": args.weight_decay,
+            },
+            "training_config": vars(args),
+            "encoding_version": 3,
+            "target_name": args.label,
+            "target_blend": args.blend,
+            "source_shard": [str(path) for path in args.data],
+            "source_sha256": [p[0] for p in provenance],
+            "manifest_path": [str(p[1]) for p in provenance],
+            "manifest": [p[2] for p in provenance],
+            "project_git_revision": git_revision,
+            "project_git_dirty": git_dirty,
+            "train_episode_ids": train_ids,
+            "validation_episode_ids": valid_ids,
+            "train_deck_signatures": train_signature_ids
+            if rows and "deck_signature" in rows[0]
+            else [],
+            "validation_deck_signatures": valid_signature_ids
+            if rows and "deck_signature" in rows[0]
+            else [],
+            "epoch": epoch,
+            "metrics": metrics,
+        }
+        atomic_save(checkpoint, args.output)
+        atomic_json(
+            {key: checkpoint[key] for key in checkpoint if key != "model_state"},
+            args.output.with_suffix(".json"),
+        )
+        return checkpoint
+
+    print("\nDataset", flush=True)
+    print("-------", flush=True)
+    print(f"rows: train={len(train):,}  valid={len(valid):,}", flush=True)
+    if train_signature_ids or valid_signature_ids:
+        print(
+            f"decks: train={len(train_signature_ids):,}  valid={len(valid_signature_ids):,}",
+            flush=True,
+        )
+    else:
+        print(
+            f"episodes: train={len(train_ids):,}  valid={len(valid_ids):,}",
+            flush=True,
+        )
+    print(f"target: label={args.label}  blend={args.blend}", flush=True)
+
+    print("\nTraining", flush=True)
+    print("--------", flush=True)
+    print("Each epoch prints batch progress, then validation metrics.", flush=True)
     print(
-        f"rows train={len(train)} valid={len(valid)} decks train={len(train_signature_ids)} "
-        f"valid={len(valid_signature_ids)} label={args.label} blend={args.blend}",
+        "epoch  time    train_mse  train_mae  valid_mse  valid_mae  baseline   teacher",
+        flush=True,
+    )
+    print(
+        "-----  ------  ---------  ---------  ---------  ---------  ---------  ---------",
         flush=True,
     )
     metrics = {}
+    checkpoint = {}
     for epoch in range(1, args.epochs + 1):
+        started = time.monotonic()
         model.train()
-        for batch in train_loader:
+        batch_count = len(train_loader)
+        progress_every = max(1, batch_count // 20)
+        for batch_index, batch in enumerate(train_loader, start=1):
             target = batch.pop("target")
             optimizer.zero_grad()
             loss = ((model(**batch) - target) ** 2).mean()
             loss.backward()
             optimizer.step()
+            if batch_index == batch_count or batch_index % progress_every == 0:
+                filled = round(24 * batch_index / batch_count)
+                bar = "#" * filled + "." * (24 - filled)
+                print(
+                    f"  epoch {epoch:>3}/{args.epochs:<3} [{bar}] "
+                    f"{batch_index:>5}/{batch_count:<5} loss={loss.item():.6f}",
+                    flush=True,
+                )
         train_mse, train_mae = evaluate(model, train_loader)
         valid_mse, valid_mae = evaluate(model, valid_loader)
         baseline_mse = float(
@@ -156,50 +246,22 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             "baseline_validation_mse": baseline_mse,
             "teacher_root_value_validation_mse": teacher_mse,
         }
+        elapsed = time.monotonic() - started
+        teacher = f"{teacher_mse:9.6f}" if np.isfinite(teacher_mse) else "      n/a"
         print(
-            f"epoch={epoch} train_mse={train_mse:.6f} train_mae={train_mae:.6f} validation_mse={valid_mse:.6f} validation_mae={valid_mae:.6f} baseline_mse={baseline_mse:.6f} teacher_mse={teacher_mse:.6f}",
+            "  summary "
+            f"epoch={epoch}/{args.epochs} "
+            f"time={elapsed:.1f}s "
+            f"train_mse={train_mse:.6f} "
+            f"train_mae={train_mae:.6f} "
+            f"valid_mse={valid_mse:.6f} "
+            f"valid_mae={valid_mae:.6f} "
+            f"baseline_mse={baseline_mse:.6f} "
+            f"teacher_mse={teacher.strip()}",
             flush=True,
         )
-    provenance = [_provenance(Path(path)) for path in args.data]
-    checkpoint = {
-        "model_state": model.state_dict(),
-        "architecture": model.config,
-        "optimizer_config": {
-            "name": "AdamW",
-            "lr": args.lr,
-            "weight_decay": args.weight_decay,
-        },
-        "training_config": vars(args),
-        "encoding_version": 3,
-        "target_name": args.label,
-        "target_blend": args.blend,
-        "source_shard": [str(path) for path in args.data],
-        "source_sha256": [p[0] for p in provenance],
-        "manifest_path": [str(p[1]) for p in provenance],
-        "manifest": [p[2] for p in provenance],
-        "project_git_revision": subprocess.check_output(
-            ["git", "rev-parse", "HEAD"], text=True
-        ).strip(),
-        "project_git_dirty": subprocess.run(
-            ["git", "diff", "--quiet"], check=False
-        ).returncode
-        != 0,
-        "train_episode_ids": train_ids,
-        "validation_episode_ids": valid_ids,
-        "train_deck_signatures": train_signature_ids
-        if rows and "deck_signature" in rows[0]
-        else [],
-        "validation_deck_signatures": valid_signature_ids
-        if rows and "deck_signature" in rows[0]
-        else [],
-        "epoch": args.epochs,
-        "metrics": metrics,
-    }
-    atomic_save(checkpoint, args.output)
-    atomic_json(
-        {key: checkpoint[key] for key in checkpoint if key != "model_state"},
-        args.output.with_suffix(".json"),
-    )
+        checkpoint = save_checkpoint(epoch, metrics)
+        print(f"  saved {args.output} (epoch {epoch})", flush=True)
     return checkpoint
 
 
@@ -217,6 +279,8 @@ def main() -> None:
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--validation-fraction", type=float, default=0.2)
     parser.add_argument("--limit", type=int)
+    parser.add_argument("--categories", nargs="+", help="keep only these combat_v3 categories, e.g. boss elite")
+    parser.add_argument("--encounters", nargs="+", help="keep only these encounters, e.g. slime_boss")
     parser.add_argument(
         "--label",
         choices=["blend", "root", "terminal", "mcts"],
