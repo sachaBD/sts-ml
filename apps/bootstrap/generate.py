@@ -1,29 +1,20 @@
 #!/usr/bin/env python3
 """Play one seeded act 1 per seed in C++ (every combat teacher-searched) and write its rows as combat_v3 parquet."""
-import argparse
 import itertools
-import json
 import logging
 import random
-import subprocess
-import sys
-import tempfile
 import time
-import tomllib
-from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
-from functools import partial
 from pathlib import Path
 from threading import Event, Lock, Thread, current_thread
 
-import msgpack
-import pyarrow as pa
-import pyarrow.parquet as pq
-from sts_combat_rl.schemas.combat_v3 import COMBAT_V3, NAME
+from apps.common.app import FAIR_PLAY, ORACLE_BANNER, check_keys, flag, main, snapshot, write_json
+from apps.common.worker import run_parallel, run_worker, write_part
+from sts_combat_rl.schemas.combat_v3 import NAME
 
 log = logging.getLogger(__name__)
-ORACLE_BANNER = ("\n" + "!" * 78 + "\n!!  ORACLE MODE: the teacher searches the TRUE state (perfect RNG / draw-order\n"
-                 "!!  foresight). Upper-bound data, not fair play. Rows are tagged oracle = true.\n" + "!" * 78)
+BUILT = Path("build/main/bootstrap_fight_worker")  # built by apps/common/job.sh; each run plays with its own copy in out/
+RUN_KEYS = {"id", "binary", "workers", "ascension", "oracle", "forever", "seeds", "first_seed", "status_seconds"}
 # Run seeds stay below 2^40 so every derived episode_id fits int64: run_seed * 100 + fight_index here,
 # and source_episode_id * 1000 + k in apps/fight_resample (< 2^40 * 10^5 ~ 1.1e17).
 SEED_LIMIT = 2**40
@@ -71,7 +62,7 @@ class Status:
 
     def worker_started(self):
         with self.lock:
-            self.last_finished[current_thread().name] = time.monotonic()
+            self.last_finished.setdefault(current_thread().name, time.monotonic())
 
     def record(self, run):
         with self.lock:
@@ -84,9 +75,11 @@ class Status:
             self.last_finished[current_thread().name] = time.monotonic()
         log.debug("%s", run)
 
-    def summary(self, ascension, first_seed, oracle):
+    def summary(self, ascension, first_seed, oracle, worker_sha256):
         with self.lock:
-            return {"schema": NAME, "oracle": oracle, "ascension": ascension, "first_seed": first_seed, "teacher": self.teacher, "runs": self.runs, **self.statuses, "slime_fights": self.bosses, "fights": self.fights, "rows": self.rows}
+            return {"schema": NAME, "oracle": oracle, "ascension": ascension, "first_seed": first_seed,
+                    "worker_sha256": worker_sha256, "teacher": self.teacher, "runs": self.runs, **self.statuses,
+                    "slime_fights": self.bosses, "fights": self.fights, "rows": self.rows}
 
     def header(self):
         workers = "".join(f"{f'w{i}':>5}" for i in range(self.workers))
@@ -111,66 +104,47 @@ class Status:
             log.info("%s", self.line())
 
 
-def to_parquet(msgpack_path, part, seconds):
-    """Rows arrive in play order: by fight_index, then decision rows, then child rows."""
-    with msgpack_path.open("rb") as source:
-        result = msgpack.unpack(source, raw=False)
+def play(seed, binary, ascension, oracle, out, status):
+    """One act 1 -> out/part-<seed>.parquet (no file for a run with no fights, e.g. other_boss).
+
+    Rows arrive in play order: by fight_index, then decision rows, then child rows.
+    """
+    status.worker_started()
+    if seed >= SEED_LIMIT:
+        raise ValueError(f"run seed {seed} >= 2^40 (SEED_LIMIT)")
+    start = time.monotonic()
+    result = run_worker(binary, {"seed": seed, "ascension": ascension, "oracle": oracle})
     rows = result["rows"]
     if rows:
-        pq.write_table(pa.Table.from_pylist(rows, schema=COMBAT_V3), part, compression="zstd")
-    return Run(result["seed"], result["status"], result["floor"], result["fights"],
-               any(row["category"] == "boss" for row in rows), len(rows), seconds, result["teacher"])
+        write_part(out, seed, rows)
+    status.record(Run(result["seed"], result["status"], result["floor"], result["fights"],
+                      any(row["category"] == "boss" for row in rows), len(rows), time.monotonic() - start,
+                      result["teacher"]))
 
 
-def play(seed, binary, ascension, oracle, out, status):
-    """One act 1 -> out/part-<seed>.parquet (no file for a run with no fights, e.g. other_boss)."""
-    with tempfile.TemporaryDirectory() as tmp:
-        start = time.monotonic()
-        subprocess.run([binary, str(seed), str(ascension), tmp, str(int(oracle))], check=True)
-        status.record(to_parquet(Path(tmp) / "fight.msgpack", out / f"part-{seed:06d}.parquet", time.monotonic() - start))
-
-
-def generate(config, out):
-    run = tomllib.loads(config.read_text())["run"]
+def generate(config, config_path, out):
+    run = config["run"]
+    check_keys(run, RUN_KEYS, "run")
     # Random start so separate runs play different seeds; the lower half of [0, SEED_LIMIT) leaves room to count up.
     first_seed = run.get("first_seed", random.randrange(SEED_LIMIT // 2))
     seeds = itertools.count(first_seed) if run.get("forever") else range(first_seed, first_seed + run["seeds"])
     workers = run["workers"]
     ascension = run.get("ascension", 1)
-    oracle = run.get("oracle", False)
-    if not isinstance(oracle, bool):
-        raise ValueError(f"oracle must be true or false, got {oracle!r}")
+    oracle = flag(run, "oracle")
+    binary, worker_sha256 = snapshot(run.get("binary", BUILT), out, "bootstrap_fight_worker")
     start = time.monotonic()
-    log.info("%s", ORACLE_BANNER if oracle else "oracle: off (teacher searches sampled beliefs, fair play)")
+    log.info("%s", ORACLE_BANNER if oracle else FAIR_PLAY)
     log.info("starting %s seeds from first_seed %d on %d workers -> %s",
              "unlimited" if run.get("forever") else run["seeds"], first_seed, workers, out)
     log.info("w0..w%d: seconds since that worker last finished a run", workers - 1)
-    with Status(workers, run.get("status_seconds", 10), oracle) as status, ThreadPoolExecutor(
-            workers, thread_name_prefix="w", initializer=status.worker_started) as pool:
-        run_seed = partial(play, binary=run["binary"], ascension=ascension, oracle=oracle, out=out, status=status)
-        seeds, seeds_lock = iter(seeds), Lock()
-
-        def work(_):  # each worker takes the next seed as soon as its last run finishes (no batch barrier)
-            while True:
-                with seeds_lock:
-                    seed = next(seeds, None)
-                if seed is None:
-                    return
-                if seed >= SEED_LIMIT:
-                    raise ValueError(f"run seed {seed} >= 2^40 (SEED_LIMIT)")
-                run_seed(seed)
-
-        list(pool.map(work, range(workers)))
-    (out / "summary.json").write_text(json.dumps(status.summary(ascension, first_seed, oracle), indent=2) + "\n")
+    with Status(workers, run.get("status_seconds", 10), oracle) as status:
+        # each worker takes the next seed as soon as its last run finishes (no batch barrier)
+        run_parallel(lambda seed: play(seed, binary, ascension, oracle, out, status), seeds, workers)
+    write_json(out / "summary.json", status.summary(ascension, first_seed, oracle, worker_sha256))
     log.info("%s", status.header())
     log.info("%s", status.line())
     log.info("done in %.1f min%s", (time.monotonic() - start) / 60, " [ORACLE run]" if oracle else "")
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("config", type=Path)
-    parser.add_argument("--out", type=Path, required=True)
-    args = parser.parse_args()
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s", datefmt="%H:%M:%S", stream=sys.stdout)
-    generate(args.config, args.out)
+    main(generate)

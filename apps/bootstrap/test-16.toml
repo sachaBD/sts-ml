@@ -1,7 +1,6 @@
 # Sixteen seeds (about a third have Slime Boss and are played as runs), eight at a time.
 [run]
 id = "act1-test-16x8"
-binary = "./build/bootstrap_fight_worker"
 workers = 8
 ascension = 20
 seeds = 16

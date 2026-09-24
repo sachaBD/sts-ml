@@ -72,22 +72,21 @@ the run.
 
 ```
 apps/value_play/
-  run.sh        CONFIG.toml [--scratch] → sts_combat_rl.run combat_v3 <id> --input <value run> --input <each data run>
-  job.sh        build value_play_worker in build-valexp/ (never build/ or build-dev/), exec play.py
-  play.py       resolve runs and fights; copy the worker into out/ (read-only; sha256 in summary);
+  run.sh        CONFIG.toml [--scratch] [--overwrite] → apps/common/launch.sh (inputs: value run, each data run);
+                builds value_play_worker in build/valexp/ (never build/main)
+  play.py       resolve runs and fights; copy the worker and weights into out/ (read-only; sha256 in summary);
                 worker pool; parquet parts; start-state check; log; summary.json
-  worker.cpp    value_play_worker WEIGHTS|--no-weights FIGHT.json OUTPUT_DIR → OUTPUT_DIR/fight.msgpack
+  worker.cpp    value_play_worker REQUEST.json OUTPUT_DIR [WEIGHTS] → OUTPUT_DIR/result.msgpack
   slime.toml, slime4-{R,N,H}.toml
 ```
 
-Worker: `WEIGHTS` is required for `value_net`/`hybrid`; `--no-weights` for `guided_rollout`.
-`FIGHT.json` = `{run_seed, ascension, fight_index, actions, teacher?}` with optional
-`teacher = {leaf, rollout_turns, rollout_steps, random_move, oracle}`; without it: `value_net`, random move
-on (the original behavior, so `WEIGHTS FIGHT.json OUTPUT_DIR` callers are unchanged).
+Worker: `WEIGHTS` is required for `value_net`/`hybrid`, and must be left out for `guided_rollout`.
+`REQUEST.json` = `{run_seed, ascension, fight_index, actions, teacher?}` with optional
+`teacher = {leaf, rollout_turns, rollout_steps, random_move, oracle}`; without it: `value_net`, random move on.
 
 Shared with bootstrap: `agents/teacher_leaves.{hpp,cpp}` (search, budget, leaf strategies),
 `agents/teacher_search.{hpp,cpp}` (recording),
-`scenarios/act1_run.{hpp,cpp}` (act 1 loop, fight columns), `apps/worker_io.hpp`,
+`scenarios/act1_run.{hpp,cpp}` (act 1 loop, fight columns), `apps/common/` (worker.hpp, fight_replay.hpp, *.py),
 `sts_combat_rl.schemas.combat_v3`, `sts_combat_rl.run.run_dir`.
 
 ## Output: `combat_v3` run

@@ -1,4 +1,5 @@
-// Rebuilding one stored fight of a combat_v3 bootstrap run, shared by apps/value_play, apps/dagger and apps/fight_resample:
+// Rebuilding one stored fight of a combat_v3 bootstrap run (the request: apps/common/replay.py), shared by
+// apps/value_play, apps/dagger and apps/fight_resample:
 // the act 1 run is replayed up to that fight (SimpleAgent out of combat, as in bootstrap; the earlier
 // fights by their stored chosen actions), then `play` plays the fight and the run stops.
 #pragma once

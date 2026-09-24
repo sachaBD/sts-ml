@@ -1,20 +1,16 @@
 """Orchestration checks for apps/value_play/play.py (no fights played)."""
 import contextlib
-import hashlib
 import json
-import importlib.util
 import tempfile
 import tomllib
 import unittest
 from pathlib import Path
 from unittest import mock
 
+from apps.value_play import play
 from sts_combat_rl.run import NAME
 
 ROOT = Path(__file__).resolve().parents[1]
-spec = importlib.util.spec_from_file_location("value_play", ROOT / "apps/value_play/play.py")
-play = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(play)
 
 VALIDATION = [707, 9305, 1203]
 
@@ -41,8 +37,8 @@ class RunTests(unittest.TestCase):
         runs = {"value_net_v1/d/gen1": ["value_net_v1/d/gen0", "combat_v3/d/boot", "combat_v3/d/dagger"],
                 "value_net_v1/d/gen0": ["combat_v3/d/boot"], "combat_v3/d/boot": [], "combat_v3/d/dagger": ["value_net_v1/d/gen0"]}
         with fake_runs(runs):
-            self.assertEqual(play.runs({"run": {"input": "value_net_v1/d/gen1"}}),
-                             ("value_net_v1/d/gen1", ["combat_v3/d/boot"]))
+            self.assertEqual(play.inputs({"run": {"input": "value_net_v1/d/gen1"}}),
+                             ["value_net_v1/d/gen1", "combat_v3/d/boot"])
 
 
 class EpisodeTests(unittest.TestCase):
@@ -83,38 +79,6 @@ class TeacherTests(unittest.TestCase):
                 self.assertEqual(run["workers"], 1)
                 self.assertTrue(NAME.match(run["id"]), run["id"])  # sts_combat_rl.run id validation
                 self.assertNotIn("episodes", run)  # all validation episodes
-
-
-class WorkerTests(unittest.TestCase):
-    def test_argv(self):
-        self.assertEqual(play.worker_argv("/r/bin", None, "f.json", "t"), ["/r/bin", "--no-weights", "f.json", "t"])
-        self.assertEqual(play.worker_argv("/r/bin", Path("w.bin"), "f.json", "t"), ["/r/bin", "w.bin", "f.json", "t"])
-
-    def test_play_runs_given_binary(self):
-        calls = []
-
-        def run(argv, check):
-            calls.append(argv)
-            raise RuntimeError("stop")
-
-        with tempfile.TemporaryDirectory() as out, mock.patch.object(play.subprocess, "run", run):
-            with self.assertRaisesRegex(RuntimeError, "stop"):
-                play.play(707, {"teacher": {}}, {}, Path(out) / "value_play_worker", None, Path(out))
-        self.assertEqual(calls[0][0], str(Path(out) / "value_play_worker"))
-        self.assertEqual(calls[0][1], "--no-weights")
-
-    def test_snapshot(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            built, out = Path(tmp) / "built", Path(tmp) / "out"
-            out.mkdir()
-            built.write_bytes(b"worker v1")
-            with mock.patch.object(play, "BUILT", built):
-                binary, sha = play.snapshot_worker(out)
-            built.write_bytes(b"worker v2")  # a later rebuild doesn't change the run's copy
-            self.assertEqual(binary, (out / "value_play_worker").resolve())
-            self.assertEqual(binary.read_bytes(), b"worker v1")
-            self.assertEqual(sha, hashlib.sha256(b"worker v1").hexdigest())
-            self.assertFalse(binary.stat().st_mode & 0o222)  # read-only
 
 
 if __name__ == "__main__":

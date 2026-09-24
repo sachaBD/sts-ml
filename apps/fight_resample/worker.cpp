@@ -1,24 +1,19 @@
 // Resamples one stored fight of a combat_v3 bootstrap run: the act 1 run is replayed up to that fight
-// (apps/fight_replay.hpp), then the teacher plays it once per sample from the same deck, relics and
+// (apps/common/fight_replay.hpp), then the teacher plays it once per sample from the same deck, relics and
 // potions, but with the sample's starting HP and a fresh fight: every combat RNG is seeded from the
 // sample's episode_id (draw order, monster HP and AI, ...). Spec: slop_docs/apps/fight_resample.md.
-//   fight_resample_worker WEIGHTS|--no-weights FIGHT.json OUTPUT_DIR
-//   WEIGHTS: value_net leaf; --no-weights: guided_rollout leaf (the bootstrap teacher).
-//   FIGHT.json: {run_seed, ascension, fight_index, actions: [[chosen_action...] per earlier fight],
+//   fight_resample_worker REQUEST.json OUTPUT_DIR [WEIGHTS]     (apps/common/worker.hpp)
+//   WEIGHTS: value_net leaf; none: guided_rollout leaf (the bootstrap teacher).
+//   REQUEST.json: {run_seed, ascension, fight_index, actions: [[chosen_action...] per earlier fight],
 //                random_potions, samples: [{episode_id, starting_hp}]}
 //   random_potions: each potion the player holds is replaced by a random potion drop (potion RNG seeded as above).
-// Output: OUTPUT_DIR/fight.msgpack = {teacher, rows} (combat_v3 rows of every sample, in sample order).
+// Output: OUTPUT_DIR/result.msgpack = {teacher, rows} (combat_v3 rows of every sample, in sample order).
 #include "agents/teacher_search.hpp"
-#include "apps/fight_replay.hpp"
-#include "apps/worker_io.hpp"
+#include "apps/common/fight_replay.hpp"
+#include "apps/common/worker.hpp"
 #include "game/Game.h"
 
-#include <fstream>
-#include <iostream>
-#include <optional>
 #include <stdexcept>
-#include <string>
-#include <string_view>
 #include <vector>
 
 namespace {
@@ -62,20 +57,4 @@ Json play(const Json& input, const stsrl::ValueNet* net) {
 
 }  // namespace
 
-int main(int argc, char* argv[]) {
-    if (argc != 4) {
-        std::cerr << "usage: fight_resample_worker WEIGHTS|--no-weights FIGHT.json OUTPUT_DIR\n";
-        return 2;
-    }
-    try {
-        std::optional<stsrl::ValueNet> net;
-        if (std::string_view{argv[1]} != "--no-weights") net.emplace(argv[1]);
-        std::ifstream file{argv[2]};
-        if (!file) throw std::runtime_error{std::string{"cannot read "} + argv[2]};
-        stsrl::worker::write_result(argv[3], play(Json::parse(file), net ? &*net : nullptr));
-        return 0;
-    } catch (const std::exception& error) {
-        std::cerr << "fight_resample worker (" << argv[2] << "): " << error.what() << '\n';
-        return 1;
-    }
-}
+int main(int argc, char* argv[]) { return stsrl::worker::main(argc, argv, "fight_resample_worker", play); }

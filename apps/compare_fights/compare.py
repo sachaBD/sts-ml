@@ -1,17 +1,14 @@
 #!/usr/bin/env python3
 """Paired comparison of two combat_v3 runs on the candidate's fights. Spec: slop_docs/apps/compare_fights.md."""
-import argparse
-import json
 import sys
-import tomllib
-from pathlib import Path
 
 import numpy as np
 import pyarrow as pa
 import pyarrow.dataset as ds
 import pyarrow.parquet as pq
 from scipy import stats
-from sts_combat_rl.run import run_dir, run_parquet
+from apps.common.app import check_keys, main, run_json, write_json
+from sts_combat_rl.run import run_parquet
 from sts_combat_rl.schemas.combat_v3 import NAME as COMBAT_V3
 
 NAME = "fight_comparison_v1"
@@ -34,7 +31,7 @@ def fights(run_ids, episodes=None):
     """episode_id -> one row per fight, merged from `run_ids` (only `episodes` if given)."""
     result, sources = {}, {}
     for run_id in run_ids:
-        record = json.loads((run_dir(run_id) / "run.json").read_text())
+        record = run_json(run_id)
         if record["schema"] != COMBAT_V3:
             sys.exit(f"{run_id}: schema {record['schema']}, need {COMBAT_V3}")
         where = ds.field("row_kind") == "decision"
@@ -68,7 +65,14 @@ def paired(base, cand, rng):
             "ci_low": np.quantile(means, 0.025), "ci_high": np.quantile(means, 0.975), "p": p}
 
 
+def inputs(config):
+    """The baseline, then the candidate run ids."""
+    run = config["run"]
+    return [*run_ids(run["baseline"], "baseline"), *run_ids(run["candidate"], "candidate")]
+
+
 def compare(config):
+    check_keys(config["run"], {"id", "baseline", "candidate"}, "run")
     baseline = run_ids(config["run"]["baseline"], "baseline")
     candidate = run_ids(config["run"]["candidate"], "candidate")
     cand = fights(candidate)
@@ -100,7 +104,7 @@ def compare(config):
 
 def report(summary, base, cand):
     config, n = summary["config"]["run"], summary["n"]
-    inputs = {k: [json.loads((run_dir(run_id) / "run.json").read_text())["inputs"] for run_id in run_ids(config[k], k)]
+    inputs = {k: [run_json(run_id)["inputs"] for run_id in run_ids(config[k], k)]
               for k in ("baseline", "candidate")}
     t = summary[PRIMARY]
     better, worse, equal = summary[PRIMARY + "_better_worse_equal"]
@@ -131,24 +135,14 @@ def report(summary, base, cand):
     return "\n".join(lines) + "\n"
 
 
-def main(config_path, out):
-    config = tomllib.loads(config_path.read_text())
+def run(config, config_path, out):
     summary, pairs, base, cand = compare(config)
     text = report(summary, base, cand)
     (out / "report.md").write_text(text)
-    (out / "summary.json").write_text(json.dumps(summary, indent=2, default=float) + "\n")
+    write_json(out / "summary.json", summary)
     pq.write_table(pairs, out / "pairs.parquet")
     print(text, flush=True)
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("config", type=Path)
-    parser.add_argument("--out", type=Path, help="run output dir")
-    parser.add_argument("--inputs", action="store_true", help="print the baseline and candidate run ids (for run.sh)")
-    args = parser.parse_args()
-    if args.inputs:
-        run = tomllib.loads(args.config.read_text())["run"]
-        print(*run_ids(run["baseline"], "baseline"), *run_ids(run["candidate"], "candidate"), sep="\n")
-    else:
-        main(args.config, args.out)
+    main(run, inputs)

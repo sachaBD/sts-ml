@@ -12,5 +12,5 @@ seed = 0
 # slime-value-4 validation seeds (pilot14 fights); 10 are in v5 training, excluded here anyway
 exclude_run_seeds = [7, 93, 99, 103, 116, 132, 140, 150, 156, 184, 192, 194, 215, 235]
 max_decisions = 500
-max_turns = 50  # an undecided fight at turn 50 stops (turn_limit, no rows), as play_entry_pbcs
+max_turns = 50  # an undecided fight at turn 50 stops (turn_limit, no rows)
 timeout_seconds = 600

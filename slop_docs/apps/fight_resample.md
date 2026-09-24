@@ -40,5 +40,5 @@ game as above with `starting_hp`, then step its `chosen_action`s. Source fights 
 ## Files
 
 `worker.cpp` (replay + play all samples of one source fight), `generate.py` (loads source fights, samples HP,
-runs workers, writes `part-<source_episode_id>.parquet` + `summary.json`), `run.sh` / `job.sh` (launcher,
-builds `build-resample/`).
+runs workers, writes `part-<source_episode_id>.parquet` + `summary.json`), `run.sh` (apps/common/launch.sh;
+builds `build/resample/`).

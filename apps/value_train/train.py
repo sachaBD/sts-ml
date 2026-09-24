@@ -2,32 +2,21 @@
 """Config-driven value-network training app.
 
 This is a thin TOML wrapper around sts_combat_rl.training.train_value for use
-with the repository run launcher.  It resolves configured combat-data inputs to
+with the repository run launcher (apps/common/launch.sh).  It resolves configured combat-data inputs to
 Parquet locations, writes a checkpoint into --out, optionally exports native C++
 weights, and emits summary.json for run.json.
 """
 from __future__ import annotations
 
-import argparse
 import json
-import sys
-import tomllib
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
+from apps.common.app import main, value_run, write_json
+from sts_combat_rl.run import REPO, run_dir
 from sts_combat_rl.training.export_value_weights import export as export_weights
 from sts_combat_rl.training.train_value import run as train_value
-
-REPO = Path(__file__).resolve().parents[2]
-RUNS = REPO / "runs"
-SCRATCH = REPO / "scratch"
-
-
-def run_path(run_id: str) -> Path:
-    schema, date, run_id_leaf = run_id.split("/")
-    return Path(f"schema={schema}") / f"date={date}" / f"id={run_id_leaf}"
-
 
 def configured_inputs(config: dict[str, Any]) -> list[str]:
     """Bootstrap data: [data].bootstrap (corrective configs), else [run].input(s) / [data].paths."""
@@ -56,12 +45,10 @@ def resolve_data_path(value: str) -> Path:
     arbitrary parquet directories are passed through.
     """
     if value.count("/") == 2:
-        suffix = run_path(value)
-        for root in (RUNS, SCRATCH):
-            candidate = root / suffix
-            if candidate.is_dir():
-                return candidate / "out"
-
+        try:
+            return run_dir(value) / "out"
+        except FileNotFoundError:
+            pass
     path = Path(value)
     if not path.is_absolute():
         path = REPO / path
@@ -88,12 +75,7 @@ def initial_checkpoint(value: str | None) -> Path | None:
     if value is None:
         return None
     path = resolve_data_path(value)
-    if path.is_dir():  # a run's out/
-        record = json.loads((path.parent / "run.json").read_text())
-        if record.get("status") != "done":
-            raise ValueError(f"initial checkpoint run {value}: status {record.get('status')!r}")
-        path = path / record["summary"]["checkpoint"]
-    return path
+    return value_run(value).checkpoint if path.is_dir() else path
 
 
 def make_train_args(config: dict[str, Any], out: Path) -> SimpleNamespace:
@@ -111,12 +93,12 @@ def make_train_args(config: dict[str, Any], out: Path) -> SimpleNamespace:
         data=[resolve_data_path(x) for x in configured_inputs(config)],
         output=out / str(train.get("checkpoint", "value_checkpoint.pt")),
         epochs=int(train.get("epochs", 20)),
-        batch_size=int(train.get("batch_size", train.get("batch-size", 128))),
+        batch_size=int(train.get("batch_size", 128)),
         lr=float(train.get("lr", 0.001)),
-        weight_decay=float(train.get("weight_decay", train.get("weight-decay", 0.0001))),
+        weight_decay=float(train.get("weight_decay", 0.0001)),
         width=int(train.get("width", 64)),
         seed=int(train.get("seed", 0)),
-        validation_fraction=float(train.get("validation_fraction", train.get("validation-fraction", 0.2))),
+        validation_fraction=float(train.get("validation_fraction", 0.2)),
         limit=optional_int(train, "limit"),
         label=str(train.get("label", "blend")),  # blend, root or terminal
         blend=float(train.get("blend", 0.5)),
@@ -149,23 +131,22 @@ def write_summary(out: Path, checkpoint_path: Path, checkpoint_json: Path, data_
             summary[key] = metadata[key]
     if "correction_episode_ids" in metadata:
         summary["correction_episodes"] = len(metadata["correction_episode_ids"])
-    (out / "summary.json").write_text(json.dumps(summary, indent=2, sort_keys=True) + "\n")
+    write_json(out / "summary.json", summary)
 
 
-def main() -> int:
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("config", type=Path)
-    parser.add_argument("--out", type=Path, default=Path.cwd())
-    args = parser.parse_args()
+def inputs(config: dict[str, Any]) -> list[str]:
+    """Every run this trains from: the initial checkpoint, the data inputs, the corrections."""
+    initial = config.get("train", {}).get("initial_checkpoint")
+    return [*([initial] if initial else []), *configured_inputs(config), *config.get("data", {}).get("corrections", [])]
 
-    config = tomllib.loads(args.config.read_text())
-    args.out.mkdir(parents=True, exist_ok=True)
-    train_args = make_train_args(config, args.out)
+
+def train(config: dict[str, Any], config_path: Path, out: Path) -> int:
+    train_args = make_train_args(config, out)
 
     print("\nValue training", flush=True)
     print("==============", flush=True)
-    print(f"config:     {args.config}", flush=True)
-    print(f"output:     {args.out}", flush=True)
+    print(f"config:     {config_path}", flush=True)
+    print(f"output:     {out}", flush=True)
     print(f"checkpoint: {train_args.output}", flush=True)
     print("\nInputs", flush=True)
     print("------", flush=True)
@@ -198,24 +179,24 @@ def main() -> int:
     export_cfg = config.get("export", {})
     exported = None
     if bool(export_cfg.get("native_weights", True)):
-        exported = args.out / str(export_cfg.get("path", "value_weights.bin"))
+        exported = out / str(export_cfg.get("path", "value_weights.bin"))
         print("\nExport", flush=True)
         print("------", flush=True)
         print(f"native weights: {exported}", flush=True)
         export_weights(checkpoint_path, exported)
 
-    write_summary(args.out, checkpoint_path, checkpoint_json, train_args.data, exported)
+    write_summary(out, checkpoint_path, checkpoint_json, train_args.data, exported)
     print("\nOutputs", flush=True)
     print("-------", flush=True)
     print(f"checkpoint:      {checkpoint_path}", flush=True)
     print(f"checkpoint json: {checkpoint_json}", flush=True)
     if exported:
         print(f"native weights:  {exported}", flush=True)
-    print(f"summary:         {args.out / 'summary.json'}", flush=True)
+    print(f"summary:         {out / 'summary.json'}", flush=True)
     print("\nDone", flush=True)
     print(f"validation_mse: {checkpoint['metrics'].get('validation_mse')}", flush=True)
     return 0
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    main(train, inputs)

@@ -64,11 +64,11 @@ Future work, separately authorised: extend apps/value_train with explicit correc
 
 ## Operational design
 
-App structure follows existing apps: run.sh, job.sh, generate.py, worker.cpp, an example Slime TOML, documentation.
+App structure follows existing apps: run.sh (apps/common/launch.sh), generate.py, worker.cpp, an example Slime TOML, documentation.
 
 Reuse existing search and replay helpers. Extract a small shared helper only where needed to avoid duplicating replay/search-stat mapping; no broad refactor. Existing apps and bootstrap defaults remain unchanged.
 
-Safe isolated build directory (build-dagger), per-run executable/weight snapshots. Default workers=1 to coexist with generation. No builds in live build/ or shared build-dev.
+Safe isolated build directory (build/dagger), per-run executable/weight snapshots. Default workers=1 to coexist with generation. No builds in live build/main.
 
 Configure max_decisions (default500) and per-fight subprocess timeout (default600 seconds). A limit/error is NOT a terminal defeat:
 - completed fights write atomic combat_v3 part files, one per episode;

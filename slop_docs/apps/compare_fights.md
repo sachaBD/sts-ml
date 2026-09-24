@@ -71,7 +71,7 @@ out/pairs.parquet    one row per fight: episode_id, encounter, then each metric 
 
 ```
 apps/compare_fights/
-  run.sh, job.sh
+  run.sh              apps/common/launch.sh
   compare.py          load, pair, test, write report
   slime-value-4.toml
 ```
