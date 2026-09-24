@@ -1,7 +1,8 @@
 # ./apps/bootstrap/run.sh apps/bootstrap/act1.toml [--scratch]
 [run]
-id = "act1-a20"
+id = "act1-a20-6"
 binary = "./build/bootstrap_fight_worker"
 workers = 10
 ascension = 20
 forever = true # alternatively: seeds = 100
+# first_seed = 0 # default: random, so separate runs play different seeds (logged + in summary.json)

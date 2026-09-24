@@ -14,12 +14,14 @@ import sys, tomllib
 cfg = tomllib.load(open(sys.argv[1], "rb"))
 run = cfg["run"]
 print(run["id"])
+data = cfg.get("data", {})
 inputs = run.get("inputs", run.get("input"))
 if inputs is None:
-    inputs = cfg.get("data", {}).get("paths", [])
+    inputs = data.get("paths", data.get("bootstrap", []))
 if isinstance(inputs, str):
     inputs = [inputs]
-for item in inputs:
+initial = cfg.get("train", {}).get("initial_checkpoint")
+for item in [*([initial] if initial else []), *inputs, *data.get("corrections", [])]:
     print(item)
 PY
 )

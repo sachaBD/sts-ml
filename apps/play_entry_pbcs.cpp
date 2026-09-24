@@ -1,6 +1,5 @@
-// Plays one entry-root Slime fight with the teacher search (PublicBeliefCombatSearch,
-// 8 particles, rollout mode 2, objective mode 0), exactly as bootstrap_fight_worker
-// does but with no random moves.
+// Plays one entry-root Slime fight with the teacher search (agents/teacher_search.hpp),
+// with no random moves.
 //   rollout: plain teacher search.
 //   neural:  same search, but every non-terminal leaf is scored by an external value
 //            net via requestBatch/submit. Leaves are sent in batches over stdout as
@@ -16,10 +15,9 @@
 // The final result is written as a framed msgpack {"type":"result", ...}, including a
 // wall-clock profile (search, encode, send, rollout, net seconds).
 #include "combat/BattleContext.h"
-#include "game/Random.h"
 #include "scenarios/slime_entry_projection.hpp"
 #include "sim/search/PublicBeliefCombatSearch.h"
-#include "apps/teacher_budget.hpp"
+#include "agents/teacher_search.hpp"
 #include "models/value_net.hpp"
 
 #include <arpa/inet.h>
@@ -31,44 +29,10 @@
 #include <iostream>
 #include <optional>
 #include <stdexcept>
-#include <tuple>
 
 #include <nlohmann/json.hpp>
 
 namespace {
-
-// Copied from the bootstrap fight worker (teacher particle construction).
-std::uint64_t next_particle_seed(std::uint64_t& state) {
-    state += 0x9E3779B97F4A7C15ULL;
-    auto value = state;
-    value = (value ^ (value >> 30)) * 0xBF58476D1CE4E5B9ULL;
-    value = (value ^ (value >> 27)) * 0x94D049BB133111EBULL;
-    return value ^ (value >> 31);
-}
-
-sts::BattleContext particle(const sts::BattleContext& observed, std::uint64_t particle_seed) {
-    sts::BattleContext bc = observed;
-    const auto draw_seed = particle_seed;
-    auto next = [&] { return next_particle_seed(particle_seed); };
-    const auto sampled_run_seed = next();
-    for (int i = 0; i < 14; ++i) next();
-    bc.seed = sampled_run_seed;
-    bc.aiRng = sts::Random(next());
-    bc.cardRandomRng = sts::Random(next());
-    bc.miscRng = sts::Random(next());
-    bc.monsterHpRng = sts::Random(next());
-    bc.potionRng = sts::Random(next());
-    bc.shuffleRng = sts::Random(next());
-    if (bc.inputState != sts::InputState::CARD_SELECT) {
-        std::sort(bc.cards.drawPile.begin(), bc.cards.drawPile.end(), [](const auto& l, const auto& r) {
-            return std::tie(l.id, l.upgraded, l.specialData, l.cost, l.costForTurn, l.uniqueId)
-                 < std::tie(r.id, r.upgraded, r.specialData, r.cost, r.costForTurn, r.uniqueId);
-        });
-        java::Collections::shuffle(bc.cards.drawPile.begin(), bc.cards.drawPile.end(), java::Random(next()));
-    }
-    sts::search::PublicBeliefCombatSearch::resampleDraw(bc, observed, draw_seed);
-    return bc;
-}
 
 void write_frame(const nlohmann::json& message) {
     const auto bytes = nlohmann::json::to_msgpack(message);
@@ -201,8 +165,6 @@ int main(int argc, char** argv) {
     if (mode == "truncated" && (rollout_turns < 0 || rollout_turns != param))
         throw std::invalid_argument{"turns must be a non-negative integer"};
     if (!(lambda >= 0.0 && lambda <= 1.0)) throw std::invalid_argument{"lambda must be in [0, 1]"};
-    constexpr int particles = 8;       // as bootstrap_fight_worker
-    constexpr int max_actions = 512;   // as the gen0 data run
     constexpr int batch = 64;
     // Block-stacking decks (e.g. Barricade + Entrench) can stall for hundreds of decisions;
     // a fight still undecided at this turn counts as a loss, flagged as a timeout.
@@ -217,27 +179,16 @@ int main(int argc, char** argv) {
     while (!env.done()) {
         if (env.battle().turn >= max_turns) { timeout = true; break; }
         auto d = env.decision();
-        const auto& observed = env.battle();
-        const auto public_seed = sts::search::PublicBeliefCombatSearch::publicObservation(observed);
-        std::vector<sts::BattleContext> states;
-        auto particle_seed = public_seed;
-        for (int i = 0; i < particles; ++i) states.push_back(particle(observed, next_particle_seed(particle_seed)));
-        sts::search::PublicBeliefCombatSearch search(std::move(states), public_seed, 2);
-        search.maximumActions = max_actions;
+        auto search = stsrl::teacher::make_search(env.battle());
         if (mode == "rollout") {
-            simulations_used += stsrl::run_teacher_search(search, simulations, d.legal_actions.size(), early_stop);
+            simulations_used += stsrl::teacher::run_teacher_search(search, simulations, d.legal_actions.size(), early_stop);
         } else {
             neural_search(search, simulations, batch, rollout_turns, lambda, native ? &*native : nullptr,
                           leaf_evaluations, profile);
             simulations_used += search.simulations;
         }
         terminal_evaluations += search.terminalEvaluations;
-        const auto bits = sts::search::PublicBeliefCombatSearch::mapAction(
-            search.particles.front(), search.selectedAction(), observed).bits;
-        std::size_t chosen = d.legal_actions.size();
-        for (std::size_t i = 0; i < d.legal_actions.size(); ++i) if (env.action_bits(i) == bits) chosen = i;
-        if (chosen == d.legal_actions.size()) throw std::runtime_error("teacher action not in legal set");
-        env.step(chosen);
+        env.step(stsrl::teacher::legal_index(env, d.legal_actions.size(), search, search.selectedAction()));
         ++decisions;
     }
     write_frame({

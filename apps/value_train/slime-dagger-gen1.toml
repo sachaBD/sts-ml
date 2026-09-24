@@ -1,0 +1,28 @@
+# ./apps/value_train/run.sh apps/value_train/slime-dagger-gen1.toml [--scratch]
+# Corrective fine-tune (NOT a pure data ablation): slime-value-5's weights, its surviving bootstrap fights on
+# the same train/validation sides (validation = bootstrap only), plus the DAgger corrections
+# (apps/dagger/slime.toml), whose target is the teacher's root_value, never the learner's outcome.
+# Run after the DAgger run finished complete. Its date is the UTC day it was launched: fix it if not 2026-09-23.
+[run]
+id = "slime-value-5-dagger-gen1"
+
+[data]
+bootstrap = ["combat_v3/2026-09-23/act1-a20", "combat_v3/2026-09-23/act1-a20-1", "combat_v3/2026-09-23/act1-a20-2", "combat_v3/2026-09-23/act1-a20-3"]
+corrections = ["combat_v3/2026-09-23/dagger-gen1-slime-v5-001"]
+encounters = ["slime_boss"]
+
+[train]
+initial_checkpoint = "value_net_v1/2026-09-23/slime-value-5"  # weights only; fresh optimizer
+correction_weight = 0.5  # loss = (1-w) * mean bootstrap + w * mean correction, independent of row counts
+epochs = 7
+batch_size = 128
+lr = 0.0001
+weight_decay = 0.0001
+width = 64
+seed = 0
+label = "blend"  # bootstrap rows only, as slime-value-5
+blend = 0.5
+
+[export]
+native_weights = true
+path = "value_weights.bin"

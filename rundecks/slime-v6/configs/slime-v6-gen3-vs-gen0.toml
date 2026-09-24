@@ -1,0 +1,6 @@
+# ./apps/compare_fights/run.sh rundecks/slime-v6/configs/slime-v6-gen3-vs-gen0.toml
+# Cumulative effect of 3 DAgger rounds.
+[run]
+id = "slime-v6-gen3-vs-gen0"
+baseline = "combat_v3/2026-09-24/slime-v6-gen0-play"
+candidate = "combat_v3/2026-09-24/slime-v6-gen3-play"

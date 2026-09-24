@@ -1,0 +1,466 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>How our Slime Boss agent learns</title>
+<style>
+:root{color-scheme:light dark;--bg:#f5f7f4;--panel:#fff;--ink:#192b23;--muted:#516359;--line:#ccd7ce;--accent:#246b46;--soft:#e4f1e7}
+@media(prefers-color-scheme:dark){:root{--bg:#111a16;--panel:#1a2620;--ink:#e4eee7;--muted:#acc0b1;--line:#3a4b40;--accent:#8bd5a1;--soft:#203c2a}}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:17px/1.6 system-ui,sans-serif}main{max-width:850px;margin:auto;padding:48px 24px 70px}h1,h2,h3{line-height:1.2;text-wrap:balance}h1{font-size:clamp(32px,6vw,48px);letter-spacing:-.04em;margin:12px 0}h2{font-size:27px;margin:0 0 18px}h3{font-size:18px;margin:0 0 8px}p{margin:0 0 14px}section{border-top:1px solid var(--line);padding-top:30px;margin-top:38px}.eyebrow,.number{color:var(--accent);font-size:13px;letter-spacing:.1em;text-transform:uppercase;font-weight:700}.number{display:block;margin-bottom:8px}.lede{font-size:21px;max-width:650px}.muted,small{color:var(--muted)}nav{display:flex;flex-wrap:wrap;gap:8px 18px;margin:24px 0}a{color:var(--accent);text-underline-offset:3px}nav a{font-size:14px}.callout,.formula,.card{padding:18px 20px;border-radius:10px;margin:18px 0;background:var(--panel);border:1px solid var(--line)}.callout{background:var(--soft);border:0}.formula{font:15px/1.8 ui-monospace,monospace;overflow-x:auto}code{font: .88em ui-monospace,monospace;overflow-wrap:anywhere}.flow{font-weight:650;color:var(--accent);padding:16px 0}.grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}.grid .card{margin:0}ul,ol{padding-left:24px;margin:12px 0}li{margin:8px 0}.table-wrap{overflow-x:auto}table{border-collapse:collapse;width:100%;font-size:15px}th,td{text-align:left;padding:12px 10px;border-bottom:1px solid var(--line);vertical-align:top}th{color:var(--muted);font-size:13px}td:first-child{font-weight:600}output{font-weight:700;font-variant-numeric:tabular-nums}input[type=range]{width:min(100%,320px);accent-color:var(--accent);vertical-align:middle}details{margin-top:20px}summary{cursor:pointer;color:var(--accent);font-weight:600}footer{margin-top:40px;color:var(--muted);font-size:14px}a:focus-visible,input:focus-visible,summary:focus-visible{outline:3px solid var(--accent);outline-offset:4px}@media(max-width:580px){main{padding:28px 18px 48px}.grid{grid-template-columns:1fr}h2{font-size:24px}}@media print{nav,input{display:none}section{break-inside:avoid}body{font-size:12px}}
+figure{margin:24px 0}.visual{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:18px}.visual figcaption{font-size:14px;color:var(--muted);margin-top:12px}.diagram-scroll{overflow-x:auto}.tree{display:block;width:100%;min-width:600px;height:auto}.tree text{fill:var(--ink);font:15px system-ui,sans-serif;text-anchor:middle}.tree .sub{fill:var(--muted);font-size:13px}.tree .node{fill:var(--panel);stroke:var(--line);stroke-width:2}.tree .edge{fill:none;stroke:var(--line);stroke-width:2}.tree .active{stroke:var(--accent);stroke-width:4}.tree .lit{fill:var(--soft);stroke:var(--accent)}.tree .accent-text{fill:var(--accent);font-weight:700}.tree .dashed{stroke-dasharray:6 5}.tree .backup{fill:none;stroke:var(--accent);stroke-width:3;stroke-dasharray:5 4}.tree [hidden]{display:none}.tree-steps{display:flex;flex-wrap:wrap;gap:8px;margin:16px 0}.tree-steps button{font:inherit;font-size:14px;border:1px solid var(--line);border-radius:6px;padding:9px 12px;background:var(--panel);color:var(--ink);cursor:pointer}.tree-steps button[aria-pressed=true]{background:var(--soft);border-color:var(--accent);font-weight:700}.tree-steps button:focus-visible{outline:3px solid var(--accent);outline-offset:3px}.tree-explanation{min-height:76px;margin:0;background:var(--soft);padding:14px;border-radius:8px}.mini-tree{min-width:280px}.visual-key{font-size:14px;color:var(--muted)}
+</style>
+</head>
+<body>
+<main>
+<header>
+<div class="eyebrow">sts_combat_rl · Slime Boss</div>
+<h1>How our Slime Boss agent learns</h1>
+<p class="lede">Search tries possible futures. A neural network learns to estimate how good those futures are.</p>
+<div class="flow">Search plays → save examples → train a value network → use it inside search</div>
+<nav aria-label="Sections">
+<a href="#mcts">1. MCTS</a><a href="#results">2. Results</a><a href="#nn">3. Value functions</a><a href="#state">4. State</a><a href="#action">5. Actions</a><a href="#model">6. Our network</a><a href="#labels">7. Training labels</a><a href="#agent">8. Final agent</a>
+</nav>
+<p class="muted"><strong>Two generations, not one:</strong> the older neural-MCTS pipeline works. The newer guided teacher records richer data; training on that format and connecting its network to that teacher are still pending.</p>
+</header>
+
+<section id="mcts">
+<span class="number">01 · Try futures before committing</span>
+<h2>What is MCTS?</h2>
+<p><strong>Monte Carlo Tree Search</strong> builds a tree of possible moves. “Monte Carlo” means it uses sampled futures rather than examining every possibility.</p>
+<ol>
+<li><strong>Choose a branch:</strong> favour promising moves, but also try less-explored ones.</li>
+<li><strong>Simulate forward:</strong> reach a new position, then estimate its outcome. Playing onward to finish the fight is called a <em>rollout</em>.</li>
+<li><strong>Send the score back:</strong> update the average score and visit count of the moves on that path.</li>
+<li><strong>Repeat, then act:</strong> play the most-visited move at the current position—the tree’s <em>root</em>.</li>
+</ol>
+<figure class="visual">
+<h3>Watch one simulation through the tree</h3>
+<p class="visual-key">Boxes = positions. Lines = moves. Green = the path we are examining.</p>
+<div class="tree-steps" role="group" aria-label="MCTS diagram step">
+<button type="button" data-tree-step="0" aria-pressed="true">1. Select</button>
+<button type="button" data-tree-step="1" aria-pressed="false">2. Expand</button>
+<button type="button" data-tree-step="2" aria-pressed="false">3. Back up</button>
+<button type="button" data-tree-step="3" aria-pressed="false">4. Choose a move</button>
+</div>
+<div class="diagram-scroll">
+<svg class="tree" viewBox="0 0 720 445" role="img" aria-labelledby="tree-title tree-desc">
+<title id="tree-title">MCTS explores a tree of possible moves</title>
+<desc id="tree-desc">The current position branches into Strike, Defend and End turn. Select Defend to explore, expand a Strike beneath it, then back up a score of 0.60. After many more simulations, choose the most-visited root move, Strike. All statistics are illustrative.</desc>
+<defs><marker id="backup-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10Z" fill="var(--accent)"/></marker></defs>
+<rect class="node" x="255" y="10" width="210" height="60" rx="9"/>
+<text x="360" y="35">Current position</text><text class="sub" x="360" y="55">ROOT · before your real move</text>
+<path id="strike-edge" class="edge" d="M320 70 L120 165"/>
+<path id="defend-edge" class="edge active" d="M360 70 V165"/>
+<path class="edge" d="M400 70 L600 165"/>
+<text x="143" y="100">Strike</text><text x="405" y="103">Defend</text><text x="578" y="100">End turn</text>
+<text class="sub" id="strike-stats" x="120" y="142">8 visits · mean 0.50</text>
+<text class="sub" id="defend-stats" x="360" y="142">2 visits · mean 0.40</text>
+<text class="sub" id="end-stats" x="600" y="142">5 visits · mean 0.20</text>
+<rect id="strike-node" class="node" x="30" y="165" width="180" height="55" rx="9"/><text x="120" y="198">After Strike</text>
+<rect id="defend-node" class="node lit" x="270" y="165" width="180" height="55" rx="9"/><text x="360" y="198">After Defend</text>
+<rect class="node" x="510" y="165" width="180" height="55" rx="9"/><text x="600" y="198">Next turn</text>
+<g id="expansion" hidden>
+<path class="edge active" d="M360 220 V310"/>
+<text x="406" y="260">Strike</text>
+<rect class="node lit" x="260" y="310" width="200" height="60" rx="9"/>
+<text x="360" y="336">After Defend → Strike</text><text class="sub" x="360" y="356">NEW LEAF · evaluate here</text>
+</g>
+<g id="backups" hidden>
+<path class="backup" d="M245 335 Q210 260 255 204" marker-end="url(#backup-arrow)"/>
+<path class="backup" d="M465 180 Q510 115 465 52" marker-end="url(#backup-arrow)"/>
+<text class="accent-text" x="142" y="278">↑ same 0.60</text>
+<text class="accent-text" x="570" y="60">↑ score 0.60</text>
+<text class="accent-text" x="360" y="412">Leaf evaluation = 0.60</text>
+</g>
+<g id="choose-move" hidden>
+<path class="edge active" d="M120 232 V283" marker-end="url(#backup-arrow)"/>
+<text class="accent-text" x="160" y="320">Play Strike in the real fight</text>
+<text class="sub" x="360" y="374">60 + 30 + 10 = 100 simulations</text>
+<text class="sub" x="360" y="401">Choose by visits—not simply the highest mean.</text>
+</g>
+</svg>
+</div>
+<p class="tree-explanation" id="tree-explanation" aria-live="polite"><strong>Select:</strong> Strike has the better average, but Defend has only 2 visits. The exploration bonus can make Defend worth investigating. Nothing has been played in the real fight.</p>
+<figcaption>Illustrative tree, not a recorded search. Counts and means belong to move edges. The full tree is larger; hidden-state sampling and multiple possible outcomes of a move are omitted here.</figcaption>
+</figure>
+<div class="callout"><strong>Our newer teacher:</strong> 20,000 simulations per decision across 8 sampled hidden states—plausible draw orders and RNG, not access to the real future. Its rollouts mostly follow a hand-written heuristic, rather than playing uniformly random moves.</div>
+</section>
+
+<section id="results">
+<span class="number">02 · What has actually worked?</span>
+<h2>MCTS results</h2>
+<p>Both comparisons below use <strong>100 simulations per decision</strong>. Ranges are 95% Wilson intervals for win rates, rounded to whole percentages.</p>
+<div class="table-wrap"><table>
+<thead><tr><th scope="col">Test</th><th scope="col">Random-rollout MCTS</th><th scope="col">Neural-leaf MCTS</th></tr></thead>
+<tbody>
+<tr><td>One fixed enhanced deck<br><small>200 held-out seeds</small></td><td>195/200 wins<br><strong>94–99%</strong></td><td>200/200 wins<br><strong>98–100%</strong></td></tr>
+<tr><td>Varied entry decks &amp; HP<br><small>39 held-out decks; one fight each</small></td><td>18/39 wins<br><strong>32–61%</strong></td><td>22/39 wins<br><strong>41–71%</strong></td></tr>
+</tbody></table></div>
+<ul>
+<li><strong>Fixed deck:</strong> the network helped; average final HP rose from 33.4 to 46.5. But this implementation took about 26× longer per fight.</li>
+<li><strong>Varied decks:</strong> encouraging win count, not a clear generalization victory. Average final HP was 16.4 versus 16.1, respectively.</li>
+<li><strong>New 20k guided teacher:</strong> the saved preflight has only 4 wins in 8 fights: a very wide <strong>22–78%</strong> interval. It also injected random moves; this is a smoke test, not a clean strength benchmark.</li>
+</ul>
+<p class="muted">These ranges describe each test’s win rate, not the uncertainty of the paired improvement. They assume independent fight outcomes and do not cover performance on arbitrary decks. Entry tests project deck and HP, not full run resources.</p>
+</section>
+
+<section id="nn">
+<span class="number">03 · Replace a long guess with a short one</span>
+<h2>What is a neural value function?</h2>
+<div class="formula">V(state) → one number: expected final combat score</div>
+<p>A neural network learns this mapping from examples. During training, it guesses a value, compares it with a supplied <strong>label</strong>, and adjusts its internal weights to reduce the error.</p>
+<div class="grid">
+<div class="card"><h3>A value function asks</h3>“How good is this position?”</div>
+<div class="card"><h3>A policy asks</h3>“Which move should I play?”</div>
+</div>
+<p style="margin-top:16px">We currently train the first, not the second. A value of 0.6 is <strong>not necessarily a 60% win chance</strong>: our score also rewards surviving HP.</p>
+</section>
+
+<section id="state">
+<span class="number">04 · The network’s input</span>
+<h2>How we encode a state</h2>
+<p>The state reaches the network in two steps:</p>
+<ol>
+<li><strong>Record the visible facts:</strong> the encoder converts HP, cards, monsters and other public information into numeric records.</li>
+<li><strong>Build a summary:</strong> the network combines those records into a fixed-length list of numbers, then uses it to predict the combat value.</li>
+</ol>
+<p>Two terms used below:</p>
+<ul>
+<li><strong>Token:</strong> one object’s record—for example, a card’s identity, cost and damage.</li>
+<li><strong>Vector:</strong> a list of numbers, such as <code>[2, 1]</code>.</li>
+</ul>
+
+<h3>1. Turn each card into a learned summary</h3>
+<p>Each card record contains two kinds of information:</p>
+<ul>
+<li><strong>Numbers:</strong> cost, damage, block and other measured features. These can go straight into the card network after scaling.</li>
+<li><strong>Categories:</strong> which card it is, which pile it is in, its card type and its target type. Their IDs are labels, not quantities.</li>
+</ul>
+<p><strong>An embedding is a learned lookup table.</strong> For example, the card ID selects a row of 8 numbers. Training adjusts those numbers so they help predict combat value; we do not assign them meanings such as “aggressive” or “defensive”.</p>
+<figure class="visual">
+<h3>One Strike card → one 64-number summary</h3>
+<div class="diagram-scroll">
+<svg class="tree" viewBox="0 0 740 490" role="img" aria-labelledby="card-path-title card-path-desc">
+<title id="card-path-title">How one card becomes a learned vector</title>
+<desc id="card-path-desc">Four category IDs use separate embedding tables: Strike becomes 8 numbers, hand becomes 4, attack becomes 3 and one enemy becomes 3. These 18 numbers join 14 numeric features to form 32 inputs. A shared card network transforms 32 to 64 to 64, producing one learned card summary.</desc>
+<text class="accent-text" x="130" y="25">Card record</text><text class="accent-text" x="440" y="25">Embedding lookup</text>
+<rect class="node" x="10" y="45" width="245" height="40" rx="7"/><text x="132" y="71">Card ID: Strike</text>
+<rect class="node" x="10" y="95" width="245" height="40" rx="7"/><text x="132" y="121">Zone: hand</text>
+<rect class="node" x="10" y="145" width="245" height="40" rx="7"/><text x="132" y="171">Type: attack</text>
+<rect class="node" x="10" y="195" width="245" height="40" rx="7"/><text x="132" y="221">Target type: one enemy</text>
+<path class="edge active" d="M255 65 H325 M255 115 H325 M255 165 H325 M255 215 H325"/>
+<rect class="node lit" x="325" y="45" width="230" height="40" rx="7"/><text x="440" y="71">Card table → 8 numbers</text>
+<rect class="node lit" x="325" y="95" width="230" height="40" rx="7"/><text x="440" y="121">Zone table → 4 numbers</text>
+<rect class="node lit" x="325" y="145" width="230" height="40" rx="7"/><text x="440" y="171">Type table → 3 numbers</text>
+<rect class="node lit" x="325" y="195" width="230" height="40" rx="7"/><text x="440" y="221">Target table → 3 numbers</text>
+<path class="edge" d="M555 65 H585 V260 M555 115 H585 M555 165 H585 M555 215 H585"/>
+<text class="sub" x="657" y="140">18 learned</text><text class="sub" x="657" y="160">numbers</text>
+<rect class="node" x="10" y="255" width="405" height="55" rx="8"/><text x="212" y="278">14 numeric features</text><text class="sub" x="212" y="299">Cost, damage, block, upgrade, playability…</text>
+<path class="edge active" d="M415 283 H460"/>
+<rect class="node lit" x="460" y="260" width="270" height="50" rx="8"/><text x="595" y="282">Join: 14 + 18 = 32 numbers</text><text class="sub" x="595" y="301">Placed end to end, not summed</text>
+<path class="edge active" d="M595 310 V343" marker-end="url(#backup-arrow)"/>
+<rect class="node lit" x="250" y="350" width="480" height="55" rx="8"/><text x="490" y="374">Card network: 32 → 64 → 64</text><text class="sub" x="490" y="394">Same network weights for every card</text>
+<path class="edge active" d="M490 405 V433" marker-end="url(#backup-arrow)"/>
+<rect class="node lit" x="250" y="440" width="480" height="40" rx="8"/><text x="490" y="466">One card summary: [h₁, h₂, …, h₆₄]</text>
+</svg>
+</div>
+<figcaption>This happens separately for every card, before pooling. The embedding tables and card network are learned together during value training.</figcaption>
+</figure>
+<ul>
+<li><strong>Same identity, same lookup:</strong> two Strikes use the same card-ID embedding. Different costs, upgrades or zones can still give them different final summaries.</li>
+<li><strong>Shared network:</strong> Strike, Defend and every other card pass through the same transformation—not a separate network per card.</li>
+<li><strong>Learned output:</strong> the 64 numbers describe the card in a form useful for predicting value. They are neither named game stats nor 64 separate predictions.</li>
+</ul>
+
+<h3>2. Sum objects into a pool</h3>
+<p><strong>Sum pooling</strong> adds the vectors element by element. Any number of cards becomes one 64-number summary. An empty pile becomes 64 zeros.</p>
+<figure class="visual">
+<h3>A tiny, two-number example</h3>
+<div class="diagram-scroll">
+<svg class="tree" viewBox="0 0 720 180" role="img" aria-labelledby="pool-title">
+<title id="pool-title">Add learned vectors element by element: Strike [2, 1] plus Defend [1, 3] equals the pooled hand [3, 4]. Reordering gives the same sum; adding another Strike gives [5, 5].</title>
+<rect class="node" x="10" y="15" width="180" height="65" rx="8"/><text x="100" y="40">Strike</text><text class="accent-text" x="100" y="65">[2, 1]</text>
+<text x="217" y="54">+</text>
+<rect class="node" x="245" y="15" width="180" height="65" rx="8"/><text x="335" y="40">Defend</text><text class="accent-text" x="335" y="65">[1, 3]</text>
+<text x="455" y="54">=</text>
+<rect class="node lit" x="485" y="15" width="225" height="65" rx="8"/><text x="597" y="40">Hand summary</text><text class="accent-text" x="597" y="65">[3, 4]</text>
+<text x="360" y="120">Swap the card order → still [3, 4]</text>
+<text x="360" y="153">Add another identical Strike → [5, 5]</text>
+</svg>
+</div>
+<figcaption>Invented vectors to show the arithmetic. The real model uses 64 numbers, not two.</figcaption>
+</figure>
+<div class="grid">
+<div class="card"><h3>Why sum?</h3>Order stops mattering, but multiplicity can still matter. Two identical card vectors contribute twice as much. Mean pooling would make one identical card and two identical cards look the same.</div>
+<div class="card"><h3>Why separate zones?</h3>A Strike in hand is available now; a Strike in discard is not. Hand, draw, discard and exhaust each get their own pool. We do not flatten the whole deck into one bag.</div>
+</div>
+<p style="margin-top:16px">This model uses <strong>sum pooling only</strong>—not mean pooling, max pooling or attention. Summing is compact and order-independent, but it can lose distinctions between collections; it is not a reversible encoding.</p>
+
+<h3>3. Keep card–target relationships</h3>
+<p>Separate card and monster pools make it harder to see which attack suits which enemy. So we also build <strong>pair vectors</strong>: a card’s 64 numbers + a monster’s 64 numbers + 6 damage/target features. Another small network turns those 134 numbers into 64, then we sum the pairs.</p>
+
+<figure class="visual">
+<h3>From combat state to value</h3>
+<div class="diagram-scroll">
+<svg class="tree" viewBox="0 0 760 610" role="img" aria-labelledby="encoding-title encoding-desc">
+<title id="encoding-title">Complete input path for the default width-64 value network</title>
+<desc id="encoding-desc">Public card records pass through embeddings and a shared card network, then sum separately by four zones into four 64-number vectors. Monster records produce a 64-number sum. Card-monster pairs produce another 64-number sum. Fifty global numeric features and eight category embedding numbers join these pools to make 442 numbers. A 64-wide value head and tanh produce one value.</desc>
+<text class="accent-text" x="105" y="25">Public records</text><text class="accent-text" x="360" y="25">Learn per object</text><text class="accent-text" x="645" y="25">Pool / keep</text>
+<rect class="node" x="10" y="50" width="195" height="200" rx="8"/>
+<text x="107" y="79">Cards</text><text class="sub" x="107" y="103">IDs + 14 numeric features</text>
+<text x="107" y="140">Hand · draw</text><text x="107" y="166">Discard · exhaust</text><text class="sub" x="107" y="219">Variable number of records</text>
+<path class="edge active" d="M205 150 H245" marker-end="url(#backup-arrow)"/>
+<rect class="node lit" x="250" y="115" width="220" height="75" rx="8"/>
+<text x="360" y="139">Embeddings + card network</text><text class="sub" x="360" y="163">32 → 64 per card</text><text class="sub" x="360" y="180">Shared across all zones</text>
+<path class="edge" d="M470 150 H495 M495 73 V223 M495 73 H535 M495 123 H535 M495 173 H535 M495 223 H535"/>
+<rect class="node lit" x="535" y="53" width="215" height="40" rx="7"/><text x="642" y="79">Σ hand → 64</text>
+<rect class="node lit" x="535" y="103" width="215" height="40" rx="7"/><text x="642" y="129">Σ draw → 64</text>
+<rect class="node lit" x="535" y="153" width="215" height="40" rx="7"/><text x="642" y="179">Σ discard → 64</text>
+<rect class="node lit" x="535" y="203" width="215" height="40" rx="7"/><text x="642" y="229">Σ exhaust → 64</text>
+<rect class="node" x="10" y="275" width="195" height="55" rx="8"/><text x="107" y="298">Monsters</text><text class="sub" x="107" y="318">IDs + 9 numeric features</text>
+<path class="edge active" d="M205 302 H245" marker-end="url(#backup-arrow)"/>
+<rect class="node lit" x="250" y="275" width="220" height="55" rx="8"/><text x="360" y="298">Embeddings + monster net</text><text class="sub" x="360" y="318">25 → 64 per monster</text>
+<path class="edge active" d="M470 302 H530" marker-end="url(#backup-arrow)"/>
+<rect class="node lit" x="535" y="275" width="215" height="55" rx="8"/><text x="642" y="307">Σ monsters → 64</text>
+<rect class="node" x="10" y="355" width="195" height="70" rx="8"/><text x="107" y="380">Card–monster pairs</text><text class="sub" x="107" y="401">References + 6 features</text>
+<path class="edge active" d="M205 390 H245" marker-end="url(#backup-arrow)"/>
+<rect class="node lit" x="250" y="355" width="220" height="70" rx="8"/><text x="360" y="378">Pair network</text><text class="sub" x="360" y="398">Card 64 + monster 64 + 6</text><text class="sub" x="360" y="416">134 → 64 per pair</text>
+<path class="edge active" d="M470 390 H530" marker-end="url(#backup-arrow)"/>
+<rect class="node lit" x="535" y="355" width="215" height="70" rx="8"/><text x="642" y="395">Σ pairs → 64</text>
+<rect class="node" x="10" y="450" width="195" height="55" rx="8"/><text x="107" y="474">Global state</text><text class="sub" x="107" y="494">Player, turn, powers…</text>
+<path class="edge active" d="M205 477 H245" marker-end="url(#backup-arrow)"/>
+<rect class="node" x="250" y="450" width="220" height="55" rx="8"/><text x="360" y="474">Keep 50 numeric features</text><text class="sub" x="360" y="494">+ two 4-number embeddings</text>
+<path class="edge active" d="M470 477 H530" marker-end="url(#backup-arrow)"/>
+<rect class="node lit" x="535" y="450" width="215" height="55" rx="8"/><text x="642" y="482">Global → 58</text>
+<path class="edge active" d="M642 510 V539" marker-end="url(#backup-arrow)"/>
+<rect class="node lit" x="10" y="545" width="740" height="55" rx="8"/>
+<text x="380" y="568">Join all right-hand blocks end to end: 442 numbers</text><text class="sub" x="380" y="589">Value head: 442 → 64 → 1 → tanh → V(state)</text>
+</svg>
+</div>
+<figcaption>Σ means sum. Pair processing reuses the individual card and monster vectors, not their pooled summaries. Joining the final blocks is concatenation—not another sum.</figcaption>
+</figure>
+
+<figure class="visual">
+<h3>What occupies the 442-number summary?</h3>
+<p class="visual-key">Area = share of vector dimensions, at the default width of 64.</p>
+<div class="diagram-scroll">
+<svg class="tree" viewBox="0 0 768 442" role="img" aria-labelledby="share-title">
+<title id="share-title">Treemap: hand, draw, discard, exhaust, monsters and card-monster pairs each occupy 64 of 442 dimensions, or 14.5 percent. Global numeric features occupy 50, or 11.3 percent; global category embeddings occupy 8, or 1.8 percent.</title>
+<rect class="node lit" x="0" y="0" width="256" height="192"/><text x="128" y="84">Hand</text><text class="sub" x="128" y="110">64 · 14.5%</text>
+<rect class="node" x="256" y="0" width="256" height="192"/><text x="384" y="84">Draw pile</text><text class="sub" x="384" y="110">64 · 14.5%</text>
+<rect class="node lit" x="512" y="0" width="256" height="192"/><text x="640" y="84">Discard pile</text><text class="sub" x="640" y="110">64 · 14.5%</text>
+<rect class="node" x="0" y="192" width="256" height="192"/><text x="128" y="276">Exhaust pile</text><text class="sub" x="128" y="302">64 · 14.5%</text>
+<rect class="node lit" x="256" y="192" width="256" height="192"/><text x="384" y="276">Monsters</text><text class="sub" x="384" y="302">64 · 14.5%</text>
+<rect class="node" x="512" y="192" width="256" height="192"/><text x="640" y="276">Card–monster pairs</text><text class="sub" x="640" y="302">64 · 14.5%</text>
+<rect class="node lit" x="0" y="384" width="662.069" height="58"/><text x="331" y="409">Global numeric features</text><text class="sub" x="331" y="429">50 · 11.3%</text>
+<rect class="node" x="662.069" y="384" width="105.931" height="58"/><text class="sub" x="715" y="407">Global IDs</text><text class="sub" x="715" y="429">8 · 1.8%</text>
+</svg>
+</div>
+<figcaption>This is allocated space, not strategic importance, raw-state size or information content. A 30-card pile still gets 64 numbers; an empty pile gets 64 zeros. Raw record size varies with the number of objects.</figcaption>
+</figure>
+
+<details><summary>Which public facts go into the records?</summary>
+<p>The current v3 fields are:</p>
+<div class="table-wrap"><table>
+<thead><tr><th scope="col">Part</th><th scope="col">What it contains</th></tr></thead>
+<tbody>
+<tr><td>Global state</td><td>50 numeric features: HP, block, energy, turn, powers, incoming damage… Plus IDs for the current decision/selection type.</td></tr>
+<tr><td>Cards</td><td>Card identity, zone, type and targeting; 14 numbers such as upgrade, cost, damage, block and playability.</td></tr>
+<tr><td>Monsters</td><td>Monster and intent IDs; 9 numbers including HP, block, damage and debuffs.</td></tr>
+<tr><td>Card–monster pairs</td><td>6 numbers describing a hand attack against a target: effective damage, HP after damage, playability…</td></tr>
+</tbody></table></div>
+<p>For example, 60 HP becomes <code>0.60</code> in the HP/100 feature. “Strike against this slime” includes damage after relevant modifiers, so the model needn’t relearn all the combat arithmetic.</p>
+</details>
+<div class="callout"><strong>No peeking:</strong> draw-pile contents are visible, unknown draw order and hidden RNG are not. Reordering otherwise identical card records must not change the prediction.</div>
+</section>
+
+<section id="action">
+<span class="number">05 · A move is not a card name</span>
+<h2>How we encode an action</h2>
+<p>“Play Strike on slime A” and “play Strike on slime B” are different actions.</p>
+<figure class="visual">
+<h3>One card, two targets, two actions</h3>
+<div class="diagram-scroll">
+<svg class="tree" viewBox="0 0 740 385" role="img" aria-labelledby="action-encoding-title">
+<title id="action-encoding-title">The same Strike source card combines with different target monster records to form two action tokens. An action token describes a move; its execution index routes that move to the simulator.</title>
+<rect class="node lit" x="240" y="10" width="260" height="65" rx="8"/><text x="370" y="37">Strike in hand</text><text class="sub" x="370" y="59">Source card features</text>
+<path class="edge active" d="M305 75 L180 125 M435 75 L560 125"/>
+<rect class="node" x="20" y="125" width="320" height="160" rx="8"/><text class="accent-text" x="180" y="153">Strike → slime A</text><text x="180" y="183">kind = card</text><text x="180" y="208">source = Strike record</text><text x="180" y="233">target = slime A record</text><text class="sub" x="180" y="264">execution_index = 0</text>
+<rect class="node" x="400" y="125" width="320" height="160" rx="8"/><text class="accent-text" x="560" y="153">Strike → slime B</text><text x="560" y="183">kind = card</text><text x="560" y="208">source = Strike record</text><text x="560" y="233">target = slime B record</text><text class="sub" x="560" y="264">execution_index = 1</text>
+<path class="edge" d="M180 285 V315 H560 V285 M370 315 V340"/>
+<text x="370" y="367">Search chooses one → index routes it to the simulator</text>
+</svg>
+</div>
+<figcaption>Illustrative indices, valid only for this decision. Source and target are object features; the routing number is not an input to the current value network.</figcaption>
+</figure>
+<div class="grid">
+<div class="card"><h3>State interaction record</h3>“How much would this attack damage that monster?” Contains numeric attack/target features. It contributes to the state’s pair pool.</div>
+<div class="card"><h3>Action record</h3>“Play this card on that monster.” Describes an executable choice. It is not pooled into the current value network.</div>
+</div>
+<p>The C++ action token also supports potions, card selections and end turn. The execution index is a temporary routing address—not a learned meaning for “action 3”.</p>
+<p><strong>Important:</strong> the current value network does not consume action tokens. Teacher rows store action indices, descriptions, visits and mean scores separately. Search executes an action, then the network evaluates the resulting <em>state</em>.</p>
+</section>
+
+<section id="model">
+<span class="number">06 · Our particular value function</span>
+<h2>Small networks, summed summaries, one score</h2>
+<p>Our model is called <strong>Deep Sets</strong>. It handles different numbers of cards and monsters without assigning importance to their list order.</p>
+<ol>
+<li>Turn each card and monster into a learned numeric summary using small neural networks.</li>
+<li>Summarize card–monster interactions too.</li>
+<li>Sum cards separately for hand, draw, discard and exhaust; sum monsters and interactions.</li>
+<li>Combine those summaries with global features. A final network outputs one value.</li>
+</ol>
+<p>The default hidden width is 64. The final <code>tanh</code> limits the output to −1…1; the training labels determine what that number means.</p>
+<details><summary>One current limitation</summary><p>v3 defines an “offered” card zone for selection choices, but this model only pools the four normal zones. That is a coverage gap, not a feature already handled by the network.</p></details>
+</section>
+
+<section id="labels">
+<span class="number">07 · Training labels</span>
+<h2>Where does each training label come from?</h2>
+<div class="callout"><strong>A row is a position before a real move.</strong> It is not one row per search simulation, and its value label is not the name of the move to imitate.</div>
+<h3>First, collect two possible answers</h3>
+<ol>
+<li><strong>Before the move:</strong> save the encoded state and the teacher’s estimate, <code>root_value</code>.</li>
+<li><strong>Play the move:</strong> usually the teacher’s choice. The current generator can override at most one decision per fight with a random legal move.</li>
+<li><strong>After the fight:</strong> compute <code>terminal_value</code> and attach that same result to every saved row from the fight.</li>
+</ol>
+<div class="grid">
+<div class="card"><h3>Search estimate: v̂</h3><p>“What did search think here?”</p><p>Average the root actions’ mean scores, weighted by their visits.</p><code>v̂ = Σ(visits × mean score) / Σvisits</code></div>
+<div class="card"><h3>Actual outcome: z</h3><p>“What happened in this fight?”</p><p>Loss: 0. Win:</p><code>z = (35 + final HP + 4 × potions left) / (55 + max HP)</code></div>
+</div>
+<p style="margin-top:16px"><strong>v̂ is not the best move’s score.</strong> It includes exploration of weaker moves. It also depends on the rollout heuristic and sampled hidden states.</p>
+<p><strong>z is not a verdict on every move.</strong> A good opening can still lead to a loss. Repeated examples let the network learn an average rather than treat one unlucky fight as certainty.</p>
+<h3>A worked example</h3>
+<p>Suppose a fight ends in a win at 40/80 HP with no potions. Every row gets <strong>z = 75/135 ≈ 0.556</strong>. But one row’s search estimate might be <strong>v̂ = 0.400</strong>, while another’s is 0.520.</p>
+<div class="card">
+<h3>Which number should the first row teach?</h3>
+<p>A possible blend is <code>y = λ × z + (1 − λ) × v̂</code>.</p>
+<label for="blend">Outcome weight λ: <output id="weight" for="blend">0.50</output></label><br>
+<input id="blend" type="range" min="0" max="100" value="50">
+<p id="calculation" aria-live="polite">Label y = 0.50 × 0.556 + 0.50 × 0.400 ≈ <strong>0.478</strong></p>
+<small>Illustrative numbers, not a recorded row. λ = 0 copies search; λ = 1 learns only from outcomes. A 50/50 blend is an experiment, not an established best choice.</small>
+</div>
+<h3>What does the code actually train on today?</h3>
+<ul>
+<li><strong>Existing trainer:</strong> uses the older <code>mcts_value</code> label—an MCTS root estimate. It minimizes mean squared error: <code>average((prediction − label)²)</code>.</li>
+<li><strong>New teacher records:</strong> store <code>root_value</code> and <code>terminal_value</code>. The trainer has not yet been adapted to select or blend them.</li>
+<li><strong>Different score scales:</strong> older MCTS uses loss = −1, win = <code>0.5 + 0.5 × HP/max HP</code>. Do not mix those targets with the new score without conversion.</li>
+</ul>
+<p class="muted">Even the new v̂ and z are not identical objectives: the teacher’s default search adds a small turn penalty on wins and shaping on losses. Align them before treating a blend as one clean target. Keep entire decks together when splitting training and validation data.</p>
+</section>
+
+<section id="agent">
+<span class="number">08 · The network helps search; it does not replace it</span>
+<h2>How the final agent uses the value network</h2>
+<figure class="visual">
+<h3>Same search tree. Different way to score a leaf.</h3>
+<div class="grid">
+<div>
+<svg class="tree mini-tree" viewBox="0 0 330 415" role="img" aria-labelledby="rollout-title">
+<title id="rollout-title">Rollout evaluation: search to a leaf, then simulate onward to the end of the fight and return the score.</title>
+<text class="accent-text" x="165" y="24">Without the network</text>
+<path class="edge" d="M165 65 L65 115 M165 65 L265 115 M165 65 V115"/>
+<path class="edge active" d="M165 65 L65 115 L110 175"/>
+<circle class="node" cx="165" cy="65" r="14"/><circle class="node" cx="165" cy="115" r="10"/><circle class="node" cx="265" cy="115" r="10"/><circle class="node lit" cx="65" cy="115" r="10"/>
+<rect class="node lit" x="50" y="175" width="120" height="40" rx="8"/><text x="110" y="200">New leaf</text>
+<path class="edge active dashed" d="M110 215 L145 250 L110 285 L145 320"/>
+<text class="sub" x="238" y="257">Rollout moves</text><text class="sub" x="238" y="278">outside the tree</text>
+<rect class="node" x="40" y="325" width="210" height="44" rx="8"/><text x="145" y="352">Fight ends → score 0.60</text>
+<path class="backup" d="M35 342 Q0 200 145 65" marker-end="url(#backup-arrow)"/>
+<text class="sub" x="165" y="400">Back up the observed outcome</text>
+</svg>
+</div>
+<div>
+<svg class="tree mini-tree" viewBox="0 0 330 415" role="img" aria-labelledby="neural-title">
+<title id="neural-title">Neural evaluation: search to the same leaf, call the network once and return its predicted value without finishing the simulated fight.</title>
+<text class="accent-text" x="165" y="24">With the network</text>
+<path class="edge" d="M165 65 L65 115 M165 65 L265 115 M165 65 V115"/>
+<path class="edge active" d="M165 65 L65 115 L110 175"/>
+<circle class="node" cx="165" cy="65" r="14"/><circle class="node" cx="165" cy="115" r="10"/><circle class="node" cx="265" cy="115" r="10"/><circle class="node lit" cx="65" cy="115" r="10"/>
+<rect class="node lit" x="50" y="175" width="120" height="40" rx="8"/><text x="110" y="200">New leaf</text>
+<path class="edge active" d="M110 215 V250"/>
+<rect class="node lit" x="40" y="250" width="230" height="50" rx="8"/><text x="155" y="280">Network → estimate 0.57</text>
+<path class="backup" d="M35 272 Q0 180 145 65" marker-end="url(#backup-arrow)"/>
+<text class="sub" x="165" y="344">No need to finish this simulation.</text>
+<text class="sub" x="165" y="365">Later simulations can search deeper.</text>
+<text class="sub" x="165" y="400">Back up the predicted outcome</text>
+</svg>
+</div>
+</div>
+<figcaption>Illustrative scores: the prediction need not equal a rollout result. Solid lines show tree search; dotted lines show rollout moves or scores returning upward. A terminal leaf always uses its exact score.</figcaption>
+</figure>
+<div class="grid">
+<div class="card"><h3>Without the network</h3>Search reaches a new position → play a rollout → send its final score back through the tree.</div>
+<div class="card"><h3>With the network</h3>Search reaches a new position → encode it → predict V(state) → send that estimate back through the tree.</div>
+</div>
+<ol>
+<li>Start search from the actual current position.</li>
+<li>Explore simulated moves; use the network at new, unfinished positions called <em>leaves</em>.</li>
+<li>If a simulated fight is already over, use its exact score—not a neural guess.</li>
+<li>After the search budget is spent, execute the most-visited root move.</li>
+<li>Observe the real result and search again for the next decision.</li>
+</ol>
+<div class="callout"><strong>The division of labour:</strong> the simulator knows the rules, the network estimates long-term quality, and MCTS decides which move to play.</div>
+<p><strong>Implemented:</strong> older MCTS calls the Python value model for leaves. <strong>Next:</strong> train on the new teacher format, then use the teacher’s batch request/submit hooks to evaluate leaves together.</p>
+<p>That may improve play or reduce rollout work. Neither speed nor strength is automatic: test on held-out decks at equal wall-clock time as well as equal simulation count.</p>
+</section>
+
+<footer>
+<details><summary>Sources and scope</summary>
+<ul>
+<li>State/action definitions: <a href="../../combat/encoding.hpp">combat/encoding.hpp</a>; feature construction: <a href="../../combat/environment.cpp">combat/environment.cpp</a>.</li>
+<li>Network: <a href="../../python/sts_combat_rl/models/deep_sets.py">deep_sets.py</a>; training: <a href="../../python/sts_combat_rl/training/train_value.py">train_value.py</a>.</li>
+<li>New row/label generation: <a href="../../apps/generate_entry_mcts_records.cpp">generate_entry_mcts_records.cpp</a>.</li>
+<li>Working neural search: <a href="../../agents/mcts_agent.cpp">mcts_agent.cpp</a> and <a href="../../python/sts_combat_rl/training/neural_gameplay.py">neural_gameplay.py</a>.</li>
+<li>Fixed-deck historical v2 results: <a href="results_v1.md">results_v1.md</a>. Varied-deck results: <a href="../../runs/entry-root-gameplay-v1/episodes.jsonl">78 records, 39 paired fights</a>.</li>
+<li>Guided-teacher preflight: <a href="../../data/combat/run_id=2026-09-22_slime_pbcs20k_preflight/manifest.json">saved manifest</a>. It used per-decision random exploration (ε = 0.15), unlike the current generator’s one-override scheme.</li>
+</ul>
+<p>This guide describes the checked-in code and local saved results, not a claim that the new end-to-end learning loop is complete. Local data links may be absent in a fresh checkout.</p>
+</details>
+</footer>
+</main>
+<script>
+const blend = document.getElementById('blend');
+function updateLabel() {
+  const weight = Number(blend.value) / 100;
+  const label = weight * (75 / 135) + (1 - weight) * 0.4;
+  document.getElementById('weight').textContent = weight.toFixed(2);
+  document.getElementById('calculation').textContent = `Label y = ${weight.toFixed(2)} × 0.556 + ${(1 - weight).toFixed(2)} × 0.400 ≈ ${label.toFixed(3)}`;
+}
+blend.addEventListener('input', updateLabel);
+updateLabel();
+
+const treeExplanations = [
+  ['Select:', 'Strike has the better average, but Defend has only 2 visits. The exploration bonus can make Defend worth investigating. Nothing has been played in the real fight.'],
+  ['Expand:', 'In the simulator, play Defend, then try a previously unexplored Strike. Add the resulting position as a new leaf. Now we need a score for it.'],
+  ['Back up:', 'Suppose the leaf evaluates to 0.60. Add that score to both moves on this path. Defend goes from 2 to 3 visits: its new mean is (2 × 0.40 + 0.60) / 3 ≈ 0.47. Other branches are unchanged.'],
+  ['Choose a move:', 'Jump ahead to an illustrative 100-simulation search. Strike has 60 visits, so it is played—even though Defend’s mean is slightly higher. Only this one move is committed; we observe what happens and search again.']
+];
+function showTreeStep(step) {
+  document.querySelectorAll('[data-tree-step]').forEach(button => {
+    button.setAttribute('aria-pressed', String(Number(button.dataset.treeStep) === step));
+  });
+  const visible = (id, yes) => document.getElementById(id).toggleAttribute('hidden', !yes);
+  visible('expansion', step === 1 || step === 2);
+  visible('backups', step === 2);
+  visible('choose-move', step === 3);
+  document.getElementById('strike-edge').setAttribute('class', step === 3 ? 'edge active' : 'edge');
+  document.getElementById('defend-edge').setAttribute('class', step === 3 ? 'edge' : 'edge active');
+  document.getElementById('strike-node').setAttribute('class', step === 3 ? 'node lit' : 'node');
+  document.getElementById('defend-node').setAttribute('class', step === 3 ? 'node' : 'node lit');
+  document.getElementById('strike-stats').textContent = step === 3 ? '60 visits · mean 0.55' : '8 visits · mean 0.50';
+  document.getElementById('defend-stats').textContent = step === 3 ? '30 visits · mean 0.56' : step === 2 ? '3 visits · mean 0.47' : '2 visits · mean 0.40';
+  document.getElementById('end-stats').textContent = step === 3 ? '10 visits · mean 0.20' : '5 visits · mean 0.20';
+  const explanation = document.getElementById('tree-explanation');
+  const heading = document.createElement('strong');
+  heading.textContent = treeExplanations[step][0] + ' ';
+  explanation.replaceChildren(heading, document.createTextNode(treeExplanations[step][1]));
+}
+document.querySelectorAll('[data-tree-step]').forEach(button => {
+  button.addEventListener('click', () => showTreeStep(Number(button.dataset.treeStep)));
+});
+</script>
+</body>
+</html>

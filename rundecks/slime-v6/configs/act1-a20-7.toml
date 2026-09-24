@@ -1,0 +1,8 @@
+# ./apps/bootstrap/run.sh rundecks/slime-v6/configs/act1-a20-7.toml
+# slime-v6 step 1: ~350 more Slime fights -> ~800 total (PLAN.md "Sizing").
+[run]
+id = "act1-a20-7"
+binary = "./build/bootstrap_fight_worker"
+workers = 10
+ascension = 20
+seeds = 1250

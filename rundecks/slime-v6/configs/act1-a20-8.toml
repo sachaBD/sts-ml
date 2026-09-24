@@ -1,0 +1,8 @@
+# ./apps/bootstrap/run.sh rundecks/slime-v6/configs/act1-a20-8.toml
+# After slime-v6: open-ended teacher data (forever; the user stops it). For a larger gen0 later.
+[run]
+id = "act1-a20-8"
+binary = "./build/bootstrap_fight_worker"
+workers = 10
+ascension = 20
+forever = true

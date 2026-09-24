@@ -30,7 +30,12 @@ def run_path(run_id: str) -> Path:
 
 
 def configured_inputs(config: dict[str, Any]) -> list[str]:
+    """Bootstrap data: [data].bootstrap (corrective configs), else [run].input(s) / [data].paths."""
     run = config.get("run", {})
+    if "bootstrap" in config.get("data", {}):
+        if "input" in run or "inputs" in run or "paths" in config["data"]:
+            raise ValueError("set [data].bootstrap or [run].input(s)/[data].paths, not both")
+        run = {"inputs": config["data"]["bootstrap"]}
     value = run.get("inputs", run.get("input"))
     if value is None:
         value = config.get("data", {}).get("paths")
@@ -78,10 +83,29 @@ def optional_names(table: dict[str, Any], key: str) -> list[str] | None:
     return [value] if isinstance(value, str) else value
 
 
+def initial_checkpoint(value: str | None) -> Path | None:
+    """[train].initial_checkpoint: a value_net_v1 run_id (-> its finished checkpoint) or a checkpoint path."""
+    if value is None:
+        return None
+    path = resolve_data_path(value)
+    if path.is_dir():  # a run's out/
+        record = json.loads((path.parent / "run.json").read_text())
+        if record.get("status") != "done":
+            raise ValueError(f"initial checkpoint run {value}: status {record.get('status')!r}")
+        path = path / record["summary"]["checkpoint"]
+    return path
+
+
 def make_train_args(config: dict[str, Any], out: Path) -> SimpleNamespace:
     train = config.get("train", {})
     data = config.get("data", {})
+    unknown = sorted(set(data) - {"bootstrap", "corrections", "paths", "categories", "encounters"})
+    if unknown:
+        raise ValueError(f"unknown [data] keys: {unknown}")
     return SimpleNamespace(
+        corrections=[resolve_data_path(x) for x in data.get("corrections", [])],
+        initial_checkpoint=initial_checkpoint(train.get("initial_checkpoint")),
+        correction_weight=float(train.get("correction_weight", 0.5)),
         categories=optional_names(data, "categories"),
         encounters=optional_names(data, "encounters"),
         data=[resolve_data_path(x) for x in configured_inputs(config)],
@@ -94,7 +118,7 @@ def make_train_args(config: dict[str, Any], out: Path) -> SimpleNamespace:
         seed=int(train.get("seed", 0)),
         validation_fraction=float(train.get("validation_fraction", train.get("validation-fraction", 0.2))),
         limit=optional_int(train, "limit"),
-        label=str(train.get("label", "blend")),
+        label=str(train.get("label", "blend")),  # blend, root or terminal
         blend=float(train.get("blend", 0.5)),
     )
 
@@ -106,6 +130,8 @@ def write_summary(out: Path, checkpoint_path: Path, checkpoint_json: Path, data_
         "checkpoint_json": checkpoint_json.name,
         "weights": exported.name if exported else None,
         "data": [str(p) for p in data_paths],
+        "data_schema": metadata["data_schema"],
+        "row_counts": metadata["row_counts"],
         "categories": metadata.get("training_config", {}).get("categories"),
         "encounters": metadata.get("training_config", {}).get("encounters"),
         "target_name": metadata.get("target_name"),
@@ -114,9 +140,15 @@ def write_summary(out: Path, checkpoint_path: Path, checkpoint_json: Path, data_
         "metrics": metadata.get("metrics"),
         "train_episodes": len(metadata.get("train_episode_ids", [])),
         "validation_episodes": len(metadata.get("validation_episode_ids", [])),
-        "train_decks": len(metadata.get("train_deck_signatures", [])),
-        "validation_decks": len(metadata.get("validation_deck_signatures", [])),
+        "train_runs": len(metadata["train_run_seeds"]),
+        "validation_runs": len(metadata["validation_run_seeds"]),
     }
+    for key in ("initial_checkpoint", "initial_checkpoint_sha256", "initialization", "split", "training_kind",
+                "correction_weight", "correction_target", "correction_rows", "correction_source", "correction_sha256"):
+        if key in metadata:
+            summary[key] = metadata[key]
+    if "correction_episode_ids" in metadata:
+        summary["correction_episodes"] = len(metadata["correction_episode_ids"])
     (out / "summary.json").write_text(json.dumps(summary, indent=2, sort_keys=True) + "\n")
 
 
@@ -139,6 +171,10 @@ def main() -> int:
     print("------", flush=True)
     for path in train_args.data:
         print(f"- {path}", flush=True)
+    for path in train_args.corrections:
+        print(f"- {path} (correction)", flush=True)
+    if train_args.initial_checkpoint:
+        print(f"- {train_args.initial_checkpoint} (initial checkpoint)", flush=True)
     print("\nConfig", flush=True)
     print("------", flush=True)
     print(f"epochs:              {train_args.epochs}", flush=True)

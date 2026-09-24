@@ -1,0 +1,8 @@
+# ./apps/value_play/run.sh rundecks/slime-v6/configs/slime-v6-teacher-play.toml
+# slime-v6 step 4a: guided-rollout teacher (no net) on gen0's 156 test fights, no random move. Fixed baseline.
+[run]
+id = "slime-v6-teacher-play"
+input = "value_net_v1/2026-09-24/slime-v6-gen0"
+workers = 10
+leaf = "guided_rollout"
+random_move = false

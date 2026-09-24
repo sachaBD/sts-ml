@@ -1,0 +1,13 @@
+# ./apps/dagger/run.sh rundecks/slime-v6/configs/slime-v6-dagger3.toml
+# slime-v6 round 3: gen2 replays ALL 625 of gen0's training fights; the guided-rollout teacher labels every decision.
+[run]
+id = "slime-v6-dagger3"
+input = "value_net_v1/2026-09-24/slime-v6-gen2"
+workers = 10
+
+[collection]
+count = 625   # = every eligible training fight
+seed = 0
+max_decisions = 500
+max_turns = 50
+timeout_seconds = 600

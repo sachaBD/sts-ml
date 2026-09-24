@@ -57,6 +57,17 @@ Git state, command, timings, host, and inputs are recorded by the launcher, so j
 - Adding a nullable column keeps the schema name (`union_by_name` fills NULLs). Renaming, removing or changing
   the meaning of a column means a new name (`combat_v3`).
 
+## Compacting parquet
+
+```bash
+.venv/bin/python runs/compact.py runs/            # everything
+.venv/bin/python runs/compact.py runs/schema=combat_v2/date=2026-09-23/id=slime-bootstrap-1/out
+```
+
+Merges the small `.parquet` files in each directory into ~128MB `compact-*.parquet` files and deletes the
+originals. Directories are never mixed. Crash safe: if it dies, just rerun it. Don't run it on a run that is
+still writing.
+
 ## run.json
 
 | field | meaning |
@@ -70,6 +81,14 @@ Git state, command, timings, host, and inputs are recorded by the launcher, so j
 | `summary` | contents of `out/summary.json`, or null |
 
 ## Querying (duckdb)
+
+A duckdb CLI (v1.5.5, from the `duckdb-cli` pip package) is installed in the venv. Run it from the repo root so
+the `runs/...` globs resolve (no database file; it queries the parquet/json in place):
+
+```bash
+.venv/bin/duckdb                                   # interactive SQL shell
+.venv/bin/duckdb -c "SELECT schema, count(*) FROM read_json('runs/*/*/*/run.json') GROUP BY ALL"
+```
 
 ```sql
 -- all combat training data, with schema / date / id columns from the path
@@ -90,7 +109,8 @@ SELECT * FROM read_json('runs/schema=episodes_v1/*/*/out/episodes.jsonl', filena
 
 | schema | status | written by | out/ |
 |---|---|---|---|
-| `combat_v3` | current | `apps/bootstrap/generate.py` | parquet; columns below |
+| `combat_v3` | current | `apps/bootstrap/generate.py`, `apps/value_play/play.py`, `apps/dagger/generate.py` (parquet metadata `collection_method=dagger`, `training_target=teacher_root_only`: teacher labels on learner-played states, see slop_docs/apps/dagger.md; the value trainer refuses these parts) | parquet; columns below. value_play: one part per fight, `part-<episode_id>.parquet` |
+| `fight_comparison_v1` | current | `apps/compare_fights/compare.py` | `report.md`, `summary.json`, `pairs.parquet` (one row per fight, `baseline_*` / `candidate_*`) |
 | `combat_v2` | legacy | `apps/bootstrap/generate.py` before combat_v3 | Slime Boss fights only; `combat_seed` instead of `run_seed`, `episode_id` = seed, legacy `entry_id`/`deck_signature`, no `category`/`fight_index`/`ascension` |
 | `combat_v1` | legacy | `apps/bootstrap/generate.py` before combat_v2 | as `combat_v2`, but `act`/`floor`/`encounter`/`seed` were partition directories |
 | `value_net_v1` | current | `sts_combat_rl.training.train_value` | `value_checkpoint.pt` + `.json` sidecar (+ `value_weights.bin`) |
@@ -103,7 +123,7 @@ New schema = new row here.
 
 ### `combat_v3` columns
 
-Name and pyarrow layout: `apps/bootstrap/schema.py` (`NAME`, `COMBAT_V3`); each part also stores `schema=combat_v3`
+Name and pyarrow layout: `python/sts_combat_rl/schemas/combat_v3.py` (`NAME`, `COMBAT_V3`); each part also stores `schema=combat_v3`
 in its parquet metadata. One seeded Ironclad act 1 per run seed: seeds whose act 1 boss isn't Slime Boss are skipped
 at game creation (no file); SimpleAgent plays everything out of combat; the teacher search plays **every combat**
 until the player dies or beats Slime Boss. One row per decision recorded from teacher search, in play order

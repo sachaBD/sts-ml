@@ -1,0 +1,32 @@
+# ./apps/value_train/run.sh rundecks/slime-v6/configs/slime-v6-gen1-w50.toml
+# slime-v6 gen1: gen0 weights, bootstrap + dagger1 corrections (teacher root_value), correction_weight 0.5.
+[run]
+id = "slime-v6-gen1-w50"
+
+[data]
+bootstrap = [
+  "combat_v3/2026-09-23/act1-a20",
+  "combat_v3/2026-09-23/act1-a20-1",
+  "combat_v3/2026-09-23/act1-a20-2",
+  "combat_v3/2026-09-23/act1-a20-5",
+  "combat_v3/2026-09-23/act1-a20-6",
+  "combat_v3/2026-09-24/act1-a20-7",
+]
+corrections = ["combat_v3/2026-09-24/slime-v6-dagger1"]
+encounters = ["slime_boss"]
+
+[train]
+initial_checkpoint = "value_net_v1/2026-09-24/slime-v6-gen0"
+correction_weight = 0.50
+epochs = 7
+batch_size = 128
+lr = 0.0001
+weight_decay = 0.0001
+width = 64
+seed = 0
+label = "blend"
+blend = 0.5
+
+[export]
+native_weights = true
+path = "value_weights.bin"

@@ -13,8 +13,11 @@ add_subdirectory("${STS_LIGHTSPEED_DIR}" "${CMAKE_CURRENT_BINARY_DIR}/sts_lights
 add_library(combat_core STATIC
     agents/mcts_agent.cpp
     agents/random_agent.cpp
+    agents/teacher_leaves.cpp
+    agents/teacher_search.cpp
     models/value_net.cpp
     combat/environment.cpp
+    scenarios/act1_run.cpp
     scenarios/jaw_worm.cpp
     scenarios/slime_boss.cpp
     scenarios/slime_entry_projection.cpp)
@@ -63,6 +66,16 @@ target_link_libraries(bootstrap_fight_worker PRIVATE combat_core)
 target_compile_features(bootstrap_fight_worker PRIVATE cxx_std_23)
 target_compile_options(bootstrap_fight_worker PRIVATE -Wall -Wextra -Wpedantic)
 
+add_executable(value_play_worker apps/value_play/worker.cpp)
+target_link_libraries(value_play_worker PRIVATE combat_core)
+target_compile_features(value_play_worker PRIVATE cxx_std_23)
+target_compile_options(value_play_worker PRIVATE -Wall -Wextra -Wpedantic)
+
+add_executable(dagger_worker apps/dagger/worker.cpp)
+target_link_libraries(dagger_worker PRIVATE combat_core)
+target_compile_features(dagger_worker PRIVATE cxx_std_23)
+target_compile_options(dagger_worker PRIVATE -Wall -Wextra -Wpedantic)
+
 add_executable(play_entry_pbcs apps/play_entry_pbcs.cpp)
 target_link_libraries(play_entry_pbcs PRIVATE combat_core)
 target_compile_features(play_entry_pbcs PRIVATE cxx_std_23)
@@ -102,6 +115,12 @@ target_link_libraries(slime_entry_projection_test PRIVATE combat_core)
 target_compile_features(slime_entry_projection_test PRIVATE cxx_std_23)
 target_compile_options(slime_entry_projection_test PRIVATE -Wall -Wextra -Wpedantic)
 add_test(NAME slime_entry_projection_test COMMAND slime_entry_projection_test)
+
+add_executable(teacher_leaves_test tests/teacher_leaves_test.cpp)
+target_link_libraries(teacher_leaves_test PRIVATE combat_core)
+target_compile_features(teacher_leaves_test PRIVATE cxx_std_23)
+target_compile_options(teacher_leaves_test PRIVATE -Wall -Wextra -Wpedantic)
+add_test(NAME teacher_leaves_test COMMAND teacher_leaves_test)
 
 # The native value net's inner loops benefit from AVX2/FMA on the machine that runs it.
 set_source_files_properties(models/value_net.cpp PROPERTIES COMPILE_OPTIONS "-march=native")

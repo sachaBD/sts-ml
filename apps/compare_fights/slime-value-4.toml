@@ -1,0 +1,11 @@
+# ./apps/compare_fights/run.sh apps/compare_fights/slime-value-4.toml [--scratch]
+# Value-net teacher (apps/value_play/slime.toml) vs its stored teacher fights.
+[run]
+id = "slime-value-5-vs-teacher"
+baseline = [
+  "combat_v3/2026-09-23/act1-a20",
+  "combat_v3/2026-09-23/act1-a20-1",
+  "combat_v3/2026-09-23/act1-a20-2",
+  "combat_v3/2026-09-23/act1-a20-3",
+]
+candidate = "combat_v3/2026-09-23/slime-value-5-play-ignore"

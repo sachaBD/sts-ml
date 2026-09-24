@@ -4,6 +4,7 @@ import argparse
 import itertools
 import json
 import logging
+import random
 import subprocess
 import sys
 import tempfile
@@ -12,14 +13,13 @@ import tomllib
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from functools import partial
-from itertools import batched
 from pathlib import Path
 from threading import Event, Lock, Thread, current_thread
 
 import msgpack
 import pyarrow as pa
 import pyarrow.parquet as pq
-from schema import COMBAT_V3, NAME
+from sts_combat_rl.schemas.combat_v3 import COMBAT_V3, NAME
 
 log = logging.getLogger(__name__)
 STATUSES = ("other_boss", "died", "act_complete")  # what the worker reports per seed; other_boss = not played
@@ -34,6 +34,7 @@ class Run:
     boss: bool  # reached the Slime Boss fight
     rows: int
     seconds: float
+    teacher: dict  # search settings (agents/teacher_search.cpp)
 
     def __str__(self):
         return f"seed {self.seed}: {self.status} on floor {self.floor}, {self.fights} fights, {self.rows} rows, {self.seconds:.1f}s"
@@ -49,6 +50,7 @@ class Status:
         self.runs = self.fights = self.bosses = self.rows = 0
         self.statuses = dict.fromkeys(STATUSES, 0)
         self.last_finished = {}  # worker thread name -> monotonic time
+        self.teacher = None
         self.lock = Lock()
         self.stopped = Event()
         self.reporter = Thread(target=self.report_every, args=(interval,), daemon=True)
@@ -72,12 +74,13 @@ class Status:
             self.fights += run.fights
             self.bosses += run.boss
             self.rows += run.rows
+            self.teacher = run.teacher
             self.last_finished[current_thread().name] = time.monotonic()
         log.debug("%s", run)
 
-    def summary(self):
+    def summary(self, ascension, first_seed):
         with self.lock:
-            return {"schema": NAME, "runs": self.runs, **self.statuses, "slime_fights": self.bosses, "fights": self.fights, "rows": self.rows}
+            return {"schema": NAME, "ascension": ascension, "first_seed": first_seed, "teacher": self.teacher, "runs": self.runs, **self.statuses, "slime_fights": self.bosses, "fights": self.fights, "rows": self.rows}
 
     def header(self):
         workers = "".join(f"{f'w{i}':>5}" for i in range(self.workers))
@@ -109,7 +112,7 @@ def to_parquet(msgpack_path, part, seconds):
     if rows:
         pq.write_table(pa.Table.from_pylist(rows, schema=COMBAT_V3), part, compression="zstd")
     return Run(result["seed"], result["status"], result["floor"], result["fights"],
-               any(row["category"] == "boss" for row in rows), len(rows), seconds)
+               any(row["category"] == "boss" for row in rows), len(rows), seconds, result["teacher"])
 
 
 def play(seed, binary, ascension, out, status):
@@ -122,18 +125,30 @@ def play(seed, binary, ascension, out, status):
 
 def generate(config, out):
     run = tomllib.loads(config.read_text())["run"]
-    seeds = itertools.count() if run.get("forever") else range(run["seeds"])
+    # Random start so separate runs play different seeds (episode_id = run_seed*100 + fight_index must fit int64).
+    first_seed = run.get("first_seed", random.randrange(10**12))
+    seeds = itertools.count(first_seed) if run.get("forever") else range(first_seed, first_seed + run["seeds"])
     workers = run["workers"]
+    ascension = run.get("ascension", 1)
     start = time.monotonic()
-    log.info("starting %s seeds on %d workers -> %s", "unlimited" if run.get("forever") else run["seeds"], workers, out)
+    log.info("starting %s seeds from first_seed %d on %d workers -> %s",
+             "unlimited" if run.get("forever") else run["seeds"], first_seed, workers, out)
     log.info("w0..w%d: seconds since that worker last finished a run", workers - 1)
     with Status(workers, run.get("status_seconds", 10)) as status, ThreadPoolExecutor(
             workers, thread_name_prefix="w", initializer=status.worker_started) as pool:
-        run_seed = partial(play, binary=run["binary"], ascension=run.get("ascension", 1), out=out, status=status)
-        for batch in batched(seeds, workers):
-            for _ in pool.map(run_seed, batch):
-                pass
-    (out / "summary.json").write_text(json.dumps(status.summary(), indent=2) + "\n")
+        run_seed = partial(play, binary=run["binary"], ascension=ascension, out=out, status=status)
+        seeds, seeds_lock = iter(seeds), Lock()
+
+        def work(_):  # each worker takes the next seed as soon as its last run finishes (no batch barrier)
+            while True:
+                with seeds_lock:
+                    seed = next(seeds, None)
+                if seed is None:
+                    return
+                run_seed(seed)
+
+        list(pool.map(work, range(workers)))
+    (out / "summary.json").write_text(json.dumps(status.summary(ascension, first_seed), indent=2) + "\n")
     log.info("%s", status.header())
     log.info("%s", status.line())
     log.info("done in %.1f min", (time.monotonic() - start) / 60)

@@ -1,0 +1,8 @@
+# ./apps/value_play/run.sh rundecks/slime-v6/configs/slime-v6-gen0-play.toml
+# slime-v6 step 4b: gen0 NN-MCTS (value_net leaves) on its 156 test fights, no random move.
+[run]
+id = "slime-v6-gen0-play"
+input = "value_net_v1/2026-09-24/slime-v6-gen0"
+workers = 10
+leaf = "value_net"
+random_move = false

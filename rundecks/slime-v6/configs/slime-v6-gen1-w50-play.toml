@@ -1,0 +1,7 @@
+# ./apps/value_play/run.sh rundecks/slime-v6/configs/slime-v6-gen1-w50-play.toml
+[run]
+id = "slime-v6-gen1-w50-play"
+input = "value_net_v1/2026-09-24/slime-v6-gen1-w50"
+workers = 10
+leaf = "value_net"
+random_move = false

@@ -1,4 +1,4 @@
-"""Validated Parquet rows and batching for schema-v3 value training."""
+"""Validated combat_v3 Parquet rows and batching for value training."""
 
 from __future__ import annotations
 
@@ -9,6 +9,8 @@ from typing import Any
 import pyarrow.dataset as ds
 import torch
 from torch.utils.data import Dataset
+
+from ..schemas import combat_v3
 
 
 def validate_rows(rows: list[dict[str, Any]]) -> None:
@@ -58,11 +60,11 @@ def validate_rows(rows: list[dict[str, Any]]) -> None:
 def episode_split(
     rows: list[dict[str, Any]], validation_fraction: float = 0.2, seed: int = 0
 ):
-    """Split by run (combat_v3 run_seed; else episode_id) so one run's fights never land on both sides.
+    """Split by run_seed so one run's fights never land on both sides.
 
     Returns train rows, validation rows, train episode_ids, validation episode_ids.
     """
-    group = lambda r: r.get("run_seed", r["episode_id"])
+    group = lambda r: r["run_seed"]
     groups = sorted({group(row) for row in rows})
     shuffled = groups[:]
     random.Random(seed).shuffle(shuffled)
@@ -85,17 +87,29 @@ def load_rows(
     limit: int | None = None,
     categories: list[str] | None = None,
     encounters: list[str] | None = None,
+    corrective: bool = False,
 ) -> list[dict[str, Any]]:
-    """Load one Parquet shard, or every part in a run's out/ directory.
+    """Load one combat_v3 Parquet shard, or every part in a run's out/ directory.
 
-    categories / encounters keep only matching combat_v3 rows, e.g. ["boss"] / ["slime_boss"].
+    categories / encounters keep only matching rows, e.g. ["boss"] / ["slime_boss"].
+    Raises unless every part is tagged schema=combat_v3 in its parquet metadata. Ordinary loads reject
+    DAgger parts; corrective=True accepts only them (collection_method=dagger, training_target=teacher_root_only).
     """
-    if Path(path).is_dir():
-        dataset = ds.dataset(
-            path, format="parquet", partitioning="hive", exclude_invalid_files=True
-        )
-    else:
-        dataset = ds.dataset(path, format="parquet")
+    dataset = ds.dataset(path, format="parquet", exclude_invalid_files=True)
+    fragments = list(dataset.get_fragments())
+    if not fragments:
+        raise ValueError(f"{path}: no parquet parts")
+    for fragment in fragments:
+        schema = (fragment.physical_schema.metadata or {}).get(b"schema", b"").decode()
+        if schema != combat_v3.NAME:
+            raise ValueError(f"{fragment.path}: schema {schema or 'untagged'!r}, expected {combat_v3.NAME!r}")
+        # DAgger parts (apps/dagger): teacher-root-only targets, learner outcomes; the blend would misuse them.
+        metadata = fragment.physical_schema.metadata or {}
+        if corrective:
+            if metadata.get(b"collection_method") != b"dagger" or metadata.get(b"training_target") != b"teacher_root_only":
+                raise ValueError(f"{fragment.path}: not a DAgger teacher_root_only part")
+        elif b"training_target" in metadata:
+            raise ValueError(f"{fragment.path}: corrective (DAgger) source; use [data].corrections, not an ordinary input")
     keep = None
     for column, values in (("category", categories), ("encounter", encounters)):
         if values:
@@ -178,31 +192,26 @@ def collate_states(rows: list[dict[str, Any]]) -> dict[str, torch.Tensor]:
 def assign_targets(rows: list[dict[str, Any]], label: str, blend: float = 0.5) -> None:
     """Set row["target"].
 
-    mcts:     legacy mcts_value column (old single-shard datasets)
     root:     teacher search estimate v = root_value
     terminal: fight outcome z = terminal_value
     blend:    blend*z + (1-blend)*v, except rows at or before the fight's random move
               use v only, because their z includes a move the teacher did not choose.
     """
-    if label == "mcts":
-        for r in rows:
-            r["target"] = r["mcts_value"]
-        return
-    random_at: dict[tuple[Any, Any], int] = {}
+    random_at: dict[int, int] = {}  # episode_id (one fight) -> last random decision_index
     for r in rows:
-        if r.get("was_random"):
-            key = (r.get("run_id"), r["episode_id"])
+        if r["was_random"]:
+            key = r["episode_id"]
             random_at[key] = max(random_at.get(key, -1), r["decision_index"])
     for r in rows:
         v, z = r["root_value"], r["terminal_value"]
-        if r.get("row_kind") == "child":  # off-trajectory position: the fight outcome is not its outcome
+        if r["row_kind"] == "child":  # off-trajectory position: the fight outcome is not its outcome
             r["target"] = v
         elif label == "root":
             r["target"] = v
         elif label == "terminal":
             r["target"] = z
         elif label == "blend":
-            k = random_at.get((r.get("run_id"), r["episode_id"]), -1)
+            k = random_at.get(r["episode_id"], -1)
             r["target"] = v if r["decision_index"] <= k else blend * z + (1 - blend) * v
         else:
             raise ValueError(f"unknown label {label!r}")
