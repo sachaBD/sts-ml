@@ -22,6 +22,8 @@ import pyarrow.parquet as pq
 from sts_combat_rl.schemas.combat_v3 import COMBAT_V3, NAME
 
 log = logging.getLogger(__name__)
+ORACLE_BANNER = ("\n" + "!" * 78 + "\n!!  ORACLE MODE: the teacher searches the TRUE state (perfect RNG / draw-order\n"
+                 "!!  foresight). Upper-bound data, not fair play. Rows are tagged oracle = true.\n" + "!" * 78)
 STATUSES = ("other_boss", "died", "act_complete")  # what the worker reports per seed; other_boss = not played
 
 
@@ -45,8 +47,9 @@ class Status:
 
     HEADER_EVERY = 20
 
-    def __init__(self, workers, interval):
+    def __init__(self, workers, interval, oracle):
         self.workers = workers
+        self.oracle = oracle
         self.runs = self.fights = self.bosses = self.rows = 0
         self.statuses = dict.fromkeys(STATUSES, 0)
         self.last_finished = {}  # worker thread name -> monotonic time
@@ -78,13 +81,14 @@ class Status:
             self.last_finished[current_thread().name] = time.monotonic()
         log.debug("%s", run)
 
-    def summary(self, ascension, first_seed):
+    def summary(self, ascension, first_seed, oracle):
         with self.lock:
-            return {"schema": NAME, "ascension": ascension, "first_seed": first_seed, "teacher": self.teacher, "runs": self.runs, **self.statuses, "slime_fights": self.bosses, "fights": self.fights, "rows": self.rows}
+            return {"schema": NAME, "oracle": oracle, "ascension": ascension, "first_seed": first_seed, "teacher": self.teacher, "runs": self.runs, **self.statuses, "slime_fights": self.bosses, "fights": self.fights, "rows": self.rows}
 
     def header(self):
         workers = "".join(f"{f'w{i}':>5}" for i in range(self.workers))
-        return f"{'runs':>7} {'skipped':>8} {'died':>6} {'boss':>6} {'cleared':>7} {'fights':>7} {'rows':>10}  {workers}"
+        tag = "[ORACLE] " if self.oracle else ""
+        return f"{tag}{'runs':>7} {'skipped':>8} {'died':>6} {'boss':>6} {'cleared':>7} {'fights':>7} {'rows':>10}  {workers}"
 
     def line(self):
         now = time.monotonic()
@@ -115,11 +119,11 @@ def to_parquet(msgpack_path, part, seconds):
                any(row["category"] == "boss" for row in rows), len(rows), seconds, result["teacher"])
 
 
-def play(seed, binary, ascension, out, status):
+def play(seed, binary, ascension, oracle, out, status):
     """One act 1 -> out/part-<seed>.parquet (no file for a run with no fights, e.g. other_boss)."""
     with tempfile.TemporaryDirectory() as tmp:
         start = time.monotonic()
-        subprocess.run([binary, str(seed), str(ascension), tmp], check=True)
+        subprocess.run([binary, str(seed), str(ascension), tmp, str(int(oracle))], check=True)
         status.record(to_parquet(Path(tmp) / "fight.msgpack", out / f"part-{seed:06d}.parquet", time.monotonic() - start))
 
 
@@ -130,13 +134,17 @@ def generate(config, out):
     seeds = itertools.count(first_seed) if run.get("forever") else range(first_seed, first_seed + run["seeds"])
     workers = run["workers"]
     ascension = run.get("ascension", 1)
+    oracle = run.get("oracle", False)
+    if not isinstance(oracle, bool):
+        raise ValueError(f"oracle must be true or false, got {oracle!r}")
     start = time.monotonic()
+    log.info("%s", ORACLE_BANNER if oracle else "oracle: off (teacher searches sampled beliefs, fair play)")
     log.info("starting %s seeds from first_seed %d on %d workers -> %s",
              "unlimited" if run.get("forever") else run["seeds"], first_seed, workers, out)
     log.info("w0..w%d: seconds since that worker last finished a run", workers - 1)
-    with Status(workers, run.get("status_seconds", 10)) as status, ThreadPoolExecutor(
+    with Status(workers, run.get("status_seconds", 10), oracle) as status, ThreadPoolExecutor(
             workers, thread_name_prefix="w", initializer=status.worker_started) as pool:
-        run_seed = partial(play, binary=run["binary"], ascension=ascension, out=out, status=status)
+        run_seed = partial(play, binary=run["binary"], ascension=ascension, oracle=oracle, out=out, status=status)
         seeds, seeds_lock = iter(seeds), Lock()
 
         def work(_):  # each worker takes the next seed as soon as its last run finishes (no batch barrier)
@@ -148,10 +156,10 @@ def generate(config, out):
                 run_seed(seed)
 
         list(pool.map(work, range(workers)))
-    (out / "summary.json").write_text(json.dumps(status.summary(ascension, first_seed), indent=2) + "\n")
+    (out / "summary.json").write_text(json.dumps(status.summary(ascension, first_seed, oracle), indent=2) + "\n")
     log.info("%s", status.header())
     log.info("%s", status.line())
-    log.info("done in %.1f min", (time.monotonic() - start) / 60)
+    log.info("done in %.1f min%s", (time.monotonic() - start) / 60, " [ORACLE run]" if oracle else "")
 
 
 if __name__ == "__main__":

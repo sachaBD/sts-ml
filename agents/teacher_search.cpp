@@ -12,8 +12,9 @@ using sts::search::PublicBeliefCombatSearch;
 
 }  // namespace
 
-SearchDecision search_decision(const CombatEnvironment& env, std::size_t legal_count, const SearchFn& run) {
-    auto search = make_search(env.battle());
+SearchDecision search_decision(const CombatEnvironment& env, std::size_t legal_count, const SearchFn& run,
+                               bool oracle) {
+    auto search = make_search(env.battle(), oracle);
     SearchDecision result;
     result.used = run(search, legal_count);
     result.chosen = legal_index(env, legal_count, search, search.selectedAction());
@@ -34,7 +35,7 @@ SearchDecision search_decision(const CombatEnvironment& env, std::size_t legal_c
 namespace {
 
 void record_children(std::vector<Json>& rows, const CombatEnvironment& env, const SearchDecision& decision,
-                     const Json& fight, int index) {
+                     const Json& fight, int index, bool oracle) {
     for (const auto& tried : decision.tried) {
         if (tried.index == decision.chosen || tried.visits < child_min_visits) continue;
         CombatEnvironment child{env.battle()};
@@ -45,7 +46,8 @@ void record_children(std::vector<Json>& rows, const CombatEnvironment& env, cons
         row.update(fight);
         row.update({{"decision_index", index}, {"turn", child.battle().turn}, {"actions", Json::array()},
                     {"chosen_action", -1}, {"was_random", false}, {"root_value", tried.value},
-                    {"row_kind", "child"}, {"parent_action", tried.index}, {"simulations_used", 0}});
+                    {"row_kind", "child"}, {"parent_action", tried.index}, {"simulations_used", 0},
+                    {"oracle", oracle}});
         rows.push_back(std::move(row));
     }
 }
@@ -58,17 +60,19 @@ Json outcome_columns(const CombatEnvironment& env, int max_hp) {
     return {{"won", env.won()}, {"final_hp", hp}, {"potions", potions}, {"terminal_value", terminal}};
 }
 
-Json settings(const Leaf& leaf) {
+Json settings(const Leaf& leaf, bool oracle) {
     auto result = search_settings(leaf);
+    result["oracle"] = oracle;
+    if (oracle) result["particles"] = 1;
     result["child_min_visits"] = child_min_visits;
     result["random_window"] = random_window;
     return result;
 }
 
-Json settings(const std::string& leaf) { return settings(Leaf{leaf}); }
+Json settings(const std::string& leaf, bool oracle) { return settings(Leaf{leaf}, oracle); }
 
 sts::BattleContext play_fight(sts::BattleContext battle, const Json& fight, std::vector<Json>& rows,
-                              const SearchFn& run, bool random_move) {
+                              const SearchFn& run, bool random_move, bool oracle) {
     CombatEnvironment env{std::move(battle)};
     const int max_hp = env.player_max_hp();
     std::mt19937_64 rng(fight.at("episode_id").get<std::uint64_t>() ^ 0xe9510ULL);
@@ -77,15 +81,16 @@ sts::BattleContext play_fight(sts::BattleContext battle, const Json& fight, std:
     int index = 0;
     while (!env.done()) {
         auto state = env.decision();
-        auto choice = search_decision(env, state.legal_actions.size(), run);
+        auto choice = search_decision(env, state.legal_actions.size(), run, oracle);
         const bool random = index == random_at;
         if (random) choice.chosen = std::uniform_int_distribution<std::size_t>{0, state.legal_actions.size() - 1}(rng);
-        record_children(children, env, choice, fight, index);
+        record_children(children, env, choice, fight, index, oracle);
         Json row = state.encoding;
         row.update(fight);
         row.update({{"decision_index", index}, {"turn", env.battle().turn}, {"actions", std::move(choice.actions)},
                     {"chosen_action", choice.chosen}, {"was_random", random}, {"root_value", choice.value},
-                    {"row_kind", "decision"}, {"parent_action", -1}, {"simulations_used", choice.used}});
+                    {"row_kind", "decision"}, {"parent_action", -1}, {"simulations_used", choice.used},
+                    {"oracle", oracle}});
         decisions.push_back(std::move(row));
         env.step(choice.chosen);
         ++index;
@@ -117,7 +122,8 @@ LearnerFight play_learner_fight(sts::BattleContext battle, const Json& fight, st
         row.update(fight);
         row.update({{"decision_index", index}, {"turn", env.battle().turn}, {"actions", label.actions},
                     {"chosen_action", move.chosen}, {"was_random", false}, {"root_value", label.value},
-                    {"row_kind", "decision"}, {"parent_action", -1}, {"simulations_used", label.used}});
+                    {"row_kind", "decision"}, {"parent_action", -1}, {"simulations_used", label.used},
+                    {"oracle", false}});
         if (index == 0) result.start = row;
         result.decisions.push_back({{"decision_index", index}, {"turn", env.battle().turn},
                                     {"learner_action", move.chosen}, {"teacher_action", label.chosen},

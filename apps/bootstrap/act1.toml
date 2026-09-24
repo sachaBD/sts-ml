@@ -4,5 +4,6 @@ id = "act1-a20-6"
 binary = "./build/bootstrap_fight_worker"
 workers = 10
 ascension = 20
+# oracle = true # teacher searches the true state (perfect RNG foresight): upper-bound data, rows tagged oracle
 forever = true # alternatively: seeds = 100
 # first_seed = 0 # default: random, so separate runs play different seeds (logged + in summary.json)

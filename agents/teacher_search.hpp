@@ -33,22 +33,25 @@ struct SearchDecision {
     std::int64_t used;
 };
 
-SearchDecision search_decision(const CombatEnvironment& env, std::size_t legal_count, const SearchFn& run);
+SearchDecision search_decision(const CombatEnvironment& env, std::size_t legal_count, const SearchFn& run,
+                               bool oracle = false);
 
 // combat_v3 outcome columns of a finished fight: won, final_hp, potions, terminal_value.
 nlohmann::json outcome_columns(const CombatEnvironment& env, int max_hp);
 
-// search_settings plus the recording settings, as recorded in summary.json.
-nlohmann::json settings(const Leaf& leaf);
+// search_settings plus the recording settings (and `oracle`), as recorded in summary.json.
+nlohmann::json settings(const Leaf& leaf, bool oracle = false);
 // leaf = "guided_rollout" or "value_net".
-nlohmann::json settings(const std::string& leaf);
+nlohmann::json settings(const std::string& leaf, bool oracle = false);
 
 // Teacher plays one fight. With `random_move`, one decision in [0, random_window), drawn from
 // mt19937_64(episode_id ^ 0xe9510), plays a uniformly random legal move instead (was_random); without
-// it every move is the search's. Appends its decision rows, then its child rows, each = encoding +
+// it every move is the search's. `oracle`: search the true state (make_search); every row gets
+// oracle = true/false. Appends its decision rows, then its child rows, each = encoding +
 // `fight` columns + search columns + outcome columns. Returns the finished battle.
 sts::BattleContext play_fight(sts::BattleContext battle, const nlohmann::json& fight,
-                              std::vector<nlohmann::json>& rows, const SearchFn& search, bool random_move = true);
+                              std::vector<nlohmann::json>& rows, const SearchFn& search, bool random_move = true,
+                              bool oracle = false);
 
 // A learner plays one fight while a teacher labels it (apps/dagger). At each decision, separate searches
 // of the same pre-action state: `teacher` gives actions / root_value / simulations_used, `learner` picks

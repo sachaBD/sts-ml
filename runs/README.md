@@ -101,6 +101,9 @@ SELECT category, encounter, count(*) FROM read_parquet('runs/schema=combat_v3/*/
 -- all runs
 SELECT run_id, schema, status, inputs, summary FROM read_json('runs/*/*/*/run.json');
 
+-- oracle (perfect-foresight teacher) vs normal data; also summary.oracle in run.json
+SELECT coalesce(oracle, false) AS oracle, count(*) FROM read_parquet('runs/schema=combat_v3/*/*/out/*.parquet', union_by_name = true) GROUP BY ALL;
+
 -- all eval episodes, tagged with run
 SELECT * FROM read_json('runs/schema=episodes_v1/*/*/out/episodes.jsonl', filename = true, union_by_name = true);
 ```
@@ -147,6 +150,7 @@ until the player dies or beats Slime Boss. One row per decision recorded from te
 | `chosen_action` | move played |
 | `was_random` | the one random move of the fight (not the teacher's choice); a fight shorter than 24 decisions may have none |
 | `root_value` | search's value estimate for this state |
+| `oracle` | `true`: the teacher searched the true state (one particle with the real RNG and draw order, `[run] oracle = true` in apps/bootstrap). Perfect foresight, an upper bound, not fair play. NULL in runs older than the column: treat as `false` (`coalesce(oracle, false)`) |
 | `simulations_used` | simulations the search actually ran: 500 for a forced move, fewer than the budget when it stopped early because the top move could no longer be overtaken; 0 on child rows |
 | `won`, `final_hp`, `potions`, `terminal_value` | this fight's outcome, the same on every row of the fight (`potions`: potion count at fight end) |
 

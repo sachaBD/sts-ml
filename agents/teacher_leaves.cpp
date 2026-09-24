@@ -57,12 +57,13 @@ bool decided(const PublicBeliefCombatSearch& search, std::int64_t left) {
 
 }  // namespace
 
-PublicBeliefCombatSearch make_search(const sts::BattleContext& observed) {
+PublicBeliefCombatSearch make_search(const sts::BattleContext& observed, bool oracle) {
     const auto public_seed = PublicBeliefCombatSearch::publicObservation(observed);
     auto stream = public_seed;
     std::vector<sts::BattleContext> states;
     states.reserve(particles);
-    for (int i = 0; i < particles; ++i) states.push_back(sample_particle(observed, next_seed(stream)));
+    if (oracle) states.push_back(observed);
+    else for (int i = 0; i < particles; ++i) states.push_back(sample_particle(observed, next_seed(stream)));
     PublicBeliefCombatSearch search{std::move(states), public_seed, 2};
     search.maximumActions = max_actions;
     return search;

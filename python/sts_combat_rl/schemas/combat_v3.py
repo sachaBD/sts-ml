@@ -44,6 +44,7 @@ COMBAT_V3 = pa.schema(
         ("was_random", pa.bool_()),
         ("root_value", F32),
         ("simulations_used", pa.int64()),
+        ("oracle", pa.bool_()),  # teacher searched the true state (perfect RNG foresight); NULL in older runs = false
         # this fight's outcome
         ("won", pa.bool_()),
         ("final_hp", pa.int16()),
