@@ -156,7 +156,7 @@ and a fresh fight RNG seeded from `episode_id`. Only fights with `source_episode
 | `chosen_action` | move played |
 | `was_random` | the one random move of the fight (not the teacher's choice); a fight shorter than 24 decisions may have none |
 | `root_value` | search's value estimate for this state |
-| `oracle` | `true`: the teacher searched the true state (one particle with the real RNG and draw order, `[run] oracle = true` in apps/bootstrap or apps/value_play). Perfect foresight, an upper bound, not fair play. NULL in runs older than the column: treat as `false` (`coalesce(oracle, false)`) |
+| `oracle` | `true`: the teacher searched the true state (one particle with the real RNG and draw order, max backup: the move played is the best-valued one, no early stop; `root_value` / `mean_value` are still means, `[run] oracle = true` in apps/bootstrap or apps/value_play). Perfect foresight, an upper bound, not fair play. NULL in runs older than the column: treat as `false` (`coalesce(oracle, false)`) |
 | `simulations_used` | simulations the search actually ran: 500 for a forced move, fewer than the budget when it stopped early because the top move could no longer be overtaken; 0 on child rows |
 | `won`, `final_hp`, `potions`, `terminal_value` | this fight's outcome, the same on every row of the fight (`potions`: potion count at fight end) |
 

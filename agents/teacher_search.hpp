@@ -23,7 +23,7 @@ struct TriedAction {
 };
 
 // One search at env's current state. actions: {action, description, visits, mean_value} per visited root
-// edge; chosen: the most-visited edge's legal index; value: sum of edge value sums / root visits (the
+// edge; chosen: the most-visited edge's legal index (oracle / max backup: the best-valued edge's); value: sum of edge value sums / root visits (the
 // visit-weighted average of the explored edges, not max-Q); used: simulations run.
 struct SearchDecision {
     nlohmann::json actions = nlohmann::json::array();
