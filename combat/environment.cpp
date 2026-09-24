@@ -416,6 +416,8 @@ CombatEnvironment CombatEnvironment::determinized(const std::uint64_t seed) cons
     return CombatEnvironment{std::move(state)};
 }
 
+CombatEnvironment CombatEnvironment::clone() const { return CombatEnvironment{impl_->state}; }
+
 void CombatEnvironment::step(const std::size_t action_index) {
     if (done()) {
         throw std::logic_error{"cannot step a finished combat"};

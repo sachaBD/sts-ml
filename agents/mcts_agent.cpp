@@ -26,6 +26,7 @@ struct Edge {
     std::size_t availability{};
     std::size_t visits{};
     double value_sum{};
+    double best{-std::numeric_limits<double>::infinity()};
     std::unique_ptr<Node> child;
 };
 
@@ -48,13 +49,15 @@ struct MctsAgent::Impl {
         }
     }
 
-    [[nodiscard]] double rollout(CombatEnvironment environment) {
+    [[nodiscard]] double rollout(CombatEnvironment& environment) {
         for (std::size_t depth = 0;
              !environment.done() && depth < config.rollout_limit;
              ++depth) {
             const auto actions = environment.search_actions();
             std::uniform_int_distribution<std::size_t> choice{0, actions.size() - 1};
-            environment.step(actions[choice(random)].index);
+            const auto action = actions[choice(random)].index;
+            path.push_back(action);
+            environment.step(action);
         }
         return environment.combat_value();
     }
@@ -94,7 +97,7 @@ struct MctsAgent::Impl {
         } else {
             const auto score = [this](const Candidate& candidate) {
                 const auto& edge = *candidate.edge;
-                const auto mean = edge.value_sum / static_cast<double>(edge.visits);
+                const auto mean = config.oracle ? edge.best : edge.value_sum / static_cast<double>(edge.visits);
                 const auto explore = config.exploration * std::sqrt(
                     std::log(static_cast<double>(edge.availability))
                     / static_cast<double>(edge.visits));
@@ -107,6 +110,7 @@ struct MctsAgent::Impl {
                 });
         }
 
+        path.push_back(selected.action_index);
         environment.step(selected.action_index);
         auto& edge = *selected.edge;
         double value{};
@@ -121,7 +125,7 @@ struct MctsAgent::Impl {
                     throw std::runtime_error{"leaf evaluator returned an invalid value"};
                 }
             } else {
-                value = rollout(std::move(environment));
+                value = rollout(environment);
             }
         } else {
             value = search(environment, *edge.child);
@@ -129,7 +133,26 @@ struct MctsAgent::Impl {
 
         ++edge.visits;
         edge.value_sum += value;
+        edge.best = std::max(edge.best, value);
         return value;
+    }
+
+    // Re-validate the previous incumbent (minus the action already played) on
+    // the current state. Replay recomputes its value, so it is exact even if the
+    // caller did not play our last choice.
+    void replay_incumbent(const CombatEnvironment& environment) {
+        std::vector<std::size_t> line(best_line.empty() ? best_line.end() : best_line.begin() + 1, best_line.end());
+        best_line.clear();
+        best_value = -std::numeric_limits<double>::infinity();
+        auto replay = environment.clone();
+        for (const auto action : line) {
+            if (replay.done() || action >= replay.search_actions().size()) return;
+            replay.step(action);
+        }
+        if (replay.done()) {
+            best_value = replay.combat_value();
+            best_line = std::move(line);
+        }
     }
 
     [[nodiscard]] MctsResult search_result(CombatEnvironment& environment) {
@@ -137,10 +160,16 @@ struct MctsAgent::Impl {
             throw std::logic_error{"MCTS cannot act in a finished combat"};
         }
 
+        if (config.oracle) replay_incumbent(environment);
         Node root;
         for (std::size_t simulation = 0; simulation < config.simulations; ++simulation) {
-            auto determinization = environment.determinized(random());
-            [[maybe_unused]] const auto value = search(determinization, root);
+            path.clear();
+            auto simulated = config.oracle ? environment.clone() : environment.determinized(random());
+            const auto value = search(simulated, root);
+            if (config.oracle && simulated.done() && value > best_value) {
+                best_value = value;
+                best_line = path;
+            }
         }
 
         const auto actions = environment.search_actions();
@@ -149,7 +178,7 @@ struct MctsAgent::Impl {
         for (const auto& action : actions) {
             const auto edge = std::find_if(root.edges.begin(), root.edges.end(), [&action](const Edge& candidate) { return candidate.key == action.key; });
             if (edge != root.edges.end()
-                && (best_edge == nullptr || edge->visits > best_edge->visits)) {
+                && (best_edge == nullptr || (config.oracle ? edge->best > best_edge->best : edge->visits > best_edge->visits))) {
                 best_edge = &*edge;
                 best_action = action.index;
             }
@@ -174,12 +203,22 @@ struct MctsAgent::Impl {
             }
         }
         result.root_value = result.root_visits ? result.root_value / result.root_visits : 0.0;
+        if (config.oracle && !best_line.empty()) {
+            // A terminal line found by exact search is a guaranteed outcome.
+            result.chosen_action = best_line.front();
+            result.root_value = best_value;
+        } else if (config.oracle) {
+            result.root_value = best_edge->best;
+        }
         return result;
     }
 
     MctsConfig config;
     std::mt19937_64 random;
     LeafEvaluator leaf_evaluator;
+    std::vector<std::size_t> path;       // actions of the current simulation
+    std::vector<std::size_t> best_line;  // oracle incumbent: best terminal line found
+    double best_value{-std::numeric_limits<double>::infinity()};
 };
 
 MctsAgent::MctsAgent(const std::uint64_t seed, MctsConfig config, LeafEvaluator leaf_evaluator)
