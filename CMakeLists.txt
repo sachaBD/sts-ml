@@ -41,25 +41,10 @@ target_link_libraries(play_slime_mcts_rollout PRIVATE combat_core)
 target_compile_features(play_slime_mcts_rollout PRIVATE cxx_std_23)
 target_compile_options(play_slime_mcts_rollout PRIVATE -Wall -Wextra -Wpedantic)
 
-add_executable(play_entry_mcts_rollout apps/play_entry_mcts_rollout.cpp)
-target_link_libraries(play_entry_mcts_rollout PRIVATE combat_core)
-target_compile_features(play_entry_mcts_rollout PRIVATE cxx_std_23)
-target_compile_options(play_entry_mcts_rollout PRIVATE -Wall -Wextra -Wpedantic)
-
-add_executable(play_entry_mcts_neural apps/play_entry_mcts_neural.cpp)
-target_link_libraries(play_entry_mcts_neural PRIVATE combat_core)
-target_compile_features(play_entry_mcts_neural PRIVATE cxx_std_23)
-target_compile_options(play_entry_mcts_neural PRIVATE -Wall -Wextra -Wpedantic)
-
 add_executable(play_slime_mcts_neural apps/play_slime_mcts_neural.cpp)
 target_link_libraries(play_slime_mcts_neural PRIVATE combat_core)
 target_compile_features(play_slime_mcts_neural PRIVATE cxx_std_23)
 target_compile_options(play_slime_mcts_neural PRIVATE -Wall -Wextra -Wpedantic)
-
-add_executable(smoke_slime_entry_projections apps/smoke_slime_entry_projections.cpp)
-target_link_libraries(smoke_slime_entry_projections PRIVATE combat_core)
-target_compile_features(smoke_slime_entry_projections PRIVATE cxx_std_23)
-target_compile_options(smoke_slime_entry_projections PRIVATE -Wall -Wextra -Wpedantic)
 
 add_executable(bootstrap_fight_worker apps/bootstrap/fight_worker.cpp)
 target_link_libraries(bootstrap_fight_worker PRIVATE combat_core)
@@ -80,16 +65,6 @@ add_executable(dagger_worker apps/dagger/worker.cpp)
 target_link_libraries(dagger_worker PRIVATE combat_core)
 target_compile_features(dagger_worker PRIVATE cxx_std_23)
 target_compile_options(dagger_worker PRIVATE -Wall -Wextra -Wpedantic)
-
-add_executable(play_entry_pbcs apps/play_entry_pbcs.cpp)
-target_link_libraries(play_entry_pbcs PRIVATE combat_core)
-target_compile_features(play_entry_pbcs PRIVATE cxx_std_23)
-target_compile_options(play_entry_pbcs PRIVATE -Wall -Wextra -Wpedantic)
-
-add_executable(value_net_eval apps/value_net_eval.cpp)
-target_link_libraries(value_net_eval PRIVATE combat_core)
-target_compile_features(value_net_eval PRIVATE cxx_std_23)
-target_compile_options(value_net_eval PRIVATE -Wall -Wextra -Wpedantic)
 
 add_executable(generate_mcts_records apps/generate_mcts_records.cpp)
 target_link_libraries(generate_mcts_records PRIVATE combat_core)

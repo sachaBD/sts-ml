@@ -57,7 +57,7 @@ sts::BattleContext play_fight(sts::BattleContext battle, const nlohmann::json& f
 // of the same pre-action state: `teacher` gives actions / root_value / simulations_used, `learner` picks
 // chosen_action, and only the learner's move is played. No random move, no child rows.
 //   status: completed (the fight ended), capped (max_decisions reached) or turn_limit (turn max_turns
-//   reached, as play_entry_pbcs: e.g. block-stacking stalls). Only a completed fight appends its decision
+//   reached: e.g. block-stacking stalls). Only a completed fight appends its decision
 //   rows (with the outcome columns) to `rows`; the others append nothing (not a loss).
 //   start: decision 0's row without outcome (identity check), decisions: per-decision diagnostics
 //   {decision_index, turn, learner_action, teacher_action, learner/teacher_root_value, learner/teacher_simulations}.
