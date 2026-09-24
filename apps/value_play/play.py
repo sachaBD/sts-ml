@@ -36,6 +36,8 @@ BUILT = Path("build-valexp/value_play_worker")  # built by job.sh; each run play
 NET_LEAVES = ("value_net", "hybrid")
 # Same fight: the replayed decision_index 0 row must match the stored one on these columns.
 START = ("encounter", "floor", "starting_hp", "starting_max_hp", "global_numeric", "cards", "monsters")
+ORACLE_BANNER = ("\n" + "!" * 78 + "\n!!  ORACLE MODE: the teacher searches the TRUE state (perfect RNG / draw-order\n"
+                 "!!  foresight). Upper-bound play, not fair play. Rows are tagged oracle = true.\n" + "!" * 78)
 OUTCOME = ("won", "final_hp", "terminal_value")  # of the stored teacher's fight, logged next to the replay
 
 
@@ -73,7 +75,7 @@ def load_fights(data_runs, episodes):
     return fights
 
 
-RUN_KEYS = {"id", "input", "workers", "leaf", "rollout_turns", "rollout_steps", "random_move", "episodes"}
+RUN_KEYS = {"id", "input", "workers", "leaf", "rollout_turns", "rollout_steps", "random_move", "episodes", "oracle"}
 
 
 def teacher_config(run):
@@ -82,6 +84,10 @@ def teacher_config(run):
         sys.exit(f"unknown [run] keys: {unknown}")
     teacher = {"leaf": run.get("leaf", "value_net"), "random_move": run.get("random_move", True)}
     teacher.update({k: run[k] for k in ("rollout_turns", "rollout_steps") if k in run})
+    if run.get("oracle", False) is not False:
+        if run["oracle"] is not True:
+            sys.exit(f"oracle must be true or false, got {run['oracle']!r}")
+        teacher["oracle"] = True
     return teacher
 
 
@@ -150,6 +156,7 @@ def main(config_path, out):
     value_out = run_dir(value_run) / "out"
     teacher_in = teacher_config(config["run"])
     leaf = teacher_in["leaf"]
+    oracle = teacher_in.get("oracle", False)
     weights = value_out / value["weights"] if leaf in NET_LEAVES else None
     validation = json.loads((value_out / value["checkpoint_json"]).read_text())["validation_episode_ids"]
     episodes = select_episodes(config["run"], validation)
@@ -158,7 +165,8 @@ def main(config_path, out):
         fight["teacher"] = teacher_in
     binary, sha256 = snapshot_worker(out)
     workers = config["run"]["workers"]
-    for line in ("", "Value play", "==========", f"config:    {config_path}", f"output:    {out}",
+    log.info("%s", ORACLE_BANNER if oracle else "oracle: off (teacher searches sampled beliefs, fair play)")
+    for line in ("", "Value play" + (" [ORACLE]" if oracle else ""), "==========", f"config:    {config_path}", f"output:    {out}",
                  f"value run: {value_run}", f"weights:   {weights}", f"data runs: {', '.join(data_runs)}",
                  f"teacher:   {json.dumps(teacher_in)}",
                  f"fights:    {len(fights)} of the value run's {len(validation)} validation episodes",

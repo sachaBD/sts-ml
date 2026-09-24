@@ -28,6 +28,27 @@ Disagreement cost is the teacher's own estimate: the mean value of its most-visi
 - The costly ~16% did not shrink across rounds. The corrections (teacher root_value on learner states) don't change the moves that matter; if anything they add noise.
 - Not tested: whether more bootstrap data improves gen0.
 
+## Oracle upper bound
+
+Oracle: the same guided-rollout teacher, same budget, but it searches the **true state** (one particle with the real RNG and draw order, `oracle = true`). This is perfect foresight, not fair play. It gives an upper bound on what search can do. Same 156 fights, random move off. Diffs are paired vs the oracle, with 95% CI.
+
+| model | wins / 156 | terminal value | vs oracle | wins only oracle / only model |
+|---|---|---|---|---|
+| **oracle** | **148** | **0.528** | – | – |
+| teacher (guided rollout) | 121 | 0.427 | −0.101 (−0.128, −0.076) | 27 / 0 |
+| gen0 | 115 | 0.401 | −0.128 (−0.157, −0.099) | 33 / 0 |
+| gen1 (w 0.25) | 114 | 0.400 | −0.128 (−0.158, −0.099) | 35 / 1 |
+| gen1 (w 0.5) | 112 | 0.399 | −0.130 (−0.161, −0.099) | 37 / 1 |
+| gen2 | 110 | 0.393 | −0.136 (−0.167, −0.106) | 39 / 1 |
+| gen3 | 106 | 0.382 | −0.146 (−0.178, −0.116) | 42 / 0 |
+
+All p < 1e-8 (Wilcoxon on terminal value, exact McNemar on wins).
+- Hidden information costs the teacher about 0.10 terminal value, roughly 9 HP, and 27 fights. That is about 4× the gap between gen0 and the teacher (0.027).
+- Only 8 of the 156 fights are lost even with perfect foresight. Most of the teacher's and models' losses were winnable.
+- The oracle only bounds what can be reached from public information. It does not show how much of the teacher-to-oracle gap a fair player could close.
+
+Runs: combat_v3/…/slime-v6-oracle-play; fight_comparison_v1/…/slime-v6-{teacher,gen0,gen1-w25,gen1-w50,gen2,gen3}-vs-oracle.
+
 ## Runs (all 2026-09-24 unless noted)
 
 | step | run id |

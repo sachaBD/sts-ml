@@ -1,0 +1,10 @@
+# ./apps/value_play/run.sh rundecks/slime-v6/configs/slime-v6-oracle-play.toml
+# Oracle upper bound: guided-rollout teacher searching the TRUE state (perfect RNG foresight) on gen0's
+# 156 test fights, no random move. Same setup as slime-v6-teacher-play except oracle = true.
+[run]
+id = "slime-v6-oracle-play"
+input = "value_net_v1/2026-09-24/slime-v6-gen0"
+workers = 10
+leaf = "guided_rollout"
+random_move = false
+oracle = true

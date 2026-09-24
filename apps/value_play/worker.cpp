@@ -4,7 +4,8 @@
 //   value_play_worker WEIGHTS FIGHT.json OUTPUT_DIR
 //   value_play_worker --no-weights FIGHT.json OUTPUT_DIR     (guided_rollout leaf: no value net)
 //   FIGHT.json: {run_seed, ascension, fight_index, actions: [[chosen_action...] per earlier fight],
-//                teacher (optional): {leaf, rollout_turns, rollout_steps, random_move}}
+//                teacher (optional): {leaf, rollout_turns, rollout_steps, random_move, oracle}}
+//   oracle: search the true state (perfect RNG foresight, teacher_leaves.hpp make_search).
 //   teacher defaults: leaf value_net, rollout bounds 0, random_move true (the original value_play).
 //   Invalid combinations (e.g. hybrid without bounds, guided_rollout with weights) fail.
 // Output: OUTPUT_DIR/fight.msgpack = {episode_id, teacher, rows} (combat_v3 rows of that fight);
@@ -27,6 +28,7 @@ using Json = nlohmann::json;
 struct Teacher {
     stsrl::teacher::Leaf leaf{"value_net"};
     bool random_move = true;
+    bool oracle = false;
 };
 
 Teacher parse_teacher(const Json& input) {
@@ -37,6 +39,7 @@ Teacher parse_teacher(const Json& input) {
         else if (key == "rollout_turns") teacher.leaf.rollout_turns = value.get<int>();
         else if (key == "rollout_steps") teacher.leaf.rollout_steps = value.get<int>();
         else if (key == "random_move") teacher.random_move = value.get<bool>();
+        else if (key == "oracle") teacher.oracle = value.get<bool>();
         else throw std::invalid_argument{"unknown teacher setting: " + key};
     }
     return teacher;
@@ -47,10 +50,10 @@ Json play(const Json& input, const stsrl::ValueNet* net) {
     const auto search = stsrl::teacher::leaf_search(teacher.leaf, net);  // validates leaf vs net
     std::vector<Json> rows;
     const auto fight = stsrl::replay::to_fight(input, [&](const sts::BattleContext& start, const Json& columns) {
-        return stsrl::teacher::play_fight(start, columns, rows, search, teacher.random_move);
+        return stsrl::teacher::play_fight(start, columns, rows, search, teacher.random_move, teacher.oracle);
     });
     const auto episode = fight.at("episode_id");
-    auto settings = stsrl::teacher::settings(teacher.leaf);
+    auto settings = stsrl::teacher::settings(teacher.leaf, teacher.oracle);
     settings["random_move"] = teacher.random_move;
     return {{"episode_id", episode}, {"teacher", settings}, {"rows", rows}};
 }
