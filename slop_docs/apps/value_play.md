@@ -29,6 +29,8 @@ leaf = "value_net"        # "value_net" (immediate), "hybrid", or "guided_rollou
 rollout_turns = 1         # hybrid only, >= 1: guided-rollout turn increments before the net
 rollout_steps = 16        # hybrid only, >= 1: max guided-rollout actions before the net
 random_move = true        # false: no random move (every move is the search's)
+oracle = false            # true: search the TRUE state (1 particle, real RNG / draw order): perfect-foresight
+                          # upper bound, not fair play. Log banner; rows tagged oracle = true (runs/README.md)
 episodes = [707, 9305]    # subset of the checkpoint's validation episodes (default: all)
 ```
 
@@ -80,7 +82,7 @@ apps/value_play/
 
 Worker: `WEIGHTS` is required for `value_net`/`hybrid`; `--no-weights` for `guided_rollout`.
 `FIGHT.json` = `{run_seed, ascension, fight_index, actions, teacher?}` with optional
-`teacher = {leaf, rollout_turns, rollout_steps, random_move}`; without it: `value_net`, random move
+`teacher = {leaf, rollout_turns, rollout_steps, random_move, oracle}`; without it: `value_net`, random move
 on (the original behavior, so `WEIGHTS FIGHT.json OUTPUT_DIR` callers are unchanged).
 
 Shared with bootstrap: `agents/teacher_leaves.{hpp,cpp}` (search, budget, leaf strategies),

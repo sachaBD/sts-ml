@@ -157,6 +157,7 @@ def main(config_path, out):
     teacher_in = teacher_config(config["run"])
     leaf = teacher_in["leaf"]
     oracle = teacher_in.get("oracle", False)
+    label = f"{leaf} ORACLE" if oracle else leaf  # log label only
     weights = value_out / value["weights"] if leaf in NET_LEAVES else None
     validation = json.loads((value_out / value["checkpoint_json"]).read_text())["validation_episode_ids"]
     episodes = select_episodes(config["run"], validation)
@@ -171,10 +172,10 @@ def main(config_path, out):
                  f"teacher:   {json.dumps(teacher_in)}",
                  f"fights:    {len(fights)} of the value run's {len(validation)} validation episodes",
                  f"workers:   {workers}", f"worker:    {binary} (sha256 {sha256})", "",
-                 f"Each line: the {leaf} teacher's replay | the stored teacher's result for the same fight", ""):
+                 f"Each line: the {label} teacher's replay | the stored teacher's result for the same fight", ""):
         log.info("%s", line)
     started, done, teacher = time.monotonic(), [], None
-    progress = Progress(len(fights), leaf)
+    progress = Progress(len(fights), label)
     with ThreadPoolExecutor(workers) as pool:
         futures = [pool.submit(play, e, fight, start, binary, weights, out) for e, (fight, start) in fights.items()]
         try:
@@ -202,9 +203,9 @@ def main(config_path, out):
                "seconds_per_fight": mean([f["seconds"] for f in done])}
     (out / "summary.json").write_text(json.dumps(summary, indent=2) + "\n")
     for line in ("", "Summary", "-------", f"teacher:        {json.dumps(teacher)}",
-                 f"{'':16}{leaf:>14}{'teacher':>10}",
-                 f"{'won':16}{summary['wins']:>14}{summary['teacher_wins']:>10}   of {summary['fights']}",
-                 f"{'terminal value':16}{summary['mean_terminal_value']:>14.3f}{summary['teacher_mean_terminal_value']:>10.3f}   mean",
+                 f"{'':16}{label:>22}{'teacher':>10}",
+                 f"{'won':16}{summary['wins']:>22}{summary['teacher_wins']:>10}   of {summary['fights']}",
+                 f"{'terminal value':16}{summary['mean_terminal_value']:>22.3f}{summary['teacher_mean_terminal_value']:>10.3f}   mean",
                  f"rows:           {summary['rows']:,}", f"seconds/fight:  {summary['seconds_per_fight']:.1f}",
                  f"wall time:      {(time.monotonic() - started) / 60:.1f} min", f"summary:        {out / 'summary.json'}"):
         log.info("%s", line)
