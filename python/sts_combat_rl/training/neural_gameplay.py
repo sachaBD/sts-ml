@@ -79,7 +79,7 @@ def main() -> None:
     parser.add_argument("seed", type=int)
     parser.add_argument("--simulations", type=int, default=20)
     parser.add_argument(
-        "--binary", type=Path, default=Path("build/play_slime_mcts_neural")
+        "--binary", type=Path, default=Path("build/main/play_slime_mcts_neural")
     )
     args = parser.parse_args()
     torch.set_num_threads(1)

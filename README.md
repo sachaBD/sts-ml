@@ -20,7 +20,7 @@ make jaw_worm
 
 Use a particular episode seed with `make jaw_worm SEED=42`. The Makefile is a
 small convenience wrapper around CMake; `make build` only builds, and
-`make clean` removes the build directory.
+`make clean` removes `build/main`. All build dirs live under `build/<name>/`.
 
 Run the information-set MCTS agent with:
 

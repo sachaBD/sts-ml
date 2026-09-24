@@ -27,7 +27,7 @@ def run_smoke(parquet_path: Path | None = None) -> None:
                 seed_start=1,
                 seed_count=1,
                 simulations=10,
-                generator=str(root / "build" / "generate_mcts_records"),
+                generator=str(root / "build" / "main" / "generate_mcts_records"),
             )
             parquet_path = shard
 

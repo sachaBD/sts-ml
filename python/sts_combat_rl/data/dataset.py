@@ -456,7 +456,7 @@ def generate_dataset(
     simulations: int = 2000,
     rollout_limit: int = 512,
     exploration: float = 1.4142135623730951,
-    generator: str = "build/generate_mcts_records",
+    generator: str = "build/main/generate_mcts_records",
     chunk_size: int = 2000,
 ) -> tuple[Path, int, int]:
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -538,7 +538,7 @@ def main() -> None:
     parser.add_argument("--simulations", type=int, default=2000)
     parser.add_argument("--rollout-limit", type=int, default=512)
     parser.add_argument("--exploration", type=float, default=1.4142135623730951)
-    parser.add_argument("--generator", default="build/generate_mcts_records")
+    parser.add_argument("--generator", default="build/main/generate_mcts_records")
     parser.add_argument("--chunk-size", type=int, default=2000)
     args = parser.parse_args()
 

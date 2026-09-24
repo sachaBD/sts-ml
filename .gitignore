@@ -1,5 +1,4 @@
 /build/
-/build-*/
 gmon.out
 .venv/
 /runs/*

@@ -155,7 +155,7 @@ class TestDatasetValidation(unittest.TestCase):
                 seed_start=1,
                 seed_count=1,
                 simulations=10,
-                generator="build/generate_mcts_records",
+                generator="build/main/generate_mcts_records",
                 chunk_size=10,
             )
             self.assertTrue(shard.exists())

@@ -1,6 +1,6 @@
 .PHONY: jaw_worm jaw_worm_mcts smoke dataset test build clean python-env
 
-BUILD_DIR := build
+BUILD_DIR := build/main
 PYTHON ?= python3
 VENV := .venv/bin/python3
 SEED ?= 1

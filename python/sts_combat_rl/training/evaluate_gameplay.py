@@ -36,10 +36,10 @@ def main() -> None:
     parser.add_argument("--count", type=int, default=2)
     parser.add_argument("--simulations", type=int, default=10)
     parser.add_argument(
-        "--neural-binary", type=Path, default=Path("build/play_slime_mcts_neural")
+        "--neural-binary", type=Path, default=Path("build/main/play_slime_mcts_neural")
     )
     parser.add_argument(
-        "--rollout-binary", type=Path, default=Path("build/play_slime_mcts_rollout")
+        "--rollout-binary", type=Path, default=Path("build/main/play_slime_mcts_rollout")
     )
     args = parser.parse_args()
     torch.set_num_threads(1)
