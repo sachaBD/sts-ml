@@ -8,7 +8,7 @@ with the same deck, relics and potions, but a new starting HP and a fresh fight 
 and AI, ...). Output: a `combat_v3` run whose rows have `source_episode_id` set.
 
 ```
-combat_v3 bootstrap runs ──replay to each <encounter> fight──▶ fight_resample ──▶ combat_v3 run (resampled fights)
+combat_v3 bootstrap runs ──replay to each queried fight──▶ fight_resample ──▶ combat_v3 run (resampled fights)
 ```
 
 ## Usage
@@ -17,9 +17,10 @@ combat_v3 bootstrap runs ──replay to each <encounter> fight──▶ fight_r
 ./apps/fight_resample/run.sh apps/fight_resample/slime.toml [--scratch] [--overwrite]
 ```
 
-`[run]` keys (see `slime.toml`): `id`, `inputs` (bootstrap runs only: combat_v3 with no inputs of their own),
-`encounter`, `samples` (per source fight, ≤ 1000), `hp_sd`, `random_potions` (default false), `workers`, optional
-`fights` (first N source fights by episode_id), optional `value_run` (value-net leaf; default: the bootstrap
+`[run]` keys (see `slime.toml`): `id`, `query` (the fights to resample, `sts_combat_rl.query`, e.g.
+`select * from combat_v3 where id like 'act1-a20%' and encounter = 'slime_boss'`; they must come from bootstrap
+runs, which have no inputs of their own), `samples` (per source fight, ≤ 1000), `hp_sd`, `random_potions` (default false), `workers`, optional
+`fights` (first N queried fights by episode_id), optional `value_run` (value-net leaf; default: the bootstrap
 guided-rollout teacher). Random move on, oracle off, as bootstrap.
 
 ## Sample k of source fight `source_episode_id`
