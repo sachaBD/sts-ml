@@ -7,6 +7,7 @@ import json
 import os
 import re
 import signal
+import shutil
 import socket
 import subprocess
 import sys
@@ -66,6 +67,32 @@ def run_path(run_id: str) -> str:
     return f"schema={schema}/date={date}/id={id_}"
 
 
+def run_dir(run_id: str) -> Path:
+    """The directory of an existing run_id, in runs/ or scratch/."""
+    for root in (RUNS, SCRATCH):
+        if (root / run_path(run_id)).is_dir():
+            return root / run_path(run_id)
+    raise FileNotFoundError(f"no run {run_id!r} in runs/ or scratch/")
+
+
+def bootstrap_inputs(run_id: str) -> list[str]:
+    """The run's inputs that are bootstrap runs: schema combat_v3 with no inputs of their own."""
+    inputs = json.loads((run_dir(run_id) / "run.json").read_text()).get("inputs") or []
+    found = []
+    for run in inputs:
+        meta = json.loads((run_dir(run) / "run.json").read_text())
+        if meta.get("schema") == "combat_v3" and not meta.get("inputs"):
+            found.append(run)
+    if not found:
+        raise ValueError(f"{run_id}: no bootstrap combat_v3 input runs in {inputs}")
+    return found
+
+
+def run_parquet(run_id: str) -> list[Path]:
+    """The parquet parts in a run's out/ (out/ also holds summary.json etc.)."""
+    return sorted((run_dir(run_id) / "out").glob("*.parquet"))
+
+
 def resolve_input(value: str) -> str:
     """A run_id (<schema>/<date>/<id>) or an existing path."""
     if value.count("/") == 2 and any((d / run_path(value)).is_dir() for d in (RUNS, SCRATCH)):
@@ -87,9 +114,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("id", help="short lowercase free text, e.g. slime-pbcs20k-gen1 ([a-z0-9_.-])")
     parser.add_argument("--input", action="append", default=[], metavar="RUN_ID|PATH", help="run this job reads from (repeatable); recorded as lineage")
     parser.add_argument("--scratch", action="store_true", help="smoke/preflight/probe: put in scratch/ (never queried, safe to delete)")
+    parser.add_argument("--overwrite", action="store_true", help="delete an existing run with this id before starting")
     parser.add_argument("--live", action="store_true", help="also print job output to the terminal while retaining logs")
     parser.add_argument("--note", default="", help="free-text note stored in run.json")
-    parser.usage = "%(prog)s SCHEMA ID [--input RUN_ID|PATH ...] [--scratch] [--note TEXT] -- COMMAND..."
+    parser.usage = "%(prog)s SCHEMA ID [--input RUN_ID|PATH ...] [--scratch] [--overwrite] [--note TEXT] -- COMMAND..."
     argv = sys.argv[1:] if argv is None else argv
     split = argv.index("--") if "--" in argv else len(argv)
     args, cmd = parser.parse_args(argv[:split]), argv[split + 1:]
@@ -103,7 +131,9 @@ def main(argv: list[str] | None = None) -> int:
     run_id = f"{args.schema}/{dt.datetime.now(dt.timezone.utc):%Y-%m-%d}/{args.id}"
     run_dir = (SCRATCH if args.scratch else RUNS) / run_path(run_id)
     if run_dir.exists():
-        sys.exit(f"{run_dir} already exists; pick another id (runs are never overwritten)")
+        if not args.overwrite:
+            sys.exit(f"{run_dir} already exists; pick another id or pass --overwrite")
+        shutil.rmtree(run_dir)
     out, logs = run_dir / "out", run_dir / "logs"
     out.mkdir(parents=True)
     logs.mkdir()
@@ -126,7 +156,8 @@ def main(argv: list[str] | None = None) -> int:
         "git": git_state(),
         "summary": None,
     }
-    env = {**os.environ, "RUN_ID": run_id, "RUN_DIR": str(run_dir), "RUN_OUT": str(out)}
+    env = {**os.environ, "RUN_ID": run_id, "RUN_DIR": str(run_dir), "RUN_OUT": str(out),
+           "RUN_INTERACTIVE": "1" if args.live and sys.stdout.isatty() else "0"}
     print(f"run: {run_dir}", file=sys.stderr)
     print(f"log: {logs / 'stdout.log'} (stderr: {logs / 'stderr.log'})", file=sys.stderr)
 
@@ -145,13 +176,20 @@ def main(argv: list[str] | None = None) -> int:
         if args.live:
             terminal_lock = threading.Lock()
 
+            terminal = [True]  # False once the terminal is gone; the log keeps going
+
             def relay(source, logfile):
                 for line in source:
                     logfile.write(line)
                     logfile.flush()
                     with terminal_lock:
-                        sys.stdout.buffer.write(line)
-                        sys.stdout.buffer.flush()
+                        if not terminal[0]:
+                            continue
+                        try:
+                            sys.stdout.buffer.write(line)
+                            sys.stdout.buffer.flush()
+                        except OSError:  # e.g. a closed pipe (`run ... | tail`)
+                            terminal[0] = False
 
             relays = [threading.Thread(target=relay, args=(proc.stdout, so)),
                       threading.Thread(target=relay, args=(proc.stderr, se))]

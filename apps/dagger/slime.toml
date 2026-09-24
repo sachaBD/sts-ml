@@ -1,0 +1,16 @@
+# ./apps/dagger/run.sh apps/dagger/slime.toml [--scratch]
+# slime-value-5 plays 100 of its training Slime fights; the guided-rollout teacher labels every decision.
+[run]
+id = "dagger-gen1-slime-v5-001"
+input = "value_net_v1/2026-09-23/slime-value-5"
+workers = 10
+
+[collection]
+count = 100
+seed = 0
+# episodes = [...]  # alternative to count
+# slime-value-4 validation seeds (pilot14 fights); 10 are in v5 training, excluded here anyway
+exclude_run_seeds = [7, 93, 99, 103, 116, 132, 140, 150, 156, 184, 192, 194, 215, 235]
+max_decisions = 500
+max_turns = 50  # an undecided fight at turn 50 stops (turn_limit, no rows), as play_entry_pbcs
+timeout_seconds = 600
