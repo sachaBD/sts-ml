@@ -21,7 +21,8 @@ from torch.utils.data import DataLoader
 from sts_combat_rl.models.deep_sets import DeepSetsValue
 
 from ..schemas import combat_v3
-from .data import ValueDataset, assign_targets, collate_states, episode_split, load_rows
+from ..data.training_samples import get_training_samples
+from .data import ValueDataset, assign_targets, collate_states, episode_split
 
 
 def atomic_save(value: Any, path: Path) -> None:
@@ -109,7 +110,7 @@ def load_corrections(paths, reference, args) -> list[dict[str, Any]]:
     rows = []
     train_ids, train_seeds = set(reference["train_episode_ids"]), set(reference["train_run_seeds"])
     for path in paths:
-        part = load_rows(path, args.limit, args.categories, args.encounters, corrective=True)
+        part = get_training_samples(path, args.limit, args.categories, args.encounters, corrective=True)
         if outside := sorted({r["episode_id"] for r in part
                               if r["episode_id"] not in train_ids or r["run_seed"] not in train_seeds}):
             raise ValueError(f"{path}: corrections outside the initial checkpoint's training episodes: {outside[:5]}")
@@ -131,7 +132,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     rows = [
         row
         for path in args.data
-        for row in load_rows(path, args.limit, args.categories, args.encounters)
+        for row in get_training_samples(path, args.limit, args.categories, args.encounters)
     ]
     if not rows:
         raise ValueError("no rows match the data paths and category/encounter filters")

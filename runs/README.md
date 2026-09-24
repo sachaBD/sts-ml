@@ -156,6 +156,6 @@ until the player dies or beats Slime Boss. One row per decision recorded from te
 
 `terminal_value`: win = (35 + final_hp + 4 × potions) / (55 + max_hp), loss = 0 (sts_ml `scorePrediction`, default weights).
 
-Training targets are computed from these columns at training time. They aren't stored. `load_rows` can keep only
+Load training rows with `sts_combat_rl.data.get_training_samples` (python/sts_combat_rl/data/training_samples.py). It refuses oracle rows. Training targets are computed from these columns at training time. They aren't stored. `load_rows` can keep only
 some `categories` / `encounters`; `episode_split` splits by `run_seed`, so a run's fights stay on one side. Child rows are not on the
 played trajectory, so their fight outcome columns don't apply to them; train them on `root_value`.
