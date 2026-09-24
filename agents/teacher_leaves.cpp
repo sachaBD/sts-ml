@@ -45,8 +45,10 @@ sts::BattleContext sample_particle(const sts::BattleContext& observed, std::uint
     return sampled;
 }
 
-// Most-visited root edge can no longer be caught with `left` simulations.
+// Most-visited root edge can no longer be caught with `left` simulations. Never under max backup:
+// the played move is the best-valued edge, which the visit gap says nothing about.
 bool decided(const PublicBeliefCombatSearch& search, std::int64_t left) {
+    if (search.maxBackup) return false;
     std::int64_t best = 0, second = 0;
     for (const auto& e : search.root().edges) {
         if (e.visits > best) { second = best; best = e.visits; }
@@ -66,6 +68,7 @@ PublicBeliefCombatSearch make_search(const sts::BattleContext& observed, bool or
     else for (int i = 0; i < particles; ++i) states.push_back(sample_particle(observed, next_seed(stream)));
     PublicBeliefCombatSearch search{std::move(states), public_seed, 2};
     search.maximumActions = max_actions;
+    search.maxBackup = oracle;
     return search;
 }
 

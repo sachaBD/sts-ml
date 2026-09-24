@@ -25,8 +25,9 @@ constexpr std::int64_t chunk = 500;               // guided-rollout early-stop c
 constexpr int value_net_batch = 64;               // value-net leaves per batch (and early-stop check)
 
 // The teacher's search at `observed`: particles sampled from the public observation. With `oracle`,
-// a single particle that is `observed` itself (true RNG state and draw order): perfect-information
-// search of the deterministic simulator, an upper-bound teacher, not a fair player.
+// a single particle that is `observed` itself (true RNG state and draw order) with max backup (the
+// move played is the best-valued root edge; no early stop): perfect-information search of the
+// deterministic simulator, an upper-bound teacher, not a fair player.
 sts::search::PublicBeliefCombatSearch make_search(const sts::BattleContext& observed, bool oracle = false);
 
 // Guided-rollout search with the teacher budget; returns simulations used. Plays the same move as

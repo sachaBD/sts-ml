@@ -63,7 +63,11 @@ Json outcome_columns(const CombatEnvironment& env, int max_hp) {
 Json settings(const Leaf& leaf, bool oracle) {
     auto result = search_settings(leaf);
     result["oracle"] = oracle;
-    if (oracle) result["particles"] = 1;
+    if (oracle) {
+        result["particles"] = 1;
+        result["backup"] = "max";
+        result["early_stop"] = false;
+    }
     result["child_min_visits"] = child_min_visits;
     result["random_window"] = random_window;
     return result;
