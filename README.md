@@ -41,15 +41,16 @@ This prints the public JSON encoding of the record, model topology, tensor shape
 
 ### Bootstrap value training
 
-Train the batched, permutation-invariant Deep Sets value model on an episode-level held-out split (CPU single-threaded):
+Train the batched, permutation-invariant Deep Sets value model on an episode-level held-out split (CPU
+single-threaded). Configs live in `apps/value_train/`; the training rows are a SQL query
+(`sts_combat_rl.query`, DuckDB over `runs/`):
 
 ```sh
-PYTHONPATH=python .venv/bin/python -m sts_combat_rl.training.train_value \
-  data/mcts-slime-v2-bootstrap-1000x500/mcts_slime_v2.parquet \
-  --output runs/slime-v2-value-first/value_checkpoint.pt
+./apps/value_train/run.sh apps/value_train/slime.toml [--scratch]
 ```
 
-The checkpoint and adjacent JSON record exact episode split IDs, source digest, configuration, and metrics.
+The checkpoint and adjacent JSON record exact episode split IDs, the data query and its source runs,
+configuration, and metrics.
 
 ### Neural-guided gameplay evaluation
 
@@ -62,13 +63,7 @@ PYTHONPATH=python .venv/bin/python -m sts_combat_rl.training.evaluate_gameplay \
   --first-seed 2001 --count 200 --simulations 100
 ```
 
-The neural controller keeps the checkpoint loaded once and communicates with one C++ child per episode over framed MessagePack. Evaluate its held-out episode IDs (MSE, MAE, Pearson correlation, mean baseline, and decision-phase slices) with:
-
-```sh
-PYTHONPATH=python .venv/bin/python -m sts_combat_rl.training.evaluate_value \
-  runs/slime-v2-value-first/value_checkpoint.pt \
-  data/mcts-slime-v2-bootstrap-1000x500/mcts_slime_v2.parquet
-```
+The neural controller keeps the checkpoint loaded once and communicates with one C++ child per episode over framed MessagePack.
 
 The first held-out gameplay evaluation won 200/200 unseen fights. Detailed
 configuration, metrics, hashes, and limitations are recorded in

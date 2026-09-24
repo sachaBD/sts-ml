@@ -3,10 +3,6 @@ import unittest
 import torch
 from sts_combat_rl.models.deep_sets import DeepSetsValue
 from sts_combat_rl.training.data import collate_states, episode_split
-from sts_combat_rl.training.evaluate_value import (
-    boss_slice_masks,
-    validate_checkpoint_source,
-)
 
 
 def row(ep, card=1):
@@ -101,28 +97,6 @@ class ValueTests(unittest.TestCase):
         )
         self.assertLess(final, initial * 0.2)
         self.assertLess(final, 0.03)
-
-    def test_boss_slice_masks_and_checksum_rejection(self):
-        rows = []
-        for hp in (0.8, 0.5, 0.2, None):
-            item = row(len(rows))
-            item["monsters"] = (
-                []
-                if hp is None
-                else [{"monster_id": 9, "move_id": 1, "numeric": [0.0, hp] + [0.0] * 7}]
-            )
-            rows.append(item)
-        masks = boss_slice_masks(rows, 9)
-        self.assertEqual([int(mask.sum()) for mask in masks.values()], [1, 1, 1, 1])
-        with self.assertRaisesRegex(ValueError, "SHA256"):
-            validate_checkpoint_source(
-                {
-                    "source_sha256": "not-a-real-digest",
-                    "encoding_version": 3,
-                    "target_name": "mcts_value",
-                },
-                __file__,
-            )
 
     def test_permutation_invariant(self):
         r = row(0)

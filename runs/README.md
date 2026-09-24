@@ -82,6 +82,11 @@ still writing.
 
 ## Querying (duckdb)
 
+Apps and training select their combat rows with a SQL query over two views, `combat_v3` (every row plus
+`run_id`, `schema`, `date`, `id`) and `runs` (every run.json): `python/sts_combat_rl/query.py`, e.g.
+`select * from combat_v3 where id like 'act1-a20%' and encounter = 'slime_boss'`. Oracle rows are refused
+unless allowed explicitly (`oracle = true`).
+
 A duckdb CLI (v1.5.5, from the `duckdb-cli` pip package) is installed in the venv. Run it from the repo root so
 the `runs/...` globs resolve (no database file; it queries the parquet/json in place):
 

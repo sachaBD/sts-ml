@@ -1,15 +1,16 @@
 #!/usr/bin/env python3
-"""Paired comparison of two combat_v3 runs on the candidate's fights. Spec: slop_docs/apps/compare_fights.md."""
+"""Paired comparison of two sets of combat_v3 fights on the candidate's fights. Spec: slop_docs/apps/compare_fights.md.
+
+[run] baseline / candidate: queries (sts_combat_rl.query); oracle = true allows oracle rows in either.
+"""
 import sys
 
 import numpy as np
 import pyarrow as pa
-import pyarrow.dataset as ds
 import pyarrow.parquet as pq
 from scipy import stats
-from apps.common.app import check_keys, main, run_json, write_json
-from sts_combat_rl.run import run_parquet
-from sts_combat_rl.schemas.combat_v3 import NAME as COMBAT_V3
+from apps.common.app import check_keys, flag, main, run_json, write_json
+from sts_combat_rl import query
 
 NAME = "fight_comparison_v1"
 RESAMPLES, SEED = 10_000, 0
@@ -17,43 +18,25 @@ PRIMARY = "terminal_value"
 TESTED = (PRIMARY, "final_hp", "potions", "turns")  # paired: diff, bootstrap CI, Wilcoxon
 DESCRIBED = ("sims_per_decision", "decisions")      # compute: means only
 FIGHT = ("encounter", "starting_hp", "starting_max_hp")
+OUTCOME = ("won", "final_hp", "potions", "terminal_value")
 
 
-def run_ids(value, side):
-    """One or more combat_v3 run ids from a comparison config side."""
-    ids = [value] if isinstance(value, str) else value
-    if not isinstance(ids, list) or not ids or not all(isinstance(run_id, str) for run_id in ids):
-        sys.exit(f"{side}: needs one or more combat_v3 run ids")
-    return ids
-
-
-def fights(run_ids, episodes=None):
-    """episode_id -> one row per fight, merged from `run_ids` (only `episodes` if given)."""
+def fights(sql, oracle, episodes=None):
+    """episode_id -> one row per fight of the decision rows of `sql` (only `episodes` if given); the source run ids."""
+    where = "row_kind = 'decision'" + (f" and episode_id in {query.sql_list(sorted(episodes))}" if episodes is not None else "")
     result, sources = {}, {}
-    for run_id in run_ids:
-        record = run_json(run_id)
-        if record["schema"] != COMBAT_V3:
-            sys.exit(f"{run_id}: schema {record['schema']}, need {COMBAT_V3}")
-        where = ds.field("row_kind") == "decision"
-        if episodes is not None:
-            where &= ds.field("episode_id").isin(sorted(episodes))
-        rows = ds.dataset(run_parquet(run_id), format="parquet").to_table(
-            columns=["episode_id", *FIGHT, "won", "final_hp", "potions", "terminal_value", "turn", "simulations_used"],
-            filter=where).to_pylist()
-        for row in rows:
-            episode = row["episode_id"]
-            if episode in sources and sources[episode] != run_id:
-                raise RuntimeError(f"episode {episode}: present in more than one source run")
-            sources[episode] = run_id
-            fight = result.setdefault(episode, {
-                **{c: row[c] for c in (*FIGHT, "won", "final_hp", "potions", "terminal_value")},
-                "turns": 0, "decisions": 0, "simulations": 0})
-            fight["turns"] = max(fight["turns"], row["turn"])
-            fight["decisions"] += 1
-            fight["simulations"] += row["simulations_used"]
+    for row in query.rows(sql, ["episode_id", *FIGHT, *OUTCOME, "turn", "simulations_used"], where, oracle):
+        episode = row["episode_id"]
+        if sources.setdefault(episode, row["run_id"]) != row["run_id"]:
+            raise RuntimeError(f"episode {episode}: in both {sources[episode]} and {row['run_id']}")
+        fight = result.setdefault(episode, {**{c: row[c] for c in (*FIGHT, *OUTCOME)},
+                                            "turns": 0, "decisions": 0, "simulations": 0})
+        fight["turns"] = max(fight["turns"], row["turn"])
+        fight["decisions"] += 1
+        fight["simulations"] += row["simulations_used"]
     for fight in result.values():
         fight["sims_per_decision"] = fight["simulations"] / fight["decisions"]
-    return result
+    return result, sorted(set(sources.values()))
 
 
 def paired(base, cand, rng):
@@ -68,15 +51,15 @@ def paired(base, cand, rng):
 def inputs(config):
     """The baseline, then the candidate run ids."""
     run = config["run"]
-    return [*run_ids(run["baseline"], "baseline"), *run_ids(run["candidate"], "candidate")]
+    return [*query.run_ids(run["baseline"]), *query.run_ids(run["candidate"])]
 
 
 def compare(config):
-    check_keys(config["run"], {"id", "baseline", "candidate"}, "run")
-    baseline = run_ids(config["run"]["baseline"], "baseline")
-    candidate = run_ids(config["run"]["candidate"], "candidate")
-    cand = fights(candidate)
-    base = fights(baseline, cand.keys())
+    run = config["run"]
+    check_keys(run, {"id", "baseline", "candidate", "oracle"}, "run")
+    oracle = flag(run, "oracle")
+    cand, candidate_runs = fights(run["candidate"], oracle)
+    base, baseline_runs = fights(run["baseline"], oracle, cand.keys())
     if missing := sorted(cand.keys() - base.keys()):
         sys.exit(f"{len(missing)} candidate fights missing from the baseline, e.g. {missing[:5]}")
     episodes = sorted(cand)
@@ -93,7 +76,8 @@ def compare(config):
             "only_baseline": only_base, "only_candidate": only_cand,
             "p": stats.binomtest(only_cand, only_base + only_cand).pvalue if only_base + only_cand else 1.0}
     diff = column(cand, PRIMARY) - column(base, PRIMARY)
-    summary = {"schema": NAME, "config": config, "n": len(episodes), "won": wins, **metrics,
+    summary = {"schema": NAME, "config": config, "baseline_runs": baseline_runs, "candidate_runs": candidate_runs,
+               "n": len(episodes), "won": wins, **metrics,
                PRIMARY + "_better_worse_equal": [int((diff > 0).sum()), int((diff < 0).sum()), int((diff == 0).sum())]}
     pairs = pa.Table.from_pylist([
         {"episode_id": e, "encounter": cand[e]["encounter"],
@@ -104,15 +88,15 @@ def compare(config):
 
 def report(summary, base, cand):
     config, n = summary["config"]["run"], summary["n"]
-    inputs = {k: [run_json(run_id)["inputs"] for run_id in run_ids(config[k], k)]
-              for k in ("baseline", "candidate")}
+    runs = {k: summary[f"{k}_runs"] for k in ("baseline", "candidate")}
+    inputs = {k: [run_json(run_id)["inputs"] for run_id in runs[k]] for k in runs}
     t = summary[PRIMARY]
     better, worse, equal = summary[PRIMARY + "_better_worse_equal"]
     w = summary["won"]
     lines = [
-        f"# {', '.join(run_ids(config['candidate'], 'candidate'))} vs {', '.join(run_ids(config['baseline'], 'baseline'))}", "",
-        f"- baseline:  `{', '.join(run_ids(config['baseline'], 'baseline'))}` (inputs: {inputs['baseline'] or 'none'})",
-        f"- candidate: `{', '.join(run_ids(config['candidate'], 'candidate'))}` (inputs: {inputs['candidate'] or 'none'})",
+        f"# {', '.join(runs['candidate'])} vs {', '.join(runs['baseline'])}", "",
+        f"- baseline:  `{config['baseline']}` → `{', '.join(runs['baseline'])}` (inputs: {inputs['baseline'] or 'none'})",
+        f"- candidate: `{config['candidate']}` → `{', '.join(runs['candidate'])}` (inputs: {inputs['candidate'] or 'none'})",
         f"- fights compared: **{n}** (the candidate's fights)", "",
         f"**{PRIMARY}: candidate − baseline = {t['diff']:+.3f} (95% CI {t['ci_low']:+.3f} to {t['ci_high']:+.3f}), "
         f"Wilcoxon p = {t['p']:.3g}, n = {n}**; better / worse / equal: {better} / {worse} / {equal}", "",

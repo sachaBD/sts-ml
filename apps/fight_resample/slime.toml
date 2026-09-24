@@ -2,19 +2,11 @@
 # Every stored Slime Boss fight of the source runs, replayed to its start and played `samples` more times.
 [run]
 id = "slime-resample-x4"
-inputs = [
-    "combat_v3/2026-09-23/act1-a20",
-    "combat_v3/2026-09-23/act1-a20-1",
-    "combat_v3/2026-09-23/act1-a20-2",
-    "combat_v3/2026-09-23/act1-a20-5",
-    "combat_v3/2026-09-23/act1-a20-6",
-    "combat_v3/2026-09-24/act1-a20-7",
-    "combat_v3/2026-09-24/act1-a20-8",
-]
-encounter = "slime_boss"
+# The fights to resample (sts_combat_rl.query); they must come from bootstrap runs.
+query = "select * from combat_v3 where id like 'act1-a20%' and encounter = 'slime_boss'"
 samples = 4             # per source fight, at most 1000 (4 new + the stored one = 5 versions of each fight)
 hp_sd = 10              # starting HP ~ Normal(stored starting HP, hp_sd), rounded into [1, max HP]
 random_potions = false  # true: each held potion becomes a random potion drop
 workers = 10
-# fights = 20                                        # only the first N source fights (by episode_id)
+# fights = 20                                        # only the first N queried fights (by episode_id)
 # value_run = "value_net_v1/2026-09-24/slime-v6-gen0" # teacher leaf: value net (default: guided rollout, as bootstrap)

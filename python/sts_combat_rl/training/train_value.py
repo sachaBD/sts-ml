@@ -20,9 +20,9 @@ from torch.utils.data import DataLoader
 
 from sts_combat_rl.models.deep_sets import DeepSetsValue
 
+from ..run import run_dir
 from ..schemas import combat_v3
-from ..data.training_samples import get_training_samples
-from .data import ValueDataset, assign_targets, collate_states, episode_split
+from .data import ValueDataset, assign_targets, collate_states, episode_split, training_rows
 
 
 def atomic_save(value: Any, path: Path) -> None:
@@ -63,27 +63,6 @@ def evaluate(model: DeepSetsValue, loader: DataLoader) -> tuple[float, float]:
     ).abs().mean().item()
 
 
-def _run_json(source: Path) -> Path | None:
-    """The run.json of the run this data came from: runs/schema=/date=/id=/out/... (runs/README.md)."""
-    for parent in [source, *source.parents]:
-        if parent.name.startswith("id=") and (parent / "run.json").exists():
-            return parent / "run.json"
-    return None
-
-
-def _provenance(source: Path) -> tuple[str, Path | None, Any]:
-    """(sha256, run.json path, run.json) for one Parquet shard or a directory of parts."""
-    record = _run_json(source.resolve())
-    metadata = json.loads(record.read_text()) if record else {}
-    if source.is_dir():
-        digest = hashlib.sha256()
-        for f in sorted(source.rglob("*.parquet")):
-            digest.update(str(f.relative_to(source)).encode())
-            digest.update(hashlib.sha256(f.read_bytes()).digest())
-        return digest.hexdigest(), record, metadata
-    return hashlib.sha256(source.read_bytes()).hexdigest(), record, metadata
-
-
 def weighted_collate(rows: list[dict[str, Any]]) -> dict[str, torch.Tensor]:
     """collate_states plus each row's loss weight (1 unless corrective training set one)."""
     batch = collate_states(rows)
@@ -103,20 +82,15 @@ def pinned_split(rows: list[dict[str, Any]], reference: dict[str, Any]):
     return split["train"], split["validation"], len(rows) - kept
 
 
-def load_corrections(paths, reference, args) -> list[dict[str, Any]]:
+def load_corrections(sql, reference) -> list[dict[str, Any]]:
     """DAgger rows (apps/dagger) with target root_value (the teacher's estimate; never the actor's outcome).
     Uses the completed fights' parts even if the run itself didn't finish (each part is one whole fight).
     Every row must be a reference training episode / run seed."""
-    rows = []
+    rows = training_rows(sql, corrective=True)
     train_ids, train_seeds = set(reference["train_episode_ids"]), set(reference["train_run_seeds"])
-    for path in paths:
-        part = get_training_samples(path, args.limit, args.categories, args.encounters, corrective=True)
-        if outside := sorted({r["episode_id"] for r in part
-                              if r["episode_id"] not in train_ids or r["run_seed"] not in train_seeds}):
-            raise ValueError(f"{path}: corrections outside the initial checkpoint's training episodes: {outside[:5]}")
-        rows.extend(part)
-    if not rows:
-        raise ValueError("corrections have no rows")
+    if outside := sorted({r["episode_id"] for r in rows
+                          if r["episode_id"] not in train_ids or r["run_seed"] not in train_seeds}):
+        raise ValueError(f"corrections outside the initial checkpoint's training episodes: {outside[:5]}")
     for r in rows:
         r["target"] = r["root_value"]
         r["source"] = "correction"
@@ -129,15 +103,9 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     random.seed(args.seed)
     np.random.seed(args.seed)
     torch.manual_seed(args.seed)
-    rows = [
-        row
-        for path in args.data
-        for row in get_training_samples(path, args.limit, args.categories, args.encounters)
-    ]
-    if not rows:
-        raise ValueError("no rows match the data paths and category/encounter filters")
+    rows = training_rows(args.data, oracle=getattr(args, "oracle", False))
     assign_targets(rows, args.label, args.blend)
-    corrections_paths = getattr(args, "corrections", None) or []
+    corrections_sql = getattr(args, "corrections", None)
     initial = getattr(args, "initial_checkpoint", None)
     weight = getattr(args, "correction_weight", 0.5)
     reference = None
@@ -150,7 +118,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         train, valid, dropped = pinned_split(rows, reference)
         rows = train + valid
         print(f"pinned split to {initial}: dropped {dropped:,} bootstrap rows outside it", flush=True)
-    elif corrections_paths:
+    elif corrections_sql:
         raise ValueError("corrections need an initial checkpoint (its split is pinned)")
     else:
         train, valid, _, _ = episode_split(rows, args.validation_fraction, args.seed)
@@ -165,10 +133,10 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         for column in ("encounter", "category")
     }
     bootstrap_train = train
-    if corrections_paths:
+    if corrections_sql:
         if not 0 <= weight <= 1:
             raise ValueError(f"correction_weight {weight} outside [0, 1]")
-        corrections = load_corrections(corrections_paths, reference, args)
+        corrections = load_corrections(corrections_sql, reference)
         # Per-row weights: the mean weighted loss over all training rows is
         # (1-w) * mean bootstrap loss + w * mean correction loss, whatever the row counts.
         total = len(train) + len(corrections)
@@ -213,8 +181,8 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     teacher_mse = float(
         np.mean([(row["root_value"] - row["target"]) ** 2 for row in valid])
     )
-    provenance = [_provenance(Path(path)) for path in args.data]
-    correction_provenance = [_provenance(Path(path)) for path in corrections_paths]
+    source_runs = sorted({r["run_id"] for r in rows})
+    correction_runs = sorted({r["run_id"] for r in corrections})
     git_revision = subprocess.check_output(
         ["git", "rev-parse", "HEAD"], text=True
     ).strip()
@@ -237,10 +205,9 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             "row_counts": row_counts,
             "target_name": args.label,
             "target_blend": args.blend,
-            "source_shard": [str(path) for path in args.data],
-            "source_sha256": [p[0] for p in provenance],
-            "manifest_path": [str(p[1]) for p in provenance],
-            "manifest": [p[2] for p in provenance],
+            "data_query": args.data,
+            "source_runs": source_runs,
+            "manifest": [json.loads((run_dir(r) / "run.json").read_text()) for r in source_runs],
             "project_git_revision": git_revision,
             "project_git_dirty": git_dirty,
             "train_episode_ids": train_ids,
@@ -264,9 +231,8 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
                 correction_target="root_value (teacher_root_only)",
                 correction_rows=len(corrections),
                 correction_episode_ids=sorted({r["episode_id"] for r in corrections}),
-                correction_source=[str(path) for path in corrections_paths],
-                correction_sha256=[p[0] for p in correction_provenance],
-                correction_manifest_path=[str(p[1]) for p in correction_provenance],
+                correction_query=corrections_sql,
+                correction_source=correction_runs,
                 validation="bootstrap only, original targets, unweighted",
             )
         atomic_save(checkpoint, args.output)
@@ -367,7 +333,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(
         description="CPU single-threaded Deep Sets bootstrap value trainer"
     )
-    parser.add_argument("data", type=Path, nargs="+", help="Parquet shards or run out/ directories")
+    parser.add_argument("data", help="SQL over sts_combat_rl.query, e.g. \"select * from combat_v3 where id = 'act1-a20'\"")
     parser.add_argument("--output", type=Path, default=Path("value_checkpoint.pt"))
     parser.add_argument("--epochs", type=int, default=20)
     parser.add_argument("--batch-size", type=int, default=128)
@@ -376,9 +342,6 @@ def main() -> None:
     parser.add_argument("--width", type=int, default=64)
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--validation-fraction", type=float, default=0.2)
-    parser.add_argument("--limit", type=int)
-    parser.add_argument("--categories", nargs="+", help="keep only these categories, e.g. boss elite")
-    parser.add_argument("--encounters", nargs="+", help="keep only these encounters, e.g. slime_boss")
     parser.add_argument(
         "--label",
         choices=["blend", "root", "terminal"],
@@ -386,7 +349,8 @@ def main() -> None:
         help="training target (see data.assign_targets)",
     )
     parser.add_argument("--blend", type=float, default=0.5, help="weight on terminal_value for --label blend")
-    parser.add_argument("--corrections", type=Path, nargs="+", help="DAgger run out/ dirs (target root_value)")
+    parser.add_argument("--corrections", help="SQL selecting DAgger rows (target root_value)")
+    parser.add_argument("--oracle", action="store_true", help="allow oracle (perfect-foresight) rows in the data")
     parser.add_argument("--initial-checkpoint", type=Path, help="start from these weights; pins the split")
     parser.add_argument("--correction-weight", type=float, default=0.5)
     run(parser.parse_args())

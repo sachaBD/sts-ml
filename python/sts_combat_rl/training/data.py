@@ -3,14 +3,14 @@
 from __future__ import annotations
 
 import random
-from pathlib import Path
 from typing import Any
 
-import pyarrow.dataset as ds
+import pyarrow.parquet as pq
 import torch
 from torch.utils.data import Dataset
 
-from ..schemas import combat_v3
+from .. import query
+from ..run import run_parquet
 
 
 def validate_rows(rows: list[dict[str, Any]]) -> None:
@@ -82,41 +82,22 @@ def episode_split(
     )
 
 
-def load_rows(
-    path: str | Path,
-    limit: int | None = None,
-    categories: list[str] | None = None,
-    encounters: list[str] | None = None,
-    corrective: bool = False,
-) -> list[dict[str, Any]]:
-    """Load one combat_v3 Parquet shard, or every part in a run's out/ directory.
+def training_rows(sql: str, corrective: bool = False, oracle: bool = False) -> list[dict[str, Any]]:
+    """The combat_v3 rows of `sql` (sts_combat_rl.query) to train on, validated.
 
-    categories / encounters keep only matching rows, e.g. ["boss"] / ["slime_boss"].
-    Raises unless every part is tagged schema=combat_v3 in its parquet metadata. Ordinary loads reject
-    DAgger parts; corrective=True accepts only them (collection_method=dagger, training_target=teacher_root_only).
+    DAgger runs (parts tagged collection_method=dagger: teacher-root-only targets, learner outcomes; the blend
+    would misuse them) are only accepted as corrections, and corrections only from them. Oracle rows raise
+    unless oracle=True.
     """
-    dataset = ds.dataset(path, format="parquet", exclude_invalid_files=True)
-    fragments = list(dataset.get_fragments())
-    if not fragments:
-        raise ValueError(f"{path}: no parquet parts")
-    for fragment in fragments:
-        schema = (fragment.physical_schema.metadata or {}).get(b"schema", b"").decode()
-        if schema != combat_v3.NAME:
-            raise ValueError(f"{fragment.path}: schema {schema or 'untagged'!r}, expected {combat_v3.NAME!r}")
-        # DAgger parts (apps/dagger): teacher-root-only targets, learner outcomes; the blend would misuse them.
-        metadata = fragment.physical_schema.metadata or {}
-        if corrective:
-            if metadata.get(b"collection_method") != b"dagger" or metadata.get(b"training_target") != b"teacher_root_only":
-                raise ValueError(f"{fragment.path}: not a DAgger teacher_root_only part")
-        elif b"training_target" in metadata:
-            raise ValueError(f"{fragment.path}: corrective (DAgger) source; use [data].corrections, not an ordinary input")
-    keep = None
-    for column, values in (("category", categories), ("encounter", encounters)):
-        if values:
-            match = ds.field(column).isin(values)
-            keep = match if keep is None else keep & match
-    table = dataset.to_table(filter=keep)
-    rows = table.slice(0, limit).to_pylist() if limit else table.to_pylist()
+    rows = query.rows(sql, oracle=oracle)
+    if not rows:
+        raise ValueError(f"no rows: {sql}")
+    for run_id in sorted({r["run_id"] for r in rows}):
+        dagger = {(pq.read_schema(part).metadata or {}).get(b"collection_method") == b"dagger"
+                  for part in run_parquet(run_id)}
+        if dagger != {corrective}:
+            raise ValueError(f"{run_id}: " + ("not a DAgger run; corrections come only from DAgger runs" if corrective
+                                              else "DAgger rows; use them as corrections, not ordinary data"))
     validate_rows(rows)
     return rows
 

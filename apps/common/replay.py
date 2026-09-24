@@ -5,9 +5,7 @@ actions; the worker request is {run_seed, ascension, fight_index, actions: [[cho
 """
 from collections import defaultdict
 
-import pyarrow.dataset as ds
-from sts_combat_rl.run import run_parquet
-from sts_combat_rl.schemas.combat_v3 import COMBAT_V3
+from sts_combat_rl import query
 
 # The replayed decision_index 0 row must match the stored one on these columns: it is the same fight.
 START = ("encounter", "floor", "starting_hp", "starting_max_hp", "global_numeric", "cards", "monsters")
@@ -15,12 +13,9 @@ COLUMNS = ("run_seed", "fight_index", "episode_id", "decision_index", "chosen_ac
 
 
 def decision_rows(run_ids, columns=COLUMNS, run_seeds=None):
-    """The decision rows of the runs' parts (only `run_seeds` if given; columns older parts lack read as null)."""
-    where = ds.field("row_kind") == "decision"
-    if run_seeds is not None:
-        where &= ds.field("run_seed").isin(sorted(run_seeds))
-    paths = [str(part) for run_id in run_ids for part in run_parquet(run_id)]
-    return ds.dataset(paths, schema=COMBAT_V3, format="parquet").to_table(columns=list(columns), filter=where).to_pylist()
+    """The decision rows of the runs (only `run_seeds` if given)."""
+    where = "row_kind = 'decision'" + (f" and run_seed in {query.sql_list(sorted(run_seeds))}" if run_seeds is not None else "")
+    return query.rows(f"select * from combat_v3 where run_id in {query.sql_list(run_ids)}", columns, where)
 
 
 def replay_requests(rows, episodes):

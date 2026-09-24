@@ -2,13 +2,12 @@
 # Train a Slime Boss value net on the Slime Boss fights of a combat_v3 bootstrap run.
 [run]
 id = "slime-value-5"
-input = ["combat_v3/2026-09-23/act1-a20", "combat_v3/2026-09-23/act1-a20-1", "combat_v3/2026-09-23/act1-a20-2", "combat_v3/2026-09-23/act1-a20-3"]
 
-# Which fights to train on; leave both out to train on every fight.
-# Rows must match both when both are set. Names: runs/README.md "combat_v3 columns".
+# The rows to train on (sts_combat_rl.query; columns: runs/README.md "combat_v3 columns"),
+# e.g. ... and category = 'boss', ... and encounter in ('lagavulin', 'three_sentries').
 [data]
-encounters = ["slime_boss"]      # e.g. ["gremlin_nob"], ["lagavulin", "three_sentries"]
-# categories = ["boss"]          # easy / hard / elite / boss / event
+query = "select * from combat_v3 where id in ('act1-a20', 'act1-a20-1', 'act1-a20-2') and encounter = 'slime_boss'"
+# oracle = true  # allow oracle (perfect-foresight) rows; refused by default
 
 [train]
 epochs = 7
@@ -20,7 +19,6 @@ seed = 0
 validation_fraction = 0.2
 label = "blend" # blend, root, or terminal
 blend = 0.5
-# limit = 1000
 # checkpoint = "value_checkpoint.pt"
 
 [export]
