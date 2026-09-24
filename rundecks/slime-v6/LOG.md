@@ -17,3 +17,4 @@
 - 10:01 REPORT.md final. Launched act1-a20-8 bootstrap (forever) for the user to stop.
 - 19:37 oracle upper bound: slime-v6-oracle-play (guided-rollout teacher, oracle = true: 1 particle = true state) on the same 156 test fights, 2.1 min: 148/156, tv 0.528
 - 19:41 compares vs oracle for teacher, gen0, gen1-w25, gen1-w50, gen2, gen3 (fight_comparison_v1/…/slime-v6-*-vs-oracle); REPORT.md oracle section added
+- 20:01 oracle switched to max backup (no early stop). Oracle A (MctsAgent) deleted. slime-v6-oracle-play and the 6 vs-oracle compares rerun with --overwrite (3.6 min): 152/156, tv 0.528 -> 0.571. REPORT.md updated
