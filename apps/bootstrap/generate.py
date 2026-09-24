@@ -24,6 +24,9 @@ from sts_combat_rl.schemas.combat_v3 import COMBAT_V3, NAME
 log = logging.getLogger(__name__)
 ORACLE_BANNER = ("\n" + "!" * 78 + "\n!!  ORACLE MODE: the teacher searches the TRUE state (perfect RNG / draw-order\n"
                  "!!  foresight). Upper-bound data, not fair play. Rows are tagged oracle = true.\n" + "!" * 78)
+# Run seeds stay below 2^40 so every derived episode_id fits int64: run_seed * 100 + fight_index here,
+# and source_episode_id * 1000 + k in apps/fight_resample (< 2^40 * 10^5 ~ 1.1e17).
+SEED_LIMIT = 2**40
 STATUSES = ("other_boss", "died", "act_complete")  # what the worker reports per seed; other_boss = not played
 
 
@@ -129,8 +132,8 @@ def play(seed, binary, ascension, oracle, out, status):
 
 def generate(config, out):
     run = tomllib.loads(config.read_text())["run"]
-    # Random start so separate runs play different seeds (episode_id = run_seed*100 + fight_index must fit int64).
-    first_seed = run.get("first_seed", random.randrange(10**12))
+    # Random start so separate runs play different seeds; the lower half of [0, SEED_LIMIT) leaves room to count up.
+    first_seed = run.get("first_seed", random.randrange(SEED_LIMIT // 2))
     seeds = itertools.count(first_seed) if run.get("forever") else range(first_seed, first_seed + run["seeds"])
     workers = run["workers"]
     ascension = run.get("ascension", 1)
@@ -153,6 +156,8 @@ def generate(config, out):
                     seed = next(seeds, None)
                 if seed is None:
                     return
+                if seed >= SEED_LIMIT:
+                    raise ValueError(f"run seed {seed} >= 2^40 (SEED_LIMIT)")
                 run_seed(seed)
 
         list(pool.map(work, range(workers)))

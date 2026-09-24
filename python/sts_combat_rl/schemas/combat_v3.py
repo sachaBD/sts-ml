@@ -14,6 +14,7 @@ COMBAT_V3 = pa.schema(
         ("run_seed", pa.uint64()),
         ("episode_id", pa.int64()),  # one fight: run_seed * 100 + fight_index
         ("fight_index", pa.int16()),
+        ("source_episode_id", pa.int64()),  # apps/fight_resample: the stored fight this one resamples; NULL = a played run's own fight
         ("act", pa.int8()),
         ("floor", pa.int16()),
         ("encounter", pa.string()),

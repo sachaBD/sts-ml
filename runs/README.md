@@ -112,7 +112,7 @@ SELECT * FROM read_json('runs/schema=episodes_v1/*/*/out/episodes.jsonl', filena
 
 | schema | status | written by | out/ |
 |---|---|---|---|
-| `combat_v3` | current | `apps/bootstrap/generate.py`, `apps/value_play/play.py`, `apps/dagger/generate.py` (parquet metadata `collection_method=dagger`, `training_target=teacher_root_only`: teacher labels on learner-played states, see slop_docs/apps/dagger.md; the value trainer refuses these parts) | parquet; columns below. value_play: one part per fight, `part-<episode_id>.parquet` |
+| `combat_v3` | current | `apps/bootstrap/generate.py`, `apps/value_play/play.py`, `apps/dagger/generate.py` (parquet metadata `collection_method=dagger`, `training_target=teacher_root_only`: teacher labels on learner-played states, see slop_docs/apps/dagger.md; the value trainer refuses these parts), `apps/fight_resample/generate.py` (resampled fights: `source_episode_id` set, see slop_docs/apps/fight_resample.md) | parquet; columns below. value_play: one part per fight, `part-<episode_id>.parquet`. fight_resample: one part per source fight, `part-<source_episode_id>.parquet` |
 | `fight_comparison_v1` | current | `apps/compare_fights/compare.py` | `report.md`, `summary.json`, `pairs.parquet` (one row per fight, `baseline_*` / `candidate_*`) |
 | `combat_v2` | legacy | `apps/bootstrap/generate.py` before combat_v3 | Slime Boss fights only; `combat_seed` instead of `run_seed`, `episode_id` = seed, legacy `entry_id`/`deck_signature`, no `category`/`fight_index`/`ascension` |
 | `combat_v1` | legacy | `apps/bootstrap/generate.py` before combat_v2 | as `combat_v2`, but `act`/`floor`/`encounter`/`seed` were partition directories |
@@ -130,18 +130,24 @@ Name and pyarrow layout: `python/sts_combat_rl/schemas/combat_v3.py` (`NAME`, `C
 in its parquet metadata. One seeded Ironclad act 1 per run seed: seeds whose act 1 boss isn't Slime Boss are skipped
 at game creation (no file); SimpleAgent plays everything out of combat; the teacher search plays **every combat**
 until the player dies or beats Slime Boss. One row per decision recorded from teacher search, in play order
-(`fight_index`, then decision rows, then child rows).
+(`fight_index`, then decision rows, then child rows). Run seeds are below 2^40 (`SEED_LIMIT` in apps/bootstrap), so every
+`episode_id` fits int64.
+
+**Resampled fights** (`apps/fight_resample`, `source_episode_id` not NULL) are not part of a played run: the run was
+replayed to a stored fight's start (same deck, relics, potions), then that fight was played again with a new starting HP
+and a fresh fight RNG seeded from `episode_id`. Only fights with `source_episode_id IS NULL` are replayed as sources.
 
 | Column | Meaning |
 |---|---|
-| `run_seed` | game seed; with the chosen actions, replays the whole run exactly. Groups the fights of one run |
-| `episode_id` | one fight: `run_seed * 100 + fight_index` |
-| `fight_index` | fight number within the run, from 0 |
+| `run_seed` | game seed; with the chosen actions, replays the whole run exactly. Groups the fights of one run (a resampled fight keeps its source's `run_seed`, so it stays on the source's side of a `run_seed` split) |
+| `episode_id` | one fight: `run_seed * 100 + fight_index`; resampled: `source_episode_id * 1000 + k`, k = sample number from 0 |
+| `fight_index` | fight number within the run, from 0 (resampled: the source's) |
+| `source_episode_id` | NULL: the fight a run actually played. Set: this fight resamples stored fight `source_episode_id` (apps/fight_resample): replay `run_seed` to `fight_index` with the source run's chosen actions, set HP to `starting_hp`, seed every combat RNG from `episode_id` (and draw random potions if the run's summary says `random_potions`), then replay this fight's `chosen_action`s. NULL in runs older than the column |
 | `act`, `floor` | where the fight is |
 | `encounter` | lightspeed encounter, lowercase: `cultist`, `gremlin_nob`, `lagavulin`, `slime_boss`, ... |
 | `category` | `easy` (act's weak hallway pool: the first 3 hallway fights), `hard` (strong hallway pool), `elite`, `boss`, `event` (fight started from a `?` room event) |
 | `ascension` | ascension level of the run |
-| `starting_hp`, `starting_max_hp` | player HP at fight start |
+| `starting_hp`, `starting_max_hp` | player HP at fight start (resampled: the sampled HP) |
 | `decision_index` | decision number within the fight, from 0 |
 | `turn` | combat turn |
 | `row_kind`, `parent_action` | `decision`: a position the teacher played from. `child`: the position after a move the teacher tried (≥ 50 visits) but didn't play; `parent_action` is that move, `root_value` is the teacher's mean value for it, and `actions`/`chosen_action` are empty |

@@ -1,0 +1,44 @@
+# App spec: `apps/fight_resample/`: more samples of stored fights
+
+## Purpose
+
+Cheap extra training data for one fight (e.g. Slime Boss) from real decks. Each stored fight of a bootstrap
+run is rebuilt at its start (replaying the run: under 1 ms), then played again `samples` times by the teacher
+with the same deck, relics and potions, but a new starting HP and a fresh fight RNG (draw order, monster HP
+and AI, ...). Output: a `combat_v3` run whose rows have `source_episode_id` set.
+
+```
+combat_v3 bootstrap runs ──replay to each <encounter> fight──▶ fight_resample ──▶ combat_v3 run (resampled fights)
+```
+
+## Usage
+
+```bash
+./apps/fight_resample/run.sh apps/fight_resample/slime.toml [--scratch] [--overwrite]
+```
+
+`[run]` keys (see `slime.toml`): `id`, `inputs` (bootstrap runs only: combat_v3 with no inputs of their own),
+`encounter`, `samples` (per source fight, ≤ 1000), `hp_sd`, `random_potions` (default false), `workers`, optional
+`fights` (first N source fights by episode_id), optional `value_run` (value-net leaf; default: the bootstrap
+guided-rollout teacher). Random move on, oracle off, as bootstrap.
+
+## Sample k of source fight `source_episode_id`
+
+| thing | value |
+|---|---|
+| `episode_id` | `source_episode_id * 1000 + k` (fits int64: run seeds < 2^40) |
+| `run_seed`, `fight_index`, `floor`, ... | the source's |
+| `starting_hp` | `round(random.Random(episode_id).gauss(source starting_hp, hp_sd))`, clipped to [1, max HP] |
+| fight RNG | `GameContext` before the fight with `seed = episode_id`, `miscRng = potionRng = Random(episode_id)`; `BattleContext::init` derives every combat RNG from those |
+| potions | the source's; with `random_potions`, each held potion becomes `returnRandomPotion(potionRng)` (the RNG above) |
+| random move | as bootstrap: `mt19937_64(episode_id ^ 0xe9510)` |
+
+So a resampled fight replays from stored data like any other: replay the source run to `fight_index`, build the
+game as above with `starting_hp`, then step its `chosen_action`s. Source fights must have
+`source_episode_id IS NULL`, so resampled fights are never resampled again.
+
+## Files
+
+`worker.cpp` (replay + play all samples of one source fight), `generate.py` (loads source fights, samples HP,
+runs workers, writes `part-<source_episode_id>.parquet` + `summary.json`), `run.sh` / `job.sh` (launcher,
+builds `build-resample/`).

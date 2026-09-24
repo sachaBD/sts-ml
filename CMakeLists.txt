@@ -71,6 +71,11 @@ target_link_libraries(value_play_worker PRIVATE combat_core)
 target_compile_features(value_play_worker PRIVATE cxx_std_23)
 target_compile_options(value_play_worker PRIVATE -Wall -Wextra -Wpedantic)
 
+add_executable(fight_resample_worker apps/fight_resample/worker.cpp)
+target_link_libraries(fight_resample_worker PRIVATE combat_core)
+target_compile_features(fight_resample_worker PRIVATE cxx_std_23)
+target_compile_options(fight_resample_worker PRIVATE -Wall -Wextra -Wpedantic)
+
 add_executable(dagger_worker apps/dagger/worker.cpp)
 target_link_libraries(dagger_worker PRIVATE combat_core)
 target_compile_features(dagger_worker PRIVATE cxx_std_23)
