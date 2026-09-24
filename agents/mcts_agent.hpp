@@ -18,9 +18,6 @@ struct MctsConfig {
     std::size_t simulations = 2'000;
     std::size_t rollout_limit = 512;
     double exploration = 1.4142135623730951;
-    // Oracle: search the exact (deterministic) state instead of determinizations,
-    // back up max values, and keep the best terminal line found as an incumbent.
-    bool oracle = false;
 };
 
 class MctsAgent final {

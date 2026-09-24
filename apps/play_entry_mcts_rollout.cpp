@@ -37,9 +37,8 @@ void observe_split_hp(
 }  // namespace
 
 int main(int argc, char** argv) {
-    const bool oracle = argc == 6 && std::string{argv[5]} == "oracle";
-    if (argc != 5 && !oracle) {
-        std::cerr << "usage: play_entry_mcts_rollout source.jsonl entry_id_or_deck_signature combat_seed simulations [oracle]\n";
+    if (argc != 5) {
+        std::cerr << "usage: play_entry_mcts_rollout source.jsonl entry_id_or_deck_signature combat_seed simulations\n";
         return 2;
     }
     int skipped = 0;
@@ -50,7 +49,7 @@ int main(int argc, char** argv) {
     const auto seed = std::stoull(argv[3]);
     const auto simulations = std::stoull(argv[4]);
     auto environment = stsrl::scenarios::slime_entry_projection(*found, seed);
-    stsrl::MctsAgent agent{seed, {.simulations = simulations, .rollout_limit = 512, .oracle = oracle}};
+    stsrl::MctsAgent agent{seed, {.simulations = simulations, .rollout_limit = 512}};
 
     const auto start = std::chrono::steady_clock::now();
     std::size_t decisions = 0;
@@ -66,7 +65,7 @@ int main(int argc, char** argv) {
 
     std::cout
         << nlohmann::json{
-               {"mode", oracle ? "oracle_rollout" : "rollout"}, {"projection", "deck_hp_only"}, {"entry_id", found->entry_id}, {"deck_signature", found->deck_signature}, {"source_seed", found->source_seed}, {"combat_seed", seed}, {"starting_hp", found->hp}, {"starting_max_hp", found->max_hp},
+               {"mode", "rollout"}, {"projection", "deck_hp_only"}, {"entry_id", found->entry_id}, {"deck_signature", found->deck_signature}, {"source_seed", found->source_seed}, {"combat_seed", seed}, {"starting_hp", found->hp}, {"starting_max_hp", found->max_hp},
                {"won", environment.won()},
                {"final_hp", environment.player_hp()},
                {"max_hp", environment.player_max_hp()},
