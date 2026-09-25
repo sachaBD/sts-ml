@@ -1,0 +1,145 @@
+{
+  "n": 156,
+  "bootstrap_replicates": 20000,
+  "seed": 0,
+  "worker_sha256": "8994fcb01774671515031d1b755e8db781a78aabc90bf7cab5aed73d3a7fd89b",
+  "arms": {
+    "r00": {
+      "simulations": 15000,
+      "particles": 8,
+      "fights": 156,
+      "wins": 121,
+      "terminal_value": 0.4273807803789775,
+      "mean_final_hp_all_fights": 28.82051282051282,
+      "mean_remaining_potions": 0.08333333333333333,
+      "seconds_per_fight": 9.7409540492301,
+      "total_simulations": 43301000,
+      "total_decisions": 4119,
+      "simulations_per_decision": 10512.503034717165
+    },
+    "r10": {
+      "simulations": 60000,
+      "particles": 8,
+      "fights": 156,
+      "wins": 118,
+      "terminal_value": 0.4187757888665566,
+      "mean_final_hp_all_fights": 28.365384615384617,
+      "mean_remaining_potions": 0.10256410256410256,
+      "seconds_per_fight": 32.93340356024475,
+      "total_simulations": 147209000,
+      "total_decisions": 3948,
+      "simulations_per_decision": 37286.980749746705
+    },
+    "r01": {
+      "simulations": 15000,
+      "particles": 32,
+      "fights": 156,
+      "wins": 126,
+      "terminal_value": 0.4411922009327473,
+      "mean_final_hp_all_fights": 29.352564102564102,
+      "mean_remaining_potions": 0.11538461538461539,
+      "seconds_per_fight": 8.848997976321979,
+      "total_simulations": 44448500,
+      "total_decisions": 4110,
+      "simulations_per_decision": 10814.720194647201
+    },
+    "r11": {
+      "simulations": 60000,
+      "particles": 32,
+      "fights": 156,
+      "wins": 125,
+      "terminal_value": 0.44003041814535093,
+      "mean_final_hp_all_fights": 29.28205128205128,
+      "mean_remaining_potions": 0.15384615384615385,
+      "seconds_per_fight": 36.14099877048657,
+      "total_simulations": 162142500,
+      "total_decisions": 4113,
+      "simulations_per_decision": 39421.954777534644
+    }
+  },
+  "comparisons": {
+    "r10-vs-r00": {
+      "diff": -0.00860499151242085,
+      "ci_low": -0.03360404162548291,
+      "ci_high": 0.015228947280691131,
+      "wins_gained": 7,
+      "wins_lost": 10,
+      "mcnemar_p": 0.629058837890625,
+      "better_equal_worse": [
+        37,
+        81,
+        38
+      ]
+    },
+    "r01-vs-r00": {
+      "diff": 0.013811420553769821,
+      "ci_low": -0.012191413849210127,
+      "ci_high": 0.04040852101662983,
+      "wins_gained": 13,
+      "wins_lost": 8,
+      "mcnemar_p": 0.38331031799316406,
+      "better_equal_worse": [
+        55,
+        59,
+        42
+      ]
+    },
+    "r11-vs-r00": {
+      "diff": 0.012649637766373463,
+      "ci_low": -0.009017474509966678,
+      "ci_high": 0.034752201647139505,
+      "wins_gained": 9,
+      "wins_lost": 5,
+      "mcnemar_p": 0.4239501953125,
+      "better_equal_worse": [
+        50,
+        66,
+        40
+      ]
+    },
+    "r11-vs-r01": {
+      "diff": -0.0011617827873963576,
+      "ci_low": -0.023427298965935525,
+      "ci_high": 0.021194574351494126,
+      "wins_gained": 8,
+      "wins_lost": 9,
+      "mcnemar_p": 1.0,
+      "better_equal_worse": [
+        42,
+        80,
+        34
+      ]
+    },
+    "r11-vs-r10": {
+      "diff": 0.021254629278794315,
+      "ci_low": -0.004613776485889386,
+      "ci_high": 0.04809241692225138,
+      "wins_gained": 14,
+      "wins_lost": 7,
+      "mcnemar_p": 0.18924713134765625,
+      "better_equal_worse": [
+        52,
+        65,
+        39
+      ]
+    },
+    "r01-vs-r10": {
+      "diff": 0.02241641206619067,
+      "ci_low": -0.005160678416872636,
+      "ci_high": 0.05110997037532233,
+      "wins_gained": 15,
+      "wins_lost": 7,
+      "mcnemar_p": 0.13380050659179688,
+      "better_equal_worse": [
+        49,
+        62,
+        45
+      ]
+    }
+  },
+  "interaction": {
+    "diff": 0.0074432087250244925,
+    "ci_low": -0.02682333879459363,
+    "ci_high": 0.04282329271141535
+  }
+}

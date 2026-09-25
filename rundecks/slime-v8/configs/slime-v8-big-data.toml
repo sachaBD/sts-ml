@@ -1,0 +1,28 @@
+# ./apps/value_train/run.sh rundecks/slime-v8/configs/slime-v8-big-data.toml
+# Big-data network: slime-v6-gen0's recipe (blend 0.5 labels, child rows keep search estimates), from scratch on all 3,739 train decks (SPLIT.md; no resamples).
+# Otherwise gen0's recipe; validation_fraction 0.1 (internal, train decks only; dev/confirm are the real evaluation).
+[run]
+id = "slime-v8-big-data"
+
+[data]
+query = """
+select * from combat_v3
+where encounter = 'slime_boss' and source_episode_id is null
+  and (id in ('act1-a20', 'act1-a20-1', 'act1-a20-2', 'act1-a20-5', 'act1-a20-6', 'act1-a20-7')
+       or (id = 'act1-a20-8' and run_seed % 10 >= 4))
+"""
+
+[train]
+epochs = 8
+batch_size = 128
+lr = 0.001
+weight_decay = 0.0001
+width = 64
+seed = 0
+validation_fraction = 0.1
+label = "blend"
+blend = 0.5
+
+[export]
+native_weights = true
+path = "value_weights.bin"

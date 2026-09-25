@@ -53,9 +53,11 @@ def play(episode, request, start, binary, weights, out):
     result = run_worker(binary, request, weights)
     seconds = time.monotonic() - began
     firsts = [r for r in result["rows"] if r["row_kind"] == "decision" and r["decision_index"] == 0]
-    wanted = [(s["episode_id"], s["starting_hp"]) for s in request["samples"]]
-    if [(r["episode_id"], r["starting_hp"]) for r in firsts] != wanted:
-        raise RuntimeError(f"episode {episode}: replayed fights don't match the samples")
+    # Rows record HP at the first decision: combat-start healing (e.g. Blood Vial) may raise it above the sampled HP.
+    if [r["episode_id"] for r in firsts] != [s["episode_id"] for s in request["samples"]] or not all(
+            s["starting_hp"] <= r["starting_hp"] <= r["starting_max_hp"] for r, s in zip(firsts, request["samples"])):
+        raise RuntimeError(f"episode {episode}: replayed fights don't match the samples: "
+                           f"{[(r['episode_id'], r['starting_hp']) for r in firsts]} vs {request['samples']}")
     for first in firsts:
         check_start(episode, first, start, ("encounter", "floor", "starting_max_hp"))
     write_part(out, episode, result["rows"])

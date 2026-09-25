@@ -13,8 +13,8 @@ using sts::search::PublicBeliefCombatSearch;
 }  // namespace
 
 SearchDecision search_decision(const CombatEnvironment& env, std::size_t legal_count, const SearchFn& run,
-                               bool oracle) {
-    auto search = make_search(env.battle(), oracle);
+                               bool oracle, int particles) {
+    auto search = make_search(env.battle(), oracle, particles);
     SearchDecision result;
     result.used = run(search, legal_count);
     result.chosen = legal_index(env, legal_count, search, search.selectedAction());
@@ -60,8 +60,8 @@ Json outcome_columns(const CombatEnvironment& env, int max_hp) {
     return {{"won", env.won()}, {"final_hp", hp}, {"potions", potions}, {"terminal_value", terminal}};
 }
 
-Json settings(const Leaf& leaf, bool oracle) {
-    auto result = search_settings(leaf);
+Json settings(const Leaf& leaf, bool oracle, const Budget& budget) {
+    auto result = search_settings(leaf, budget);
     result["oracle"] = oracle;
     if (oracle) {
         result["particles"] = 1;
@@ -76,7 +76,7 @@ Json settings(const Leaf& leaf, bool oracle) {
 Json settings(const std::string& leaf, bool oracle) { return settings(Leaf{leaf}, oracle); }
 
 sts::BattleContext play_fight(sts::BattleContext battle, const Json& fight, std::vector<Json>& rows,
-                              const SearchFn& run, bool random_move, bool oracle) {
+                              const SearchFn& run, bool random_move, bool oracle, int particles) {
     CombatEnvironment env{std::move(battle)};
     const int max_hp = env.player_max_hp();
     std::mt19937_64 rng(fight.at("episode_id").get<std::uint64_t>() ^ 0xe9510ULL);
@@ -85,7 +85,7 @@ sts::BattleContext play_fight(sts::BattleContext battle, const Json& fight, std:
     int index = 0;
     while (!env.done()) {
         auto state = env.decision();
-        auto choice = search_decision(env, state.legal_actions.size(), run, oracle);
+        auto choice = search_decision(env, state.legal_actions.size(), run, oracle, particles);
         const bool random = index == random_at;
         if (random) choice.chosen = std::uniform_int_distribution<std::size_t>{0, state.legal_actions.size() - 1}(rng);
         record_children(children, env, choice, fight, index, oracle);

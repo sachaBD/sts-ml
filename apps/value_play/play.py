@@ -11,10 +11,11 @@ import time
 from pathlib import Path
 
 import pyarrow.compute as pc
-from apps.common.app import FAIR_PLAY, ORACLE_BANNER, check_keys, flag, main, snapshot, value_run, write_json
+from apps.common.app import FAIR_PLAY, ORACLE_BANNER, check_keys, flag, main, run_json, snapshot, value_run, write_json
 from apps.common.replay import COLUMNS, check_start, decision_rows, replay_requests
 from apps.common.worker import run_parallel, run_worker, write_part
 from apps.value_play.progress import Progress
+from sts_combat_rl import query
 from sts_combat_rl.run import bootstrap_inputs
 from sts_combat_rl.schemas.combat_v3 import NAME as COMBAT_V3_NAME
 
@@ -22,13 +23,22 @@ log = logging.getLogger(__name__)
 BUILT = Path("build/valexp/value_play_worker")  # built by apps/common/job.sh; each run plays with its own copy in out/
 NET_LEAVES = ("value_net", "hybrid")
 OUTCOME = ("won", "final_hp", "terminal_value")  # of the stored teacher's fight, logged next to the replay
-RUN_KEYS = {"id", "input", "workers", "leaf", "rollout_turns", "rollout_steps", "random_move", "episodes", "oracle"}
+RUN_KEYS = {"id", "input", "workers", "leaf", "rollout_turns", "rollout_steps", "random_move", "episodes", "query",
+            "oracle", "simulations", "particles"}  # search budget; worker defaults 15000, 8
 
 
 def inputs(config):
-    """The value run, then its bootstrap combat_v3 input runs (the data runs)."""
-    value = config["run"]["input"]
-    return [value, *bootstrap_inputs(value)]
+    """The value run, then the data runs: those of [run] query if given, else the value run's bootstrap inputs."""
+    run = config["run"]
+    value = run["input"]
+    if "query" not in run:
+        return [value, *bootstrap_inputs(value)]
+    sources = query.run_ids(run["query"])
+    if not sources:
+        sys.exit(f"no fights: {run['query']}")
+    if not_bootstrap := [s for s in sources if run_json(s).get("inputs")]:
+        sys.exit(f"query fights must come from bootstrap runs (no inputs of their own): {not_bootstrap}")
+    return [value, *sources]
 
 
 def teacher_config(run):
@@ -36,9 +46,30 @@ def teacher_config(run):
     check_keys(run, RUN_KEYS, "run")
     teacher = {"leaf": run.get("leaf", "value_net"), "random_move": run.get("random_move", True)}
     teacher.update({k: run[k] for k in ("rollout_turns", "rollout_steps") if k in run})
+    for key in ("simulations", "particles"):
+        if key in run:
+            if type(run[key]) is not int or run[key] < 1:  # bool is an int subclass: excluded
+                sys.exit(f"{key} must be a positive integer, got {run[key]!r}")
+            teacher[key] = run[key]
     if flag(run, "oracle"):
+        if "particles" in run:
+            sys.exit("oracle searches one true-state particle; particles is not allowed")
         teacher["oracle"] = True
     return teacher
+
+
+def query_episodes(run, meta):
+    """[run] query: its original fights (source_episode_id null); none may be a checkpoint training fight or deck."""
+    if "episodes" in run:
+        sys.exit("give episodes or query, not both")
+    rows = query.rows(run["query"], ["episode_id", "run_seed"], "source_episode_id is null")
+    episodes = sorted({r["episode_id"] for r in rows})
+    train_ids, train_seeds = set(meta["train_episode_ids"]), set(meta["train_run_seeds"])
+    if leaked := sorted({r["episode_id"] for r in rows if r["episode_id"] in train_ids or r["run_seed"] in train_seeds}):
+        sys.exit(f"{len(leaked)} query fights are checkpoint training fights/decks, e.g. {leaked[:5]}")
+    if not episodes:
+        sys.exit(f"no fights: {run['query']}")
+    return episodes
 
 
 def select_episodes(run, validation):
@@ -80,7 +111,8 @@ def replay(config, config_path, out):
     label = f"{leaf} ORACLE" if oracle else leaf  # log label only
     weights = snapshot(value.weights, out, "value_weights.bin")[0] if leaf in NET_LEAVES else None
     validation = value.meta["validation_episode_ids"]
-    episodes = select_episodes(config["run"], validation)
+    episodes = (query_episodes(config["run"], value.meta) if "query" in config["run"]
+                else select_episodes(config["run"], validation))
     rows = decision_rows(data_runs, (*COLUMNS, *OUTCOME), {e // 100 for e in episodes})
     fights = replay_requests(rows, episodes)
     for request, _ in fights.values():
@@ -91,7 +123,8 @@ def replay(config, config_path, out):
     for line in ("", "Value play" + (" [ORACLE]" if oracle else ""), "==========", f"config:    {config_path}", f"output:    {out}",
                  f"value run: {value_id}", f"weights:   {weights}", f"data runs: {', '.join(data_runs)}",
                  f"teacher:   {json.dumps(teacher_in)}",
-                 f"fights:    {len(fights)} of the value run's {len(validation)} validation episodes",
+                 (f"fights:    {len(fights)} from query {config['run']['query']!r}" if "query" in config["run"]
+                  else f"fights:    {len(fights)} of the value run's {len(validation)} validation episodes"),
                  f"workers:   {workers}", f"worker:    {binary} (sha256 {sha256})", "",
                  f"Each line: the {label} teacher's replay | the stored teacher's result for the same fight", ""):
         log.info("%s", line)

@@ -59,7 +59,8 @@ bool decided(const PublicBeliefCombatSearch& search, std::int64_t left) {
 
 }  // namespace
 
-PublicBeliefCombatSearch make_search(const sts::BattleContext& observed, bool oracle) {
+PublicBeliefCombatSearch make_search(const sts::BattleContext& observed, bool oracle, int particles) {
+    if (particles < 1) throw std::invalid_argument{"particles must be >= 1"};
     const auto public_seed = PublicBeliefCombatSearch::publicObservation(observed);
     auto stream = public_seed;
     std::vector<sts::BattleContext> states;
@@ -153,35 +154,38 @@ void validate(const Leaf& leaf, bool has_net) {
     }
 }
 
-SearchFn leaf_search(const Leaf& leaf, const ValueNet* net) {
+SearchFn leaf_search(const Leaf& leaf, const ValueNet* net, const Budget& budget) {
     validate(leaf, net != nullptr);
-    if (leaf.kind == "guided_rollout") return guided_rollout_search();
-    if (leaf.kind == "value_net") return value_net_search(*net);
-    return hybrid_search(*net, leaf.rollout_turns, leaf.rollout_steps);
+    if (budget.simulations < 1 || budget.particles < 1)
+        throw std::invalid_argument{"simulations and particles must be >= 1"};
+    if (leaf.kind == "guided_rollout") return guided_rollout_search(budget.simulations);
+    if (leaf.kind == "value_net") return value_net_search(*net, budget.simulations);
+    return hybrid_search(*net, leaf.rollout_turns, leaf.rollout_steps, budget.simulations);
 }
 
-SearchFn guided_rollout_search() {
-    return [](PublicBeliefCombatSearch& search, std::size_t legal_moves) {
+SearchFn guided_rollout_search(std::int64_t simulations) {
+    return [simulations](PublicBeliefCombatSearch& search, std::size_t legal_moves) {
         return run_teacher_search(search, simulations, legal_moves, true);
     };
 }
 
-SearchFn value_net_search(const ValueNet& net) {
-    return [&net](PublicBeliefCombatSearch& search, std::size_t legal_moves) {
+SearchFn value_net_search(const ValueNet& net, std::int64_t simulations) {
+    return [&net, simulations](PublicBeliefCombatSearch& search, std::size_t legal_moves) {
         return run_value_net_search(search, net, simulations, legal_moves);
     };
 }
 
-SearchFn hybrid_search(const ValueNet& net, int rollout_turns, int rollout_steps) {
+SearchFn hybrid_search(const ValueNet& net, int rollout_turns, int rollout_steps, std::int64_t simulations) {
     validate({"hybrid", rollout_turns, rollout_steps}, true);
-    return [&net, rollout_turns, rollout_steps](PublicBeliefCombatSearch& search, std::size_t legal_moves) {
+    return [&net, rollout_turns, rollout_steps, simulations](PublicBeliefCombatSearch& search, std::size_t legal_moves) {
         return run_leaf_search(search, value_net_evaluator(net), simulations, legal_moves, rollout_turns,
                                rollout_steps);
     };
 }
 
-Json search_settings(const Leaf& leaf) {
-    Json result = {{"leaf", leaf.kind}, {"particles", particles}, {"simulations", simulations}, {"early_stop", true},
+Json search_settings(const Leaf& leaf, const Budget& budget) {
+    Json result = {{"leaf", leaf.kind}, {"particles", budget.particles}, {"simulations", budget.simulations},
+                   {"early_stop", true},
                    {"forced_simulations", forced_simulations}, {"max_actions", max_actions}};
     if (leaf.kind == "guided_rollout") result["chunk"] = chunk;
     else result["batch"] = value_net_batch;

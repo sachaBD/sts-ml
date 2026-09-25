@@ -18,10 +18,10 @@ from sts_combat_rl.training.export_value_weights import export as export_weights
 from sts_combat_rl.training.train_value import run as train_value
 
 DATA_KEYS = {"query", "corrections", "oracle"}
-TRAIN_KEYS = {"initial_checkpoint", "correction_weight", "checkpoint", "epochs", "batch_size", "lr", "weight_decay",
+TRAIN_KEYS = {"initial_checkpoint", "split", "correction_weight", "checkpoint", "epochs", "batch_size", "lr", "weight_decay",
               "width", "seed", "validation_fraction", "label", "blend"}
-SUMMARY_KEYS = ("initial_checkpoint", "initial_checkpoint_sha256", "initialization", "split", "training_kind",
-                "correction_weight", "correction_target", "correction_rows", "correction_query", "correction_source")
+SUMMARY_KEYS = ("initial_checkpoint", "initial_checkpoint_sha256", "initialization", "split_mode", "split",
+                "training_kind", "correction_weight", "correction_target", "correction_rows", "correction_query", "correction_source")
 
 
 def inputs(config: dict[str, Any]) -> list[str]:
@@ -47,6 +47,8 @@ def make_train_args(config: dict[str, Any], out: Path) -> SimpleNamespace:
         corrections=data.get("corrections"),
         oracle=flag(data, "oracle"),
         initial_checkpoint=initial_checkpoint(train.get("initial_checkpoint")),
+        # with initial_checkpoint: "pinned" to its train/validation episodes, or "fresh" episode_split of the data
+        split=str(train.get("split", "pinned")),
         correction_weight=float(train.get("correction_weight", 0.5)),
         output=out / str(train.get("checkpoint", "value_checkpoint.pt")),
         epochs=int(train.get("epochs", 20)),
@@ -94,7 +96,7 @@ def train(config: dict[str, Any], config_path: Path, out: Path) -> int:
                  *([f"initial:     {args.initial_checkpoint}"] if args.initial_checkpoint else []),
                  *(["oracle rows allowed"] if args.oracle else []), "", "Config", "------",
                  *(f"{key + ':':<21}{getattr(args, key)}" for key in ("epochs", "batch_size", "lr", "weight_decay", "width",
-                                                                     "seed", "validation_fraction", "label", "blend"))):
+                                                                     "seed", "validation_fraction", "label", "blend", "split"))):
         print(line, flush=True)
 
     checkpoint = train_value(args)

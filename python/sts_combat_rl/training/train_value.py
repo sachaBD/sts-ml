@@ -10,19 +10,17 @@ import random
 import subprocess
 import tempfile
 import time
-from collections import Counter
 from pathlib import Path
 from typing import Any
 
 import numpy as np
 import torch
-from torch.utils.data import DataLoader
 
 from sts_combat_rl.models.deep_sets import DeepSetsValue
 
 from ..run import run_dir
 from ..schemas import combat_v3
-from .data import ValueDataset, assign_targets, collate_states, episode_split, training_rows
+from .data import RowLoader, Rows, assign_targets, split_rows, training_rows
 
 
 def atomic_save(value: Any, path: Path) -> None:
@@ -48,7 +46,7 @@ def atomic_json(value: Any, path: Path) -> None:
     os.replace(temporary, path)
 
 
-def evaluate(model: DeepSetsValue, loader: DataLoader) -> tuple[float, float]:
+def evaluate(model: DeepSetsValue, loader: RowLoader) -> tuple[float, float]:
     model.eval()
     targets = []
     predictions = []
@@ -63,37 +61,26 @@ def evaluate(model: DeepSetsValue, loader: DataLoader) -> tuple[float, float]:
     ).abs().mean().item()
 
 
-def weighted_collate(rows: list[dict[str, Any]]) -> dict[str, torch.Tensor]:
-    """collate_states plus each row's loss weight (1 unless corrective training set one)."""
-    batch = collate_states(rows)
-    batch["weight"] = torch.tensor([r.get("weight", 1.0) for r in rows], dtype=torch.float32)
-    return batch
-
-
-def pinned_split(rows: list[dict[str, Any]], reference: dict[str, Any]):
+def pinned_split(rows: Rows, reference: dict[str, Any]) -> tuple[np.ndarray, np.ndarray, int]:
     """Bootstrap rows on the side the reference checkpoint put them: its train / validation episodes and
-    run seeds. Rows of other episodes are dropped."""
-    split = {}
-    for side, ids, seeds in (("train", "train_episode_ids", "train_run_seeds"),
-                             ("validation", "validation_episode_ids", "validation_run_seeds")):
-        ids, seeds = set(reference[ids]), set(reference[seeds])
-        split[side] = [r for r in rows if r["episode_id"] in ids and r["run_seed"] in seeds]
-    kept = len(split["train"]) + len(split["validation"])
-    return split["train"], split["validation"], len(rows) - kept
+    run seeds (as row indices). Rows of other episodes are dropped."""
+    split = []
+    for ids, seeds in (("train_episode_ids", "train_run_seeds"), ("validation_episode_ids", "validation_run_seeds")):
+        split.append(np.flatnonzero(np.isin(rows["episode_id"], reference[ids])
+                                    & np.isin(rows["run_seed"], np.array(reference[seeds], dtype=np.uint64))))
+    return split[0], split[1], len(rows) - len(split[0]) - len(split[1])
 
 
-def load_corrections(sql, reference) -> list[dict[str, Any]]:
+def load_corrections(sql, reference) -> Rows:
     """DAgger rows (apps/dagger) with target root_value (the teacher's estimate; never the actor's outcome).
     Uses the completed fights' parts even if the run itself didn't finish (each part is one whole fight).
     Every row must be a reference training episode / run seed."""
     rows = training_rows(sql, corrective=True)
-    train_ids, train_seeds = set(reference["train_episode_ids"]), set(reference["train_run_seeds"])
-    if outside := sorted({r["episode_id"] for r in rows
-                          if r["episode_id"] not in train_ids or r["run_seed"] not in train_seeds}):
+    inside = (np.isin(rows["episode_id"], reference["train_episode_ids"])
+              & np.isin(rows["run_seed"], np.array(reference["train_run_seeds"], dtype=np.uint64)))
+    if outside := np.unique(rows["episode_id"][~inside]).tolist():
         raise ValueError(f"corrections outside the initial checkpoint's training episodes: {outside[:5]}")
-    for r in rows:
-        r["target"] = r["root_value"]
-        r["source"] = "correction"
+    rows.columns["target"] = rows["root_value"].astype(np.float64)
     return rows
 
 
@@ -108,30 +95,37 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     corrections_sql = getattr(args, "corrections", None)
     initial = getattr(args, "initial_checkpoint", None)
     weight = getattr(args, "correction_weight", 0.5)
+    split_mode = getattr(args, "split", "pinned")
+    if split_mode not in ("pinned", "fresh"):
+        raise ValueError(f"split {split_mode!r} is not 'pinned' or 'fresh'")
+    pinned = bool(initial) and split_mode == "pinned"
     reference = None
-    corrections: list[dict[str, Any]] = []
+    corrections = None
+    if corrections_sql and not pinned:
+        raise ValueError("corrections need an initial checkpoint with split = 'pinned'")
     if initial:
         reference = json.loads(Path(initial).with_suffix(".json").read_text())
         if reference["architecture"].get("width") != args.width:
             raise ValueError(f"width {args.width} != initial checkpoint architecture {reference['architecture']}")
+    if pinned:
         # Pinned: same fights on each side as the initial checkpoint; validation stays bootstrap only.
         train, valid, dropped = pinned_split(rows, reference)
-        rows = train + valid
+        kept = np.concatenate([train, valid])
         print(f"pinned split to {initial}: dropped {dropped:,} bootstrap rows outside it", flush=True)
-    elif corrections_sql:
-        raise ValueError("corrections need an initial checkpoint (its split is pinned)")
     else:
-        train, valid, _, _ = episode_split(rows, args.validation_fraction, args.seed)
-    if not train or not valid:
+        train, valid = split_rows(rows, args.validation_fraction, args.seed)
+        kept = np.arange(len(rows))
+    if not len(train) or not len(valid):
         raise ValueError("run split requires at least two run_seeds")
-    train_ids = sorted({r["episode_id"] for r in train})
-    valid_ids = sorted({r["episode_id"] for r in valid})
-    train_runs = sorted({row["run_seed"] for row in train})
-    valid_runs = sorted({row["run_seed"] for row in valid})
+    train_ids = np.unique(rows["episode_id"][train]).tolist()
+    valid_ids = np.unique(rows["episode_id"][valid]).tolist()
+    train_runs = np.unique(rows["run_seed"][train]).tolist()
+    valid_runs = np.unique(rows["run_seed"][valid]).tolist()
     row_counts = {
-        column: dict(sorted(Counter(row[column] for row in rows).items()))
+        column: dict(zip(*(a.tolist() for a in np.unique(rows[column][kept], return_counts=True))))
         for column in ("encounter", "category")
     }
+    source_runs = sorted(set(rows["run_id"][kept]))
     bootstrap_train = train
     if corrections_sql:
         if not 0 <= weight <= 1:
@@ -140,26 +134,18 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         # Per-row weights: the mean weighted loss over all training rows is
         # (1-w) * mean bootstrap loss + w * mean correction loss, whatever the row counts.
         total = len(train) + len(corrections)
-        for r in train:
-            r["weight"] = (1 - weight) * total / len(train)
-        for r in corrections:
-            r["weight"] = weight * total / len(corrections)
-        train = train + corrections
-    train_loader = DataLoader(
-        ValueDataset(train),
-        batch_size=args.batch_size,
-        shuffle=True,
-        num_workers=0,
-        collate_fn=weighted_collate,
-        generator=torch.Generator().manual_seed(args.seed),
-    )
-    valid_loader = DataLoader(
-        ValueDataset(valid),
-        batch_size=args.batch_size,
-        shuffle=False,
-        num_workers=0,
-        collate_fn=collate_states,
-    )
+        rows.columns["weight"][train] = (1 - weight) * total / len(train)
+        corrections.columns["weight"][:] = weight * total / len(corrections)
+        correction_ids = np.unique(corrections["episode_id"]).tolist()
+        correction_runs = sorted(set(corrections["run_id"]))
+        correction_count = len(corrections)
+        offset = len(rows)
+        rows = Rows.concat([rows, corrections])  # corrections are rows offset.. of the combined table
+        corrections = np.arange(offset, len(rows))
+        train = np.concatenate([train, corrections])
+    train_loader = RowLoader(rows, train, args.batch_size, shuffle=True, weight=True,
+                             generator=torch.Generator().manual_seed(args.seed))
+    valid_loader = RowLoader(rows, valid, args.batch_size)
     model = DeepSetsValue(width=args.width)
     initial_sha = None
     if initial:
@@ -171,18 +157,14 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     optimizer = torch.optim.AdamW(
         model.parameters(), lr=args.lr, weight_decay=args.weight_decay
     )
-    baseline = float(np.mean([row["target"] for row in bootstrap_train]))
+    targets = rows["target"]
+    baseline = float(np.mean(targets[bootstrap_train]))
     component_loaders = {
-        name: DataLoader(ValueDataset(part), batch_size=args.batch_size, shuffle=False, num_workers=0,
-                         collate_fn=collate_states)
-        for name, part in (("bootstrap", bootstrap_train), ("correction", corrections)) if corrections
+        name: RowLoader(rows, part, args.batch_size)
+        for name, part in (("bootstrap", bootstrap_train), ("correction", corrections)) if corrections is not None
     }
     # The teacher's own estimate as a predictor of the label: the bar the net should approach.
-    teacher_mse = float(
-        np.mean([(row["root_value"] - row["target"]) ** 2 for row in valid])
-    )
-    source_runs = sorted({r["run_id"] for r in rows})
-    correction_runs = sorted({r["run_id"] for r in corrections})
+    teacher_mse = float(np.mean((rows["root_value"][valid].astype(np.float64) - targets[valid]) ** 2))
     git_revision = subprocess.check_output(
         ["git", "rev-parse", "HEAD"], text=True
     ).strip()
@@ -210,6 +192,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             "manifest": [json.loads((run_dir(r) / "run.json").read_text()) for r in source_runs],
             "project_git_revision": git_revision,
             "project_git_dirty": git_dirty,
+            "split_mode": "pinned" if pinned else "fresh",
             "train_episode_ids": train_ids,
             "validation_episode_ids": valid_ids,
             "train_run_seeds": train_runs,
@@ -222,15 +205,16 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
                 initial_checkpoint=str(initial),
                 initial_checkpoint_sha256=initial_sha,
                 initialization="model weights from initial_checkpoint; fresh optimizer",
-                split="pinned to initial_checkpoint train/validation episodes and run seeds",
+                split="pinned to initial_checkpoint train/validation episodes and run seeds" if pinned
+                else "fresh episode_split(validation_fraction, seed) of the queried rows",
             )
-        if corrections:
+        if corrections is not None:
             checkpoint.update(
                 training_kind="corrective fine-tune (not a pure data ablation)",
                 correction_weight=weight,
                 correction_target="root_value (teacher_root_only)",
-                correction_rows=len(corrections),
-                correction_episode_ids=sorted({r["episode_id"] for r in corrections}),
+                correction_rows=correction_count,
+                correction_episode_ids=correction_ids,
                 correction_query=corrections_sql,
                 correction_source=correction_runs,
                 validation="bootstrap only, original targets, unweighted",
@@ -251,9 +235,9 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         print(f"{column}: {counts}", flush=True)
     print(f"target: label={args.label}  blend={args.blend}", flush=True)
     if initial:
-        print(f"initial checkpoint: {initial} (weights only, fresh optimizer; split pinned)", flush=True)
-    if corrections:
-        print(f"corrections: {len(corrections):,} rows, {len({r['episode_id'] for r in corrections})} fights, "
+        print(f"initial checkpoint: {initial} (weights only, fresh optimizer; split {split_mode})", flush=True)
+    if corrections is not None:
+        print(f"corrections: {correction_count:,} rows, {len(correction_ids)} fights, "
               f"target root_value, weight {weight}", flush=True)
 
     print("\nTraining", flush=True)
@@ -291,9 +275,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
                 )
         train_mse, train_mae = evaluate(model, train_loader)
         valid_mse, valid_mae = evaluate(model, valid_loader)
-        baseline_mse = float(
-            np.mean([(row["target"] - baseline) ** 2 for row in valid])
-        )
+        baseline_mse = float(np.mean((targets[valid] - baseline) ** 2))
         metrics = {
             "train_mse": train_mse,
             "train_mae": train_mae,
@@ -302,7 +284,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             "baseline_validation_mse": baseline_mse,
             "teacher_root_value_validation_mse": teacher_mse,
         }
-        if corrections:
+        if corrections is not None:
             components = {name: evaluate(model, loader)[0] for name, loader in component_loaders.items()}
             metrics.update(
                 train_bootstrap_mse=components["bootstrap"],
@@ -351,7 +333,10 @@ def main() -> None:
     parser.add_argument("--blend", type=float, default=0.5, help="weight on terminal_value for --label blend")
     parser.add_argument("--corrections", help="SQL selecting DAgger rows (target root_value)")
     parser.add_argument("--oracle", action="store_true", help="allow oracle (perfect-foresight) rows in the data")
-    parser.add_argument("--initial-checkpoint", type=Path, help="start from these weights; pins the split")
+    parser.add_argument("--initial-checkpoint", type=Path, help="start from these weights (fresh optimizer)")
+    parser.add_argument("--split", choices=["pinned", "fresh"], default="pinned",
+                        help="with --initial-checkpoint: pin to its train/validation episodes (dropping other rows), "
+                             "or split the queried rows afresh (episode_split)")
     parser.add_argument("--correction-weight", type=float, default=0.5)
     run(parser.parse_args())
 

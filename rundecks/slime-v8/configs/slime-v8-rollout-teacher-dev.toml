@@ -1,0 +1,12 @@
+# ./apps/value_play/run.sh rundecks/slime-v8/configs/slime-v8-rollout-teacher-dev.toml
+# Rollout teacher (definition: MCTS, guided-rollout leaves, 20k simulations, 8 particles) plays the 999 dev fights, no random move.
+# The value run only supplies the train-fight guard; no weights are used.
+[run]
+id = "slime-v8-rollout-teacher-dev"
+input = "value_net_v1/2026-09-25/slime-v8-big-data"
+workers = 10
+leaf = "guided_rollout"
+simulations = 20000
+particles = 8
+random_move = false
+query = "select * from combat_v3 where encounter = 'slime_boss' and id = 'act1-a20-8' and run_seed % 10 in (0, 1)"

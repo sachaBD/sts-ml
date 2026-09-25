@@ -1,0 +1,8 @@
+[run]
+id = "slime-v7-r00"
+input = "value_net_v1/2026-09-24/slime-v6-gen0"
+workers = 10
+leaf = "guided_rollout"
+random_move = false
+simulations = 15000
+particles = 8

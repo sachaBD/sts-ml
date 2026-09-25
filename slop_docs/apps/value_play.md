@@ -32,10 +32,17 @@ random_move = true        # false: no random move (every move is the search's)
 oracle = false            # true: search the TRUE state (1 particle, real RNG / draw order): perfect-foresight
                           # upper bound, not fair play. Log banner; rows tagged oracle = true (runs/README.md)
 episodes = [707, 9305]    # subset of the checkpoint's validation episodes (default: all)
+# or, instead of episodes: any original fights of bootstrap runs (e.g. a fixed dev set shared by every checkpoint)
+query = "select * from combat_v3 where encounter = 'slime_boss' and id = 'act1-a20-8' and run_seed % 10 in (0, 1)"
 ```
 
+With `query`, the fights are the query's rows with `source_episode_id` null, the data runs are the runs they come
+from (each must be a bootstrap run), and a fight whose episode or run seed is in the checkpoint's
+`train_episode_ids` / `train_run_seeds` is refused. With `leaf = "guided_rollout"` the value run only
+supplies that guard.
+
 Invalid combinations fail instead of being ignored: unknown `[run]` keys, rollout bounds on
-`value_net`/`guided_rollout`, `hybrid` without both bounds, episodes outside the validation set.
+`value_net`/`guided_rollout`, `hybrid` without both bounds, episodes outside the validation set, `episodes` with `query`, query fights the checkpoint trained on.
 Pilot configs (all 14 validation fights, `random_move = false`, one worker): `slime4-R.toml`
 (guided rollout), `slime4-N.toml` (value net), `slime4-H.toml` (hybrid 1 turn / 16 steps).
 

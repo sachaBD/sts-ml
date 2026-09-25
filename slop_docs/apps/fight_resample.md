@@ -29,7 +29,7 @@ guided-rollout teacher). Random move on, oracle off, as bootstrap.
 |---|---|
 | `episode_id` | `source_episode_id * 1000 + k` (fits int64: run seeds < 2^40) |
 | `run_seed`, `fight_index`, `floor`, ... | the source's |
-| `starting_hp` | `round(random.Random(episode_id).gauss(source starting_hp, hp_sd))`, clipped to [1, max HP] |
+| `starting_hp` | `round(random.Random(episode_id).gauss(source starting_hp, hp_sd))`, clipped to [1, max HP], set before combat. The row column is HP at the first decision, so combat-start healing (e.g. Blood Vial) can make it higher |
 | fight RNG | `GameContext` before the fight with `seed = episode_id`, `miscRng = potionRng = Random(episode_id)`; `BattleContext::init` derives every combat RNG from those |
 | potions | the source's; with `random_potions`, each held potion becomes `returnRandomPotion(potionRng)` (the RNG above) |
 | random move | as bootstrap: `mt19937_64(episode_id ^ 0xe9510)` |

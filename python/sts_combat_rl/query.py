@@ -53,6 +53,18 @@ def rows(sql: str, columns=None, where: str | None = None, oracle: bool = False,
     return table.to_pylist()
 
 
+def batches(sql: str, columns, oracle: bool = False, batch_rows: int = 65536, root: Path = RUNS):
+    """The rows of `sql` as a stream of Arrow record batches with only `columns` (plus run_id): for loads too big
+    for rows(). Raises on oracle rows unless oracle=True."""
+    wanted = ", ".join(dict.fromkeys([*columns, "run_id", "oracle"]))
+    db = connect(root)  # kept alive while the reader streams
+    reader = db.sql(f"select {wanted} from ({sql})").fetch_record_batch(batch_rows)
+    for batch in reader:
+        if not oracle and batch.column("oracle").to_pylist().count(True):
+            raise ValueError(f"the query returns oracle rows (perfect-foresight teacher); allow them explicitly: {sql}")
+        yield batch if "oracle" in columns else batch.drop_columns(["oracle"])
+
+
 def run_ids(sql: str, root: Path = RUNS) -> list[str]:
     """The runs the rows of `sql` come from (lineage)."""
     return [r for (r,) in connect(root).sql(f"select distinct run_id from ({sql}) order by 1").fetchall()]

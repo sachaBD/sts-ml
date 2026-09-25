@@ -34,24 +34,25 @@ struct SearchDecision {
 };
 
 SearchDecision search_decision(const CombatEnvironment& env, std::size_t legal_count, const SearchFn& run,
-                               bool oracle = false);
+                               bool oracle = false, int particles = teacher::particles);
 
 // combat_v3 outcome columns of a finished fight: won, final_hp, potions, terminal_value.
 nlohmann::json outcome_columns(const CombatEnvironment& env, int max_hp);
 
 // search_settings plus the recording settings (and `oracle`), as recorded in summary.json.
-nlohmann::json settings(const Leaf& leaf, bool oracle = false);
+// Under oracle, particles is reported as 1 (make_search ignores budget.particles).
+nlohmann::json settings(const Leaf& leaf, bool oracle = false, const Budget& budget = {});
 // leaf = "guided_rollout" or "value_net".
 nlohmann::json settings(const std::string& leaf, bool oracle = false);
 
 // Teacher plays one fight. With `random_move`, one decision in [0, random_window), drawn from
 // mt19937_64(episode_id ^ 0xe9510), plays a uniformly random legal move instead (was_random); without
 // it every move is the search's. `oracle`: search the true state (make_search); every row gets
-// oracle = true/false. Appends its decision rows, then its child rows, each = encoding +
+// oracle = true/false. `particles`: make_search's belief particles. Appends its decision rows, then its child rows, each = encoding +
 // `fight` columns + search columns + outcome columns. Returns the finished battle.
 sts::BattleContext play_fight(sts::BattleContext battle, const nlohmann::json& fight,
                               std::vector<nlohmann::json>& rows, const SearchFn& search, bool random_move = true,
-                              bool oracle = false);
+                              bool oracle = false, int particles = teacher::particles);
 
 // A learner plays one fight while a teacher labels it (apps/dagger). At each decision, separate searches
 // of the same pre-action state: `teacher` gives actions / root_value / simulations_used, `learner` picks

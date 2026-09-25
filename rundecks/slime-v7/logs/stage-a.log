@@ -1,0 +1,190 @@
+Stage A started 2026-09-24T21:32:04+00:00
+run: /home/sborowsk/project/sts_combat_rl/runs/schema=combat_v3/date=2026-09-24/id=slime-v7-r00
+log: /home/sborowsk/project/sts_combat_rl/runs/schema=combat_v3/date=2026-09-24/id=slime-v7-r00/logs/stdout.log (stderr: /home/sborowsk/project/sts_combat_rl/runs/schema=combat_v3/date=2026-09-24/id=slime-v7-r00/logs/stderr.log)
+22:32:26 oracle: off (teacher searches sampled beliefs, fair play)
+22:32:26 
+22:32:26 Value play
+22:32:26 ==========
+22:32:26 config:    /home/sborowsk/project/sts_combat_rl/rundecks/slime-v7/configs/slime-v7-r00.toml
+22:32:26 output:    /home/sborowsk/project/sts_combat_rl/runs/schema=combat_v3/date=2026-09-24/id=slime-v7-r00/out
+22:32:26 value run: value_net_v1/2026-09-24/slime-v6-gen0
+22:32:26 weights:   None
+22:32:26 data runs: combat_v3/2026-09-23/act1-a20, combat_v3/2026-09-23/act1-a20-1, combat_v3/2026-09-23/act1-a20-2, combat_v3/2026-09-23/act1-a20-5, combat_v3/2026-09-23/act1-a20-6, combat_v3/2026-09-24/act1-a20-7
+22:32:26 teacher:   {"leaf": "guided_rollout", "random_move": false, "simulations": 15000, "particles": 8}
+22:32:26 fights:    156 of the value run's 156 validation episodes
+22:32:26 workers:   10
+22:32:26 worker:    /home/sborowsk/project/sts_combat_rl/runs/schema=combat_v3/date=2026-09-24/id=slime-v7-r00/out/value_play_worker (sha256 8994fcb01774671515031d1b755e8db781a78aabc90bf7cab5aed73d3a7fd89b)
+22:32:26 
+22:32:26 Each line: the guided_rollout teacher's replay | the stored teacher's result for the same fight
+22:32:26 
+22:32:38 [10/156] wins 9 vs teacher 8; mean terminal value 0.501 vs 0.438
+22:32:50 [20/156] wins 17 vs teacher 14; mean terminal value 0.452 vs 0.388
+22:32:58 [30/156] wins 21 vs teacher 18; mean terminal value 0.388 vs 0.343
+22:33:07 [40/156] wins 30 vs teacher 27; mean terminal value 0.407 vs 0.368
+22:33:15 [50/156] wins 39 vs teacher 35; mean terminal value 0.423 vs 0.374
+22:33:26 [60/156] wins 49 vs teacher 45; mean terminal value 0.444 vs 0.401
+22:33:33 [70/156] wins 57 vs teacher 52; mean terminal value 0.449 vs 0.403
+22:33:45 [80/156] wins 64 vs teacher 58; mean terminal value 0.432 vs 0.386
+22:33:52 [90/156] wins 72 vs teacher 65; mean terminal value 0.441 vs 0.393
+22:34:07 [100/156] wins 80 vs teacher 73; mean terminal value 0.440 vs 0.395
+22:34:13 [110/156] wins 87 vs teacher 80; mean terminal value 0.436 vs 0.390
+22:34:25 [120/156] wins 95 vs teacher 88; mean terminal value 0.438 vs 0.395
+22:34:38 [130/156] wins 102 vs teacher 95; mean terminal value 0.432 vs 0.390
+22:34:56 [140/156] wins 108 vs teacher 101; mean terminal value 0.428 vs 0.385
+22:35:07 [150/156] wins 115 vs teacher 108; mean terminal value 0.424 vs 0.385
+22:35:18 [156/156] wins 121 vs teacher 114; mean terminal value 0.427 vs 0.391
+22:35:18 
+22:35:18 Summary
+22:35:18 -------
+22:35:18 teacher:        {"child_min_visits": 50, "chunk": 500, "early_stop": true, "forced_simulations": 500, "leaf": "guided_rollout", "max_actions": 512, "oracle": false, "particles": 8, "random_move": false, "random_window": 24, "simulations": 15000}
+22:35:18                         guided_rollout   teacher
+22:35:18 won                                121       114   of 156
+22:35:18 terminal value                   0.427     0.391   mean
+22:35:18 rows:           18,114
+22:35:18 seconds/fight:  9.7
+22:35:18 wall time:      2.6 min
+22:35:18 summary:        /home/sborowsk/project/sts_combat_rl/runs/schema=combat_v3/date=2026-09-24/id=slime-v7-r00/out/summary.json
+run: done (exit 0) /home/sborowsk/project/sts_combat_rl/runs/schema=combat_v3/date=2026-09-24/id=slime-v7-r00
+Baseline reproduced: 4119 decisions, identical actions and outcomes.
+Launching r10 2026-09-24T21:35:20+00:00
+run: /home/sborowsk/project/sts_combat_rl/runs/schema=combat_v3/date=2026-09-24/id=slime-v7-r10
+log: /home/sborowsk/project/sts_combat_rl/runs/schema=combat_v3/date=2026-09-24/id=slime-v7-r10/logs/stdout.log (stderr: /home/sborowsk/project/sts_combat_rl/runs/schema=combat_v3/date=2026-09-24/id=slime-v7-r10/logs/stderr.log)
+22:35:32 oracle: off (teacher searches sampled beliefs, fair play)
+22:35:32 
+22:35:32 Value play
+22:35:32 ==========
+22:35:32 config:    /home/sborowsk/project/sts_combat_rl/rundecks/slime-v7/configs/slime-v7-r10.toml
+22:35:32 output:    /home/sborowsk/project/sts_combat_rl/runs/schema=combat_v3/date=2026-09-24/id=slime-v7-r10/out
+22:35:32 value run: value_net_v1/2026-09-24/slime-v6-gen0
+22:35:32 weights:   None
+22:35:32 data runs: combat_v3/2026-09-23/act1-a20, combat_v3/2026-09-23/act1-a20-1, combat_v3/2026-09-23/act1-a20-2, combat_v3/2026-09-23/act1-a20-5, combat_v3/2026-09-23/act1-a20-6, combat_v3/2026-09-24/act1-a20-7
+22:35:32 teacher:   {"leaf": "guided_rollout", "random_move": false, "simulations": 60000, "particles": 8}
+22:35:32 fights:    156 of the value run's 156 validation episodes
+22:35:32 workers:   10
+22:35:32 worker:    /home/sborowsk/project/sts_combat_rl/runs/schema=combat_v3/date=2026-09-24/id=slime-v7-r10/out/value_play_worker (sha256 8994fcb01774671515031d1b755e8db781a78aabc90bf7cab5aed73d3a7fd89b)
+22:35:32 
+22:35:32 Each line: the guided_rollout teacher's replay | the stored teacher's result for the same fight
+22:35:32 
+22:36:24 [10/156] wins 9 vs teacher 8; mean terminal value 0.496 vs 0.438
+22:36:57 [20/156] wins 16 vs teacher 15; mean terminal value 0.450 vs 0.419
+22:37:22 [30/156] wins 23 vs teacher 19; mean terminal value 0.429 vs 0.367
+22:37:58 [40/156] wins 30 vs teacher 27; mean terminal value 0.420 vs 0.368
+22:38:32 [50/156] wins 39 vs teacher 35; mean terminal value 0.437 vs 0.374
+22:39:06 [60/156] wins 48 vs teacher 44; mean terminal value 0.450 vs 0.398
+22:39:47 [70/156] wins 55 vs teacher 51; mean terminal value 0.443 vs 0.398
+22:40:22 [80/156] wins 62 vs teacher 58; mean terminal value 0.432 vs 0.388
+22:40:52 [90/156] wins 69 vs teacher 65; mean terminal value 0.435 vs 0.393
+22:41:32 [100/156] wins 75 vs teacher 73; mean terminal value 0.425 vs 0.394
+22:42:02 [110/156] wins 82 vs teacher 80; mean terminal value 0.425 vs 0.393
+22:42:27 [120/156] wins 91 vs teacher 88; mean terminal value 0.430 vs 0.395
+22:43:11 [130/156] wins 99 vs teacher 95; mean terminal value 0.427 vs 0.391
+22:44:05 [140/156] wins 105 vs teacher 101; mean terminal value 0.421 vs 0.387
+22:44:49 [150/156] wins 113 vs teacher 108; mean terminal value 0.418 vs 0.383
+22:45:19 [156/156] wins 118 vs teacher 114; mean terminal value 0.419 vs 0.391
+22:45:19 
+22:45:19 Summary
+22:45:19 -------
+22:45:19 teacher:        {"child_min_visits": 50, "chunk": 500, "early_stop": true, "forced_simulations": 500, "leaf": "guided_rollout", "max_actions": 512, "oracle": false, "particles": 8, "random_move": false, "random_window": 24, "simulations": 60000}
+22:45:19                         guided_rollout   teacher
+22:45:19 won                                118       114   of 156
+22:45:19 terminal value                   0.419     0.391   mean
+22:45:19 rows:           17,516
+22:45:19 seconds/fight:  32.9
+22:45:19 wall time:      9.0 min
+22:45:19 summary:        /home/sborowsk/project/sts_combat_rl/runs/schema=combat_v3/date=2026-09-24/id=slime-v7-r10/out/summary.json
+run: done (exit 0) /home/sborowsk/project/sts_combat_rl/runs/schema=combat_v3/date=2026-09-24/id=slime-v7-r10
+Launching r01 2026-09-24T21:45:20+00:00
+run: /home/sborowsk/project/sts_combat_rl/runs/schema=combat_v3/date=2026-09-24/id=slime-v7-r01
+log: /home/sborowsk/project/sts_combat_rl/runs/schema=combat_v3/date=2026-09-24/id=slime-v7-r01/logs/stdout.log (stderr: /home/sborowsk/project/sts_combat_rl/runs/schema=combat_v3/date=2026-09-24/id=slime-v7-r01/logs/stderr.log)
+22:45:29 oracle: off (teacher searches sampled beliefs, fair play)
+22:45:29 
+22:45:29 Value play
+22:45:29 ==========
+22:45:29 config:    /home/sborowsk/project/sts_combat_rl/rundecks/slime-v7/configs/slime-v7-r01.toml
+22:45:29 output:    /home/sborowsk/project/sts_combat_rl/runs/schema=combat_v3/date=2026-09-24/id=slime-v7-r01/out
+22:45:29 value run: value_net_v1/2026-09-24/slime-v6-gen0
+22:45:29 weights:   None
+22:45:29 data runs: combat_v3/2026-09-23/act1-a20, combat_v3/2026-09-23/act1-a20-1, combat_v3/2026-09-23/act1-a20-2, combat_v3/2026-09-23/act1-a20-5, combat_v3/2026-09-23/act1-a20-6, combat_v3/2026-09-24/act1-a20-7
+22:45:29 teacher:   {"leaf": "guided_rollout", "random_move": false, "simulations": 15000, "particles": 32}
+22:45:29 fights:    156 of the value run's 156 validation episodes
+22:45:29 workers:   10
+22:45:29 worker:    /home/sborowsk/project/sts_combat_rl/runs/schema=combat_v3/date=2026-09-24/id=slime-v7-r01/out/value_play_worker (sha256 8994fcb01774671515031d1b755e8db781a78aabc90bf7cab5aed73d3a7fd89b)
+22:45:29 
+22:45:29 Each line: the guided_rollout teacher's replay | the stored teacher's result for the same fight
+22:45:29 
+22:45:44 [10/156] wins 9 vs teacher 8; mean terminal value 0.489 vs 0.399
+22:45:53 [20/156] wins 14 vs teacher 13; mean terminal value 0.424 vs 0.363
+22:46:02 [30/156] wins 21 vs teacher 19; mean terminal value 0.416 vs 0.355
+22:46:09 [40/156] wins 29 vs teacher 27; mean terminal value 0.419 vs 0.360
+22:46:19 [50/156] wins 38 vs teacher 35; mean terminal value 0.430 vs 0.370
+22:46:28 [60/156] wins 47 vs teacher 44; mean terminal value 0.437 vs 0.394
+22:46:38 [70/156] wins 54 vs teacher 51; mean terminal value 0.433 vs 0.395
+22:46:49 [80/156] wins 62 vs teacher 58; mean terminal value 0.425 vs 0.385
+22:46:59 [90/156] wins 71 vs teacher 66; mean terminal value 0.441 vs 0.397
+22:47:09 [100/156] wins 79 vs teacher 74; mean terminal value 0.436 vs 0.398
+22:47:16 [110/156] wins 87 vs teacher 80; mean terminal value 0.440 vs 0.390
+22:47:24 [120/156] wins 96 vs teacher 87; mean terminal value 0.443 vs 0.391
+22:47:35 [130/156] wins 104 vs teacher 94; mean terminal value 0.438 vs 0.386
+22:47:47 [140/156] wins 112 vs teacher 101; mean terminal value 0.442 vs 0.387
+22:47:57 [150/156] wins 120 vs teacher 108; mean terminal value 0.439 vs 0.385
+22:48:08 [156/156] wins 126 vs teacher 114; mean terminal value 0.441 vs 0.391
+22:48:08 
+22:48:08 Summary
+22:48:08 -------
+22:48:08 teacher:        {"child_min_visits": 50, "chunk": 500, "early_stop": true, "forced_simulations": 500, "leaf": "guided_rollout", "max_actions": 512, "oracle": false, "particles": 32, "random_move": false, "random_window": 24, "simulations": 15000}
+22:48:08                         guided_rollout   teacher
+22:48:08 won                                126       114   of 156
+22:48:08 terminal value                   0.441     0.391   mean
+22:48:08 rows:           18,002
+22:48:08 seconds/fight:  8.8
+22:48:08 wall time:      2.4 min
+22:48:08 summary:        /home/sborowsk/project/sts_combat_rl/runs/schema=combat_v3/date=2026-09-24/id=slime-v7-r01/out/summary.json
+run: done (exit 0) /home/sborowsk/project/sts_combat_rl/runs/schema=combat_v3/date=2026-09-24/id=slime-v7-r01
+Launching r11 2026-09-24T21:48:08+00:00
+run: /home/sborowsk/project/sts_combat_rl/runs/schema=combat_v3/date=2026-09-24/id=slime-v7-r11
+log: /home/sborowsk/project/sts_combat_rl/runs/schema=combat_v3/date=2026-09-24/id=slime-v7-r11/logs/stdout.log (stderr: /home/sborowsk/project/sts_combat_rl/runs/schema=combat_v3/date=2026-09-24/id=slime-v7-r11/logs/stderr.log)
+22:48:18 oracle: off (teacher searches sampled beliefs, fair play)
+22:48:18 
+22:48:18 Value play
+22:48:18 ==========
+22:48:18 config:    /home/sborowsk/project/sts_combat_rl/rundecks/slime-v7/configs/slime-v7-r11.toml
+22:48:18 output:    /home/sborowsk/project/sts_combat_rl/runs/schema=combat_v3/date=2026-09-24/id=slime-v7-r11/out
+22:48:18 value run: value_net_v1/2026-09-24/slime-v6-gen0
+22:48:18 weights:   None
+22:48:18 data runs: combat_v3/2026-09-23/act1-a20, combat_v3/2026-09-23/act1-a20-1, combat_v3/2026-09-23/act1-a20-2, combat_v3/2026-09-23/act1-a20-5, combat_v3/2026-09-23/act1-a20-6, combat_v3/2026-09-24/act1-a20-7
+22:48:18 teacher:   {"leaf": "guided_rollout", "random_move": false, "simulations": 60000, "particles": 32}
+22:48:18 fights:    156 of the value run's 156 validation episodes
+22:48:18 workers:   10
+22:48:18 worker:    /home/sborowsk/project/sts_combat_rl/runs/schema=combat_v3/date=2026-09-24/id=slime-v7-r11/out/value_play_worker (sha256 8994fcb01774671515031d1b755e8db781a78aabc90bf7cab5aed73d3a7fd89b)
+22:48:18 
+22:48:18 Each line: the guided_rollout teacher's replay | the stored teacher's result for the same fight
+22:48:18 
+22:49:09 [10/156] wins 10 vs teacher 8; mean terminal value 0.499 vs 0.399
+22:49:43 [20/156] wins 17 vs teacher 15; mean terminal value 0.469 vs 0.419
+22:50:15 [30/156] wins 22 vs teacher 19; mean terminal value 0.421 vs 0.367
+22:50:49 [40/156] wins 31 vs teacher 27; mean terminal value 0.432 vs 0.366
+22:51:22 [50/156] wins 41 vs teacher 36; mean terminal value 0.459 vs 0.381
+22:51:56 [60/156] wins 48 vs teacher 44; mean terminal value 0.448 vs 0.394
+22:52:32 [70/156] wins 56 vs teacher 51; mean terminal value 0.450 vs 0.395
+22:53:17 [80/156] wins 65 vs teacher 58; mean terminal value 0.450 vs 0.389
+22:53:49 [90/156] wins 74 vs teacher 66; mean terminal value 0.460 vs 0.399
+22:54:41 [100/156] wins 79 vs teacher 72; mean terminal value 0.439 vs 0.390
+22:55:02 [110/156] wins 89 vs teacher 81; mean terminal value 0.449 vs 0.395
+22:55:30 [120/156] wins 98 vs teacher 88; mean terminal value 0.451 vs 0.395
+22:56:20 [130/156] wins 106 vs teacher 95; mean terminal value 0.449 vs 0.391
+20:09:10 [140/156] wins 111 vs teacher 100; mean terminal value 0.441 vs 0.383
+20:09:55 [150/156] wins 119 vs teacher 108; mean terminal value 0.437 vs 0.384
+20:10:28 [156/156] wins 125 vs teacher 114; mean terminal value 0.440 vs 0.391
+20:10:28 
+20:10:28 Summary
+20:10:28 -------
+20:10:28 teacher:        {"child_min_visits": 50, "chunk": 500, "early_stop": true, "forced_simulations": 500, "leaf": "guided_rollout", "max_actions": 512, "oracle": false, "particles": 32, "random_move": false, "random_window": 24, "simulations": 60000}
+20:10:28                         guided_rollout   teacher
+20:10:28 won                                125       114   of 156
+20:10:28 terminal value                   0.440     0.391   mean
+20:10:28 rows:           19,381
+20:10:28 seconds/fight:  36.1
+20:10:28 wall time:      9.8 min
+20:10:28 summary:        /home/sborowsk/project/sts_combat_rl/runs/schema=combat_v3/date=2026-09-24/id=slime-v7-r11/out/summary.json
+run: done (exit 0) /home/sborowsk/project/sts_combat_rl/runs/schema=combat_v3/date=2026-09-24/id=slime-v7-r11
+Stage A completed 2026-09-25T19:10:29+00:00
