@@ -31,10 +31,14 @@ struct SearchDecision {
     std::size_t chosen;
     double value;
     std::int64_t used;
+    std::int64_t retained = 0;  // root visits already in the tree before this search (tree reuse)
 };
 
 SearchDecision search_decision(const CombatEnvironment& env, std::size_t legal_count, const SearchFn& run,
                                bool oracle = false, int particles = teacher::particles);
+// Same, continuing `search` (rooted at env's state; e.g. rebased by rebase_search).
+SearchDecision search_decision(const CombatEnvironment& env, std::size_t legal_count, const SearchFn& run,
+                               sts::search::PublicBeliefCombatSearch& search);
 
 // combat_v3 outcome columns of a finished fight: won, final_hp, potions, terminal_value.
 nlohmann::json outcome_columns(const CombatEnvironment& env, int max_hp);
@@ -50,9 +54,11 @@ nlohmann::json settings(const std::string& leaf, bool oracle = false);
 // it every move is the search's. `oracle`: search the true state (make_search); every row gets
 // oracle = true/false. `particles`: make_search's belief particles. Appends its decision rows, then its child rows, each = encoding +
 // `fight` columns + search columns + outcome columns. Returns the finished battle.
+// `reuse`: keep the played move's subtree between decisions (rebase_search); decision rows get
+// retained_visits (simulations_used still counts new simulations only).
 sts::BattleContext play_fight(sts::BattleContext battle, const nlohmann::json& fight,
                               std::vector<nlohmann::json>& rows, const SearchFn& search, bool random_move = true,
-                              bool oracle = false, int particles = teacher::particles);
+                              bool oracle = false, int particles = teacher::particles, bool reuse = false);
 
 // A learner plays one fight while a teacher labels it (apps/dagger). At each decision, separate searches
 // of the same pre-action state: `teacher` gives actions / root_value / simulations_used, `learner` picks

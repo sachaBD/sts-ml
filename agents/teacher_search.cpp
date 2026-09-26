@@ -15,7 +15,13 @@ using sts::search::PublicBeliefCombatSearch;
 SearchDecision search_decision(const CombatEnvironment& env, std::size_t legal_count, const SearchFn& run,
                                bool oracle, int particles) {
     auto search = make_search(env.battle(), oracle, particles);
+    return search_decision(env, legal_count, run, search);
+}
+
+SearchDecision search_decision(const CombatEnvironment& env, std::size_t legal_count, const SearchFn& run,
+                               PublicBeliefCombatSearch& search) {
     SearchDecision result;
+    result.retained = search.root().visits;
     result.used = run(search, legal_count);
     result.chosen = legal_index(env, legal_count, search, search.selectedAction());
     double value_sum = 0;
@@ -76,16 +82,18 @@ Json settings(const Leaf& leaf, bool oracle, const Budget& budget) {
 Json settings(const std::string& leaf, bool oracle) { return settings(Leaf{leaf}, oracle); }
 
 sts::BattleContext play_fight(sts::BattleContext battle, const Json& fight, std::vector<Json>& rows,
-                              const SearchFn& run, bool random_move, bool oracle, int particles) {
+                              const SearchFn& run, bool random_move, bool oracle, int particles, bool reuse) {
     CombatEnvironment env{std::move(battle)};
     const int max_hp = env.player_max_hp();
     std::mt19937_64 rng(fight.at("episode_id").get<std::uint64_t>() ^ 0xe9510ULL);
     const int random_at = random_move ? std::uniform_int_distribution<int>{0, random_window - 1}(rng) : -1;
     std::vector<Json> decisions, children;
     int index = 0;
+    auto tree = make_search(env.battle(), oracle, particles);
     while (!env.done()) {
         auto state = env.decision();
-        auto choice = search_decision(env, state.legal_actions.size(), run, oracle, particles);
+        if (!reuse && index > 0) tree = make_search(env.battle(), oracle, particles);
+        auto choice = search_decision(env, state.legal_actions.size(), run, tree);
         const bool random = index == random_at;
         if (random) choice.chosen = std::uniform_int_distribution<std::size_t>{0, state.legal_actions.size() - 1}(rng);
         record_children(children, env, choice, fight, index, oracle);
@@ -95,8 +103,12 @@ sts::BattleContext play_fight(sts::BattleContext battle, const Json& fight, std:
                     {"chosen_action", choice.chosen}, {"was_random", random}, {"root_value", choice.value},
                     {"row_kind", "decision"}, {"parent_action", -1}, {"simulations_used", choice.used},
                     {"oracle", oracle}});
+        if (reuse) row["retained_visits"] = choice.retained;
         decisions.push_back(std::move(row));
+        const auto before = env.battle();
+        const auto bits = env.action_bits(choice.chosen);
         env.step(choice.chosen);
+        if (reuse && !env.done()) rebase_search(tree, before, bits, env.battle(), oracle, particles);
         ++index;
     }
     const Json outcome = outcome_columns(env, max_hp);

@@ -31,6 +31,22 @@ struct Budget {
     int particles = teacher::particles;
 };
 
+// Opt-in search variants; defaults = the historical teacher. Process-wide: a worker sets them from its
+// request's teacher settings (set_tweak) before searching (workers are single-threaded); settings()
+// records the non-default ones. Measured in slop_docs/search_perf.md.
+struct SearchTweaks {
+    // Card plays / potions keyed by card (or potion) and target, not hand slot: identical cards in two
+    // slots are one edge (PublicBeliefCombatSearch::mergeIdenticalCards).
+    bool merge_identical_cards = false;
+    // Early stop once N_best - N_second > stop_factor * simulations left. 1 = the exact rule (the most
+    // visited move can no longer change); below 1 stops sooner, accepting that it rarely might have.
+    double stop_factor = 1.0;
+};
+SearchTweaks& tweaks();
+// Applies teacher setting `key` if it is a tweak (merge_identical_cards: bool, stop_factor: number in
+// (0, 1]); false for other keys. Throws on an invalid value.
+bool set_tweak(const std::string& key, const nlohmann::json& value);
+
 // The teacher's search at `observed`: particles sampled from the public observation. With `oracle`,
 // a single particle that is `observed` itself (true RNG state and draw order) with max backup (the
 // move played is the best-valued root edge; no early stop): perfect-information search of the
@@ -38,6 +54,14 @@ struct Budget {
 // same deterministic particle stream (ignored under oracle).
 sts::search::PublicBeliefCombatSearch make_search(const sts::BattleContext& observed, bool oracle = false,
                                                   int particles = teacher::particles);
+
+// Tree reuse: after `played_bits` was played at `before` (the search's root) and `after` is observed, keep
+// the played move's subtree as the new root (PublicBeliefCombatSearch::rebase) with `after`'s particles
+// (as make_search). The budget still counts only new simulations, so each decision has at least a fresh
+// search's evidence; kept visits only add to it (and can make early stop fire sooner).
+void rebase_search(sts::search::PublicBeliefCombatSearch& search, const sts::BattleContext& before,
+                   std::uint32_t played_bits, const sts::BattleContext& after, bool oracle = false,
+                   int particles = teacher::particles);
 
 // Guided-rollout search with the teacher budget; returns simulations used. Plays the same move as
 // search.search(simulations) with less compute:

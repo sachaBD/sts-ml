@@ -3,10 +3,12 @@
 // chosen actions. Then the teacher plays the fight and the worker stops.
 //   value_play_worker REQUEST.json OUTPUT_DIR [WEIGHTS]     (apps/common/worker.hpp; no WEIGHTS: no value net)
 //   REQUEST.json: {run_seed, ascension, fight_index, actions: [[chosen_action...] per earlier fight],
-//                teacher (optional): {leaf, rollout_turns, rollout_steps, random_move, oracle, simulations, particles}}
+//                teacher (optional): {leaf, rollout_turns, rollout_steps, random_move, oracle, simulations, particles,
+//                                     merge_identical_cards, stop_factor}}
 //   oracle: search the true state (perfect RNG foresight, teacher_leaves.hpp make_search).
 //   teacher defaults: leaf value_net, rollout bounds 0, random_move true (the original value_play),
 //   simulations 15000, particles 8 (teacher::Budget; positive integers). oracle takes no particles.
+//   merge_identical_cards (default false), stop_factor (default 1): opt-in search variants (teacher::SearchTweaks).
 //   Invalid combinations (e.g. hybrid without bounds, guided_rollout with weights) fail.
 // Output: OUTPUT_DIR/result.msgpack = {episode_id, teacher, rows} (combat_v3 rows of that fight);
 // teacher = teacher::settings(leaf, oracle, budget) + random_move.
@@ -46,6 +48,7 @@ Teacher parse_teacher(const Json& input) {
         else if (key == "oracle") teacher.oracle = value.get<bool>();
         else if (key == "simulations") teacher.budget.simulations = positive(key, value);
         else if (key == "particles") teacher.budget.particles = static_cast<int>(positive(key, value));
+        else if (stsrl::teacher::set_tweak(key, value)) {}  // merge_identical_cards, stop_factor
         else throw std::invalid_argument{"unknown teacher setting: " + key};
     }
     if (teacher.oracle && input.at("teacher").contains("particles"))

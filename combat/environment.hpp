@@ -28,6 +28,9 @@ struct Decision {
     std::vector<LegalAction> legal_actions;
 };
 
+// The state part of Decision::encoding (all but legal_actions): what the value net reads.
+[[nodiscard]] EncodedCombatState encode_state(const sts::BattleContext& state);
+
 class CombatEnvironment final {
 public:
     explicit CombatEnvironment(sts::BattleContext initial_state);
