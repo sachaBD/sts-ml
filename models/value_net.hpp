@@ -6,6 +6,8 @@
 
 #include "combat/encoding.hpp"
 
+#include <array>
+#include <cstdint>
 #include <span>
 #include <string>
 #include <unordered_map>
@@ -35,13 +37,32 @@ private:
     struct CardHash {
         std::size_t operator()(const CardToken& c) const;
     };
+    // Monster MLP / interaction MLP inputs, compared bit for bit (a cached output is exactly what the MLP
+    // would compute again).
+    struct MonsterKey {
+        std::array<std::uint32_t, 11> bits{};
+        bool operator==(const MonsterKey&) const = default;
+    };
+    struct InteractionKey {
+        std::array<std::uint32_t, 18 + 11 + 6> bits{};
+        bool operator==(const InteractionKey&) const = default;
+    };
+    struct BitsHash {
+        template <class Key> std::size_t operator()(const Key& k) const;
+    };
 
     const float* card_hidden(const CardToken& card) const;
+    const float* monster_hidden(const MonsterToken& monster) const;
 
     int width_ = 0;
     // Card MLP outputs by token. Leaves of one search share most of their cards, so this
     // skips most card MLP work; cleared when it grows large.
     mutable std::unordered_map<CardToken, std::vector<float>, CardHash> card_cache_;
+    mutable std::unordered_map<MonsterKey, std::vector<float>, BitsHash> monster_cache_;
+    mutable std::unordered_map<InteractionKey, std::vector<float>, BitsHash> interaction_cache_;
+    // Scratch buffers of evaluate (no allocation per state).
+    mutable std::vector<float> x_, hidden_, features_, out_;
+    mutable std::vector<const float*> card_out_, monster_out_;
     Embedding input_state_, card_selection_task_, card_id_, zone_, card_type_, target_type_, monster_id_, move_;
     Linear card1_, card2_, monster1_, monster2_, interaction1_, interaction2_, head1_, head2_;
 };

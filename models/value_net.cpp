@@ -1,6 +1,7 @@
 #include "models/value_net.hpp"
 
 #include <algorithm>
+#include <bit>
 #include <cmath>
 #include <cstdint>
 #include <cstring>
@@ -84,14 +85,36 @@ float* put(float* x, const std::array<float, N>& values) {
     return std::copy(values.begin(), values.end(), x);
 }
 
-// y = W x + b, optionally followed by ReLU.
-void apply(const ValueNet::Linear& l, const float* x, float* y, bool relu) {
+// y = W x + b, optionally followed by ReLU. Every output is bias + sum over inputs in input order, one
+// multiply and one add each (no FMA), whichever version runs: the results are bit-identical.
+// OUT-wide layers accumulate in registers; the AVX2 clones do the same float operations 8 lanes at a time.
+template <int OUT>
+__attribute__((target_clones("avx2", "default")))
+void apply_fixed(const float* __restrict weight_t, const float* __restrict bias, int in, const float* __restrict x,
+                 float* __restrict y) {
+    float acc[OUT];
+    std::memcpy(acc, bias, sizeof acc);
+    for (int i = 0; i < in; ++i) {
+        const float xi = x[i];
+        const float* __restrict w = weight_t + static_cast<std::size_t>(i) * OUT;
+        for (int o = 0; o < OUT; ++o) acc[o] += xi * w[o];
+    }
+    std::memcpy(y, acc, sizeof acc);
+}
+
+__attribute__((target_clones("avx2", "default")))
+void apply_any(const ValueNet::Linear& l, const float* x, float* y) {
     std::copy(l.bias.begin(), l.bias.end(), y);
     for (int i = 0; i < l.in; ++i) {
         const float xi = x[i];
         const float* w = l.weight_t.data() + static_cast<std::size_t>(i) * l.out;
         for (int o = 0; o < l.out; ++o) y[o] += xi * w[o];
     }
+}
+
+void apply(const ValueNet::Linear& l, const float* x, float* y, bool relu) {
+    if (l.out == 64) apply_fixed<64>(l.weight_t.data(), l.bias.data(), l.in, x, y);
+    else apply_any(l, x, y);
     if (relu)
         for (int o = 0; o < l.out; ++o) y[o] = std::max(y[o], 0.0f);
 }
@@ -137,6 +160,46 @@ std::size_t ValueNet::CardHash::operator()(const CardToken& c) const {
     return h;
 }
 
+template <class Key> std::size_t ValueNet::BitsHash::operator()(const Key& k) const {
+    std::uint64_t h = 0x9E3779B97F4A7C15ULL;
+    for (std::size_t i = 0; i < k.bits.size(); i += 2) {
+        std::uint64_t v = k.bits[i] | (i + 1 < k.bits.size() ? std::uint64_t{k.bits[i + 1]} << 32 : 0);
+        h = (h ^ v) * 0xbf58476d1ce4e5b9ULL;
+        h ^= h >> 31;
+    }
+    return h;
+}
+
+namespace {
+template <std::size_t N>
+std::uint32_t* put_bits(std::uint32_t* out, const std::array<float, N>& values) {
+    for (const float v : values) *out++ = std::bit_cast<std::uint32_t>(v);
+    return out;
+}
+std::uint32_t* put_card(std::uint32_t* out, const CardToken& c) {
+    *out++ = static_cast<std::uint32_t>(c.card_id);
+    *out++ = static_cast<std::uint32_t>(c.zone) | static_cast<std::uint32_t>(c.card_type) << 8
+           | static_cast<std::uint32_t>(c.target_type) << 16;
+    return put_bits(out, c.numeric);
+}
+std::uint32_t* put_monster(std::uint32_t* out, const MonsterToken& m) {
+    *out++ = static_cast<std::uint32_t>(m.monster_id);
+    *out++ = static_cast<std::uint32_t>(m.move_id);
+    return put_bits(out, m.numeric);
+}
+}  // namespace
+
+const float* ValueNet::monster_hidden(const MonsterToken& monster) const {
+    MonsterKey key;
+    put_monster(key.bits.data(), monster);
+    if (const auto it = monster_cache_.find(key); it != monster_cache_.end()) return it->second.data();
+    const std::size_t w = static_cast<std::size_t>(width_);
+    put(put(put(x_.data(), monster_id_, monster.monster_id), move_, monster.move_id), monster.numeric);
+    std::vector<float> out(w);
+    mlp(monster1_, monster2_, x_.data(), hidden_.data(), out.data());
+    return monster_cache_.emplace(key, std::move(out)).first->second.data();
+}
+
 const float* ValueNet::card_hidden(const CardToken& card) const {
     if (const auto it = card_cache_.find(card); it != card_cache_.end()) return it->second.data();
     std::vector<float> x(card1_.in), hidden(width_), out(width_);
@@ -149,47 +212,55 @@ const float* ValueNet::card_hidden(const CardToken& card) const {
 }
 
 float ValueNet::evaluate(const EncodedCombatState& s) const {
-    if (card_cache_.size() >= 1 << 16) card_cache_.clear();  // not mid-state: `cards` points into it
+    // Not mid-state: card_out_ / monster_out_ point into the caches.
+    if (card_cache_.size() >= 1 << 16) card_cache_.clear();
+    if (monster_cache_.size() >= 1 << 16) monster_cache_.clear();
+    if (interaction_cache_.size() >= 1 << 16) interaction_cache_.clear();
     const std::size_t w = static_cast<std::size_t>(width_);
-    std::vector<float> x(std::max<std::size_t>(head1_.in, 2 * w + 6));
-    std::vector<float> hidden(w);
-    std::vector<float> features(head1_.in, 0.0f);
+    x_.resize(std::max<std::size_t>({static_cast<std::size_t>(head1_.in), 2 * w + 6,
+                                     static_cast<std::size_t>(monster1_.in)}));
+    hidden_.resize(w);
+    features_.assign(head1_.in, 0.0f);
     // features: global numeric, two embeddings, then six width-sized sums
-    float* sums = put(put(put(features.data(), s.global.numeric), input_state_, s.global.input_state),
+    float* sums = put(put(put(features_.data(), s.global.numeric), input_state_, s.global.input_state),
                       card_selection_task_, s.global.card_selection_task);
     float* card_pools = sums;           // zones hand, draw, discard, exhaust (offered cards are not pooled)
     float* monster_sum = sums + 4 * w;
     float* interaction_sum = sums + 5 * w;
 
-    std::vector<const float*> cards(s.cards.size());
+    card_out_.resize(s.cards.size());
     for (std::size_t c = 0; c < s.cards.size(); ++c) {
         const auto& card = s.cards[c];
-        const float* out = cards[c] = card_hidden(card);
+        const float* out = card_out_[c] = card_hidden(card);
         const auto zone = static_cast<std::size_t>(card.zone);
         if (zone < 4)
             for (std::size_t k = 0; k < w; ++k) card_pools[zone * w + k] += out[k];
     }
-    std::vector<float> monsters(s.monsters.size() * w);
+    monster_out_.resize(s.monsters.size());
     for (std::size_t m = 0; m < s.monsters.size(); ++m) {
-        const auto& monster = s.monsters[m];
-        put(put(put(x.data(), monster_id_, monster.monster_id), move_, monster.move_id), monster.numeric);
-        float* out = monsters.data() + m * w;
-        mlp(monster1_, monster2_, x.data(), hidden.data(), out);
+        const float* out = monster_out_[m] = monster_hidden(s.monsters[m]);
         for (std::size_t k = 0; k < w; ++k) monster_sum[k] += out[k];
     }
-    std::vector<float> out(w);
     for (const auto& i : s.card_monster_interactions) {
         if (i.card_index >= s.cards.size() || i.monster_index >= s.monsters.size())
             throw std::out_of_range{"interaction index out of range"};
-        float* p = std::copy_n(cards[i.card_index], w, x.data());
-        p = std::copy_n(monsters.data() + i.monster_index * w, w, p);
-        put(p, i.numeric);
-        mlp(interaction1_, interaction2_, x.data(), hidden.data(), out.data());
+        InteractionKey key;
+        put_bits(put_monster(put_card(key.bits.data(), s.cards[i.card_index]), s.monsters[i.monster_index]), i.numeric);
+        auto it = interaction_cache_.find(key);
+        if (it == interaction_cache_.end()) {
+            float* p = std::copy_n(card_out_[i.card_index], w, x_.data());
+            p = std::copy_n(monster_out_[i.monster_index], w, p);
+            put(p, i.numeric);
+            std::vector<float> out(w);
+            mlp(interaction1_, interaction2_, x_.data(), hidden_.data(), out.data());
+            it = interaction_cache_.emplace(key, std::move(out)).first;
+        }
+        const float* out = it->second.data();
         for (std::size_t k = 0; k < w; ++k) interaction_sum[k] += out[k];
     }
-    apply(head1_, features.data(), hidden.data(), true);
+    apply(head1_, features_.data(), hidden_.data(), true);
     float value{};
-    apply(head2_, hidden.data(), &value, false);
+    apply(head2_, hidden_.data(), &value, false);
     return std::tanh(value);
 }
 
