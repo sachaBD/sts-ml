@@ -3,6 +3,7 @@
 #include "game/Random.h"
 
 #include <algorithm>
+#include <cstdlib>
 #include <cmath>
 #include <stdexcept>
 #include <tuple>
@@ -69,9 +70,15 @@ std::vector<sts::BattleContext> root_particles(const sts::BattleContext& observe
 
 }  // namespace
 
+SearchTweaks& tweaks() {
+    static SearchTweaks value;
+    return value;
+}
+
 PublicBeliefCombatSearch make_search(const sts::BattleContext& observed, bool oracle, int particles) {
     const auto public_seed = PublicBeliefCombatSearch::publicObservation(observed);
-    PublicBeliefCombatSearch search{root_particles(observed, oracle, particles), public_seed, 2};
+    PublicBeliefCombatSearch search{root_particles(observed, oracle, particles), public_seed, 2,
+                                    tweaks().merge_identical_cards};
     search.maximumActions = max_actions;
     search.maxBackup = oracle;
     return search;
@@ -98,7 +105,7 @@ std::int64_t run_teacher_search(PublicBeliefCombatSearch& search, std::int64_t s
 
 void rebase_search(PublicBeliefCombatSearch& search, const sts::BattleContext& before, std::uint32_t played_bits,
                    const sts::BattleContext& after, bool oracle, int particles) {
-    const auto key = PublicBeliefCombatSearch::publicActionKey(before, sts::search::Action{played_bits});
+    const auto key = search.actionKey(before, sts::search::Action{played_bits});
     search.rebase(root_particles(after, oracle, particles), key, PublicBeliefCombatSearch::publicObservation(after));
 }
 

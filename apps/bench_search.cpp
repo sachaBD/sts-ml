@@ -38,6 +38,46 @@ int main(int argc, char** argv) {
     const auto run = teacher::value_net_search(net, sims);
     std::unique_ptr<std::ofstream> trace;
     if (const char* path = std::getenv("TRACE")) trace = std::make_unique<std::ofstream>(path);
+    if (mode == "paired") {
+        // Along the baseline teacher's trajectory, each state is also searched by the variant (VARIANT env:
+        // comma list of merge) and, as a noise control, by the baseline with a reseeded search RNG.
+        const std::string variant = std::getenv("VARIANT") ? std::getenv("VARIANT") : "";
+        const auto set_variant = [&](bool on) {
+            teacher::tweaks() = {};
+            if (on && variant.find("merge") != std::string::npos) teacher::tweaks().merge_identical_cards = true;
+        };
+        const auto move_key = [](const CombatEnvironment& env, std::size_t i) {
+            return sts::search::PublicBeliefCombatSearch::identityActionKey(env.battle(),
+                                                                            sts::search::Action{env.action_bits(i)});
+        };
+        for (auto seed = first; seed < first + count; ++seed) {
+            auto env = scenarios::slime_boss(seed);
+            for (int index = 0; !env.done(); ++index) {
+                const auto legal = env.decision().legal_actions.size();
+                set_variant(false);
+                auto t = cpu_now();
+                const auto base = teacher::search_decision(env, legal, run);
+                const double base_s = seconds_since(t);
+                set_variant(true);
+                t = cpu_now();
+                const auto var = teacher::search_decision(env, legal, run);
+                const double var_s = seconds_since(t);
+                set_variant(false);
+                auto other = teacher::make_search(env.battle());
+                other.random.seed(seed * 7919 + index);
+                other.rollout.randGen.seed(seed * 7919 + index);
+                const auto control = teacher::search_decision(env, legal, run, other);
+                std::cout << Json{{"seed", seed}, {"decision", index}, {"legal", legal},
+                                  {"base_s", base_s}, {"base_sims", base.used}, {"base_value", base.value},
+                                  {"var_s", var_s}, {"var_sims", var.used}, {"var_value", var.value},
+                                  {"same", move_key(env, base.chosen) == move_key(env, var.chosen)},
+                                  {"control_same", move_key(env, base.chosen) == move_key(env, control.chosen)}}.dump()
+                          << std::endl;
+                env.step(base.chosen);
+            }
+        }
+        return 0;
+    }
     if (mode == "evalbench") {
         // Leaf states of the first decisions' searches, then timed encode / evaluate passes over them.
         std::vector<sts::BattleContext> leaves;

@@ -36,6 +36,13 @@ struct Budget {
 // move played is the best-valued root edge; no early stop): perfect-information search of the
 // deterministic simulator, an upper-bound teacher, not a fair player. `particles`: the first n of the
 // same deterministic particle stream (ignored under oracle).
+// Search variants (search-perf experiments). Defaults = the historical teacher. Process-wide; set by the
+// app before searching (workers are single-threaded).
+struct SearchTweaks {
+    bool merge_identical_cards = false;  // PublicBeliefCombatSearch::mergeIdenticalCards
+};
+SearchTweaks& tweaks();
+
 sts::search::PublicBeliefCombatSearch make_search(const sts::BattleContext& observed, bool oracle = false,
                                                   int particles = teacher::particles);
 
