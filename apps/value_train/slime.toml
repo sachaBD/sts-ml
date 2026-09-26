@@ -19,6 +19,7 @@ seed = 0
 validation_fraction = 0.2
 label = "blend" # blend, root, or terminal
 blend = 0.5
+# threads = 8  # torch CPU threads (default 1; >1 may be slightly nondeterministic)
 # checkpoint = "value_checkpoint.pt"
 
 [export]

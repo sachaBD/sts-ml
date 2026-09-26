@@ -1,0 +1,19 @@
+# ./apps/fight_resample/run.sh rundecks/slime-v8/configs/slime-v8-selfplay-gen1.toml
+# Self-play generation 1: the big-data network plays 1 new version (new combat RNG, starting HP ~ N(stored, 10)) of each
+# train deck in act1-a20-8 with run_seed % 10 in (4, 5). Same search as on dev: value-net leaves, 20k simulations,
+# 8 particles, no random moves (clean outcome labels).
+[run]
+id = "slime-v8-selfplay-gen1"
+query = """
+select * from combat_v3
+where encounter = 'slime_boss' and source_episode_id is null
+  and id = 'act1-a20-8' and run_seed % 10 in (4, 5)
+"""
+samples = 1
+hp_sd = 10
+random_potions = false
+value_run = "value_net_v1/2026-09-25/slime-v8-big-data"
+simulations = 20000
+particles = 8
+random_move = false
+workers = 10

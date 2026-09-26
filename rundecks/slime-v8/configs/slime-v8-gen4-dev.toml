@@ -1,0 +1,11 @@
+# ./apps/value_play/run.sh rundecks/slime-v8/configs/slime-v8-gen4-dev.toml
+# Generation 4 network plays the 999 dev fights (SPLIT.md): value-net search, 20k simulations / 8 particles, no random move.
+[run]
+id = "slime-v8-gen4-dev"
+input = "value_net_v1/2026-09-26/slime-v8-gen4"
+workers = 10
+leaf = "value_net"
+simulations = 20000
+particles = 8
+random_move = false
+query = "select * from combat_v3 where encounter = 'slime_boss' and id = 'act1-a20-8' and run_seed % 10 in (0, 1)"

@@ -1,0 +1,21 @@
+# ./apps/value_play/run.sh experiments/act-1-combat/2026-09-26-mirror-mcts/configs/act1-gen0-dev.toml
+# act1-gen0 plays the dev eval subset (README.md; = dev_fights.csv, 4,810 fights incl. all 999 Slime Boss dev fights).
+# slime-v8 eval protocol: value-net leaves, 20k simulations, 8 particles, no random move.
+[run]
+id = "act1-gen0-dev"
+input = "value_net_v1/2026-09-26/act1-gen0"
+workers = 10
+leaf = "value_net"
+simulations = 20000
+particles = 8
+random_move = false
+query = """
+select * from combat_v3
+where id = 'act1-a20-8' and run_seed % 10 in (0, 1)
+  and episode_id in (
+    select episode_id from (
+      select episode_id, encounter, row_number() over (partition by category, encounter order by episode_id) k
+      from (select distinct episode_id, category, encounter from combat_v3
+            where id = 'act1-a20-8' and run_seed % 10 in (0, 1) and source_episode_id is null))
+    where encounter = 'slime_boss' or k <= 250)
+"""

@@ -1,0 +1,151 @@
+run: /home/sborowsk/project/sts_combat_rl/runs/schema=value_net_v1/date=2026-09-26/id=slime-v8-gen2
+log: /home/sborowsk/project/sts_combat_rl/runs/schema=value_net_v1/date=2026-09-26/id=slime-v8-gen2/logs/stdout.log (stderr: /home/sborowsk/project/sts_combat_rl/runs/schema=value_net_v1/date=2026-09-26/id=slime-v8-gen2/logs/stderr.log)
+
+Value training
+==============
+config:     /home/sborowsk/project/sts_combat_rl/rundecks/slime-v8/configs/slime-v8-gen2.toml
+output:     /home/sborowsk/project/sts_combat_rl/runs/schema=value_net_v1/date=2026-09-26/id=slime-v8-gen2/out
+checkpoint: /home/sborowsk/project/sts_combat_rl/runs/schema=value_net_v1/date=2026-09-26/id=slime-v8-gen2/out/value_checkpoint.pt
+
+Inputs
+------
+data:        select * from combat_v3
+where id in ('slime-v8-selfplay-gen1', 'slime-v8-selfplay-gen2') and row_kind = 'decision'
+
+initial:     /home/sborowsk/project/sts_combat_rl/runs/schema=value_net_v1/date=2026-09-25/id=slime-v8-gen1/out/value_checkpoint.pt
+
+Config
+------
+epochs:              4
+batch_size:          128
+lr:                  0.0001
+weight_decay:        0.0001
+width:               64
+seed:                0
+validation_fraction: 0.1
+label:               terminal
+blend:               0.5
+split:               fresh
+
+Dataset
+-------
+rows: train=49,836  valid=5,294
+runs: train=1,779  valid=198
+fights: train=1,779  valid=198
+encounter: {'slime_boss': 55130}
+category: {'boss': 55130}
+target: label=terminal  blend=0.5
+initial checkpoint: /home/sborowsk/project/sts_combat_rl/runs/schema=value_net_v1/date=2026-09-25/id=slime-v8-gen1/out/value_checkpoint.pt (weights only, fresh optimizer; split fresh)
+
+Training
+--------
+Each epoch prints batch progress, then validation metrics.
+epoch  time    train_mse  train_mae  valid_mse  valid_mae  baseline   teacher
+-----  ------  ---------  ---------  ---------  ---------  ---------  ---------
+  epoch   1/4   [#.......................]    19/390   loss=0.018958
+  epoch   1/4   [##......................]    38/390   loss=0.013500
+  epoch   1/4   [####....................]    57/390   loss=0.018597
+  epoch   1/4   [#####...................]    76/390   loss=0.018066
+  epoch   1/4   [######..................]    95/390   loss=0.018271
+  epoch   1/4   [#######.................]   114/390   loss=0.017391
+  epoch   1/4   [########................]   133/390   loss=0.015990
+  epoch   1/4   [#########...............]   152/390   loss=0.014603
+  epoch   1/4   [###########.............]   171/390   loss=0.024060
+  epoch   1/4   [############............]   190/390   loss=0.022140
+  epoch   1/4   [#############...........]   209/390   loss=0.013746
+  epoch   1/4   [##############..........]   228/390   loss=0.012946
+  epoch   1/4   [###############.........]   247/390   loss=0.028032
+  epoch   1/4   [################........]   266/390   loss=0.017689
+  epoch   1/4   [##################......]   285/390   loss=0.018522
+  epoch   1/4   [###################.....]   304/390   loss=0.015663
+  epoch   1/4   [####################....]   323/390   loss=0.017866
+  epoch   1/4   [#####################...]   342/390   loss=0.014271
+  epoch   1/4   [######################..]   361/390   loss=0.014967
+  epoch   1/4   [#######################.]   380/390   loss=0.016099
+  epoch   1/4   [########################]   390/390   loss=0.019779
+  summary epoch=1/4 time=4.3s train_mse=0.016203 train_mae=0.089919 valid_mse=0.014142 valid_mae=0.086507 baseline_mse=0.063550 teacher_mse=0.039544
+  saved /home/sborowsk/project/sts_combat_rl/runs/schema=value_net_v1/date=2026-09-26/id=slime-v8-gen2/out/value_checkpoint.pt (epoch 1)
+  epoch   2/4   [#.......................]    19/390   loss=0.013286
+  epoch   2/4   [##......................]    38/390   loss=0.018251
+  epoch   2/4   [####....................]    57/390   loss=0.015584
+  epoch   2/4   [#####...................]    76/390   loss=0.017574
+  epoch   2/4   [######..................]    95/390   loss=0.014261
+  epoch   2/4   [#######.................]   114/390   loss=0.013794
+  epoch   2/4   [########................]   133/390   loss=0.015427
+  epoch   2/4   [#########...............]   152/390   loss=0.018387
+  epoch   2/4   [###########.............]   171/390   loss=0.015557
+  epoch   2/4   [############............]   190/390   loss=0.017824
+  epoch   2/4   [#############...........]   209/390   loss=0.017724
+  epoch   2/4   [##############..........]   228/390   loss=0.021842
+  epoch   2/4   [###############.........]   247/390   loss=0.016617
+  epoch   2/4   [################........]   266/390   loss=0.013499
+  epoch   2/4   [##################......]   285/390   loss=0.013979
+  epoch   2/4   [###################.....]   304/390   loss=0.014263
+  epoch   2/4   [####################....]   323/390   loss=0.014899
+  epoch   2/4   [#####################...]   342/390   loss=0.015529
+  epoch   2/4   [######################..]   361/390   loss=0.014158
+  epoch   2/4   [#######################.]   380/390   loss=0.015002
+  epoch   2/4   [########################]   390/390   loss=0.018836
+  summary epoch=2/4 time=4.3s train_mse=0.015423 train_mae=0.087919 valid_mse=0.014696 valid_mae=0.087966 baseline_mse=0.063550 teacher_mse=0.039544
+  saved /home/sborowsk/project/sts_combat_rl/runs/schema=value_net_v1/date=2026-09-26/id=slime-v8-gen2/out/value_checkpoint.pt (epoch 2)
+  epoch   3/4   [#.......................]    19/390   loss=0.016928
+  epoch   3/4   [##......................]    38/390   loss=0.011982
+  epoch   3/4   [####....................]    57/390   loss=0.013360
+  epoch   3/4   [#####...................]    76/390   loss=0.012088
+  epoch   3/4   [######..................]    95/390   loss=0.011460
+  epoch   3/4   [#######.................]   114/390   loss=0.013556
+  epoch   3/4   [########................]   133/390   loss=0.018486
+  epoch   3/4   [#########...............]   152/390   loss=0.017757
+  epoch   3/4   [###########.............]   171/390   loss=0.012750
+  epoch   3/4   [############............]   190/390   loss=0.013938
+  epoch   3/4   [#############...........]   209/390   loss=0.013069
+  epoch   3/4   [##############..........]   228/390   loss=0.011890
+  epoch   3/4   [###############.........]   247/390   loss=0.014567
+  epoch   3/4   [################........]   266/390   loss=0.015751
+  epoch   3/4   [##################......]   285/390   loss=0.016659
+  epoch   3/4   [###################.....]   304/390   loss=0.019674
+  epoch   3/4   [####################....]   323/390   loss=0.014192
+  epoch   3/4   [#####################...]   342/390   loss=0.012124
+  epoch   3/4   [######################..]   361/390   loss=0.016929
+  epoch   3/4   [#######################.]   380/390   loss=0.014062
+  epoch   3/4   [########################]   390/390   loss=0.011996
+  summary epoch=3/4 time=4.2s train_mse=0.014860 train_mae=0.086301 valid_mse=0.014917 valid_mae=0.088472 baseline_mse=0.063550 teacher_mse=0.039544
+  saved /home/sborowsk/project/sts_combat_rl/runs/schema=value_net_v1/date=2026-09-26/id=slime-v8-gen2/out/value_checkpoint.pt (epoch 3)
+  epoch   4/4   [#.......................]    19/390   loss=0.013470
+  epoch   4/4   [##......................]    38/390   loss=0.019008
+  epoch   4/4   [####....................]    57/390   loss=0.016882
+  epoch   4/4   [#####...................]    76/390   loss=0.011655
+  epoch   4/4   [######..................]    95/390   loss=0.018045
+  epoch   4/4   [#######.................]   114/390   loss=0.016267
+  epoch   4/4   [########................]   133/390   loss=0.018466
+  epoch   4/4   [#########...............]   152/390   loss=0.014808
+  epoch   4/4   [###########.............]   171/390   loss=0.018704
+  epoch   4/4   [############............]   190/390   loss=0.015607
+  epoch   4/4   [#############...........]   209/390   loss=0.014986
+  epoch   4/4   [##############..........]   228/390   loss=0.010210
+  epoch   4/4   [###############.........]   247/390   loss=0.012684
+  epoch   4/4   [################........]   266/390   loss=0.014018
+  epoch   4/4   [##################......]   285/390   loss=0.017820
+  epoch   4/4   [###################.....]   304/390   loss=0.014124
+  epoch   4/4   [####################....]   323/390   loss=0.013695
+  epoch   4/4   [#####################...]   342/390   loss=0.014872
+  epoch   4/4   [######################..]   361/390   loss=0.018666
+  epoch   4/4   [#######################.]   380/390   loss=0.014302
+  epoch   4/4   [########################]   390/390   loss=0.021158
+  summary epoch=4/4 time=4.3s train_mse=0.014300 train_mae=0.084423 valid_mse=0.014618 valid_mae=0.087805 baseline_mse=0.063550 teacher_mse=0.039544
+  saved /home/sborowsk/project/sts_combat_rl/runs/schema=value_net_v1/date=2026-09-26/id=slime-v8-gen2/out/value_checkpoint.pt (epoch 4)
+
+Export
+------
+native weights: /home/sborowsk/project/sts_combat_rl/runs/schema=value_net_v1/date=2026-09-26/id=slime-v8-gen2/out/value_weights.bin
+
+Outputs
+-------
+checkpoint:      /home/sborowsk/project/sts_combat_rl/runs/schema=value_net_v1/date=2026-09-26/id=slime-v8-gen2/out/value_checkpoint.pt
+checkpoint json: /home/sborowsk/project/sts_combat_rl/runs/schema=value_net_v1/date=2026-09-26/id=slime-v8-gen2/out/value_checkpoint.json
+native weights:  /home/sborowsk/project/sts_combat_rl/runs/schema=value_net_v1/date=2026-09-26/id=slime-v8-gen2/out/value_weights.bin
+summary:         /home/sborowsk/project/sts_combat_rl/runs/schema=value_net_v1/date=2026-09-26/id=slime-v8-gen2/out/summary.json
+
+Done
+validation_mse: 0.014618243090808392
+run: done (exit 0) /home/sborowsk/project/sts_combat_rl/runs/schema=value_net_v1/date=2026-09-26/id=slime-v8-gen2

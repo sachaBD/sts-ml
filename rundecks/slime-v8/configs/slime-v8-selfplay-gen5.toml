@@ -1,0 +1,19 @@
+# ./apps/fight_resample/run.sh rundecks/slime-v8/configs/slime-v8-selfplay-gen5.toml
+# Self-play generation 5 (ITERATION.md): current player = generation 4 network. Train decks act1-a20-8 run_seed % 10 in (4, 5),
+# second version (first_sample 1). Dev search: value-net leaves, 20k simulations, 8 particles, no random moves.
+[run]
+id = "slime-v8-selfplay-gen5"
+query = """
+select * from combat_v3
+where encounter = 'slime_boss' and source_episode_id is null
+  and id = 'act1-a20-8' and run_seed % 10 in (4, 5)
+"""
+samples = 1
+first_sample = 1
+hp_sd = 10
+random_potions = false
+value_run = "value_net_v1/2026-09-26/slime-v8-gen4"
+simulations = 20000
+particles = 8
+random_move = false
+workers = 10

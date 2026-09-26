@@ -19,7 +19,7 @@ from sts_combat_rl.training.train_value import run as train_value
 
 DATA_KEYS = {"query", "corrections", "oracle"}
 TRAIN_KEYS = {"initial_checkpoint", "split", "correction_weight", "checkpoint", "epochs", "batch_size", "lr", "weight_decay",
-              "width", "seed", "validation_fraction", "label", "blend"}
+              "width", "seed", "validation_fraction", "label", "blend", "lr_schedule", "keep", "threads"}
 SUMMARY_KEYS = ("initial_checkpoint", "initial_checkpoint_sha256", "initialization", "split_mode", "split",
                 "training_kind", "correction_weight", "correction_target", "correction_rows", "correction_query", "correction_source")
 
@@ -60,6 +60,9 @@ def make_train_args(config: dict[str, Any], out: Path) -> SimpleNamespace:
         validation_fraction=float(train.get("validation_fraction", 0.2)),
         label=str(train.get("label", "blend")),  # blend, root or terminal
         blend=float(train.get("blend", 0.5)),
+        lr_schedule=str(train.get("lr_schedule", "constant")),  # constant or cosine (per-step, lr -> 0)
+        keep=str(train.get("keep", "last")),  # checkpoint of the last epoch, or of the best validation MSE
+        threads=int(train.get("threads", 1)),  # torch CPU threads
     )
 
 
@@ -96,7 +99,8 @@ def train(config: dict[str, Any], config_path: Path, out: Path) -> int:
                  *([f"initial:     {args.initial_checkpoint}"] if args.initial_checkpoint else []),
                  *(["oracle rows allowed"] if args.oracle else []), "", "Config", "------",
                  *(f"{key + ':':<21}{getattr(args, key)}" for key in ("epochs", "batch_size", "lr", "weight_decay", "width",
-                                                                     "seed", "validation_fraction", "label", "blend", "split"))):
+                                                                     "seed", "validation_fraction", "label", "blend", "split",
+                                                                     "lr_schedule", "keep", "threads"))):
         print(line, flush=True)
 
     checkpoint = train_value(args)

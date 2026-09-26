@@ -1,0 +1,27 @@
+# ./apps/value_train/run.sh rundecks/slime-v8/configs/slime-v8-gen2.toml
+# Generation 2 network (ITERATION.md): the current player (generation 1 network) fine-tuned on ALL self-play fights so far,
+# decision rows labelled with their fight's terminal value. Fresh 10% validation split. 4 epochs, lr 1e-4.
+[run]
+id = "slime-v8-gen2"
+
+[data]
+query = """
+select * from combat_v3
+where id in ('slime-v8-selfplay-gen1', 'slime-v8-selfplay-gen2') and row_kind = 'decision'
+"""
+
+[train]
+initial_checkpoint = "value_net_v1/2026-09-25/slime-v8-gen1"
+split = "fresh"
+epochs = 4
+batch_size = 128
+lr = 0.0001
+weight_decay = 0.0001
+width = 64
+seed = 0
+validation_fraction = 0.1
+label = "terminal"
+
+[export]
+native_weights = true
+path = "value_weights.bin"

@@ -5,7 +5,9 @@
 //   fight_resample_worker REQUEST.json OUTPUT_DIR [WEIGHTS]     (apps/common/worker.hpp)
 //   WEIGHTS: value_net leaf; none: guided_rollout leaf (the bootstrap teacher).
 //   REQUEST.json: {run_seed, ascension, fight_index, actions: [[chosen_action...] per earlier fight],
-//                random_potions, samples: [{episode_id, starting_hp}]}
+//                random_potions, samples: [{episode_id, starting_hp}],
+//                teacher (optional): {simulations, particles, random_move}}
+//   teacher defaults: simulations 15000, particles 8 (teacher::Budget; positive integers), random_move true (as bootstrap).
 //   random_potions: each potion the player holds is replaced by a random potion drop (potion RNG seeded as above).
 // Output: OUTPUT_DIR/result.msgpack = {teacher, rows} (combat_v3 rows of every sample, in sample order).
 #include "agents/teacher_search.hpp"
@@ -33,9 +35,24 @@ sts::GameContext resampled(sts::GameContext game, std::uint64_t episode_id, int 
     return game;
 }
 
+std::int64_t positive(const std::string& key, const Json& value) {
+    if (!value.is_number_integer() || value.get<std::int64_t>() < 1)
+        throw std::invalid_argument{key + " must be a positive integer"};
+    return value.get<std::int64_t>();
+}
+
 Json play(const Json& input, const stsrl::ValueNet* net) {
     const stsrl::teacher::Leaf leaf{net ? "value_net" : "guided_rollout"};
-    const auto search = stsrl::teacher::leaf_search(leaf, net);
+    stsrl::teacher::Budget budget;
+    bool random_move = true;
+    if (input.contains("teacher"))
+        for (const auto& [key, value] : input.at("teacher").items()) {
+            if (key == "simulations") budget.simulations = positive(key, value);
+            else if (key == "particles") budget.particles = static_cast<int>(positive(key, value));
+            else if (key == "random_move") random_move = value.get<bool>();
+            else throw std::invalid_argument{"unknown teacher setting: " + key};
+        }
+    const auto search = stsrl::teacher::leaf_search(leaf, net, budget);
     const auto random_potions = input.at("random_potions").get<bool>();
     std::vector<Json> rows;
     stsrl::replay::to_fight(input, [&](const sts::GameContext& game, const sts::BattleContext& start, const Json& source) {
@@ -46,12 +63,12 @@ Json play(const Json& input, const stsrl::ValueNet* net) {
             auto fight = source;
             fight.update({{"episode_id", episode_id}, {"source_episode_id", source.at("episode_id")},
                           {"starting_hp", battle.player.curHp}});
-            stsrl::teacher::play_fight(battle, fight, rows, search);  // random move on, oracle off
+            stsrl::teacher::play_fight(battle, fight, rows, search, random_move, false, budget.particles);  // oracle off
         }
         return start;  // the replayed run stops after this fight
     });
-    auto teacher = stsrl::teacher::settings(leaf);
-    teacher["random_move"] = true;
+    auto teacher = stsrl::teacher::settings(leaf, false, budget);
+    teacher["random_move"] = random_move;
     return {{"teacher", teacher}, {"rows", rows}};
 }
 

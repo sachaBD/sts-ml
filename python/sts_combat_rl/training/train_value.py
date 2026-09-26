@@ -46,7 +46,8 @@ def atomic_json(value: Any, path: Path) -> None:
     os.replace(temporary, path)
 
 
-def evaluate(model: DeepSetsValue, loader: RowLoader) -> tuple[float, float]:
+def predict(model: DeepSetsValue, loader: RowLoader) -> tuple[torch.Tensor, torch.Tensor]:
+    """(prediction, target) for the loader's rows, in loader order."""
     model.eval()
     targets = []
     predictions = []
@@ -55,10 +56,28 @@ def evaluate(model: DeepSetsValue, loader: RowLoader) -> tuple[float, float]:
             batch.pop("weight", None)
             targets.append(batch.pop("target"))
             predictions.append(model(**batch))
-    target, prediction = torch.cat(targets), torch.cat(predictions)
+    return torch.cat(predictions), torch.cat(targets)
+
+
+def evaluate(model: DeepSetsValue, loader: RowLoader) -> tuple[float, float]:
+    prediction, target = predict(model, loader)
     return ((prediction - target) ** 2).mean().item(), (
         prediction - target
     ).abs().mean().item()
+
+
+def group_mse(rows: Rows, index: np.ndarray, prediction: torch.Tensor) -> dict[str, dict[str, float]]:
+    """Per category/encounter: rows, model MSE, constant-mean MSE and teacher root_value MSE on `index`."""
+    error = (prediction.numpy().astype(np.float64) - rows["target"][index]) ** 2
+    target = rows["target"][index]
+    teacher = (rows["root_value"][index].astype(np.float64) - target) ** 2
+    keys = np.char.add(np.char.add(rows["category"][index].astype(str), "/"), rows["encounter"][index].astype(str))
+    out = {}
+    for key in np.unique(keys):
+        mask = keys == key
+        out[str(key)] = {"rows": int(mask.sum()), "mse": float(error[mask].mean()),
+                         "baseline_mse": float(target[mask].var()), "teacher_mse": float(teacher[mask].mean())}
+    return out
 
 
 def pinned_split(rows: Rows, reference: dict[str, Any]) -> tuple[np.ndarray, np.ndarray, int]:
@@ -85,7 +104,7 @@ def load_corrections(sql, reference) -> Rows:
 
 
 def run(args: argparse.Namespace) -> dict[str, Any]:
-    torch.set_num_threads(1)
+    torch.set_num_threads(getattr(args, "threads", 1))  # intra-op CPU threads; 1 = deterministic default
     torch.set_num_interop_threads(1)
     random.seed(args.seed)
     np.random.seed(args.seed)
@@ -157,6 +176,15 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     optimizer = torch.optim.AdamW(
         model.parameters(), lr=args.lr, weight_decay=args.weight_decay
     )
+    lr_schedule = getattr(args, "lr_schedule", "constant")
+    keep = getattr(args, "keep", "last")
+    if lr_schedule not in ("constant", "cosine"):
+        raise ValueError(f"lr_schedule {lr_schedule!r} is not 'constant' or 'cosine'")
+    if keep not in ("last", "best"):
+        raise ValueError(f"keep {keep!r} is not 'last' or 'best'")
+    # cosine: per-step decay from lr to 0 over all epochs
+    scheduler = (torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.epochs * len(train_loader))
+                 if lr_schedule == "cosine" else None)
     targets = rows["target"]
     baseline = float(np.mean(targets[bootstrap_train]))
     component_loaders = {
@@ -199,6 +227,9 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             "validation_run_seeds": valid_runs,
             "epoch": epoch,
             "metrics": metrics,
+            "lr_schedule": lr_schedule,
+            "keep": keep,
+            "history": history,
         }
         if initial:
             checkpoint.update(
@@ -253,6 +284,8 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     )
     metrics = {}
     checkpoint = {}
+    history = []  # per-epoch metrics (incl. per-encounter validation MSE), also in the checkpoint json
+    best_mse = float("inf")
     for epoch in range(1, args.epochs + 1):
         started = time.monotonic()
         model.train()
@@ -265,6 +298,8 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             loss = (weights * (model(**batch) - target) ** 2).mean()
             loss.backward()
             optimizer.step()
+            if scheduler is not None:
+                scheduler.step()
             if batch_index == batch_count or batch_index % progress_every == 0:
                 filled = round(24 * batch_index / batch_count)
                 bar = "#" * filled + "." * (24 - filled)
@@ -274,7 +309,9 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
                     flush=True,
                 )
         train_mse, train_mae = evaluate(model, train_loader)
-        valid_mse, valid_mae = evaluate(model, valid_loader)
+        valid_prediction, valid_target = predict(model, valid_loader)
+        valid_mse = ((valid_prediction - valid_target) ** 2).mean().item()
+        valid_mae = (valid_prediction - valid_target).abs().mean().item()
         baseline_mse = float(np.mean((targets[valid] - baseline) ** 2))
         metrics = {
             "train_mse": train_mse,
@@ -303,11 +340,25 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             f"valid_mse={valid_mse:.6f} "
             f"valid_mae={valid_mae:.6f} "
             f"baseline_mse={baseline_mse:.6f} "
-            f"teacher_mse={teacher_mse:.6f}",
+            f"teacher_mse={teacher_mse:.6f} "
+            f"lr_end={optimizer.param_groups[0]['lr']:.2e}",
             flush=True,
         )
-        checkpoint = save_checkpoint(epoch, metrics)
-        print(f"  saved {args.output} (epoch {epoch})", flush=True)
+        groups = group_mse(rows, valid, valid_prediction)
+        print(f"  {'validation by encounter':<32}{'rows':>8}{'mse':>10}{'baseline':>10}{'teacher':>10}", flush=True)
+        for name, g in groups.items():
+            print(f"  {name:<32}{g['rows']:>8}{g['mse']:>10.5f}{g['baseline_mse']:>10.5f}{g['teacher_mse']:>10.5f}",
+                  flush=True)
+        history.append({"epoch": epoch, "lr_end": optimizer.param_groups[0]["lr"], **metrics,
+                        "validation_by_encounter": groups})
+        metrics = {**metrics, "validation_by_encounter": groups}
+        atomic_json(history, args.output.with_name("training_history.json"))
+        if keep == "last" or valid_mse < best_mse:
+            best_mse = min(best_mse, valid_mse)
+            checkpoint = save_checkpoint(epoch, metrics)
+            print(f"  saved {args.output} (epoch {epoch})", flush=True)
+        else:
+            print(f"  not saved: valid_mse {valid_mse:.6f} >= best {best_mse:.6f} (keep = best)", flush=True)
     return checkpoint
 
 
@@ -338,6 +389,10 @@ def main() -> None:
                         help="with --initial-checkpoint: pin to its train/validation episodes (dropping other rows), "
                              "or split the queried rows afresh (episode_split)")
     parser.add_argument("--correction-weight", type=float, default=0.5)
+    parser.add_argument("--lr-schedule", choices=["constant", "cosine"], default="constant")
+    parser.add_argument("--keep", choices=["last", "best"], default="last",
+                        help="checkpoint of the last epoch or of the best validation MSE")
+    parser.add_argument("--threads", type=int, default=1, help="torch CPU threads")
     run(parser.parse_args())
 
 

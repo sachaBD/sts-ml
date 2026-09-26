@@ -1,0 +1,18 @@
+{
+  "baseline": "combat_v3/2026-09-25/slime-v8-gen1-dev",
+  "candidate": "combat_v3/2026-09-26/slime-v8-gen4-dev",
+  "fights": 999,
+  "baseline_wins": 800,
+  "candidate_wins": 795,
+  "baseline_terminal_value": 0.421487885820973,
+  "candidate_terminal_value": 0.4215246368277896,
+  "difference": 3.6751006816600535e-05,
+  "ci95": [
+    -0.00849696748532929,
+    0.008580645789076235
+  ],
+  "wins_only_candidate": 44,
+  "wins_only_baseline": 49,
+  "mcnemar_p": 0.6785320136533252,
+  "identical_terminal_value_fights": 456
+}

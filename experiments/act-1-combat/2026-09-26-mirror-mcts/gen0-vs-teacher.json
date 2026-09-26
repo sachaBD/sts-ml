@@ -1,0 +1,445 @@
+{
+  "candidate": [
+    "combat_v3/2026-09-26/act1-gen0-dev"
+  ],
+  "teacher": [
+    "combat_v3/2026-09-26/act1-teacher-dev",
+    "combat_v3/2026-09-25/slime-v8-rollout-teacher-dev"
+  ],
+  "value_run": "value_net_v1/2026-09-26/act1-gen0",
+  "total": {
+    "fights": 4810,
+    "hp_eq_mean_per_fight": -1.1827442851049241,
+    "ci95": [
+      -1.5372141524635083,
+      -0.8340956176028987
+    ],
+    "per_act1_run": -6.521987484289583,
+    "per_act1_run_ci95": [
+      -8.301915757828468,
+      -4.723012863716357
+    ],
+    "win_teacher": 0.9297297297297298,
+    "win_candidate": 0.9162162162162162
+  },
+  "encounters": [
+    {
+      "encounter": "boss/slime_boss",
+      "fights": 999,
+      "hp_eq": -2.920920979809594,
+      "ci95": [
+        -4.380405487951722,
+        -1.4564314980421598
+      ],
+      "win_teacher": 0.7467467467467468,
+      "win_candidate": 0.6986986986986987,
+      "only_candidate": 55,
+      "only_teacher": 103,
+      "mcnemar_p": 0.00016616729130786238,
+      "hp_lost_teacher_both_won": 19.611197511664074,
+      "hp_lost_candidate_both_won": 19.656298600311043,
+      "per_run_freq": 0.8275785745905267,
+      "val_r2": 0.840939831317038,
+      "val_mse": 0.007301092162912922
+    },
+    {
+      "encounter": "easy/cultist",
+      "fights": 250,
+      "hp_eq": -0.17600005412101746,
+      "ci95": [
+        -0.44400005435347556,
+        0.08800002056956291
+      ],
+      "win_teacher": 1.0,
+      "win_candidate": 1.0,
+      "only_candidate": 0,
+      "only_teacher": 0,
+      "mcnemar_p": 1.0,
+      "hp_lost_teacher_both_won": 3.2,
+      "hp_lost_candidate_both_won": 3.12,
+      "per_run_freq": 0.7259849490925188,
+      "val_r2": 0.8455394871893585,
+      "val_mse": 0.00213610186059095
+    },
+    {
+      "encounter": "easy/jaw_worm",
+      "fights": 250,
+      "hp_eq": -0.8480001044273376,
+      "ci95": [
+        -1.19600022315979,
+        -0.516000108718872
+      ],
+      "win_teacher": 1.0,
+      "win_candidate": 1.0,
+      "only_candidate": 0,
+      "only_teacher": 0,
+      "mcnemar_p": 1.0,
+      "hp_lost_teacher_both_won": 7.944,
+      "hp_lost_candidate_both_won": 8.568,
+      "per_run_freq": 0.7222222222222222,
+      "val_r2": 0.8820504007771708,
+      "val_mse": 0.0010054384462892712
+    },
+    {
+      "encounter": "easy/small_slimes",
+      "fights": 250,
+      "hp_eq": -0.8239999043941498,
+      "ci95": [
+        -1.67999962246418,
+        -0.26799999913573264
+      ],
+      "win_teacher": 1.0,
+      "win_candidate": 0.996,
+      "only_candidate": 0,
+      "only_teacher": 1,
+      "mcnemar_p": 1.0,
+      "hp_lost_teacher_both_won": 6.072289156626506,
+      "hp_lost_candidate_both_won": 6.172690763052209,
+      "per_run_freq": 0.7359451084550687,
+      "val_r2": 0.9485413175338309,
+      "val_mse": 0.0006272515122636095
+    },
+    {
+      "encounter": "easy/two_louse",
+      "fights": 250,
+      "hp_eq": -0.37600007057189944,
+      "ci95": [
+        -0.824000044643879,
+        -0.07200008830428124
+      ],
+      "win_teacher": 1.0,
+      "win_candidate": 1.0,
+      "only_candidate": 0,
+      "only_teacher": 0,
+      "mcnemar_p": 1.0,
+      "hp_lost_teacher_both_won": 4.052,
+      "hp_lost_candidate_both_won": 4.156,
+      "per_run_freq": 0.7102700309871625,
+      "val_r2": 0.943455806587546,
+      "val_mse": 0.00047043858237313897
+    },
+    {
+      "encounter": "elite/gremlin_nob",
+      "fights": 250,
+      "hp_eq": 0.9759998930692673,
+      "ci95": [
+        0.02399991809129715,
+        1.9959999415069818
+      ],
+      "win_teacher": 0.948,
+      "win_candidate": 0.964,
+      "only_candidate": 5,
+      "only_teacher": 1,
+      "mcnemar_p": 0.21875,
+      "hp_lost_teacher_both_won": 21.85593220338983,
+      "hp_lost_candidate_both_won": 21.372881355932204,
+      "per_run_freq": 0.4181053563523683,
+      "val_r2": 0.8149774131810713,
+      "val_mse": 0.00823907025721309
+    },
+    {
+      "encounter": "elite/lagavulin",
+      "fights": 250,
+      "hp_eq": -2.16399998319149,
+      "ci95": [
+        -3.568000007218122,
+        -0.7638999449342576
+      ],
+      "win_teacher": 0.924,
+      "win_candidate": 0.884,
+      "only_candidate": 1,
+      "only_teacher": 11,
+      "mcnemar_p": 0.00634765625,
+      "hp_lost_teacher_both_won": 26.363636363636363,
+      "hp_lost_candidate_both_won": 26.75,
+      "per_run_freq": 0.41544931385568834,
+      "val_r2": 0.8388964747723836,
+      "val_mse": 0.007694918591722592
+    },
+    {
+      "encounter": "elite/three_sentries",
+      "fights": 250,
+      "hp_eq": -1.8759999424219131,
+      "ci95": [
+        -3.67599992467463,
+        -0.07199997761845588
+      ],
+      "win_teacher": 0.904,
+      "win_candidate": 0.872,
+      "only_candidate": 6,
+      "only_teacher": 14,
+      "mcnemar_p": 0.11531829833984375,
+      "hp_lost_teacher_both_won": 27.330188679245282,
+      "hp_lost_candidate_both_won": 27.67452830188679,
+      "per_run_freq": 0.41876936697653827,
+      "val_r2": 0.8370695587915574,
+      "val_mse": 0.006630345148207808
+    },
+    {
+      "encounter": "event/gremlin_nob",
+      "fights": 33,
+      "hp_eq": -0.09090908007188277,
+      "ci95": [
+        -1.1818179578492136,
+        0.9999997471318101
+      ],
+      "win_teacher": 0.9393939393939394,
+      "win_candidate": 0.9393939393939394,
+      "only_candidate": 0,
+      "only_teacher": 0,
+      "mcnemar_p": 1.0,
+      "hp_lost_teacher_both_won": 17.032258064516128,
+      "hp_lost_candidate_both_won": 16.741935483870968,
+      "per_run_freq": 0.025675077467906152,
+      "val_r2": 0.8329925941940484,
+      "val_mse": 0.0070053238890585194
+    },
+    {
+      "encounter": "event/lagavulin_event",
+      "fights": 31,
+      "hp_eq": 3.096774394473722,
+      "ci95": [
+        -2.6451612473255204,
+        9.677419801585135
+      ],
+      "win_teacher": 0.5806451612903226,
+      "win_candidate": 0.6451612903225806,
+      "only_candidate": 3,
+      "only_teacher": 1,
+      "mcnemar_p": 0.625,
+      "hp_lost_teacher_both_won": 32.8235294117647,
+      "hp_lost_candidate_both_won": 33.588235294117645,
+      "per_run_freq": 0.027445772465692783,
+      "val_r2": 0.8068164586670044,
+      "val_mse": 0.005501670856755808
+    },
+    {
+      "encounter": "event/mushrooms_event",
+      "fights": 89,
+      "hp_eq": -0.6629212625910726,
+      "ci95": [
+        -2.0112357382024273,
+        0.5280899143620823
+      ],
+      "win_teacher": 1.0,
+      "win_candidate": 0.9887640449438202,
+      "only_candidate": 0,
+      "only_teacher": 1,
+      "mcnemar_p": 1.0,
+      "hp_lost_teacher_both_won": 13.670454545454545,
+      "hp_lost_candidate_both_won": 13.568181818181818,
+      "per_run_freq": 0.08233731739707835,
+      "val_r2": 0.8980188946825773,
+      "val_mse": 0.003635116434689911
+    },
+    {
+      "encounter": "event/three_sentries",
+      "fights": 25,
+      "hp_eq": -0.15999982357025147,
+      "ci95": [
+        -2.960000276863575,
+        2.47999986410141
+      ],
+      "win_teacher": 0.92,
+      "win_candidate": 0.92,
+      "only_candidate": 0,
+      "only_teacher": 0,
+      "mcnemar_p": 1.0,
+      "hp_lost_teacher_both_won": 24.869565217391305,
+      "hp_lost_candidate_both_won": 24.695652173913043,
+      "per_run_freq": 0.0283311199645861,
+      "val_r2": 0.8241351694760818,
+      "val_mse": 0.005965850595225681
+    },
+    {
+      "encounter": "hard/blue_slaver",
+      "fights": 225,
+      "hp_eq": -0.5866666356722514,
+      "ci95": [
+        -0.9688887229826715,
+        -0.21333324388662972
+      ],
+      "win_teacher": 1.0,
+      "win_candidate": 1.0,
+      "only_candidate": 0,
+      "only_teacher": 0,
+      "mcnemar_p": 1.0,
+      "hp_lost_teacher_both_won": 6.835555555555556,
+      "hp_lost_candidate_both_won": 6.871111111111111,
+      "per_run_freq": 0.19256308100929614,
+      "val_r2": 0.9406513484903268,
+      "val_mse": 0.0013591930539921244
+    },
+    {
+      "encounter": "hard/exordium_thugs",
+      "fights": 170,
+      "hp_eq": -1.2823530877337737,
+      "ci95": [
+        -2.3176471896995516,
+        -0.3882355258131729
+      ],
+      "win_teacher": 0.9882352941176471,
+      "win_candidate": 0.9764705882352941,
+      "only_candidate": 0,
+      "only_teacher": 2,
+      "mcnemar_p": 0.5,
+      "hp_lost_teacher_both_won": 12.710843373493976,
+      "hp_lost_candidate_both_won": 12.993975903614459,
+      "per_run_freq": 0.15958388667552015,
+      "val_r2": 0.8687616912412099,
+      "val_mse": 0.004271144133060625
+    },
+    {
+      "encounter": "hard/exordium_wildlife",
+      "fights": 181,
+      "hp_eq": -1.138121501352247,
+      "ci95": [
+        -1.9116019902555323,
+        -0.44198898071659865
+      ],
+      "win_teacher": 0.988950276243094,
+      "win_candidate": 0.9834254143646409,
+      "only_candidate": 0,
+      "only_teacher": 1,
+      "mcnemar_p": 1.0,
+      "hp_lost_teacher_both_won": 7.797752808988764,
+      "hp_lost_candidate_both_won": 8.140449438202246,
+      "per_run_freq": 0.15980522355024346,
+      "val_r2": 0.9363491967372733,
+      "val_mse": 0.002309449548877868
+    },
+    {
+      "encounter": "hard/gremlin_gang",
+      "fights": 136,
+      "hp_eq": -1.1838234663009644,
+      "ci95": [
+        -3.0073529552777902,
+        0.31617650858619634
+      ],
+      "win_teacher": 0.9852941176470589,
+      "win_candidate": 0.9705882352941176,
+      "only_candidate": 0,
+      "only_teacher": 2,
+      "mcnemar_p": 0.5,
+      "hp_lost_teacher_both_won": 13.174242424242424,
+      "hp_lost_candidate_both_won": 12.916666666666666,
+      "per_run_freq": 0.11398849048251439,
+      "val_r2": 0.893712838075194,
+      "val_mse": 0.00524025220986136
+    },
+    {
+      "encounter": "hard/large_slime",
+      "fights": 205,
+      "hp_eq": -0.6439022830346736,
+      "ci95": [
+        -1.4878047729556154,
+        0.2682929940194619
+      ],
+      "win_teacher": 0.9902439024390244,
+      "win_candidate": 0.9951219512195122,
+      "only_candidate": 1,
+      "only_teacher": 0,
+      "mcnemar_p": 1.0,
+      "hp_lost_teacher_both_won": 6.433497536945813,
+      "hp_lost_candidate_both_won": 6.886699507389163,
+      "per_run_freq": 0.16312527667109342,
+      "val_r2": 0.9079422065799081,
+      "val_mse": 0.0021670601375478114
+    },
+    {
+      "encounter": "hard/looter",
+      "fights": 247,
+      "hp_eq": -0.5182185904217153,
+      "ci95": [
+        -0.9028339738244953,
+        -0.07287450521460428
+      ],
+      "win_teacher": 0.9959514170040485,
+      "win_candidate": 1.0,
+      "only_candidate": 1,
+      "only_teacher": 0,
+      "mcnemar_p": 1.0,
+      "hp_lost_teacher_both_won": 5.146341463414634,
+      "hp_lost_candidate_both_won": 5.1016260162601625,
+      "per_run_freq": 0.19278441788401948,
+      "val_r2": 0.9445466539665905,
+      "val_mse": 0.0008245582414758035
+    },
+    {
+      "encounter": "hard/lots_of_slimes",
+      "fights": 124,
+      "hp_eq": -0.620967709489407,
+      "ci95": [
+        -1.1937501485129034,
+        -0.08064491199629921
+      ],
+      "win_teacher": 0.9838709677419355,
+      "win_candidate": 0.9838709677419355,
+      "only_candidate": 0,
+      "only_teacher": 0,
+      "mcnemar_p": 1.0,
+      "hp_lost_teacher_both_won": 9.959016393442623,
+      "hp_lost_candidate_both_won": 10.0,
+      "per_run_freq": 0.09008410801239486,
+      "val_r2": 0.9115942639466253,
+      "val_mse": 0.0032940673308952963
+    },
+    {
+      "encounter": "hard/red_slaver",
+      "fights": 147,
+      "hp_eq": -0.8367346638724917,
+      "ci95": [
+        -1.2925168799198403,
+        -0.3809522979316257
+      ],
+      "win_teacher": 1.0,
+      "win_candidate": 1.0,
+      "only_candidate": 0,
+      "only_teacher": 0,
+      "mcnemar_p": 1.0,
+      "hp_lost_teacher_both_won": 8.08843537414966,
+      "hp_lost_candidate_both_won": 8.326530612244898,
+      "per_run_freq": 0.11133244798583444,
+      "val_r2": 0.9141984885559221,
+      "val_mse": 0.0020133918203198726
+    },
+    {
+      "encounter": "hard/three_louse",
+      "fights": 215,
+      "hp_eq": -0.4651161224343056,
+      "ci95": [
+        -0.8046509876084882,
+        -0.1348834704590398
+      ],
+      "win_teacher": 1.0,
+      "win_candidate": 1.0,
+      "only_candidate": 0,
+      "only_teacher": 0,
+      "mcnemar_p": 1.0,
+      "hp_lost_teacher_both_won": 6.306976744186047,
+      "hp_lost_candidate_both_won": 6.158139534883721,
+      "per_run_freq": 0.16511730854360337,
+      "val_r2": 0.9233752741250555,
+      "val_mse": 0.0016722867243090212
+    },
+    {
+      "encounter": "hard/two_fungi_beasts",
+      "fights": 233,
+      "hp_eq": -0.8669528360018914,
+      "ci95": [
+        -1.2746780364362467,
+        -0.49785405857240694
+      ],
+      "win_teacher": 0.9957081545064378,
+      "win_candidate": 0.9957081545064378,
+      "only_candidate": 0,
+      "only_teacher": 0,
+      "mcnemar_p": 1.0,
+      "hp_lost_teacher_both_won": 3.7844827586206895,
+      "hp_lost_candidate_both_won": 3.7413793103448274,
+      "per_run_freq": 0.199203187250996,
+      "val_r2": 0.8934564363464278,
+      "val_mse": 0.0012107189291311413
+    }
+  ]
+}

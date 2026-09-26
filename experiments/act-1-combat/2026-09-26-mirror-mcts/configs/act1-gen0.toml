@@ -1,0 +1,33 @@
+# ./apps/value_train/run.sh experiments/act-1-combat/2026-09-26-mirror-mcts/configs/act1-gen0.toml
+# General act-1 value net: slime-v8 big-data recipe (blend 0.5, child rows keep search estimates), all act-1
+# train fights (README.md split), natural encounter mix. Width 64 and blend 0.5 kept on purpose (topology under test;
+# comparable to the specialist). 12 epochs + cosine lr decay + best-validation checkpoint: train to convergence
+# (the question is whether the topology can fit) without paying for late overfitting (slime-v8 val MSE was noisy
+# at constant lr). ~2 min/epoch.
+[run]
+id = "act1-gen0"
+
+[data]
+query = """
+select * from combat_v3
+where source_episode_id is null
+  and (id in ('act1-a20', 'act1-a20-1', 'act1-a20-2', 'act1-a20-5', 'act1-a20-6', 'act1-a20-7')
+       or (id = 'act1-a20-8' and run_seed % 10 >= 4))
+"""
+
+[train]
+epochs = 12
+batch_size = 128
+lr = 0.001
+weight_decay = 0.0001
+width = 64
+seed = 0
+validation_fraction = 0.1
+label = "blend"
+blend = 0.5
+lr_schedule = "cosine"
+keep = "best"
+
+[export]
+native_weights = true
+path = "value_weights.bin"

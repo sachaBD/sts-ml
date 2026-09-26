@@ -1,0 +1,45 @@
+{
+  "candidate": [
+    "combat_v3/2026-09-26/act1-gen0-dev"
+  ],
+  "teacher": [
+    "combat_v3/2026-09-25/slime-v8-big-data-dev"
+  ],
+  "value_run": null,
+  "total": {
+    "fights": 999,
+    "hp_eq_mean_per_fight": -0.1301302020256226,
+    "ci95": [
+      -1.6436687900213984,
+      1.3773773285704811
+    ],
+    "per_act1_run": -0.10769296710354202,
+    "per_act1_run_ci95": [
+      -1.3486466657431917,
+      1.159811185298633
+    ],
+    "win_teacher": 0.6986986986986987,
+    "win_candidate": 0.6986986986986987
+  },
+  "encounters": [
+    {
+      "encounter": "boss/slime_boss",
+      "fights": 999,
+      "hp_eq": -0.1301302020256226,
+      "ci95": [
+        -1.6296297501545172,
+        1.4014514402725928
+      ],
+      "win_teacher": 0.6986986986986987,
+      "win_candidate": 0.6986986986986987,
+      "only_candidate": 82,
+      "only_teacher": 82,
+      "mcnemar_p": 1.0,
+      "hp_lost_teacher_both_won": 18.946428571428573,
+      "hp_lost_candidate_both_won": 19.191558441558442,
+      "per_run_freq": 0.8275785745905267,
+      "val_r2": null,
+      "val_mse": null
+    }
+  ]
+}

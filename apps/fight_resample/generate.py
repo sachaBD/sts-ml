@@ -20,7 +20,8 @@ from sts_combat_rl.schemas.combat_v3 import NAME
 log = logging.getLogger(__name__)
 BUILT = Path("build/resample/fight_resample_worker")  # built by apps/common/job.sh
 MAX_SAMPLES = 1000  # episode_id = source_episode_id * 1000 + k
-RUN_KEYS = {"id", "query", "samples", "hp_sd", "random_potions", "value_run", "fights", "workers"}
+RUN_KEYS = {"id", "query", "samples", "hp_sd", "random_potions", "value_run", "fights", "workers",
+            "simulations", "particles", "random_move", "first_sample"}  # search budget / random move; worker defaults 15000, 8, true
 COLUMNS = ["run_seed", "fight_index", "episode_id", "decision_index", "chosen_action", "ascension", "encounter", "floor",
            "starting_hp", "starting_max_hp"]
 
@@ -37,10 +38,11 @@ def inputs(config):
     return sources + ([run["value_run"]] if "value_run" in run else [])
 
 
-def samples(start, count, hp_sd):
-    """Sample k: episode_id = source * 1000 + k, starting HP ~ Normal(stored HP, hp_sd) rounded into [1, max HP]."""
+def samples(start, count, hp_sd, first=0):
+    """Sample k (first <= k < first + count): episode_id = source * 1000 + k, starting HP ~ Normal(stored HP, hp_sd)
+    rounded into [1, max HP]. A later run with a higher `first` plays new versions of the same fights."""
     result = []
-    for k in range(count):
+    for k in range(first, first + count):
         episode_id = start["episode_id"] * MAX_SAMPLES + k
         hp = round(random.Random(episode_id).gauss(start["starting_hp"], hp_sd))
         result.append({"episode_id": episode_id, "starting_hp": min(max(hp, 1), start["starting_max_hp"])})
@@ -69,8 +71,9 @@ def play(episode, request, start, binary, weights, out):
 def resample(config, config_path, out):
     run = config["run"]
     check_keys(run, RUN_KEYS, "run")
-    if not 1 <= run["samples"] <= MAX_SAMPLES:
-        sys.exit(f"samples must be in [1, {MAX_SAMPLES}]")
+    first = run.get("first_sample", 0)
+    if type(first) is not int or first < 0 or not 1 <= run["samples"] <= MAX_SAMPLES - first:
+        sys.exit(f"need first_sample >= 0 and 1 <= samples <= {MAX_SAMPLES} - first_sample")
     sources = [r for r in inputs(config) if r != run.get("value_run")]
     weights = None
     if "value_run" in run:
@@ -80,8 +83,20 @@ def resample(config, config_path, out):
     episodes = episodes[:run.get("fights", len(episodes))]
     fights = replay_requests(decision_rows(sources, COLUMNS, {e // 100 for e in episodes}), episodes)
     random_potions = run.get("random_potions", False)
+    teacher = {}
+    for key in ("simulations", "particles"):
+        if key in run:
+            if type(run[key]) is not int or run[key] < 1:  # bool is an int subclass: excluded
+                sys.exit(f"{key} must be a positive integer, got {run[key]!r}")
+            teacher[key] = run[key]
+    if "random_move" in run:
+        if type(run["random_move"]) is not bool:
+            sys.exit(f"random_move must be true or false, got {run['random_move']!r}")
+        teacher["random_move"] = run["random_move"]
     for request, start in fights.values():
-        request.update(random_potions=random_potions, samples=samples(start, run["samples"], run["hp_sd"]))
+        request.update(random_potions=random_potions, samples=samples(start, run["samples"], run["hp_sd"], first))
+        if teacher:
+            request["teacher"] = teacher
     log.info("%d source fights x %d samples, hp_sd %s, random_potions %s, teacher %s, %d workers -> %s",
              len(fights), run["samples"], run["hp_sd"], random_potions,
              f"value_net {weights}" if weights else "guided_rollout", run["workers"], out)

@@ -1,0 +1,18 @@
+{
+  "baseline": "combat_v3/2026-09-25/slime-v8-rollout-teacher-dev",
+  "candidate": "combat_v3/2026-09-26/slime-v8-gen4-dev",
+  "fights": 999,
+  "baseline_wins": 746,
+  "candidate_wins": 795,
+  "baseline_terminal_value": 0.3923247656127712,
+  "candidate_terminal_value": 0.4215246368277896,
+  "difference": 0.029199871215018425,
+  "ci95": [
+    0.01885173769445868,
+    0.039534825297656125
+  ],
+  "wins_only_candidate": 98,
+  "wins_only_baseline": 49,
+  "mcnemar_p": 6.51752575962746e-05,
+  "identical_terminal_value_fights": 310
+}

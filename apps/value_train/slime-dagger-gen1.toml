@@ -21,6 +21,7 @@ width = 64
 seed = 0
 label = "blend"  # bootstrap rows only, as slime-value-5
 blend = 0.5
+# threads = 8  # torch CPU threads (default 1; >1 may be slightly nondeterministic)
 
 [export]
 native_weights = true

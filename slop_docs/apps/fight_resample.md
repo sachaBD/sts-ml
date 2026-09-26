@@ -21,7 +21,9 @@ combat_v3 bootstrap runs ──replay to each queried fight──▶ fight_resam
 `select * from combat_v3 where id like 'act1-a20%' and encounter = 'slime_boss'`; they must come from bootstrap
 runs, which have no inputs of their own), `samples` (per source fight, ≤ 1000), `hp_sd`, `random_potions` (default false), `workers`, optional
 `fights` (first N queried fights by episode_id), optional `value_run` (value-net leaf; default: the bootstrap
-guided-rollout teacher). Random move on, oracle off, as bootstrap.
+guided-rollout teacher), optional `simulations` / `particles` (positive integers; default 15000 / 8) and
+`random_move` (default true), optional `first_sample` (default 0: samples are k = first_sample .. first_sample + samples - 1, so
+a later run with a higher first_sample plays new versions of the same fights). Oracle off. Defaults = bootstrap.
 
 ## Sample k of source fight `source_episode_id`
 
@@ -32,7 +34,7 @@ guided-rollout teacher). Random move on, oracle off, as bootstrap.
 | `starting_hp` | `round(random.Random(episode_id).gauss(source starting_hp, hp_sd))`, clipped to [1, max HP], set before combat. The row column is HP at the first decision, so combat-start healing (e.g. Blood Vial) can make it higher |
 | fight RNG | `GameContext` before the fight with `seed = episode_id`, `miscRng = potionRng = Random(episode_id)`; `BattleContext::init` derives every combat RNG from those |
 | potions | the source's; with `random_potions`, each held potion becomes `returnRandomPotion(potionRng)` (the RNG above) |
-| random move | as bootstrap: `mt19937_64(episode_id ^ 0xe9510)` |
+| random move | if `random_move` (default): as bootstrap, `mt19937_64(episode_id ^ 0xe9510)`; else every move is the search's |
 
 So a resampled fight replays from stored data like any other: replay the source run to `fight_index`, build the
 game as above with `starting_hp`, then step its `chosen_action`s. Source fights must have
