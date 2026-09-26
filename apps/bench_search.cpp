@@ -22,6 +22,17 @@ using Json = nlohmann::json;
 namespace sts::search { extern unsigned long long g_prof[8]; }  // PBCS_PROFILE builds
 
 namespace {
+Json cache_json(const ValueNet& net) {
+    const auto& c = net.cache_stats();
+    const auto rate = [](std::uint64_t hits, std::uint64_t misses) {
+        return hits + misses ? static_cast<double>(hits) / static_cast<double>(hits + misses) : 0.0;
+    };
+    return {{"card_hit", rate(c.card_hits, c.card_misses)}, {"monster_hit", rate(c.monster_hits, c.monster_misses)},
+            {"interaction_hit", rate(c.interaction_hits, c.interaction_misses)},
+            {"lookups", c.card_hits + c.card_misses + c.monster_hits + c.monster_misses + c.interaction_hits
+                            + c.interaction_misses}};
+}
+
 // Thread CPU time: the machine is shared, so wall time also counts time spent waiting for a core.
 double cpu_now() {
     timespec t{};
@@ -184,7 +195,7 @@ int main(int argc, char** argv) {
             env.step(teacher::legal_index(env, env.decision().legal_actions.size(), search, search.selectedAction()));
         }
         const int reps = count > 0 ? static_cast<int>(count) : 1;
-        double encode = 0, eval = 0, sum = 0;
+        double encode = 0, eval = 0, first_eval = 0, sum = 0;
         std::vector<EncodedCombatState> enc;
         std::vector<float> values;
         for (int r = 0; r < reps; ++r) {
@@ -194,12 +205,16 @@ int main(int argc, char** argv) {
             encode += seconds_since(t);
             t = cpu_now();
             net.evaluate(enc, values);
-            eval += seconds_since(t);
+            (r == 0 ? first_eval : eval) += seconds_since(t);
         }
         for (float v : values) sum += v;
         const double n = static_cast<double>(leaves.size()) * reps;
-        std::cout << Json{{"leaves", leaves.size()}, {"encode_us", encode / n * 1e6}, {"eval_us", eval / n * 1e6},
-                          {"checksum", sum}}.dump() << std::endl;
+        // first pass: token caches cold (as filled by this pass); later passes: every token cached (head only)
+        const double warm = static_cast<double>(leaves.size()) * std::max(reps - 1, 1);
+        std::cout << Json{{"leaves", leaves.size()}, {"encode_us", encode / n * 1e6},
+                          {"first_pass_eval_us", first_eval / static_cast<double>(leaves.size()) * 1e6},
+                          {"eval_us", reps > 1 ? eval / warm * 1e6 : first_eval / static_cast<double>(leaves.size()) * 1e6},
+                          {"cache", cache_json(net)}, {"checksum", sum}}.dump() << std::endl;
         return 0;
     }
     if (mode == "phases") {
@@ -233,7 +248,10 @@ int main(int argc, char** argv) {
                 env.step(teacher::legal_index(env, legal, search, search.selectedAction()));
             }
         }
+        const double all = tree + encode + eval + backup;
         std::cout << Json{{"sims", total}, {"tree", tree}, {"encode", encode}, {"eval", eval}, {"backup", backup},
+                          {"sims_per_s", static_cast<double>(total) / all}, {"eval_us", eval / static_cast<double>(total) * 1e6},
+                          {"cache", cache_json(net)},
                           {"tree_cycles", std::vector<unsigned long long>(sts::search::g_prof, sts::search::g_prof + 6)}}.dump()
                   << std::endl;
         return 0;

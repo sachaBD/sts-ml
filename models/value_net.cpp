@@ -101,6 +101,23 @@ __attribute__((noinline)) void apply_fixed(const float* __restrict weight_t, con
     std::memcpy(y, acc, sizeof acc);
 }
 
+// apply_fixed over OUT-wide column blocks of a wider layer (out a multiple of OUT): same per-output
+// arithmetic, with the accumulators of one block in registers.
+template <int OUT>
+__attribute__((noinline)) void apply_blocked(const float* __restrict weight_t, const float* __restrict bias, int in, int out,
+                                             const float* __restrict x, float* __restrict y) {
+    for (int b = 0; b < out; b += OUT) {
+        float acc[OUT];
+        std::memcpy(acc, bias + b, sizeof acc);
+        for (int i = 0; i < in; ++i) {
+            const float xi = x[i];
+            const float* __restrict w = weight_t + static_cast<std::size_t>(i) * out + b;
+            for (int o = 0; o < OUT; ++o) acc[o] += xi * w[o];
+        }
+        std::memcpy(y + b, acc, sizeof acc);
+    }
+}
+
 void apply_any(const ValueNet::Linear& l, const float* x, float* y) {
     std::copy(l.bias.begin(), l.bias.end(), y);
     for (int i = 0; i < l.in; ++i) {
@@ -112,6 +129,7 @@ void apply_any(const ValueNet::Linear& l, const float* x, float* y) {
 
 void apply(const ValueNet::Linear& l, const float* x, float* y, bool relu) {
     if (l.out == 64) apply_fixed<64>(l.weight_t.data(), l.bias.data(), l.in, x, y);
+    else if (l.out % 64 == 0) apply_blocked<64>(l.weight_t.data(), l.bias.data(), l.in, l.out, x, y);
     else apply_any(l, x, y);
     if (relu)
         for (int o = 0; o < l.out; ++o) y[o] = std::max(y[o], 0.0f);
@@ -121,6 +139,25 @@ void apply(const ValueNet::Linear& l, const float* x, float* y, bool relu) {
 void mlp(const ValueNet::Linear& a, const ValueNet::Linear& b, const float* x, float* hidden, float* y) {
     apply(a, x, hidden, true);
     apply(b, hidden, y, true);
+}
+
+ValueNet::LayerNorm layer_norm(const std::map<std::string, Tensor>& tensors, const std::string& name, int size) {
+    const auto& w = get(tensors, name + ".weight", 1);
+    const auto& b = get(tensors, name + ".bias", 1);
+    if (w.shape[0] != static_cast<std::uint32_t>(size) || b.shape[0] != static_cast<std::uint32_t>(size))
+        throw std::runtime_error{"bad shape for " + name};
+    return {size, w.data, b.data};
+}
+
+// PyTorch LayerNorm: biased variance, eps 1e-5, elementwise affine. y may alias x.
+void layer_norm(const ValueNet::LayerNorm& n, const float* x, float* y) {
+    double mean = 0, var = 0;
+    for (int i = 0; i < n.size; ++i) mean += x[i];
+    mean /= n.size;
+    for (int i = 0; i < n.size; ++i) var += (x[i] - mean) * (x[i] - mean);
+    const double inv = 1.0 / std::sqrt(var / n.size + 1e-5);
+    for (int i = 0; i < n.size; ++i)
+        y[i] = static_cast<float>((x[i] - mean) * inv) * n.weight[i] + n.bias[i];
 }
 
 }  // namespace
@@ -145,8 +182,32 @@ ValueNet::ValueNet(const std::string& path) {
     monster2_ = linear(t, "monster_mlp.2", w, w);
     interaction1_ = linear(t, "interaction_mlp.0", 2 * w + 6, w);
     interaction2_ = linear(t, "interaction_mlp.2", w, w);
-    head1_ = linear(t, "head.0", 50 + input_state_.dim + card_selection_task_.dim + 6 * w, w);
-    head2_ = linear(t, "head.2", w, 1);
+    const auto& architecture = config.at("architecture");
+    const auto kind = architecture.value("kind", std::string{"deep_sets_v1"});
+    if (kind == "deep_sets_v1") {
+        head1_ = linear(t, "head.0", 50 + input_state_.dim + card_selection_task_.dim + 6 * w, w);
+        head2_ = linear(t, "head.2", w, 1);
+        return;
+    }
+    if (kind != "deep_sets_v2") throw std::runtime_error{"unknown value net kind " + kind};
+    v2_ = true;
+    count_features_ = architecture.at("pool_count_features").get<bool>();
+    input_norm_ = architecture.at("head_input_norm").get<bool>();
+    const auto output = architecture.at("output").get<std::string>();
+    if (output != "sigmoid" && output != "tanh") throw std::runtime_error{"unknown value net output " + output};
+    sigmoid_ = output == "sigmoid";
+    const int hw = architecture.at("head_width").get<int>();
+    const int blocks = architecture.at("head_blocks").get<int>();
+    const int features = 50 + input_state_.dim + card_selection_task_.dim + 6 * w + (count_features_ ? 6 : 0);
+    if (input_norm_) head_in_norm_ = layer_norm(t, "head_in_norm", features);
+    head_in_ = linear(t, "head_in", features, hw);
+    for (int b = 0; b < blocks; ++b) {
+        const auto name = "head_blocks." + std::to_string(b);
+        head_blocks_.push_back({layer_norm(t, name + ".norm", hw), linear(t, name + ".fc1", hw, hw),
+                                linear(t, name + ".fc2", hw, hw)});
+    }
+    if (blocks > 0) head_out_norm_ = layer_norm(t, "head_out_norm", hw);
+    value_out_ = linear(t, "value_out", hw, 1);
 }
 
 
@@ -182,7 +243,11 @@ std::uint32_t* put_monster(std::uint32_t* out, const MonsterToken& m) {
 const float* ValueNet::monster_hidden(const MonsterToken& monster) const {
     MonsterKey key;
     put_monster(key.bits.data(), monster);
-    if (const auto it = monster_cache_.find(key); it != monster_cache_.end()) return it->second.data();
+    if (const auto it = monster_cache_.find(key); it != monster_cache_.end()) {
+        ++stats_.monster_hits;
+        return it->second.data();
+    }
+    ++stats_.monster_misses;
     const std::size_t w = static_cast<std::size_t>(width_);
     put(put(put(x_.data(), monster_id_, monster.monster_id), move_, monster.move_id), monster.numeric);
     std::vector<float> out(w);
@@ -193,7 +258,11 @@ const float* ValueNet::monster_hidden(const MonsterToken& monster) const {
 const float* ValueNet::card_hidden(const CardToken& card) const {
     CardKey key;
     put_card(key.bits.data(), card);
-    if (const auto it = card_cache_.find(key); it != card_cache_.end()) return it->second.data();
+    if (const auto it = card_cache_.find(key); it != card_cache_.end()) {
+        ++stats_.card_hits;
+        return it->second.data();
+    }
+    ++stats_.card_misses;
     std::vector<float> x(card1_.in), hidden(width_), out(width_);
     float* p = put(x.data(), card_id_, card.card_id);
     p = put(p, zone_, static_cast<int>(card.zone));
@@ -203,16 +272,15 @@ const float* ValueNet::card_hidden(const CardToken& card) const {
     return card_cache_.emplace(key, std::move(out)).first->second.data();
 }
 
-float ValueNet::evaluate(const EncodedCombatState& s) const {
+void ValueNet::pool_features(const EncodedCombatState& s, std::size_t size, bool counts) const {
     // Not mid-state: card_out_ / monster_out_ point into the caches.
     if (card_cache_.size() >= 1 << 16) card_cache_.clear();
     if (monster_cache_.size() >= 1 << 16) monster_cache_.clear();
     if (interaction_cache_.size() >= 1 << 16) interaction_cache_.clear();
     const std::size_t w = static_cast<std::size_t>(width_);
-    x_.resize(std::max<std::size_t>({static_cast<std::size_t>(head1_.in), 2 * w + 6,
-                                     static_cast<std::size_t>(monster1_.in)}));
+    x_.resize(std::max<std::size_t>({size, 2 * w + 6, static_cast<std::size_t>(monster1_.in)}));
     hidden_.resize(w);
-    features_.assign(head1_.in, 0.0f);
+    features_.assign(size, 0.0f);
     // features: global numeric, two embeddings, then six width-sized sums
     float* sums = put(put(put(features_.data(), s.global.numeric), input_state_, s.global.input_state),
                       card_selection_task_, s.global.card_selection_task);
@@ -220,13 +288,16 @@ float ValueNet::evaluate(const EncodedCombatState& s) const {
     float* monster_sum = sums + 4 * w;
     float* interaction_sum = sums + 5 * w;
 
+    std::array<int, 6> count{};
     card_out_.resize(s.cards.size());
     for (std::size_t c = 0; c < s.cards.size(); ++c) {
         const auto& card = s.cards[c];
         const float* out = card_out_[c] = card_hidden(card);
         const auto zone = static_cast<std::size_t>(card.zone);
-        if (zone < 4)
+        if (zone < 4) {
+            ++count[zone];
             for (std::size_t k = 0; k < w; ++k) card_pools[zone * w + k] += out[k];
+        }
     }
     monster_out_.resize(s.monsters.size());
     for (std::size_t m = 0; m < s.monsters.size(); ++m) {
@@ -239,6 +310,7 @@ float ValueNet::evaluate(const EncodedCombatState& s) const {
         InteractionKey key;
         put_bits(put_monster(put_card(key.bits.data(), s.cards[i.card_index]), s.monsters[i.monster_index]), i.numeric);
         auto it = interaction_cache_.find(key);
+        ++(it == interaction_cache_.end() ? stats_.interaction_misses : stats_.interaction_hits);
         if (it == interaction_cache_.end()) {
             float* p = std::copy_n(card_out_[i.card_index], w, x_.data());
             p = std::copy_n(monster_out_[i.monster_index], w, p);
@@ -250,10 +322,44 @@ float ValueNet::evaluate(const EncodedCombatState& s) const {
         const float* out = it->second.data();
         for (std::size_t k = 0; k < w; ++k) interaction_sum[k] += out[k];
     }
+    if (counts) {
+        count[4] = static_cast<int>(s.monsters.size());
+        count[5] = static_cast<int>(s.card_monster_interactions.size());
+        for (std::size_t p = 0; p < 6; ++p) sums[6 * w + p] = std::log1p(static_cast<float>(count[p]));
+    }
+}
+
+float ValueNet::evaluate(const EncodedCombatState& s) const {
+    if (v2_) return evaluate_v2(s);
+    pool_features(s, static_cast<std::size_t>(head1_.in), false);
     apply(head1_, features_.data(), hidden_.data(), true);
     float value{};
     apply(head2_, hidden_.data(), &value, false);
     return std::tanh(value);
+}
+
+float ValueNet::evaluate_v2(const EncodedCombatState& s) const {
+    pool_features(s, static_cast<std::size_t>(head_in_.in), count_features_);
+    const std::size_t hw = static_cast<std::size_t>(head_in_.out);
+    h_.resize(hw);
+    normed_.resize(std::max<std::size_t>(hw, features_.size()));
+    block_hidden_.resize(hw);
+    const float* f = features_.data();
+    if (input_norm_) {
+        layer_norm(head_in_norm_, f, normed_.data());
+        f = normed_.data();
+    }
+    apply(head_in_, f, h_.data(), true);
+    for (const auto& b : head_blocks_) {
+        layer_norm(b.norm, h_.data(), normed_.data());
+        apply(b.fc1, normed_.data(), block_hidden_.data(), true);
+        apply(b.fc2, block_hidden_.data(), normed_.data(), false);
+        for (std::size_t k = 0; k < hw; ++k) h_[k] += normed_[k];
+    }
+    if (!head_blocks_.empty()) layer_norm(head_out_norm_, h_.data(), h_.data());
+    float value{};
+    apply(value_out_, h_.data(), &value, false);
+    return sigmoid_ ? 1.0f / (1.0f + std::exp(-value)) : std::tanh(value);
 }
 
 void ValueNet::evaluate(std::span<const EncodedCombatState> states, std::vector<float>& values) const {
