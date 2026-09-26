@@ -10,6 +10,8 @@
 #include <cstdlib>
 #include <fstream>
 #include <memory>
+#include <optional>
+#include <sstream>
 #include <iostream>
 #include <string>
 
@@ -38,6 +40,89 @@ int main(int argc, char** argv) {
     const auto run = teacher::value_net_search(net, sims);
     std::unique_ptr<std::ofstream> trace;
     if (const char* path = std::getenv("TRACE")) trace = std::make_unique<std::ofstream>(path);
+    if (mode == "regret") {
+        // Decision quality along the baseline teacher's trajectory. Per state: a reference search (merged
+        // edges, REF_SIMS simulations, no early stop) gives Q_ref per move (identityActionKey); then each arm
+        // of ARMS (comma list; an arm is '+'-joined tokens: base, reseed, merge, stop=F, sims=N, reuse)
+        // searches the state. One JSON line per state; analysis: regret = max Q_ref - Q_ref(chosen).
+        struct Arm {
+            std::string name;
+            teacher::SearchTweaks tweaks;
+            std::int64_t sims = 20000;
+            bool reseed = false, reuse = false;
+            std::optional<sts::search::PublicBeliefCombatSearch> tree;
+        };
+        std::vector<Arm> arms;
+        {
+            std::stringstream list(std::getenv("ARMS") ? std::getenv("ARMS") : "base");
+            for (std::string spec; std::getline(list, spec, ',');) {
+                Arm arm{spec};
+                arm.sims = sims;
+                std::stringstream tokens(spec);
+                for (std::string t; std::getline(tokens, t, '+');) {
+                    if (t == "merge") arm.tweaks.merge_identical_cards = true;
+                    else if (t == "reseed") arm.reseed = true;
+                    else if (t == "reuse") arm.reuse = true;
+                    else if (t.starts_with("stop=")) arm.tweaks.stop_factor = std::stod(t.substr(5));
+                    else if (t.starts_with("sims=")) arm.sims = std::stoll(t.substr(5));
+                    else if (t != "base") throw std::invalid_argument{"unknown arm token " + t};
+                }
+                arms.push_back(std::move(arm));
+            }
+        }
+        const std::int64_t ref_sims = std::getenv("REF_SIMS") ? std::stoll(std::getenv("REF_SIMS")) : 100000;
+        const auto key_of = [](const sts::BattleContext& state, std::uint32_t bits) {
+            return std::to_string(sts::search::PublicBeliefCombatSearch::identityActionKey(state, sts::search::Action{bits}));
+        };
+        for (auto seed = first; seed < first + count; ++seed) {
+            auto env = scenarios::slime_boss(seed);
+            for (auto& arm : arms) arm.tree.reset();
+            for (int index = 0; !env.done(); ++index) {
+                const auto legal = env.decision().legal_actions.size();
+                Json line = {{"seed", seed}, {"decision", index}, {"legal", legal}};
+                std::size_t played = 0;
+                // Arms first (their trees must see every state), then the reference (multi-move states only).
+                Json out = Json::object();
+                for (std::size_t a = 0; a < arms.size(); ++a) {
+                    auto& arm = arms[a];
+                    teacher::tweaks() = arm.tweaks;
+                    const auto arm_run = teacher::value_net_search(net, arm.sims);
+                    const auto t = cpu_now();
+                    if (!arm.reuse || !arm.tree) arm.tree.emplace(teacher::make_search(env.battle()));
+                    if (arm.reseed) {
+                        arm.tree->random.seed(seed * 7919 + index);
+                        arm.tree->rollout.randGen.seed(seed * 7919 + index);
+                    }
+                    const auto d = teacher::search_decision(env, legal, arm_run, *arm.tree);
+                    out[arm.name] = {{"move", key_of(env.battle(), env.action_bits(d.chosen))}, {"sims", d.used},
+                                     {"retained", d.retained}, {"s", seconds_since(t)}, {"value", d.value}};
+                    if (a == 0) played = d.chosen;
+                }
+                line["arms"] = out;
+                if (legal > 1) {
+                    teacher::tweaks() = {};
+                    teacher::tweaks().merge_identical_cards = true;
+                    teacher::tweaks().stop_factor = 1e30;
+                    auto ref = teacher::make_search(env.battle());
+                    teacher::run_value_net_search(ref, net, ref_sims, legal);
+                    Json q = Json::object();
+                    for (const auto& e : ref.root().edges)
+                        q[key_of(ref.particles.front(), e.action.bits)] = {{"n", e.visits}, {"q", e.visits ? e.valueSum / e.visits : 0.0}};
+                    line["ref"] = q;
+                }
+                std::cout << line.dump() << std::endl;
+                const auto before = env.battle();
+                const auto bits = env.action_bits(played);
+                env.step(played);
+                for (auto& arm : arms)
+                    if (arm.reuse && !env.done()) {
+                        teacher::tweaks() = arm.tweaks;
+                        teacher::rebase_search(*arm.tree, before, bits, env.battle());
+                    }
+            }
+        }
+        return 0;
+    }
     if (mode == "paired") {
         // Along the baseline teacher's trajectory, each state is also searched by the variant (VARIANT env:
         // comma list of merge) and, as a noise control, by the baseline with a reseeded search RNG.

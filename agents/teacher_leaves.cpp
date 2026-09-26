@@ -55,7 +55,7 @@ bool decided(const PublicBeliefCombatSearch& search, std::int64_t left) {
         if (e.visits > best) { second = best; best = e.visits; }
         else if (e.visits > second) second = e.visits;
     }
-    return best - second > left;
+    return best - second > tweaks().stop_factor * static_cast<double>(left);
 }
 
 std::vector<sts::BattleContext> root_particles(const sts::BattleContext& observed, bool oracle, int particles) {
