@@ -2,12 +2,14 @@
 """Config-driven value-network training app.
 
 A thin TOML wrapper around sts_combat_rl.training.train_value for the run launcher (apps/common/launch.sh):
-[data] query selects the combat_v3 rows (sts_combat_rl.query); writes a checkpoint into --out, optionally
+[data] query selects the combat_v3 rows (sts_combat_rl.query); an optional [model] table is the architecture
+(sts_combat_rl.models.build_model, e.g. kind = "deep_sets_v2"; without it v1 of [train].width); writes a checkpoint into --out, optionally
 exports native C++ weights, and emits summary.json for run.json.
 """
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -19,7 +21,8 @@ from sts_combat_rl.training.train_value import run as train_value
 
 DATA_KEYS = {"query", "corrections", "oracle"}
 TRAIN_KEYS = {"initial_checkpoint", "split", "correction_weight", "checkpoint", "epochs", "batch_size", "lr", "weight_decay",
-              "width", "seed", "validation_fraction", "label", "blend", "lr_schedule", "keep", "threads", "device"}
+              "width", "seed", "validation_fraction", "label", "blend", "lr_schedule", "keep", "threads", "device",
+              "aux_won_weight", "aux_hp_weight"}
 SUMMARY_KEYS = ("initial_checkpoint", "initial_checkpoint_sha256", "initialization", "split_mode", "split",
                 "training_kind", "correction_weight", "correction_target", "correction_rows", "correction_query", "correction_source")
 
@@ -42,6 +45,8 @@ def make_train_args(config: dict[str, Any], out: Path) -> SimpleNamespace:
     data, train = config["data"], config.get("train", {})
     check_keys(data, DATA_KEYS, "data")
     check_keys(train, TRAIN_KEYS, "train")
+    if "model" in config and "width" in train:
+        sys.exit("[train].width and [model]: set the width in [model]")
     return SimpleNamespace(
         data=data["query"],
         corrections=data.get("corrections"),
@@ -64,6 +69,9 @@ def make_train_args(config: dict[str, Any], out: Path) -> SimpleNamespace:
         keep=str(train.get("keep", "last")),  # checkpoint of the last epoch, or of the best validation MSE
         threads=int(train.get("threads", 1)),  # torch CPU threads
         device=str(train.get("device", "cpu")),  # cpu, cuda[:N], or auto (cuda if available)
+        aux_won_weight=float(train.get("aux_won_weight", 0.0)),
+        aux_hp_weight=float(train.get("aux_hp_weight", 0.0)),
+        model=dict(config["model"]) if "model" in config else None,  # architecture dict for build_model
     )
 
 
@@ -79,6 +87,7 @@ def write_summary(out: Path, checkpoint_path: Path, checkpoint_json: Path, expor
         "row_counts": metadata["row_counts"],
         "target_name": metadata.get("target_name"),
         "target_blend": metadata.get("target_blend"),
+        "architecture": metadata.get("architecture"),
         "epoch": metadata.get("epoch"),
         "metrics": metadata.get("metrics"),
         "train_episodes": len(metadata.get("train_episode_ids", [])),
@@ -98,10 +107,13 @@ def train(config: dict[str, Any], config_path: Path, out: Path) -> int:
                  f"checkpoint: {args.output}", "", "Inputs", "------", f"data:        {args.data}",
                  *([f"corrections: {args.corrections}"] if args.corrections else []),
                  *([f"initial:     {args.initial_checkpoint}"] if args.initial_checkpoint else []),
-                 *(["oracle rows allowed"] if args.oracle else []), "", "Config", "------",
+                 *(["oracle rows allowed"] if args.oracle else []),
+                 *(["", "Model", "-----", *(f"{k + ':':<21}{v}" for k, v in args.model.items())] if args.model else []),
+                 "", "Config", "------",
                  *(f"{key + ':':<21}{getattr(args, key)}" for key in ("epochs", "batch_size", "lr", "weight_decay", "width",
                                                                      "seed", "validation_fraction", "label", "blend", "split",
-                                                                     "lr_schedule", "keep", "threads", "device"))):
+                                                                     "lr_schedule", "keep", "threads", "device", "aux_won_weight",
+                                                                     "aux_hp_weight"))):
         print(line, flush=True)
 
     checkpoint = train_value(args)

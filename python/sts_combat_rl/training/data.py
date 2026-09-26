@@ -106,7 +106,7 @@ def collate_states(rows: list[dict[str, Any]]) -> dict[str, torch.Tensor]:
 # Columnar rows for training: an Arrow stream from the SQL query packed into numpy arrays (a few KB per row,
 # not tens of KB as Python dicts). Same content as the dict rows collate_states takes.
 META = ("run_id", "run_seed", "episode_id", "decision_index", "row_kind", "was_random", "root_value",
-        "terminal_value", "encounter", "category")
+        "terminal_value", "won", "final_hp", "starting_max_hp", "encounter", "category")
 STATE = ("encoding_version", "input_state", "card_selection_task", "global_numeric")
 TOKENS = {  # token group: (categorical fields, numeric width)
     "cards": (("card_id", "zone", "card_type", "target_type"), 14),
@@ -179,6 +179,10 @@ class Rows:
         self.columns = columns
         columns.setdefault("target", np.zeros(len(columns["episode_id"])))
         columns.setdefault("weight", np.ones(len(columns["episode_id"])))
+        columns.setdefault("aux_won", np.zeros(len(columns["episode_id"]), dtype=np.float32))
+        columns.setdefault("aux_hp", np.zeros(len(columns["episode_id"]), dtype=np.float32))
+        columns.setdefault("aux_mask", np.zeros(len(columns["episode_id"]), dtype=np.float32))
+        columns.setdefault("aux_hp_mask", np.zeros(len(columns["episode_id"]), dtype=np.float32))
         self.starts = {group: np.cumsum(columns[group + ".count"]) - columns[group + ".count"] for group in TOKENS}
 
     def __len__(self) -> int:
@@ -191,8 +195,8 @@ class Rows:
     def concat(parts: list[Rows]) -> Rows:
         return Rows({key: np.concatenate([p.columns[key] for p in parts]) for key in parts[0].columns})
 
-    def collate(self, index, weight: bool = False) -> dict[str, torch.Tensor]:
-        """collate_states of rows `index` (plus loss weights if `weight`)."""
+    def collate(self, index, weight: bool = False, aux: bool = False) -> dict[str, torch.Tensor]:
+        """collate_states of rows `index` (plus loss weights / aux targets if asked)."""
         index = np.asarray(index, dtype=np.int64)
         c = self.columns
         long = lambda a: torch.from_numpy(a.astype(np.int64))
@@ -204,6 +208,9 @@ class Rows:
         }
         if weight:
             out["weight"] = torch.from_numpy(c["weight"][index].astype(np.float32))
+        if aux:
+            for name in ("aux_won", "aux_hp", "aux_mask", "aux_hp_mask"):
+                out[name] = torch.from_numpy(c[name][index].astype(np.float32))
         tokens, owners, firsts = {}, {}, {}
         for group in TOKENS:
             counts = c[group + ".count"][index]
@@ -236,9 +243,9 @@ class RowLoader(DataLoader):
     """Batches of Rows `index` (a DataLoader over row positions, so shuffling matches a list-of-rows loader)."""
 
     def __init__(self, rows: Rows, index: np.ndarray, batch_size: int, shuffle: bool = False,
-                 weight: bool = False, generator=None):
+                 weight: bool = False, aux: bool = False, generator=None):
         super().__init__(index, batch_size=batch_size, shuffle=shuffle, num_workers=0, generator=generator,
-                         collate_fn=lambda positions: rows.collate(positions, weight))
+                         collate_fn=lambda positions: rows.collate(positions, weight, aux))
 
 
 def training_rows(sql: str, corrective: bool = False, oracle: bool = False) -> Rows:
@@ -272,6 +279,33 @@ def split_rows(rows: Rows, validation_fraction: float = 0.2, seed: int = 0) -> t
     return np.flatnonzero(~validation), np.flatnonzero(validation)
 
 
+def _random_at(rows: Rows) -> tuple[np.ndarray, np.ndarray]:
+    """(episode inverse per row, last random decision_index per episode)."""
+    episodes, episode = np.unique(rows["episode_id"], return_inverse=True)
+    random_at = np.full(len(episodes), -1, dtype=np.int64)
+    was_random = rows["was_random"].astype(bool)
+    np.maximum.at(random_at, episode[was_random], rows["decision_index"][was_random])
+    return episode, random_at
+
+
+def assign_aux_targets(rows: Rows) -> None:
+    """Set aux targets/masks for realised teacher trajectory outcomes.
+
+    aux_mask: decision rows after the fight's last random move. Child and pre-random rows are masked out.
+    aux_hp_mask: aux_mask and won, with aux_hp = clipped final_hp / starting_max_hp.
+    """
+    episode, random_at = _random_at(rows)
+    decision = rows["row_kind"] == "decision"
+    mask = decision & (rows["decision_index"] > random_at[episode])
+    won = rows["won"].astype(np.float32)
+    denom = np.maximum(rows["starting_max_hp"].astype(np.float32), 1.0)
+    hp = np.clip(rows["final_hp"].astype(np.float32) / denom, 0.0, 1.0)
+    rows.columns["aux_won"] = won
+    rows.columns["aux_hp"] = hp
+    rows.columns["aux_mask"] = mask.astype(np.float32)
+    rows.columns["aux_hp_mask"] = (mask & rows["won"].astype(bool)).astype(np.float32)
+
+
 def assign_targets(rows: Rows, label: str, blend: float = 0.5) -> None:
     """Set rows["target"].
 
@@ -294,10 +328,7 @@ def assign_targets(rows: Rows, label: str, blend: float = 0.5) -> None:
     elif label == "terminal":
         target = np.where(is_child, v, z)
     elif label in ("blend", "shift"):
-        episodes, episode = np.unique(rows["episode_id"], return_inverse=True)
-        random_at = np.full(len(episodes), -1, dtype=np.int64)  # per fight: last random decision_index
-        was_random = rows["was_random"].astype(bool)
-        np.maximum.at(random_at, episode[was_random], rows["decision_index"][was_random])
+        episode, random_at = _random_at(rows)
         delta = np.where(rows["decision_index"] <= random_at[episode], 0.0, z - v)
         if label == "blend":
             target = np.where(is_child, v, v + blend * delta)

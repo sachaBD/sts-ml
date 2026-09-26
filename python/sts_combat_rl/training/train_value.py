@@ -15,12 +15,13 @@ from typing import Any
 
 import numpy as np
 import torch
+import torch.nn.functional as F
 
-from sts_combat_rl.models.deep_sets import DeepSetsValue
+from sts_combat_rl.models.deep_sets import DeepSetsValue, build_model
 
 from ..run import run_dir
 from ..schemas import combat_v3
-from .data import RowLoader, Rows, assign_targets, split_rows, training_rows
+from .data import RowLoader, Rows, assign_aux_targets, assign_targets, split_rows, training_rows
 
 
 def atomic_save(value: Any, path: Path) -> None:
@@ -60,6 +61,13 @@ def to_device(batch: dict[str, torch.Tensor], device: torch.device) -> dict[str,
     return {key: value.to(device, non_blocking=True) for key, value in batch.items()}
 
 
+AUX_KEYS = ("aux_won", "aux_hp", "aux_mask", "aux_hp_mask")
+
+
+def pop_aux(batch: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
+    return {key: batch.pop(key) for key in AUX_KEYS if key in batch}
+
+
 def predict(model: DeepSetsValue, loader: RowLoader) -> tuple[torch.Tensor, torch.Tensor]:
     """(prediction, target) for the loader's rows, in loader order, on the CPU."""
     model.eval()
@@ -69,9 +77,66 @@ def predict(model: DeepSetsValue, loader: RowLoader) -> tuple[torch.Tensor, torc
     with torch.no_grad():
         for batch in loader:
             batch.pop("weight", None)
+            pop_aux(batch)
             targets.append(batch.pop("target"))
             predictions.append(model(**to_device(batch, device)).cpu())
     return torch.cat(predictions), torch.cat(targets)
+
+
+def masked_mean(value: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
+    total = mask.sum()
+    return (value * mask).sum() / total.clamp_min(1.0)
+
+
+def aux_losses(outputs: dict[str, torch.Tensor], aux: dict[str, torch.Tensor]) -> tuple[torch.Tensor, torch.Tensor]:
+    won = masked_mean(F.binary_cross_entropy_with_logits(outputs["won_logit"], aux["aux_won"], reduction="none"),
+                      aux["aux_mask"])
+    hp = masked_mean((outputs["hp"] - aux["aux_hp"]) ** 2, aux["aux_hp_mask"])
+    return won, hp
+
+
+def evaluate_aux(model: DeepSetsValue, loader: RowLoader) -> dict[str, float]:
+    """Auxiliary validation metrics over masked rows in loader order."""
+    if not hasattr(model, "forward_all"):
+        return {}
+    model.eval()
+    device = next(model.parameters()).device
+    won_logits, hp_pred, won_targets, hp_targets, masks, hp_masks = [], [], [], [], [], []
+    with torch.no_grad():
+        for batch in loader:
+            batch.pop("weight", None)
+            batch.pop("target", None)
+            aux = {key: value.cpu() for key, value in pop_aux(batch).items()}
+            outputs = model.forward_all(**to_device(batch, device))
+            if "won_logit" not in outputs or "hp" not in outputs:
+                return {}
+            won_logits.append(outputs["won_logit"].cpu())
+            hp_pred.append(outputs["hp"].cpu())
+            won_targets.append(aux["aux_won"])
+            hp_targets.append(aux["aux_hp"])
+            masks.append(aux["aux_mask"])
+            hp_masks.append(aux["aux_hp_mask"])
+    logit = torch.cat(won_logits)
+    prob = torch.sigmoid(logit)
+    hp = torch.cat(hp_pred)
+    won = torch.cat(won_targets)
+    hp_target = torch.cat(hp_targets)
+    mask = torch.cat(masks).bool()
+    hp_mask = torch.cat(hp_masks).bool()
+    metrics = {
+        "aux_validation_masked_fraction": float(mask.float().mean().item()),
+        "aux_hp_validation_masked_fraction": float(hp_mask.float().mean().item()),
+    }
+    if mask.any():
+        metrics.update(
+            aux_won_validation_bce=float(F.binary_cross_entropy_with_logits(logit[mask], won[mask]).item()),
+            aux_won_validation_accuracy=float(((prob[mask] >= 0.5) == (won[mask] >= 0.5)).float().mean().item()),
+            aux_won_validation_brier=float(((prob[mask] - won[mask]) ** 2).mean().item()),
+            aux_won_validation_base_rate=float(won[mask].mean().item()),
+        )
+    if hp_mask.any():
+        metrics["aux_hp_validation_mae"] = float((hp[hp_mask] - hp_target[hp_mask]).abs().mean().item())
+    return metrics
 
 
 def evaluate(model: DeepSetsValue, loader: RowLoader) -> tuple[float, float]:
@@ -127,8 +192,11 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     random.seed(args.seed)
     np.random.seed(args.seed)
     torch.manual_seed(args.seed)
+    # [model] architecture dict (models.build_model); none: v1 of args.width, as before
+    architecture = getattr(args, "model", None) or {"width": args.width}
     rows = training_rows(args.data, oracle=getattr(args, "oracle", False))
     assign_targets(rows, args.label, args.blend)
+    assign_aux_targets(rows)
     corrections_sql = getattr(args, "corrections", None)
     initial = getattr(args, "initial_checkpoint", None)
     weight = getattr(args, "correction_weight", 0.5)
@@ -142,8 +210,10 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         raise ValueError("corrections need an initial checkpoint with split = 'pinned'")
     if initial:
         reference = json.loads(Path(initial).with_suffix(".json").read_text())
-        if reference["architecture"].get("width") != args.width:
-            raise ValueError(f"width {args.width} != initial checkpoint architecture {reference['architecture']}")
+        with torch.random.fork_rng(devices=[]):  # resolved config only; leaves the seeded RNG untouched
+            resolved = build_model(architecture).config
+        if reference["architecture"] != resolved:
+            raise ValueError(f"architecture {resolved} != initial checkpoint architecture {reference['architecture']}")
     if pinned:
         # Pinned: same fights on each side as the initial checkpoint; validation stays bootstrap only.
         train, valid, dropped = pinned_split(rows, reference)
@@ -180,10 +250,15 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         rows = Rows.concat([rows, corrections])  # corrections are rows offset.. of the combined table
         corrections = np.arange(offset, len(rows))
         train = np.concatenate([train, corrections])
-    train_loader = RowLoader(rows, train, args.batch_size, shuffle=True, weight=True,
+    aux_won_weight = float(getattr(args, "aux_won_weight", 0.0))
+    aux_hp_weight = float(getattr(args, "aux_hp_weight", 0.0))
+    use_aux = aux_won_weight > 0 or aux_hp_weight > 0
+    train_loader = RowLoader(rows, train, args.batch_size, shuffle=True, weight=True, aux=use_aux,
                              generator=torch.Generator().manual_seed(args.seed))
-    valid_loader = RowLoader(rows, valid, args.batch_size)
-    model = DeepSetsValue(width=args.width)
+    valid_loader = RowLoader(rows, valid, args.batch_size, aux=use_aux)
+    model = build_model(architecture)
+    if use_aux and not (hasattr(model, "forward_all") and model.config.get("aux_heads", False)):
+        raise ValueError("aux_won_weight/aux_hp_weight require a model with aux_heads=true (for example deep_sets_v2)")
     initial_sha = None
     if initial:
         state = torch.load(initial, map_location="cpu", weights_only=False)
@@ -234,6 +309,12 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             "row_counts": row_counts,
             "target_name": args.label,
             "target_blend": args.blend,
+            "aux_won_weight": aux_won_weight,
+            "aux_hp_weight": aux_hp_weight,
+            "aux_targets": {
+                "won": "BCEWithLogits against won, masked to decision rows after the last random move",
+                "hp": "MSE against clipped final_hp / starting_max_hp, masked to won decision rows after the last random move",
+            },
             "data_query": args.data,
             "source_runs": source_runs,
             "manifest": [json.loads((run_dir(r) / "run.json").read_text()) for r in source_runs],
@@ -284,6 +365,9 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     for column, counts in row_counts.items():
         print(f"{column}: {counts}", flush=True)
     print(f"target: label={args.label}  blend={args.blend}", flush=True)
+    print(f"aux: won_weight={aux_won_weight:g}  hp_weight={aux_hp_weight:g}  "
+          f"masked_rows={float(rows['aux_mask'][kept].mean()):.1%}  hp_masked_rows={float(rows['aux_hp_mask'][kept].mean()):.1%}",
+          flush=True)
     if initial:
         print(f"initial checkpoint: {initial} (weights only, fresh optimizer; split {split_mode})", flush=True)
     if corrections is not None:
@@ -310,12 +394,28 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         model.train()
         batch_count = len(train_loader)
         progress_every = max(1, batch_count // 20)
+        value_loss_sum = aux_won_loss_sum = aux_hp_loss_sum = 0.0
         for batch_index, batch in enumerate(train_loader, start=1):
             batch = to_device(batch, device)
             target = batch.pop("target")
             weights = batch.pop("weight")
+            aux = pop_aux(batch)
             optimizer.zero_grad()
-            loss = (weights * (model(**batch) - target) ** 2).mean()
+            if use_aux:
+                outputs = model.forward_all(**batch)
+                if "won_logit" not in outputs or "hp" not in outputs:
+                    raise ValueError("auxiliary losses require model.forward_all() to return won_logit and hp")
+                prediction = outputs["value"]
+                aux_won_loss, aux_hp_loss = aux_losses(outputs, aux)
+            else:
+                prediction = model(**batch)
+                aux_won_loss = prediction.new_tensor(0.0)
+                aux_hp_loss = prediction.new_tensor(0.0)
+            value_loss = (weights * (prediction - target) ** 2).mean()
+            loss = value_loss + aux_won_weight * aux_won_loss + aux_hp_weight * aux_hp_loss
+            value_loss_sum += float(value_loss.detach().cpu())
+            aux_won_loss_sum += float(aux_won_loss.detach().cpu())
+            aux_hp_loss_sum += float(aux_hp_loss.detach().cpu())
             loss.backward()
             optimizer.step()
             if scheduler is not None:
@@ -328,6 +428,9 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
                     f"{batch_index:>5}/{batch_count:<5} loss={loss.item():.6f}",
                     flush=True,
                 )
+        train_value_loss = value_loss_sum / batch_count
+        train_aux_won_loss = aux_won_loss_sum / batch_count
+        train_aux_hp_loss = aux_hp_loss_sum / batch_count
         train_mse, train_mae = evaluate(model, train_loader)
         valid_prediction, valid_target = predict(model, valid_loader)
         valid_mse = ((valid_prediction - valid_target) ** 2).mean().item()
@@ -340,7 +443,12 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             "validation_mae": valid_mae,
             "baseline_validation_mse": baseline_mse,
             "teacher_root_value_validation_mse": teacher_mse,
+            "train_value_loss": train_value_loss,
+            "train_aux_won_bce": train_aux_won_loss,
+            "train_aux_hp_mse": train_aux_hp_loss,
         }
+        if use_aux:
+            metrics.update(evaluate_aux(model, valid_loader))
         if corrections is not None:
             components = {name: evaluate(model, loader)[0] for name, loader in component_loaders.items()}
             metrics.update(
@@ -361,6 +469,9 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             f"valid_mae={valid_mae:.6f} "
             f"baseline_mse={baseline_mse:.6f} "
             f"teacher_mse={teacher_mse:.6f} "
+            f"value_loss={train_value_loss:.6f} "
+            f"aux_won_bce={train_aux_won_loss:.6f} "
+            f"aux_hp_mse={train_aux_hp_loss:.6f} "
             f"lr_end={optimizer.param_groups[0]['lr']:.2e}",
             flush=True,
         )
@@ -393,6 +504,9 @@ def main() -> None:
     parser.add_argument("--lr", type=float, default=0.001)
     parser.add_argument("--weight-decay", type=float, default=0.0001)
     parser.add_argument("--width", type=int, default=64)
+    parser.add_argument("--model-json", dest="model", type=json.loads,
+                        help='architecture dict for models.build_model, e.g. \'{"kind": "deep_sets_v2"}\' '
+                             "(default: v1 of --width)")
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--validation-fraction", type=float, default=0.2)
     parser.add_argument(
@@ -414,6 +528,10 @@ def main() -> None:
                         help="checkpoint of the last epoch or of the best validation MSE")
     parser.add_argument("--threads", type=int, default=1, help="torch CPU threads")
     parser.add_argument("--device", default="cpu", help="cpu, cuda[:N], or auto (cuda if available)")
+    parser.add_argument("--aux-won-weight", type=float, default=0.0,
+                        help="weight for masked BCE loss on the won auxiliary head")
+    parser.add_argument("--aux-hp-weight", type=float, default=0.0,
+                        help="weight for masked MSE loss on final_hp / starting_max_hp auxiliary head")
     run(parser.parse_args())
 
 
