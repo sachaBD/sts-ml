@@ -34,11 +34,12 @@ public:
     };
 
 private:
-    struct CardHash {
-        std::size_t operator()(const CardToken& c) const;
-    };
     // Monster MLP / interaction MLP inputs, compared bit for bit (a cached output is exactly what the MLP
     // would compute again).
+    struct CardKey {
+        std::array<std::uint32_t, 16> bits{};
+        bool operator==(const CardKey&) const = default;
+    };
     struct MonsterKey {
         std::array<std::uint32_t, 11> bits{};
         bool operator==(const MonsterKey&) const = default;
@@ -57,7 +58,7 @@ private:
     int width_ = 0;
     // Card MLP outputs by token. Leaves of one search share most of their cards, so this
     // skips most card MLP work; cleared when it grows large.
-    mutable std::unordered_map<CardToken, std::vector<float>, CardHash> card_cache_;
+    mutable std::unordered_map<CardKey, std::vector<float>, BitsHash> card_cache_;
     mutable std::unordered_map<MonsterKey, std::vector<float>, BitsHash> monster_cache_;
     mutable std::unordered_map<InteractionKey, std::vector<float>, BitsHash> interaction_cache_;
     // Scratch buffers of evaluate (no allocation per state).

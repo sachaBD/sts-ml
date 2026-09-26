@@ -19,6 +19,8 @@
 using namespace stsrl;
 using Json = nlohmann::json;
 
+namespace sts::search { extern unsigned long long g_prof[8]; }  // PBCS_PROFILE builds
+
 namespace {
 // Thread CPU time: the machine is shared, so wall time also counts time spent waiting for a core.
 double cpu_now() {
@@ -232,7 +234,8 @@ int main(int argc, char** argv) {
                 env.step(teacher::legal_index(env, legal, search, search.selectedAction()));
             }
         }
-        std::cout << Json{{"sims", total}, {"tree", tree}, {"encode", encode}, {"eval", eval}, {"backup", backup}}.dump()
+        std::cout << Json{{"sims", total}, {"tree", tree}, {"encode", encode}, {"eval", eval}, {"backup", backup},
+                          {"tree_cycles", std::vector<unsigned long long>(sts::search::g_prof, sts::search::g_prof + 6)}}.dump()
                   << std::endl;
         return 0;
     }

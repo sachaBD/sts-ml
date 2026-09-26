@@ -151,14 +151,6 @@ ValueNet::ValueNet(const std::string& path) {
     head2_ = linear(t, "head.2", w, 1);
 }
 
-std::size_t ValueNet::CardHash::operator()(const CardToken& c) const {
-    std::size_t h = std::hash<int>{}(c.card_id);
-    const auto mix = [&h](std::size_t x) { h ^= x + 0x9E3779B97F4A7C15ULL + (h << 6) + (h >> 2); };
-    mix(static_cast<std::size_t>(c.zone) | static_cast<std::size_t>(c.card_type) << 8
-        | static_cast<std::size_t>(c.target_type) << 16);
-    for (const float x : c.numeric) mix(std::hash<float>{}(x));
-    return h;
-}
 
 template <class Key> std::size_t ValueNet::BitsHash::operator()(const Key& k) const {
     std::uint64_t h = 0x9E3779B97F4A7C15ULL;
@@ -201,14 +193,16 @@ const float* ValueNet::monster_hidden(const MonsterToken& monster) const {
 }
 
 const float* ValueNet::card_hidden(const CardToken& card) const {
-    if (const auto it = card_cache_.find(card); it != card_cache_.end()) return it->second.data();
+    CardKey key;
+    put_card(key.bits.data(), card);
+    if (const auto it = card_cache_.find(key); it != card_cache_.end()) return it->second.data();
     std::vector<float> x(card1_.in), hidden(width_), out(width_);
     float* p = put(x.data(), card_id_, card.card_id);
     p = put(p, zone_, static_cast<int>(card.zone));
     p = put(p, card_type_, static_cast<int>(card.card_type));
     put(put(p, target_type_, static_cast<int>(card.target_type)), card.numeric);
     mlp(card1_, card2_, x.data(), hidden.data(), out.data());
-    return card_cache_.emplace(card, std::move(out)).first->second.data();
+    return card_cache_.emplace(key, std::move(out)).first->second.data();
 }
 
 float ValueNet::evaluate(const EncodedCombatState& s) const {

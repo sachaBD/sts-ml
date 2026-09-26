@@ -209,12 +209,15 @@ EncodedCombatState encode_state(const sts::BattleContext& state) {
     struct PendingCard { CardToken token; int hand_index = -1; const sts::CardInstance* card = nullptr; };
     struct PendingMonster { MonsterToken token; int slot; const sts::Monster* monster; };
     std::vector<PendingCard> cards;
+    cards.reserve(state.cards.cardsInHand + state.cards.drawPile.size() + state.cards.discardPile.size()
+                  + state.cards.exhaustPile.size());
     for (int i = 0; i < state.cards.cardsInHand; ++i)
         cards.push_back({encode_card(state, state.cards.hand[i], CardZone::hand, state.cards.hand[i].canUseOnAnyTarget(state)), i, &state.cards.hand[i]});
     for (const auto& card : state.cards.drawPile) cards.push_back({encode_card(state, card, CardZone::draw, false), -1, &card});
     for (const auto& card : state.cards.discardPile) cards.push_back({encode_card(state, card, CardZone::discard, false), -1, &card});
     for (const auto& card : state.cards.exhaustPile) cards.push_back({encode_card(state, card, CardZone::exhaust, false), -1, &card});
     std::sort(cards.begin(), cards.end(), [](const auto& a, const auto& b) { return card_less(a.token, b.token); });
+    encoding.cards.reserve(cards.size());
     for (const auto& card : cards) encoding.cards.push_back(card.token);
     std::vector<PendingMonster> monsters;
     for (int slot = 0; slot < static_cast<int>(state.monsters.arr.size()); ++slot) {
@@ -225,8 +228,9 @@ EncodedCombatState encode_state(const sts::BattleContext& state) {
     for (const auto& monster : monsters) encoding.monsters.push_back(monster.token);
     for (std::size_t ci = 0; ci < cards.size(); ++ci) {
         const auto& source = cards[ci];
+        if (source.hand_index < 0) continue;  // (before card_meta: only hand cards interact)
         const auto meta = card_meta(state, *source.card);
-        if (source.hand_index < 0 || meta.damage == 0 || meta.target == TargetType::random_enemy) continue;
+        if (meta.damage == 0 || meta.target == TargetType::random_enemy) continue;
         for (std::size_t mi = 0; mi < monsters.size(); ++mi) {
             const auto& target = monsters[mi];
             if (!target.monster->isTargetable()) continue;
