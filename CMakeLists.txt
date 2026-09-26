@@ -76,6 +76,9 @@ target_link_libraries(generate_mcts_records PRIVATE combat_core)
 target_compile_features(generate_mcts_records PRIVATE cxx_std_23)
 target_compile_options(generate_mcts_records PRIVATE -Wall -Wextra -Wpedantic)
 
+add_executable(bench_reuse apps/bench_reuse.cpp)
+target_link_libraries(bench_reuse PRIVATE combat_core)
+
 enable_testing()
 add_executable(encoding_test tests/encoding_test.cpp)
 target_link_libraries(encoding_test PRIVATE combat_core)

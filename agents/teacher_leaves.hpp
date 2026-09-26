@@ -39,6 +39,14 @@ struct Budget {
 sts::search::PublicBeliefCombatSearch make_search(const sts::BattleContext& observed, bool oracle = false,
                                                   int particles = teacher::particles);
 
+// Tree reuse: after `played_bits` was played at `before` (the search's root) and `after` is observed, keep
+// the played move's subtree as the new root (PublicBeliefCombatSearch::rebase) with `after`'s particles
+// (as make_search). The budget still counts only new simulations, so each decision has at least a fresh
+// search's evidence; kept visits only add to it (and can make early stop fire sooner).
+void rebase_search(sts::search::PublicBeliefCombatSearch& search, const sts::BattleContext& before,
+                   std::uint32_t played_bits, const sts::BattleContext& after, bool oracle = false,
+                   int particles = teacher::particles);
+
 // Guided-rollout search with the teacher budget; returns simulations used. Plays the same move as
 // search.search(simulations) with less compute:
 //   forced: one legal move -> only forced_simulations.

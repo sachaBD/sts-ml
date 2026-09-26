@@ -57,17 +57,21 @@ bool decided(const PublicBeliefCombatSearch& search, std::int64_t left) {
     return best - second > left;
 }
 
-}  // namespace
-
-PublicBeliefCombatSearch make_search(const sts::BattleContext& observed, bool oracle, int particles) {
+std::vector<sts::BattleContext> root_particles(const sts::BattleContext& observed, bool oracle, int particles) {
     if (particles < 1) throw std::invalid_argument{"particles must be >= 1"};
-    const auto public_seed = PublicBeliefCombatSearch::publicObservation(observed);
-    auto stream = public_seed;
+    auto stream = PublicBeliefCombatSearch::publicObservation(observed);
     std::vector<sts::BattleContext> states;
     states.reserve(particles);
     if (oracle) states.push_back(observed);
     else for (int i = 0; i < particles; ++i) states.push_back(sample_particle(observed, next_seed(stream)));
-    PublicBeliefCombatSearch search{std::move(states), public_seed, 2};
+    return states;
+}
+
+}  // namespace
+
+PublicBeliefCombatSearch make_search(const sts::BattleContext& observed, bool oracle, int particles) {
+    const auto public_seed = PublicBeliefCombatSearch::publicObservation(observed);
+    PublicBeliefCombatSearch search{root_particles(observed, oracle, particles), public_seed, 2};
     search.maximumActions = max_actions;
     search.maxBackup = oracle;
     return search;
@@ -90,6 +94,12 @@ std::int64_t run_teacher_search(PublicBeliefCombatSearch& search, std::int64_t s
         if (decided(search, simulations - used)) break;
     }
     return used;
+}
+
+void rebase_search(PublicBeliefCombatSearch& search, const sts::BattleContext& before, std::uint32_t played_bits,
+                   const sts::BattleContext& after, bool oracle, int particles) {
+    const auto key = PublicBeliefCombatSearch::publicActionKey(before, sts::search::Action{played_bits});
+    search.rebase(root_particles(after, oracle, particles), key, PublicBeliefCombatSearch::publicObservation(after));
 }
 
 LeafEvaluator value_net_evaluator(const ValueNet& net) {
