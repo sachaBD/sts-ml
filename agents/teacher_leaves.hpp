@@ -43,6 +43,7 @@ struct SearchTweaks {
     // Early stop once N_best - N_second > stop_factor * simulations left. 1 = the exact rule (the most
     // visited move can no longer change); below 1 stops sooner, accepting that it might have.
     double stop_factor = 1.0;
+    bool transpositions = false;  // PublicBeliefCombatSearch::transpositions
 };
 SearchTweaks& tweaks();
 

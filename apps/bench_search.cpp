@@ -9,6 +9,7 @@
 #include <ctime>
 #include <cstdlib>
 #include <fstream>
+#include <map>
 #include <memory>
 #include <optional>
 #include <sstream>
@@ -61,6 +62,7 @@ int main(int argc, char** argv) {
                 std::stringstream tokens(spec);
                 for (std::string t; std::getline(tokens, t, '+');) {
                     if (t == "merge") arm.tweaks.merge_identical_cards = true;
+                    else if (t == "dag") arm.tweaks.transpositions = true;
                     else if (t == "reseed") arm.reseed = true;
                     else if (t == "reuse") arm.reuse = true;
                     else if (t.starts_with("stop=")) arm.tweaks.stop_factor = std::stod(t.substr(5));
@@ -70,6 +72,7 @@ int main(int argc, char** argv) {
                 arms.push_back(std::move(arm));
             }
         }
+        const bool ref_merge = !std::getenv("REF_MERGE") || std::string{std::getenv("REF_MERGE")} != "0";
         const std::int64_t ref_sims = std::getenv("REF_SIMS") ? std::stoll(std::getenv("REF_SIMS")) : 100000;
         const auto key_of = [](const sts::BattleContext& state, std::uint32_t bits) {
             return std::to_string(sts::search::PublicBeliefCombatSearch::identityActionKey(state, sts::search::Action{bits}));
@@ -101,13 +104,17 @@ int main(int argc, char** argv) {
                 line["arms"] = out;
                 if (legal > 1) {
                     teacher::tweaks() = {};
-                    teacher::tweaks().merge_identical_cards = true;
+                    teacher::tweaks().merge_identical_cards = ref_merge;
                     teacher::tweaks().stop_factor = 1e30;
                     auto ref = teacher::make_search(env.battle());
                     teacher::run_value_net_search(ref, net, ref_sims, legal);
+                    std::map<std::string, std::pair<std::int64_t, double>> moves;  // duplicates (unmerged) pooled
+                    for (const auto& e : ref.root().edges) {
+                        auto& m = moves[key_of(ref.particles.front(), e.action.bits)];
+                        m.first += e.visits; m.second += e.valueSum;
+                    }
                     Json q = Json::object();
-                    for (const auto& e : ref.root().edges)
-                        q[key_of(ref.particles.front(), e.action.bits)] = {{"n", e.visits}, {"q", e.visits ? e.valueSum / e.visits : 0.0}};
+                    for (const auto& [k, m] : moves) q[k] = {{"n", m.first}, {"q", m.first ? m.second / m.first : 0.0}};
                     line["ref"] = q;
                 }
                 std::cout << line.dump() << std::endl;

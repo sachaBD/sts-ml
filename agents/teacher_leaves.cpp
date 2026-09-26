@@ -81,6 +81,7 @@ PublicBeliefCombatSearch make_search(const sts::BattleContext& observed, bool or
                                     tweaks().merge_identical_cards};
     search.maximumActions = max_actions;
     search.maxBackup = oracle;
+    search.transpositions = tweaks().transpositions;
     return search;
 }
 
