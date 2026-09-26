@@ -6,8 +6,9 @@
 //   WEIGHTS: value_net leaf; none: guided_rollout leaf (the bootstrap teacher).
 //   REQUEST.json: {run_seed, ascension, fight_index, actions: [[chosen_action...] per earlier fight],
 //                random_potions, samples: [{episode_id, starting_hp}],
-//                teacher (optional): {simulations, particles, random_move}}
-//   teacher defaults: simulations 15000, particles 8 (teacher::Budget; positive integers), random_move true (as bootstrap).
+//                teacher (optional): {simulations, particles, random_move, stop_factor, merge_identical_cards}}
+//   teacher defaults: simulations 15000, particles 8 (teacher::Budget; positive integers), random_move true (as bootstrap);
+//   stop_factor 1, merge_identical_cards false: opt-in search variants (teacher::SearchTweaks, slop_docs/search_perf.md).
 //   random_potions: each potion the player holds is replaced by a random potion drop (potion RNG seeded as above).
 // Output: OUTPUT_DIR/result.msgpack = {teacher, rows} (combat_v3 rows of every sample, in sample order).
 #include "agents/teacher_search.hpp"
@@ -50,6 +51,7 @@ Json play(const Json& input, const stsrl::ValueNet* net) {
             if (key == "simulations") budget.simulations = positive(key, value);
             else if (key == "particles") budget.particles = static_cast<int>(positive(key, value));
             else if (key == "random_move") random_move = value.get<bool>();
+            else if (stsrl::teacher::set_tweak(key, value)) {}  // stop_factor, merge_identical_cards
             else throw std::invalid_argument{"unknown teacher setting: " + key};
         }
     const auto search = stsrl::teacher::leaf_search(leaf, net, budget);

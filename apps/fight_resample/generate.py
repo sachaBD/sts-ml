@@ -21,7 +21,8 @@ log = logging.getLogger(__name__)
 BUILT = Path("build/resample/fight_resample_worker")  # built by apps/common/job.sh
 MAX_SAMPLES = 1000  # episode_id = source_episode_id * 1000 + k
 RUN_KEYS = {"id", "query", "samples", "hp_sd", "random_potions", "value_run", "fights", "workers",
-            "simulations", "particles", "random_move", "first_sample"}  # search budget / random move; worker defaults 15000, 8, true
+            "simulations", "particles", "random_move", "first_sample",  # search budget / random move; worker defaults 15000, 8, true
+            "stop_factor", "merge_identical_cards"}  # opt-in search variants (slop_docs/search_perf.md); worker validates
 COLUMNS = ["run_seed", "fight_index", "episode_id", "decision_index", "chosen_action", "ascension", "encounter", "floor",
            "starting_hp", "starting_max_hp"]
 
@@ -93,6 +94,7 @@ def resample(config, config_path, out):
         if type(run["random_move"]) is not bool:
             sys.exit(f"random_move must be true or false, got {run['random_move']!r}")
         teacher["random_move"] = run["random_move"]
+    teacher.update({k: run[k] for k in ("stop_factor", "merge_identical_cards") if k in run})
     for request, start in fights.values():
         request.update(random_potions=random_potions, samples=samples(start, run["samples"], run["hp_sd"], first))
         if teacher:

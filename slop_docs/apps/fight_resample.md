@@ -23,7 +23,10 @@ runs, which have no inputs of their own), `samples` (per source fight, ≤ 1000)
 `fights` (first N queried fights by episode_id), optional `value_run` (value-net leaf; default: the bootstrap
 guided-rollout teacher), optional `simulations` / `particles` (positive integers; default 15000 / 8) and
 `random_move` (default true), optional `first_sample` (default 0: samples are k = first_sample .. first_sample + samples - 1, so
-a later run with a higher first_sample plays new versions of the same fights). Oracle off. Defaults = bootstrap.
+a later run with a higher first_sample plays new versions of the same fights), optional `stop_factor` (in (0, 1];
+default 1) and `merge_identical_cards` (default false): opt-in search variants, see `slop_docs/search_perf.md`
+(`stop_factor = 0.25`: ~20% fewer simulations, the same move at 273/275 test states, `root_value` ~0.006 lower, which
+does not matter for terminal-labelled training). Oracle off. Defaults = bootstrap.
 
 ## Sample k of source fight `source_episode_id`
 
