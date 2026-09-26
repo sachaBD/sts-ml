@@ -3,7 +3,7 @@
 //   encode_state                      == CombatEnvironment::decision().encoding without legal_actions
 //   ValueNet (caches, AVX2 layers)    == the original ValueNet (tests/original_value_net.hpp), bit for bit
 // States: random playouts and search leaves of Slime Boss fights.
-#include "agents/teacher_leaves.hpp"
+#include "agents/teacher_search.hpp"
 #include "combat/environment.hpp"
 #include "models/value_net.hpp"
 #include "scenarios/slime_boss.hpp"
@@ -181,6 +181,22 @@ void test_merge_identical_cards() {
     }
 }
 
+void test_tweaks() {
+    teacher::tweaks() = {};
+    check(!teacher::settings("value_net").contains("stop_factor"), "default settings: no tweaks recorded");
+    check(teacher::set_tweak("stop_factor", 0.25) && teacher::tweaks().stop_factor == 0.25, "stop_factor set");
+    check(teacher::set_tweak("merge_identical_cards", true) && teacher::tweaks().merge_identical_cards, "merge set");
+    const auto settings = teacher::settings("value_net");
+    check(settings.at("stop_factor") == 0.25 && settings.at("merge_identical_cards") == true, "tweaks recorded");
+    check(!teacher::set_tweak("simulations", 5), "other keys are not tweaks");
+    for (const auto& bad : {nlohmann::json(0), nlohmann::json(1.5), nlohmann::json("x")}) {
+        bool threw = false;
+        try { teacher::set_tweak("stop_factor", bad); } catch (const std::invalid_argument&) { threw = true; }
+        check(threw, "invalid stop_factor rejected");
+    }
+    teacher::tweaks() = {};
+}
+
 }  // namespace
 
 int main() {
@@ -189,5 +205,6 @@ int main() {
     test_encode_state(states);
     test_value_net(states);
     test_merge_identical_cards();
+    test_tweaks();
     std::cout << "search_perf_test passed (" << states.size() << " states)\n";
 }

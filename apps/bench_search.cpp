@@ -64,7 +64,6 @@ int main(int argc, char** argv) {
                 std::stringstream tokens(spec);
                 for (std::string t; std::getline(tokens, t, '+');) {
                     if (t == "merge") arm.tweaks.merge_identical_cards = true;
-                    else if (t == "dag") arm.tweaks.transpositions = true;
                     else if (t == "reseed") arm.reseed = true;
                     else if (t == "reuse") arm.reuse = true;
                     else if (t.starts_with("stop=")) arm.tweaks.stop_factor = std::stod(t.substr(5));

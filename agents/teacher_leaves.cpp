@@ -75,13 +75,27 @@ SearchTweaks& tweaks() {
     return value;
 }
 
+bool set_tweak(const std::string& key, const Json& value) {
+    if (key == "merge_identical_cards") {
+        if (!value.is_boolean()) throw std::invalid_argument{"merge_identical_cards must be a bool"};
+        tweaks().merge_identical_cards = value.get<bool>();
+        return true;
+    }
+    if (key == "stop_factor") {
+        if (!value.is_number() || !(value.get<double>() > 0) || value.get<double>() > 1)
+            throw std::invalid_argument{"stop_factor must be a number in (0, 1]"};
+        tweaks().stop_factor = value.get<double>();
+        return true;
+    }
+    return false;
+}
+
 PublicBeliefCombatSearch make_search(const sts::BattleContext& observed, bool oracle, int particles) {
     const auto public_seed = PublicBeliefCombatSearch::publicObservation(observed);
     PublicBeliefCombatSearch search{root_particles(observed, oracle, particles), public_seed, 2,
                                     tweaks().merge_identical_cards};
     search.maximumActions = max_actions;
     search.maxBackup = oracle;
-    search.transpositions = tweaks().transpositions;
     return search;
 }
 
@@ -211,6 +225,8 @@ Json search_settings(const Leaf& leaf, const Budget& budget) {
         result["rollout_turns"] = leaf.rollout_turns;
         result["rollout_steps"] = leaf.rollout_steps;
     }
+    if (tweaks().merge_identical_cards) result["merge_identical_cards"] = true;
+    if (tweaks().stop_factor != 1.0) result["stop_factor"] = tweaks().stop_factor;
     return result;
 }
 
