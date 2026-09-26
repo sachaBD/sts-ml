@@ -171,6 +171,82 @@ CombatEnvironment::~CombatEnvironment() = default;
 CombatEnvironment::CombatEnvironment(CombatEnvironment&&) noexcept = default;
 CombatEnvironment& CombatEnvironment::operator=(CombatEnvironment&&) noexcept = default;
 
+EncodedCombatState encode_state(const sts::BattleContext& state) {
+    EncodedCombatState encoding;
+    const auto& player = state.player;
+    int incoming = 0;
+    for (const auto& monster : state.monsters.arr) if (monster.id != sts::MonsterId::INVALID && monster.isAlive()) {
+        const auto damage = monster.getMoveBaseDamage(state);
+        incoming += monster.calculateDamageToPlayer(state, damage.damage) * damage.attackCount;
+    }
+    const int select_task = state.inputState == sts::InputState::CARD_SELECT
+        ? static_cast<int>(state.cardSelectInfo.cardSelectTask)
+        : static_cast<int>(sts::CardSelectTask::INVALID);
+    encoding.global = {{state.turn / 20.f, player.curHp / 100.f,
+        player.maxHp ? player.curHp / float(player.maxHp) : 0.f, player.block / 100.f, player.energy / 10.f,
+        player.energyPerTurn / 10.f, player.strength / 10.f, player.dexterity / 10.f,
+        player.getStatusRuntime(PlayerStatus::WEAK) / 10.f, player.getStatusRuntime(PlayerStatus::VULNERABLE) / 10.f,
+        player.getStatusRuntime(PlayerStatus::FRAIL) / 10.f, player.cardsPlayedThisTurn / 20.f,
+        state.cards.cardsInHand / 10.f, state.cards.drawPile.size() / 64.f,
+        state.cards.discardPile.size() / 64.f, state.cards.exhaustPile.size() / 64.f,
+        incoming / 100.f, std::max(0, incoming - player.block) / 100.f,
+        player.getStatusRuntime(PlayerStatus::COMBUST) / 10.f, player.combustHpLoss / 10.f,
+        player.getStatusRuntime(PlayerStatus::FLAME_BARRIER) / 50.f, float(player.hasStatus<PlayerStatus::NO_DRAW>()),
+        player.getStatusRuntime(PlayerStatus::INTANGIBLE) / 10.f, player.getStatusRuntime(PlayerStatus::ARTIFACT) / 10.f,
+        float(player.hasStatus<PlayerStatus::BARRICADE>()), float(player.hasStatus<PlayerStatus::CORRUPTION>()),
+        player.getStatusRuntime(PlayerStatus::BRUTALITY) / 10.f, player.getStatusRuntime(PlayerStatus::DEMON_FORM) / 10.f,
+        player.getStatusRuntime(PlayerStatus::DARK_EMBRACE) / 10.f, player.getStatusRuntime(PlayerStatus::EVOLVE) / 10.f,
+        player.getStatusRuntime(PlayerStatus::FEEL_NO_PAIN) / 10.f, player.getStatusRuntime(PlayerStatus::METALLICIZE) / 10.f,
+        player.getStatusRuntime(PlayerStatus::RAGE) / 10.f, player.getStatusRuntime(PlayerStatus::DOUBLE_TAP) / 10.f,
+        player.getStatusRuntime(PlayerStatus::VIGOR) / 10.f, player.bomb1 / 50.f, player.bomb2 / 50.f, player.bomb3 / 50.f,
+        player.getStatusRuntime(PlayerStatus::NO_BLOCK) / 10.f, player.getStatusRuntime(PlayerStatus::LOSE_STRENGTH) / 10.f,
+        player.getStatusRuntime(PlayerStatus::LOSE_DEXTERITY) / 10.f, player.getStatusRuntime(PlayerStatus::ENERGIZED) / 10.f,
+        player.getStatusRuntime(PlayerStatus::FIRE_BREATHING) / 10.f, player.getStatusRuntime(PlayerStatus::JUGGERNAUT) / 10.f,
+        player.getStatusRuntime(PlayerStatus::RUPTURE) / 10.f, player.getStatusRuntime(PlayerStatus::MAGNETISM) / 10.f,
+        player.getStatusRuntime(PlayerStatus::MAYHEM) / 10.f, player.getStatusRuntime(PlayerStatus::PANACHE) / 10.f,
+        player.panacheCounter / 20.f, player.getStatusRuntime(PlayerStatus::SADISTIC) / 10.f},
+        static_cast<int>(state.inputState), select_task};
+    struct PendingCard { CardToken token; int hand_index = -1; const sts::CardInstance* card = nullptr; };
+    struct PendingMonster { MonsterToken token; int slot; const sts::Monster* monster; };
+    std::vector<PendingCard> cards;
+    cards.reserve(state.cards.cardsInHand + state.cards.drawPile.size() + state.cards.discardPile.size()
+                  + state.cards.exhaustPile.size());
+    for (int i = 0; i < state.cards.cardsInHand; ++i)
+        cards.push_back({encode_card(state, state.cards.hand[i], CardZone::hand, state.cards.hand[i].canUseOnAnyTarget(state)), i, &state.cards.hand[i]});
+    for (const auto& card : state.cards.drawPile) cards.push_back({encode_card(state, card, CardZone::draw, false), -1, &card});
+    for (const auto& card : state.cards.discardPile) cards.push_back({encode_card(state, card, CardZone::discard, false), -1, &card});
+    for (const auto& card : state.cards.exhaustPile) cards.push_back({encode_card(state, card, CardZone::exhaust, false), -1, &card});
+    std::sort(cards.begin(), cards.end(), [](const auto& a, const auto& b) { return card_less(a.token, b.token); });
+    encoding.cards.reserve(cards.size());
+    for (const auto& card : cards) encoding.cards.push_back(card.token);
+    std::vector<PendingMonster> monsters;
+    for (int slot = 0; slot < static_cast<int>(state.monsters.arr.size()); ++slot) {
+        const auto& monster = state.monsters.arr[slot];
+        if (monster.id != sts::MonsterId::INVALID && monster.isAlive()) monsters.push_back({encode_monster(state, monster), slot, &monster});
+    }
+    std::sort(monsters.begin(), monsters.end(), [](const auto& a, const auto& b) { return monster_less(a.token, b.token); });
+    for (const auto& monster : monsters) encoding.monsters.push_back(monster.token);
+    for (std::size_t ci = 0; ci < cards.size(); ++ci) {
+        const auto& source = cards[ci];
+        if (source.hand_index < 0) continue;  // (before card_meta: only hand cards interact)
+        const auto meta = card_meta(state, *source.card);
+        if (meta.damage == 0 || meta.target == TargetType::random_enemy) continue;
+        for (std::size_t mi = 0; mi < monsters.size(); ++mi) {
+            const auto& target = monsters[mi];
+            if (!target.monster->isTargetable()) continue;
+            const int per_hit = state.calculateCardDamage(*source.card, target.slot, meta.damage);
+            const int damage = per_hit * meta.hits;
+            const int hp_damage = std::min(target.monster->curHp, std::max(0, damage - target.monster->block));
+            const int remaining = target.monster->curHp - hp_damage;
+            encoding.card_monster_interactions.push_back({std::uint16_t(ci), std::uint8_t(mi),
+                {meta.hits / 10.f, damage / 100.f, hp_damage / 100.f, remaining / 100.f,
+                 target.monster->maxHp ? remaining / float(target.monster->maxHp) : 0.f,
+                 float(source.card->canUse(state, target.slot, false))}});
+        }
+    }
+    return encoding;
+}
+
 Decision CombatEnvironment::decision() {
     sts::search::BattleScumSearcher2::Node node;
     impl_->enumerator.enumerateActionsForNode(node, impl_->state);
@@ -191,72 +267,10 @@ Decision CombatEnvironment::decision() {
         .enemy_max_hp = enemy.maxHp,
         .enemy_block = enemy.block,
     };
-    int incoming = 0;
-    for (const auto& monster : impl_->state.monsters.arr) if (monster.id != sts::MonsterId::INVALID && monster.isAlive()) {
-        const auto damage = monster.getMoveBaseDamage(impl_->state);
-        incoming += monster.calculateDamageToPlayer(impl_->state, damage.damage) * damage.attackCount;
-    }
+    result.encoding = encode_state(impl_->state);
     const int select_task = impl_->state.inputState == sts::InputState::CARD_SELECT
         ? static_cast<int>(impl_->state.cardSelectInfo.cardSelectTask)
         : static_cast<int>(sts::CardSelectTask::INVALID);
-    result.encoding.global = {{impl_->state.turn / 20.f, player.curHp / 100.f,
-        player.maxHp ? player.curHp / float(player.maxHp) : 0.f, player.block / 100.f, player.energy / 10.f,
-        player.energyPerTurn / 10.f, player.strength / 10.f, player.dexterity / 10.f,
-        player.getStatusRuntime(PlayerStatus::WEAK) / 10.f, player.getStatusRuntime(PlayerStatus::VULNERABLE) / 10.f,
-        player.getStatusRuntime(PlayerStatus::FRAIL) / 10.f, player.cardsPlayedThisTurn / 20.f,
-        impl_->state.cards.cardsInHand / 10.f, impl_->state.cards.drawPile.size() / 64.f,
-        impl_->state.cards.discardPile.size() / 64.f, impl_->state.cards.exhaustPile.size() / 64.f,
-        incoming / 100.f, std::max(0, incoming - player.block) / 100.f,
-        player.getStatusRuntime(PlayerStatus::COMBUST) / 10.f, player.combustHpLoss / 10.f,
-        player.getStatusRuntime(PlayerStatus::FLAME_BARRIER) / 50.f, float(player.hasStatus<PlayerStatus::NO_DRAW>()),
-        player.getStatusRuntime(PlayerStatus::INTANGIBLE) / 10.f, player.getStatusRuntime(PlayerStatus::ARTIFACT) / 10.f,
-        float(player.hasStatus<PlayerStatus::BARRICADE>()), float(player.hasStatus<PlayerStatus::CORRUPTION>()),
-        player.getStatusRuntime(PlayerStatus::BRUTALITY) / 10.f, player.getStatusRuntime(PlayerStatus::DEMON_FORM) / 10.f,
-        player.getStatusRuntime(PlayerStatus::DARK_EMBRACE) / 10.f, player.getStatusRuntime(PlayerStatus::EVOLVE) / 10.f,
-        player.getStatusRuntime(PlayerStatus::FEEL_NO_PAIN) / 10.f, player.getStatusRuntime(PlayerStatus::METALLICIZE) / 10.f,
-        player.getStatusRuntime(PlayerStatus::RAGE) / 10.f, player.getStatusRuntime(PlayerStatus::DOUBLE_TAP) / 10.f,
-        player.getStatusRuntime(PlayerStatus::VIGOR) / 10.f, player.bomb1 / 50.f, player.bomb2 / 50.f, player.bomb3 / 50.f,
-        player.getStatusRuntime(PlayerStatus::NO_BLOCK) / 10.f, player.getStatusRuntime(PlayerStatus::LOSE_STRENGTH) / 10.f,
-        player.getStatusRuntime(PlayerStatus::LOSE_DEXTERITY) / 10.f, player.getStatusRuntime(PlayerStatus::ENERGIZED) / 10.f,
-        player.getStatusRuntime(PlayerStatus::FIRE_BREATHING) / 10.f, player.getStatusRuntime(PlayerStatus::JUGGERNAUT) / 10.f,
-        player.getStatusRuntime(PlayerStatus::RUPTURE) / 10.f, player.getStatusRuntime(PlayerStatus::MAGNETISM) / 10.f,
-        player.getStatusRuntime(PlayerStatus::MAYHEM) / 10.f, player.getStatusRuntime(PlayerStatus::PANACHE) / 10.f,
-        player.panacheCounter / 20.f, player.getStatusRuntime(PlayerStatus::SADISTIC) / 10.f},
-        static_cast<int>(impl_->state.inputState), select_task};
-    struct PendingCard { CardToken token; int hand_index = -1; const sts::CardInstance* card = nullptr; };
-    struct PendingMonster { MonsterToken token; int slot; const sts::Monster* monster; };
-    std::vector<PendingCard> cards;
-    for (int i = 0; i < impl_->state.cards.cardsInHand; ++i)
-        cards.push_back({encode_card(impl_->state, impl_->state.cards.hand[i], CardZone::hand, impl_->state.cards.hand[i].canUseOnAnyTarget(impl_->state)), i, &impl_->state.cards.hand[i]});
-    for (const auto& card : impl_->state.cards.drawPile) cards.push_back({encode_card(impl_->state, card, CardZone::draw, false), -1, &card});
-    for (const auto& card : impl_->state.cards.discardPile) cards.push_back({encode_card(impl_->state, card, CardZone::discard, false), -1, &card});
-    for (const auto& card : impl_->state.cards.exhaustPile) cards.push_back({encode_card(impl_->state, card, CardZone::exhaust, false), -1, &card});
-    std::sort(cards.begin(), cards.end(), [](const auto& a, const auto& b) { return card_less(a.token, b.token); });
-    for (const auto& card : cards) result.encoding.cards.push_back(card.token);
-    std::vector<PendingMonster> monsters;
-    for (int slot = 0; slot < static_cast<int>(impl_->state.monsters.arr.size()); ++slot) {
-        const auto& monster = impl_->state.monsters.arr[slot];
-        if (monster.id != sts::MonsterId::INVALID && monster.isAlive()) monsters.push_back({encode_monster(impl_->state, monster), slot, &monster});
-    }
-    std::sort(monsters.begin(), monsters.end(), [](const auto& a, const auto& b) { return monster_less(a.token, b.token); });
-    for (const auto& monster : monsters) result.encoding.monsters.push_back(monster.token);
-    for (std::size_t ci = 0; ci < cards.size(); ++ci) {
-        const auto& source = cards[ci];
-        const auto meta = card_meta(impl_->state, *source.card);
-        if (source.hand_index < 0 || meta.damage == 0 || meta.target == TargetType::random_enemy) continue;
-        for (std::size_t mi = 0; mi < monsters.size(); ++mi) {
-            const auto& target = monsters[mi];
-            if (!target.monster->isTargetable()) continue;
-            const int per_hit = impl_->state.calculateCardDamage(*source.card, target.slot, meta.damage);
-            const int damage = per_hit * meta.hits;
-            const int hp_damage = std::min(target.monster->curHp, std::max(0, damage - target.monster->block));
-            const int remaining = target.monster->curHp - hp_damage;
-            result.encoding.card_monster_interactions.push_back({std::uint16_t(ci), std::uint8_t(mi),
-                {meta.hits / 10.f, damage / 100.f, hp_damage / 100.f, remaining / 100.f,
-                 target.monster->maxHp ? remaining / float(target.monster->maxHp) : 0.f,
-                 float(source.card->canUse(impl_->state, target.slot, false))}});
-        }
-    }
     result.legal_actions.reserve(node.edges.size());
     result.encoding.legal_actions.reserve(node.edges.size());
 

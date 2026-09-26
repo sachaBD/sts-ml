@@ -3,6 +3,7 @@
 #include "game/Random.h"
 
 #include <algorithm>
+#include <cstdlib>
 #include <cmath>
 #include <stdexcept>
 #include <tuple>
@@ -54,7 +55,7 @@ bool decided(const PublicBeliefCombatSearch& search, std::int64_t left) {
         if (e.visits > best) { second = best; best = e.visits; }
         else if (e.visits > second) second = e.visits;
     }
-    return best - second > left;
+    return best - second > tweaks().stop_factor * static_cast<double>(left);
 }
 
 std::vector<sts::BattleContext> root_particles(const sts::BattleContext& observed, bool oracle, int particles) {
@@ -69,9 +70,30 @@ std::vector<sts::BattleContext> root_particles(const sts::BattleContext& observe
 
 }  // namespace
 
+SearchTweaks& tweaks() {
+    static SearchTweaks value;
+    return value;
+}
+
+bool set_tweak(const std::string& key, const Json& value) {
+    if (key == "merge_identical_cards") {
+        if (!value.is_boolean()) throw std::invalid_argument{"merge_identical_cards must be a bool"};
+        tweaks().merge_identical_cards = value.get<bool>();
+        return true;
+    }
+    if (key == "stop_factor") {
+        if (!value.is_number() || !(value.get<double>() > 0) || value.get<double>() > 1)
+            throw std::invalid_argument{"stop_factor must be a number in (0, 1]"};
+        tweaks().stop_factor = value.get<double>();
+        return true;
+    }
+    return false;
+}
+
 PublicBeliefCombatSearch make_search(const sts::BattleContext& observed, bool oracle, int particles) {
     const auto public_seed = PublicBeliefCombatSearch::publicObservation(observed);
-    PublicBeliefCombatSearch search{root_particles(observed, oracle, particles), public_seed, 2};
+    PublicBeliefCombatSearch search{root_particles(observed, oracle, particles), public_seed, 2,
+                                    tweaks().merge_identical_cards};
     search.maximumActions = max_actions;
     search.maxBackup = oracle;
     return search;
@@ -98,7 +120,7 @@ std::int64_t run_teacher_search(PublicBeliefCombatSearch& search, std::int64_t s
 
 void rebase_search(PublicBeliefCombatSearch& search, const sts::BattleContext& before, std::uint32_t played_bits,
                    const sts::BattleContext& after, bool oracle, int particles) {
-    const auto key = PublicBeliefCombatSearch::publicActionKey(before, sts::search::Action{played_bits});
+    const auto key = search.actionKey(before, sts::search::Action{played_bits});
     search.rebase(root_particles(after, oracle, particles), key, PublicBeliefCombatSearch::publicObservation(after));
 }
 
@@ -106,7 +128,7 @@ LeafEvaluator value_net_evaluator(const ValueNet& net) {
     return [&net, encoded = std::vector<EncodedCombatState>{}](const std::vector<const sts::BattleContext*>& leaves,
                                                              std::vector<float>& values) mutable {
         encoded.clear();
-        for (const auto* leaf : leaves) encoded.push_back(CombatEnvironment{*leaf}.decision().encoding);
+        for (const auto* leaf : leaves) encoded.push_back(encode_state(*leaf));
         net.evaluate(encoded, values);
     };
 }
@@ -203,6 +225,8 @@ Json search_settings(const Leaf& leaf, const Budget& budget) {
         result["rollout_turns"] = leaf.rollout_turns;
         result["rollout_steps"] = leaf.rollout_steps;
     }
+    if (tweaks().merge_identical_cards) result["merge_identical_cards"] = true;
+    if (tweaks().stop_factor != 1.0) result["stop_factor"] = tweaks().stop_factor;
     return result;
 }
 

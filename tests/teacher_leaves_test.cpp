@@ -103,7 +103,7 @@ void test_settings() {
     // Bootstrap's recorded teacher settings are unchanged by the split.
     const Json guided = {{"leaf", "guided_rollout"}, {"particles", 8}, {"simulations", 15000}, {"early_stop", true},
                          {"forced_simulations", 500}, {"max_actions", 512}, {"child_min_visits", 50},
-                         {"random_window", 24}, {"chunk", 500}};
+                         {"random_window", 24}, {"chunk", 500}, {"oracle", false}};
     check(teacher::settings("guided_rollout") == guided, "guided_rollout settings");
     auto value = guided;
     value["leaf"] = "value_net";

@@ -24,7 +24,8 @@ BUILT = Path("build/valexp/value_play_worker")  # built by apps/common/job.sh; e
 NET_LEAVES = ("value_net", "hybrid")
 OUTCOME = ("won", "final_hp", "terminal_value")  # of the stored teacher's fight, logged next to the replay
 RUN_KEYS = {"id", "input", "workers", "leaf", "rollout_turns", "rollout_steps", "random_move", "episodes", "query",
-            "oracle", "simulations", "particles"}  # search budget; worker defaults 15000, 8
+            "oracle", "simulations", "particles",  # search budget; worker defaults 15000, 8
+            "merge_identical_cards", "stop_factor"}  # opt-in search variants (teacher::SearchTweaks); worker validates
 
 
 def inputs(config):
@@ -51,6 +52,7 @@ def teacher_config(run):
             if type(run[key]) is not int or run[key] < 1:  # bool is an int subclass: excluded
                 sys.exit(f"{key} must be a positive integer, got {run[key]!r}")
             teacher[key] = run[key]
+    teacher.update({k: run[k] for k in ("merge_identical_cards", "stop_factor") if k in run})
     if flag(run, "oracle"):
         if "particles" in run:
             sys.exit("oracle searches one true-state particle; particles is not allowed")
