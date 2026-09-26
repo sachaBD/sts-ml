@@ -276,23 +276,48 @@ def assign_targets(rows: Rows, label: str, blend: float = 0.5) -> None:
     """Set rows["target"].
 
     root:     teacher search estimate v = root_value
-    terminal: fight outcome z = terminal_value
+    terminal: fight outcome z = terminal_value (child rows use v)
     blend:    blend*z + (1-blend)*v, except rows at or before the fight's random move
               use v only, because their z includes a move the teacher did not choose.
-    Child rows (off-trajectory positions: the fight outcome is not their outcome) always use v.
+              Child rows (off-trajectory positions: the fight outcome is not their outcome) use v.
+    shift:    decision rows as blend, i.e. v_d + blend*delta_d with delta_d = z_d - v_d (0 at or
+              before the random move). Child rows get v_c + blend*delta_parent, so siblings keep the
+              teacher's ordering and the whole group shifts towards z. Parent = the decision row with
+              the same (episode_id, decision_index); needs queries that include decision rows.
+              Targets are clipped to [0, 1].
     """
     v = rows["root_value"].astype(np.float64)
     z = rows["terminal_value"].astype(np.float64)
+    is_child = rows["row_kind"] == "child"
     if label == "root":
         target = v
     elif label == "terminal":
-        target = z
-    elif label == "blend":
+        target = np.where(is_child, v, z)
+    elif label in ("blend", "shift"):
         episodes, episode = np.unique(rows["episode_id"], return_inverse=True)
         random_at = np.full(len(episodes), -1, dtype=np.int64)  # per fight: last random decision_index
         was_random = rows["was_random"].astype(bool)
         np.maximum.at(random_at, episode[was_random], rows["decision_index"][was_random])
-        target = np.where(rows["decision_index"] <= random_at[episode], v, blend * z + (1 - blend) * v)
+        delta = np.where(rows["decision_index"] <= random_at[episode], 0.0, z - v)
+        if label == "blend":
+            target = np.where(is_child, v, v + blend * delta)
+        else:
+            decision_index = rows["decision_index"].astype(np.int64)
+            key = episode.astype(np.int64) * (int(decision_index.max(initial=0)) + 1) + decision_index
+            parents = np.flatnonzero(~is_child)
+            children = np.flatnonzero(is_child)
+            order = np.argsort(key[parents], kind="stable")
+            parent_keys = key[parents][order]
+            pos = np.minimum(np.searchsorted(parent_keys, key[children]), max(len(parent_keys) - 1, 0))
+            found = parent_keys[pos] == key[children] if len(parent_keys) else np.zeros(len(children), bool)
+            if not found.all():
+                raise ValueError(f"label 'shift': {int((~found).sum())} child rows have no parent decision row; "
+                                 "use shift only with queries that include decision rows")
+            target = v + blend * delta
+            target[children] = v[children] + blend * delta[parents[order[pos]]]
+            clipped = (target < 0) | (target > 1)
+            print(f"label shift: clipped {int(clipped.sum())} of {len(target)} targets to [0, 1]", flush=True)
+            target = np.clip(target, 0.0, 1.0)
     else:
         raise ValueError(f"unknown label {label!r}")
-    rows.columns["target"] = np.where(rows["row_kind"] == "child", v, target)
+    rows.columns["target"] = target

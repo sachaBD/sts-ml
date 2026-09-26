@@ -19,7 +19,7 @@ from sts_combat_rl.training.train_value import run as train_value
 
 DATA_KEYS = {"query", "corrections", "oracle"}
 TRAIN_KEYS = {"initial_checkpoint", "split", "correction_weight", "checkpoint", "epochs", "batch_size", "lr", "weight_decay",
-              "width", "seed", "validation_fraction", "label", "blend", "lr_schedule", "keep", "threads"}
+              "width", "seed", "validation_fraction", "label", "blend", "lr_schedule", "keep", "threads", "device"}
 SUMMARY_KEYS = ("initial_checkpoint", "initial_checkpoint_sha256", "initialization", "split_mode", "split",
                 "training_kind", "correction_weight", "correction_target", "correction_rows", "correction_query", "correction_source")
 
@@ -58,11 +58,12 @@ def make_train_args(config: dict[str, Any], out: Path) -> SimpleNamespace:
         width=int(train.get("width", 64)),
         seed=int(train.get("seed", 0)),
         validation_fraction=float(train.get("validation_fraction", 0.2)),
-        label=str(train.get("label", "blend")),  # blend, root or terminal
+        label=str(train.get("label", "blend")),  # blend, shift, root or terminal
         blend=float(train.get("blend", 0.5)),
         lr_schedule=str(train.get("lr_schedule", "constant")),  # constant or cosine (per-step, lr -> 0)
         keep=str(train.get("keep", "last")),  # checkpoint of the last epoch, or of the best validation MSE
         threads=int(train.get("threads", 1)),  # torch CPU threads
+        device=str(train.get("device", "cpu")),  # cpu, cuda[:N], or auto (cuda if available)
     )
 
 
@@ -100,7 +101,7 @@ def train(config: dict[str, Any], config_path: Path, out: Path) -> int:
                  *(["oracle rows allowed"] if args.oracle else []), "", "Config", "------",
                  *(f"{key + ':':<21}{getattr(args, key)}" for key in ("epochs", "batch_size", "lr", "weight_decay", "width",
                                                                      "seed", "validation_fraction", "label", "blend", "split",
-                                                                     "lr_schedule", "keep", "threads"))):
+                                                                     "lr_schedule", "keep", "threads", "device"))):
         print(line, flush=True)
 
     checkpoint = train_value(args)

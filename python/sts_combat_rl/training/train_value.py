@@ -1,4 +1,4 @@
-"""Deterministic, single-threaded CPU trainer for bootstrap values."""
+"""Bootstrap value trainer: deterministic single-threaded CPU by default, optionally on a CUDA GPU (device)."""
 
 from __future__ import annotations
 
@@ -46,16 +46,31 @@ def atomic_json(value: Any, path: Path) -> None:
     os.replace(temporary, path)
 
 
+def resolve_device(name: str) -> torch.device:
+    """'cpu', 'cuda' (or 'cuda:N'), or 'auto' (cuda if available)."""
+    if name == "auto":
+        name = "cuda" if torch.cuda.is_available() else "cpu"
+    device = torch.device(name)
+    if device.type == "cuda" and not torch.cuda.is_available():
+        raise RuntimeError(f"device {name!r} requested but CUDA is unavailable (torch {torch.__version__})")
+    return device
+
+
+def to_device(batch: dict[str, torch.Tensor], device: torch.device) -> dict[str, torch.Tensor]:
+    return {key: value.to(device, non_blocking=True) for key, value in batch.items()}
+
+
 def predict(model: DeepSetsValue, loader: RowLoader) -> tuple[torch.Tensor, torch.Tensor]:
-    """(prediction, target) for the loader's rows, in loader order."""
+    """(prediction, target) for the loader's rows, in loader order, on the CPU."""
     model.eval()
+    device = next(model.parameters()).device
     targets = []
     predictions = []
     with torch.no_grad():
         for batch in loader:
             batch.pop("weight", None)
             targets.append(batch.pop("target"))
-            predictions.append(model(**batch))
+            predictions.append(model(**to_device(batch, device)).cpu())
     return torch.cat(predictions), torch.cat(targets)
 
 
@@ -106,6 +121,9 @@ def load_corrections(sql, reference) -> Rows:
 def run(args: argparse.Namespace) -> dict[str, Any]:
     torch.set_num_threads(getattr(args, "threads", 1))  # intra-op CPU threads; 1 = deterministic default
     torch.set_num_interop_threads(1)
+    device = resolve_device(getattr(args, "device", "cpu"))
+    if device.type == "cuda":
+        print(f"device: {device} ({torch.cuda.get_device_name(device)})", flush=True)
     random.seed(args.seed)
     np.random.seed(args.seed)
     torch.manual_seed(args.seed)
@@ -173,6 +191,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             raise ValueError(f"initial architecture {state['architecture']} != {model.config}")
         model.load_state_dict(state["model_state"])  # weights only; the optimizer starts fresh
         initial_sha = hashlib.sha256(Path(initial).read_bytes()).hexdigest()
+    model.to(device)
     optimizer = torch.optim.AdamW(
         model.parameters(), lr=args.lr, weight_decay=args.weight_decay
     )
@@ -202,7 +221,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
 
     def save_checkpoint(epoch: int, metrics: dict[str, float]) -> dict[str, Any]:
         checkpoint = {
-            "model_state": model.state_dict(),
+            "model_state": {key: value.cpu() for key, value in model.state_dict().items()},
             "architecture": model.config,
             "optimizer_config": {
                 "name": "AdamW",
@@ -292,6 +311,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         batch_count = len(train_loader)
         progress_every = max(1, batch_count // 20)
         for batch_index, batch in enumerate(train_loader, start=1):
+            batch = to_device(batch, device)
             target = batch.pop("target")
             weights = batch.pop("weight")
             optimizer.zero_grad()
@@ -364,7 +384,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="CPU single-threaded Deep Sets bootstrap value trainer"
+        description="Deep Sets bootstrap value trainer (CPU single-threaded by default; --device cuda for GPU)"
     )
     parser.add_argument("data", help="SQL over sts_combat_rl.query, e.g. \"select * from combat_v3 where id = 'act1-a20'\"")
     parser.add_argument("--output", type=Path, default=Path("value_checkpoint.pt"))
@@ -377,11 +397,11 @@ def main() -> None:
     parser.add_argument("--validation-fraction", type=float, default=0.2)
     parser.add_argument(
         "--label",
-        choices=["blend", "root", "terminal"],
+        choices=["blend", "shift", "root", "terminal"],
         default="blend",
         help="training target (see data.assign_targets)",
     )
-    parser.add_argument("--blend", type=float, default=0.5, help="weight on terminal_value for --label blend")
+    parser.add_argument("--blend", type=float, default=0.5, help="weight on terminal_value for --label blend / shift")
     parser.add_argument("--corrections", help="SQL selecting DAgger rows (target root_value)")
     parser.add_argument("--oracle", action="store_true", help="allow oracle (perfect-foresight) rows in the data")
     parser.add_argument("--initial-checkpoint", type=Path, help="start from these weights (fresh optimizer)")
@@ -393,6 +413,7 @@ def main() -> None:
     parser.add_argument("--keep", choices=["last", "best"], default="last",
                         help="checkpoint of the last epoch or of the best validation MSE")
     parser.add_argument("--threads", type=int, default=1, help="torch CPU threads")
+    parser.add_argument("--device", default="cpu", help="cpu, cuda[:N], or auto (cuda if available)")
     run(parser.parse_args())
 
 
