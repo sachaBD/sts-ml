@@ -40,7 +40,7 @@ int main(int argc, char** argv) {
     const ValueNet net{argv[2]};
     const auto first = std::stoull(argv[3]), count = std::stoull(argv[4]);
     const std::int64_t sims = argc > 5 ? std::stoll(argv[5]) : 20000;
-    const auto run = teacher::value_net_search(net, sims);
+    const auto run = std::getenv("GUIDED") ? teacher::guided_rollout_search(sims) : teacher::value_net_search(net, sims);
     std::unique_ptr<std::ofstream> trace;
     if (const char* path = std::getenv("TRACE")) trace = std::make_unique<std::ofstream>(path);
     if (mode == "regret") {

@@ -110,6 +110,14 @@ target_compile_features(teacher_leaves_test PRIVATE cxx_std_23)
 target_compile_options(teacher_leaves_test PRIVATE -Wall -Wextra -Wpedantic)
 add_test(NAME teacher_leaves_test COMMAND teacher_leaves_test)
 
+add_executable(search_perf_test tests/search_perf_test.cpp)
+target_link_libraries(search_perf_test PRIVATE combat_core)
+target_compile_features(search_perf_test PRIVATE cxx_std_23)
+# -march=native as models/value_net.cpp (below): the original value net it includes must be compiled the
+# same way (FMA contraction) to be the bit-exact reference.
+target_compile_options(search_perf_test PRIVATE -Wall -Wextra -Wpedantic -march=native)
+add_test(NAME search_perf_test COMMAND search_perf_test)
+
 # The native value net's inner loops benefit from AVX2/FMA on the machine that runs it.
 set_source_files_properties(models/value_net.cpp PROPERTIES COMPILE_OPTIONS "-march=native")
 
