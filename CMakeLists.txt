@@ -112,3 +112,6 @@ add_test(NAME teacher_leaves_test COMMAND teacher_leaves_test)
 
 # The native value net's inner loops benefit from AVX2/FMA on the machine that runs it.
 set_source_files_properties(models/value_net.cpp PROPERTIES COMPILE_OPTIONS "-march=native")
+
+add_executable(bench_search apps/bench_search.cpp)
+target_link_libraries(bench_search PRIVATE combat_core)

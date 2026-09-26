@@ -106,7 +106,7 @@ LeafEvaluator value_net_evaluator(const ValueNet& net) {
     return [&net, encoded = std::vector<EncodedCombatState>{}](const std::vector<const sts::BattleContext*>& leaves,
                                                              std::vector<float>& values) mutable {
         encoded.clear();
-        for (const auto* leaf : leaves) encoded.push_back(CombatEnvironment{*leaf}.decision().encoding);
+        for (const auto* leaf : leaves) encoded.push_back(encode_state(*leaf));
         net.evaluate(encoded, values);
     };
 }
