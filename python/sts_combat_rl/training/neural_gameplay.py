@@ -12,7 +12,7 @@ from typing import BinaryIO
 import msgpack
 import torch
 
-from sts_combat_rl.models.deep_sets import DeepSetsValue
+from sts_combat_rl.models.deep_sets import DeepSetsValue, build_model
 
 from .data import collate_states
 
@@ -36,7 +36,7 @@ def load_model(path: Path) -> DeepSetsValue:
         or checkpoint.get("target_name") != "mcts_value"
     ):
         raise ValueError("checkpoint is not schema-v3 mcts_value")
-    model = DeepSetsValue(**checkpoint["architecture"])
+    model = build_model(checkpoint["architecture"])
     model.load_state_dict(checkpoint["model_state"])
     model.eval()
     return model
