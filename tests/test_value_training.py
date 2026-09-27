@@ -9,6 +9,7 @@ def row(ep, card=1):
     return {
         "encoding_version": 3,
         "episode_id": ep,
+        "run_seed": ep,
         "mcts_value": 0.2,
         "global_numeric": [0.0] * 50,
         "input_state": 1,

@@ -1,1 +1,1 @@
-"""Value-model training and gameplay evaluation tools."""
+"""Value-model training."""

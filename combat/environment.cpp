@@ -5,8 +5,6 @@
 #include "sim/search/BattleScumSearcher2.h"
 
 #include <algorithm>
-#include <array>
-#include <random>
 #include <tuple>
 #include <sstream>
 #include <stdexcept>
@@ -255,18 +253,6 @@ Decision CombatEnvironment::decision() {
     impl_->current_actions.reserve(node.edges.size());
 
     Decision result;
-    const auto& player = impl_->state.player;
-    const auto& enemy = impl_->state.monsters.arr.front();
-    result.observation = {
-        .turn = impl_->state.turn,
-        .player_hp = player.curHp,
-        .player_max_hp = player.maxHp,
-        .player_block = player.block,
-        .energy = player.energy,
-        .enemy_hp = enemy.curHp,
-        .enemy_max_hp = enemy.maxHp,
-        .enemy_block = enemy.block,
-    };
     result.encoding = encode_state(impl_->state);
     const int select_task = impl_->state.inputState == sts::InputState::CARD_SELECT
         ? static_cast<int>(impl_->state.cardSelectInfo.cardSelectTask)
@@ -330,80 +316,6 @@ Decision CombatEnvironment::decision() {
     return result;
 }
 
-std::vector<SearchAction> CombatEnvironment::search_actions() {
-    sts::search::BattleScumSearcher2::Node node;
-    impl_->enumerator.enumerateActionsForNode(node, impl_->state);
-    impl_->current_actions.clear();
-    std::vector<SearchAction> result;
-    for (const auto& edge : node.edges) {
-        const auto& action = edge.action;
-        const int select_task = impl_->state.inputState == sts::InputState::CARD_SELECT
-            ? static_cast<int>(impl_->state.cardSelectInfo.cardSelectTask)
-            : static_cast<int>(sts::CardSelectTask::INVALID);
-        SearchActionKey key{.kind = static_cast<int>(action.getActionType()), .selection_task = select_task};
-        bool target_required = false;
-        if (action.getActionType() == sts::search::ActionType::CARD) {
-            const auto& card = impl_->state.cards.hand[action.getSourceIdx()];
-            key.card_id = static_cast<int>(card.id); key.upgraded = card.upgraded; key.cost = card.cost; key.cost_for_turn = card.costForTurn;
-            key.special = card.specialData; key.free = card.freeToPlayOnce; key.retain = card.retain; target_required = card.requiresTarget();
-        } else if (action.getActionType() == sts::search::ActionType::POTION) {
-            key.potion = static_cast<int>(impl_->state.potions[action.getSourceIdx()]);
-            target_required = potionRequiresTarget(impl_->state.potions[action.getSourceIdx()]);
-        } else if (action.getActionType() == sts::search::ActionType::SINGLE_CARD_SELECT) {
-            CardZone zone{};
-            key.selection_count = 1;
-            if (const auto* card = selected_card(impl_->state, action, zone)) {
-                key.card_id = static_cast<int>(card->id); key.upgraded = card->upgraded;
-                key.cost = card->cost; key.cost_for_turn = card->costForTurn; key.special = card->specialData;
-                key.free = card->freeToPlayOnce; key.retain = card->retain;
-                key.selected_cards[0] = static_cast<int>(card->id);
-            } else if (impl_->state.cardSelectInfo.cardSelectTask == sts::CardSelectTask::CODEX && action.getSelectIdx() >= 0 && action.getSelectIdx() < 3) {
-                zone = CardZone::offered;
-                key.card_id = static_cast<int>(impl_->state.cardSelectInfo.codexCards()[action.getSelectIdx()]);
-                key.selected_cards[0] = key.card_id;
-            } else if (impl_->state.cardSelectInfo.cardSelectTask == sts::CardSelectTask::DISCOVERY && action.getSelectIdx() >= 0 && action.getSelectIdx() < 3) {
-                zone = CardZone::offered;
-                key.card_id = static_cast<int>(impl_->state.cardSelectInfo.discovery_Cards()[action.getSelectIdx()]);
-                key.selected_cards[0] = key.card_id;
-            }
-            key.selection_zone = static_cast<int>(zone);
-        } else if (action.getActionType() == sts::search::ActionType::MULTI_CARD_SELECT) {
-            const auto selected = action.getSelectedIdxs();
-            key.selection_count = static_cast<int>(selected.size());
-            key.selection_zone = static_cast<int>(CardZone::hand);
-            for (int i = 0; i < key.selection_count && i < static_cast<int>(key.selected_cards.size()); ++i) {
-                const int idx = selected[i];
-                if (idx >= 0 && idx < impl_->state.cards.cardsInHand) {
-                    const auto& card = impl_->state.cards.hand[idx];
-                    key.selected_cards[i] = static_cast<int>(card.id);
-                    key.selected_upgraded[i] = card.upgraded;
-                    key.selected_cost[i] = card.costForTurn;
-                    key.selected_special[i] = card.specialData;
-                }
-            }
-            std::array<std::array<int, 4>, 10> selected_semantics{};
-            for (int i = 0; i < key.selection_count && i < static_cast<int>(selected_semantics.size()); ++i)
-                selected_semantics[i] = {key.selected_cards[i], key.selected_upgraded[i], key.selected_cost[i], key.selected_special[i]};
-            std::sort(selected_semantics.begin(), selected_semantics.begin() + std::min(key.selection_count, static_cast<int>(selected_semantics.size())));
-            for (int i = 0; i < key.selection_count && i < static_cast<int>(selected_semantics.size()); ++i) {
-                key.selected_cards[i] = selected_semantics[i][0]; key.selected_upgraded[i] = selected_semantics[i][1];
-                key.selected_cost[i] = selected_semantics[i][2]; key.selected_special[i] = selected_semantics[i][3];
-            }
-        }
-        if (target_required && action.getTargetIdx() >= 0 && action.getTargetIdx() < static_cast<int>(impl_->state.monsters.arr.size())) {
-            const auto& monster = impl_->state.monsters.arr[action.getTargetIdx()];
-            key.target_id = static_cast<int>(monster.id); key.target_hp = monster.curHp; key.target_max_hp = monster.maxHp; key.target_block = monster.block;
-            key.target_move = static_cast<int>(monster.moveHistory[0]); key.target_strength = monster.strength;
-            key.target_weak = monster.weak; key.target_vulnerable = monster.vulnerable;
-        }
-        if (std::ranges::any_of(result, [&key](const SearchAction& x) { return x.key == key; })) continue;
-        const auto index = impl_->current_actions.size();
-        impl_->current_actions.push_back(action);
-        result.push_back({index, key});
-    }
-    return result;
-}
-
 std::string CombatEnvironment::action_description(const std::size_t action_index) const {
     if (action_index >= impl_->current_actions.size()) {
         throw std::out_of_range{"action index is outside the current legal action set"};
@@ -411,23 +323,6 @@ std::string CombatEnvironment::action_description(const std::size_t action_index
     std::ostringstream description;
     impl_->current_actions[action_index].printDesc(description, impl_->state);
     return description.str();
-}
-
-CombatEnvironment CombatEnvironment::determinized(const std::uint64_t seed) const {
-    auto state = impl_->state;
-    std::mt19937_64 random{seed};
-
-    // The remaining draw-pile order and future RNG states are not observable to
-    // the player. Sample them independently for each information-set search.
-    std::shuffle(state.cards.drawPile.begin(), state.cards.drawPile.end(), random);
-    state.aiRng = sts::Random{random()};
-    state.cardRandomRng = sts::Random{random()};
-    state.miscRng = sts::Random{random()};
-    state.monsterHpRng = sts::Random{random()};
-    state.potionRng = sts::Random{random()};
-    state.shuffleRng = sts::Random{random()};
-
-    return CombatEnvironment{std::move(state)};
 }
 
 void CombatEnvironment::step(const std::size_t action_index) {
@@ -457,30 +352,6 @@ const sts::BattleContext& CombatEnvironment::battle() const noexcept { return im
 
 std::uint32_t CombatEnvironment::action_bits(const std::size_t action_index) const {
     return impl_->current_actions.at(action_index).bits;
-}
-
-double CombatEnvironment::combat_value() const noexcept {
-    const auto player_hp_fraction = static_cast<double>(impl_->state.player.curHp)
-        / static_cast<double>(impl_->state.player.maxHp);
-
-    if (won()) {
-        return 0.5 + 0.5 * player_hp_fraction;
-    }
-    if (impl_->state.outcome == sts::Outcome::PLAYER_LOSS) {
-        return -1.0;
-    }
-
-    int total_enemy_hp = 0;
-    int total_enemy_max_hp = 0;
-    for (const auto& monster : impl_->state.monsters.arr) {
-        if (monster.isAlive() && monster.maxHp > 0) {
-            total_enemy_hp += monster.curHp;
-            total_enemy_max_hp += monster.maxHp;
-        }
-    }
-    const auto enemy_hp_fraction = total_enemy_max_hp == 0 ? 0.0
-        : static_cast<double>(total_enemy_hp) / static_cast<double>(total_enemy_max_hp);
-    return 0.25 * (player_hp_fraction - enemy_hp_fraction);
 }
 
 }  // namespace stsrl
