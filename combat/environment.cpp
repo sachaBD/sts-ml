@@ -1,4 +1,5 @@
 #include "combat/environment.hpp"
+#include "combat/encoding_v4.hpp"
 
 #include "combat/BattleContext.h"
 #include "constants/CardPools.h"
@@ -118,14 +119,16 @@ CardToken encode_card(const sts::BattleContext& state, const sts::CardInstance& 
 MonsterToken encode_monster(const sts::BattleContext& state, const sts::Monster& monster) {
     const auto damage = monster.getMoveBaseDamage(state);
     const int per_hit = monster.calculateDamageToPlayer(state, damage.damage);
-    return {static_cast<int>(monster.id), static_cast<int>(monster.moveHistory[0]),
+    MonsterToken token{static_cast<int>(monster.id), static_cast<int>(monster.moveHistory[0]),
         {monster.curHp / 100.f, monster.maxHp ? monster.curHp / float(monster.maxHp) : 0.f, monster.block / 100.f,
          per_hit * damage.attackCount / 100.f, damage.attackCount / 10.f, monster.strength / 10.f,
          monster.weak / 10.f, monster.vulnerable / 10.f, float(monster.isTargetable())}};
+    v4::encode_monster(monster, token);
+    return token;
 }
 
 bool card_less(const CardToken& a, const CardToken& b) { return std::tie(a.card_id, a.zone, a.card_type, a.target_type, a.numeric) < std::tie(b.card_id, b.zone, b.card_type, b.target_type, b.numeric); }
-bool monster_less(const MonsterToken& a, const MonsterToken& b) { return std::tie(a.monster_id, a.move_id, a.numeric) < std::tie(b.monster_id, b.move_id, b.numeric); }
+bool monster_less(const MonsterToken& a, const MonsterToken& b) { return std::tie(a.monster_id, a.move_id, a.numeric, a.previous_move_id, a.status) < std::tie(b.monster_id, b.move_id, b.numeric, b.previous_move_id, b.status); }
 
 const sts::CardInstance* selected_card(const sts::BattleContext& state, const sts::search::Action& action,
                                        CardZone& zone) {
@@ -204,6 +207,9 @@ EncodedCombatState encode_state(const sts::BattleContext& state) {
         player.getStatusRuntime(PlayerStatus::MAYHEM) / 10.f, player.getStatusRuntime(PlayerStatus::PANACHE) / 10.f,
         player.panacheCounter / 20.f, player.getStatusRuntime(PlayerStatus::SADISTIC) / 10.f},
         static_cast<int>(state.inputState), select_task};
+    v4::encode_player(state, encoding.global);
+    encoding.potions = v4::encode_potions(state);
+    encoding.relics = v4::encode_relics(state);
     struct PendingCard { CardToken token; int hand_index = -1; const sts::CardInstance* card = nullptr; };
     struct PendingMonster { MonsterToken token; int slot; const sts::Monster* monster; };
     std::vector<PendingCard> cards;

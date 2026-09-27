@@ -4,8 +4,11 @@ import inspect
 
 from .deep_sets_v1 import DeepSetsV1
 from .deep_sets_v2 import DeepSetsV2
+from .deep_sets_v3 import DeepSetsV3
 
-KINDS = {cls.KIND: cls for cls in (DeepSetsV1, DeepSetsV2)}
+KINDS = {cls.KIND: cls for cls in (DeepSetsV1, DeepSetsV2, DeepSetsV3)}
+# The encoding version each kind reads (combat/encoding.hpp).
+ENCODING_VERSIONS = {"deep_sets_v1": 3, "deep_sets_v2": 3, "deep_sets_v3": 4}
 
 
 def build(architecture):

@@ -16,13 +16,17 @@ from pathlib import Path
 
 import torch
 
+from sts_combat_rl.topology import ENCODING_VERSIONS
+
 
 def export(checkpoint_path: Path, output: Path) -> None:
     checkpoint = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
-    if checkpoint.get("encoding_version") != 3:
-        raise ValueError("checkpoint is not encoding v3")
+    kind = checkpoint["architecture"]["kind"]
+    version = ENCODING_VERSIONS[kind]
+    if checkpoint.get("encoding_version") != version:
+        raise ValueError(f"{kind} checkpoint is not encoding v{version}")
     config = json.dumps(
-        {"architecture": checkpoint["architecture"], "encoding_version": 3}, sort_keys=True
+        {"architecture": checkpoint["architecture"], "encoding_version": version}, sort_keys=True
     ).encode()
     state = checkpoint["model_state"]
     with output.open("wb") as f:

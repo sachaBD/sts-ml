@@ -165,8 +165,14 @@ void layer_norm(const ValueNet::LayerNorm& n, const float* x, float* y) {
 ValueNet::ValueNet(const std::string& path) {
     nlohmann::json config;
     const auto t = read_tensors(path, config);
-    if (config.at("encoding_version").get<int>() != 3) throw std::runtime_error{"value net is not encoding v3"};
-    width_ = config.at("architecture").at("width").get<int>();
+    const auto& architecture = config.at("architecture");
+    const auto kind = architecture.at("kind").get<std::string>();
+    if (kind != "deep_sets_v1" && kind != "deep_sets_v2" && kind != "deep_sets_v3")
+        throw std::runtime_error{"unknown value net kind " + kind};
+    v3_ = kind == "deep_sets_v3";
+    if (config.at("encoding_version").get<int>() != (v3_ ? 4 : 3))
+        throw std::runtime_error{"value net " + kind + " has the wrong encoding version"};
+    width_ = architecture.at("width").get<int>();
     const int w = width_;
     input_state_ = embedding(t, "input_state");
     card_selection_task_ = embedding(t, "card_selection_task");
@@ -178,27 +184,39 @@ ValueNet::ValueNet(const std::string& path) {
     move_ = embedding(t, "move");
     card1_ = linear(t, "card_mlp.0", card_id_.dim + zone_.dim + card_type_.dim + target_type_.dim + 14, w);
     card2_ = linear(t, "card_mlp.2", w, w);
-    monster1_ = linear(t, "monster_mlp.0", monster_id_.dim + move_.dim + 9, w);
+    monster1_ = linear(t, "monster_mlp.0", monster_id_.dim + (v3_ ? 2 : 1) * move_.dim + 9
+                                                 + (v3_ ? static_cast<int>(monster_status_features) : 0), w);
     monster2_ = linear(t, "monster_mlp.2", w, w);
     interaction1_ = linear(t, "interaction_mlp.0", 2 * w + 6, w);
     interaction2_ = linear(t, "interaction_mlp.2", w, w);
-    const auto& architecture = config.at("architecture");
-    const auto kind = architecture.at("kind").get<std::string>();
     if (kind == "deep_sets_v1") {
         head1_ = linear(t, "head.0", 50 + input_state_.dim + card_selection_task_.dim + 6 * w, w);
         head2_ = linear(t, "head.2", w, 1);
         return;
     }
-    if (kind != "deep_sets_v2") throw std::runtime_error{"unknown value net kind " + kind};
     v2_ = true;
     count_features_ = architecture.at("pool_count_features").get<bool>();
     input_norm_ = architecture.at("head_input_norm").get<bool>();
-    const auto output = architecture.at("output").get<std::string>();
-    if (output != "sigmoid" && output != "tanh") throw std::runtime_error{"unknown value net output " + output};
-    sigmoid_ = output == "sigmoid";
+    if (v3_) {
+        potion_id_ = embedding(t, "potion_id");
+        relic_id_ = embedding(t, "relic_id");
+        potion1_ = linear(t, "potion_mlp.0", potion_id_.dim + static_cast<int>(potion_features), w);
+        potion2_ = linear(t, "potion_mlp.2", w, w);
+        relic1_ = linear(t, "relic_mlp.0", relic_id_.dim + static_cast<int>(relic_features), w);
+        relic2_ = linear(t, "relic_mlp.2", w, w);
+        score_hp_offset_ = architecture.at("score_hp_offset").get<float>();
+        score_potion_hp_ = architecture.at("score_potion_hp").get<float>();
+        score_max_hp_offset_ = architecture.at("score_max_hp_offset").get<float>();
+    } else {
+        const auto output = architecture.at("output").get<std::string>();
+        if (output != "sigmoid" && output != "tanh") throw std::runtime_error{"unknown value net output " + output};
+        sigmoid_ = output == "sigmoid";
+    }
     const int hw = architecture.at("head_width").get<int>();
     const int blocks = architecture.at("head_blocks").get<int>();
-    const int features = 50 + input_state_.dim + card_selection_task_.dim + 6 * w + (count_features_ ? 6 : 0);
+    const int pools = v3_ ? 8 : 6;
+    const int features = 50 + (v3_ ? static_cast<int>(player_v4_features) : 0) + input_state_.dim
+                       + card_selection_task_.dim + pools * w + (count_features_ ? pools : 0);
     if (input_norm_) head_in_norm_ = layer_norm(t, "head_in_norm", features);
     head_in_ = linear(t, "head_in", features, hw);
     for (int b = 0; b < blocks; ++b) {
@@ -207,7 +225,13 @@ ValueNet::ValueNet(const std::string& path) {
                                 linear(t, name + ".fc2", hw, hw)});
     }
     if (blocks > 0) head_out_norm_ = layer_norm(t, "head_out_norm", hw);
-    value_out_ = linear(t, "value_out", hw, 1);
+    if (v3_) {
+        won_out_ = linear(t, "won_out", hw, 1);
+        hp_out_ = linear(t, "hp_out", hw, 1);
+        keep_out_ = linear(t, "keep_out", hw, 1);
+    } else {
+        value_out_ = linear(t, "value_out", hw, 1);
+    }
 }
 
 
@@ -236,7 +260,8 @@ std::uint32_t* put_card(std::uint32_t* out, const CardToken& c) {
 std::uint32_t* put_monster(std::uint32_t* out, const MonsterToken& m) {
     *out++ = static_cast<std::uint32_t>(m.monster_id);
     *out++ = static_cast<std::uint32_t>(m.move_id);
-    return put_bits(out, m.numeric);
+    *out++ = static_cast<std::uint32_t>(m.previous_move_id);
+    return put_bits(put_bits(out, m.numeric), m.status);
 }
 }  // namespace
 
@@ -249,7 +274,10 @@ const float* ValueNet::monster_hidden(const MonsterToken& monster) const {
     }
     ++stats_.monster_misses;
     const std::size_t w = static_cast<std::size_t>(width_);
-    put(put(put(x_.data(), monster_id_, monster.monster_id), move_, monster.move_id), monster.numeric);
+    float* p = put(put(x_.data(), monster_id_, monster.monster_id), move_, monster.move_id);
+    if (v3_) p = put(p, move_, monster.previous_move_id);
+    p = put(p, monster.numeric);
+    if (v3_) put(p, monster.status);
     std::vector<float> out(w);
     mlp(monster1_, monster2_, x_.data(), hidden_.data(), out.data());
     return monster_cache_.emplace(key, std::move(out)).first->second.data();
@@ -272,23 +300,57 @@ const float* ValueNet::card_hidden(const CardToken& card) const {
     return card_cache_.emplace(key, std::move(out)).first->second.data();
 }
 
+const float* ValueNet::potion_hidden(const PotionToken& potion) const {
+    PotionKey key;
+    key.bits[0] = static_cast<std::uint32_t>(potion.potion_id);
+    put_bits(key.bits.data() + 1, potion.numeric);
+    if (const auto it = potion_cache_.find(key); it != potion_cache_.end()) {
+        ++stats_.potion_hits;
+        return it->second.data();
+    }
+    ++stats_.potion_misses;
+    std::vector<float> x(potion1_.in), out(width_);
+    put(put(x.data(), potion_id_, potion.potion_id), potion.numeric);
+    mlp(potion1_, potion2_, x.data(), hidden_.data(), out.data());
+    return potion_cache_.emplace(key, std::move(out)).first->second.data();
+}
+
+const float* ValueNet::relic_hidden(const RelicToken& relic) const {
+    RelicKey key;
+    key.bits[0] = static_cast<std::uint32_t>(relic.relic_id);
+    put_bits(key.bits.data() + 1, relic.numeric);
+    if (const auto it = relic_cache_.find(key); it != relic_cache_.end()) {
+        ++stats_.relic_hits;
+        return it->second.data();
+    }
+    ++stats_.relic_misses;
+    std::vector<float> x(relic1_.in), out(width_);
+    put(put(x.data(), relic_id_, relic.relic_id), relic.numeric);
+    mlp(relic1_, relic2_, x.data(), hidden_.data(), out.data());
+    return relic_cache_.emplace(key, std::move(out)).first->second.data();
+}
+
 void ValueNet::pool_features(const EncodedCombatState& s, std::size_t size, bool counts) const {
     // Not mid-state: card_out_ / monster_out_ point into the caches.
     if (card_cache_.size() >= 1 << 16) card_cache_.clear();
     if (monster_cache_.size() >= 1 << 16) monster_cache_.clear();
     if (interaction_cache_.size() >= 1 << 16) interaction_cache_.clear();
+    if (potion_cache_.size() >= 1 << 12) potion_cache_.clear();
+    if (relic_cache_.size() >= 1 << 12) relic_cache_.clear();
     const std::size_t w = static_cast<std::size_t>(width_);
+    const std::size_t pools = v3_ ? 8 : 6;
     x_.resize(std::max<std::size_t>({size, 2 * w + 6, static_cast<std::size_t>(monster1_.in)}));
     hidden_.resize(w);
     features_.assign(size, 0.0f);
-    // features: global numeric, two embeddings, then six width-sized sums
-    float* sums = put(put(put(features_.data(), s.global.numeric), input_state_, s.global.input_state),
-                      card_selection_task_, s.global.card_selection_task);
+    // features: global numeric, (v3: player numeric,) two embeddings, then the width-sized sums
+    float* sums = put(features_.data(), s.global.numeric);
+    if (v3_) sums = put(sums, s.global.player);
+    sums = put(put(sums, input_state_, s.global.input_state), card_selection_task_, s.global.card_selection_task);
     float* card_pools = sums;           // zones hand, draw, discard, exhaust (offered cards are not pooled)
     float* monster_sum = sums + 4 * w;
     float* interaction_sum = sums + 5 * w;
 
-    std::array<int, 6> count{};
+    std::array<int, 8> count{};
     card_out_.resize(s.cards.size());
     for (std::size_t c = 0; c < s.cards.size(); ++c) {
         const auto& card = s.cards[c];
@@ -322,14 +384,29 @@ void ValueNet::pool_features(const EncodedCombatState& s, std::size_t size, bool
         const float* out = it->second.data();
         for (std::size_t k = 0; k < w; ++k) interaction_sum[k] += out[k];
     }
+    if (v3_) {
+        float* potion_sum = sums + 6 * w;
+        float* relic_sum = sums + 7 * w;
+        for (const auto& potion : s.potions) {
+            const float* out = potion_hidden(potion);
+            for (std::size_t k = 0; k < w; ++k) potion_sum[k] += out[k];
+        }
+        for (const auto& relic : s.relics) {
+            const float* out = relic_hidden(relic);
+            for (std::size_t k = 0; k < w; ++k) relic_sum[k] += out[k];
+        }
+    }
     if (counts) {
         count[4] = static_cast<int>(s.monsters.size());
         count[5] = static_cast<int>(s.card_monster_interactions.size());
-        for (std::size_t p = 0; p < 6; ++p) sums[6 * w + p] = std::log1p(static_cast<float>(count[p]));
+        count[6] = static_cast<int>(s.potions.size());
+        count[7] = static_cast<int>(s.relics.size());
+        for (std::size_t p = 0; p < pools; ++p) sums[pools * w + p] = std::log1p(static_cast<float>(count[p]));
     }
 }
 
 float ValueNet::evaluate(const EncodedCombatState& s) const {
+    if (v3_) return evaluate_v3(s);
     if (v2_) return evaluate_v2(s);
     pool_features(s, static_cast<std::size_t>(head1_.in), false);
     apply(head1_, features_.data(), hidden_.data(), true);
@@ -338,7 +415,7 @@ float ValueNet::evaluate(const EncodedCombatState& s) const {
     return std::tanh(value);
 }
 
-float ValueNet::evaluate_v2(const EncodedCombatState& s) const {
+void ValueNet::head(const EncodedCombatState& s) const {
     pool_features(s, static_cast<std::size_t>(head_in_.in), count_features_);
     const std::size_t hw = static_cast<std::size_t>(head_in_.out);
     h_.resize(hw);
@@ -357,9 +434,25 @@ float ValueNet::evaluate_v2(const EncodedCombatState& s) const {
         for (std::size_t k = 0; k < hw; ++k) h_[k] += normed_[k];
     }
     if (!head_blocks_.empty()) layer_norm(head_out_norm_, h_.data(), h_.data());
+}
+
+float ValueNet::evaluate_v2(const EncodedCombatState& s) const {
+    head(s);
     float value{};
     apply(value_out_, h_.data(), &value, false);
     return sigmoid_ ? 1.0f / (1.0f + std::exp(-value)) : std::tanh(value);
+}
+
+float ValueNet::evaluate_v3(const EncodedCombatState& s) const {
+    head(s);
+    const auto sigmoid = [](float x) { return 1.0f / (1.0f + std::exp(-x)); };
+    float won{}, hp{}, keep{};
+    apply(won_out_, h_.data(), &won, false);
+    apply(hp_out_, h_.data(), &hp, false);
+    apply(keep_out_, h_.data(), &keep, false);
+    const float max_hp = s.global.max_hp, potions = static_cast<float>(s.potions.size());
+    return sigmoid(won) * (score_hp_offset_ + sigmoid(hp) * max_hp + score_potion_hp_ * sigmoid(keep) * potions)
+         / (score_max_hp_offset_ + max_hp);
 }
 
 void ValueNet::evaluate(std::span<const EncodedCombatState> states, std::vector<float>& values) const {

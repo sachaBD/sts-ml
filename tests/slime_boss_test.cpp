@@ -13,7 +13,7 @@
 
 int main() {
     const auto initial = stsrl::scenarios::slime_boss(42).decision().encoding;
-    assert(initial.version == 3);
+    assert(initial.version == stsrl::combat_encoding_schema_version);
     assert(initial.global.numeric.size() == 50);
     const auto card_count = [&](sts::CardId id) { return std::count_if(initial.cards.begin(), initial.cards.end(), [&](const auto& card) { return card.card_id == static_cast<int>(id); }); };
     assert(card_count(sts::CardId::FLAME_BARRIER) == 1 && card_count(sts::CardId::COMBUST) == 1);

@@ -15,6 +15,7 @@ add_library(combat_core STATIC
     agents/teacher_search.cpp
     topology/value_net.cpp
     combat/environment.cpp
+    combat/encoding_v4.cpp
     scenarios/act1_run.cpp
     scenarios/jaw_worm.cpp
     scenarios/slime_boss.cpp)
@@ -57,6 +58,12 @@ target_link_libraries(encoding_test PRIVATE combat_core)
 target_compile_features(encoding_test PRIVATE cxx_std_23)
 target_compile_options(encoding_test PRIVATE -Wall -Wextra -Wpedantic)
 add_test(NAME encoding_test COMMAND encoding_test)
+
+add_executable(encoding_v4_test tests/encoding_v4_test.cpp)
+target_link_libraries(encoding_v4_test PRIVATE combat_core)
+target_compile_features(encoding_v4_test PRIVATE cxx_std_23)
+target_compile_options(encoding_v4_test PRIVATE -Wall -Wextra -Wpedantic)
+add_test(NAME encoding_v4_test COMMAND encoding_v4_test)
 
 add_executable(slime_boss_test tests/slime_boss_test.cpp)
 target_link_libraries(slime_boss_test PRIVATE combat_core)
