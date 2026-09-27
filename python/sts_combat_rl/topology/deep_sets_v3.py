@@ -35,12 +35,23 @@ class DeepSetsV3(nn.Module):
     Training: value against the target as before; won_logit with BCE against won; on won rows hp_fraction
     against final_hp / max_hp and, where potions > 0, keep_fraction against final_potions / potions.
 
+    Policy head (policy_width > 0): one logit per legal action, AlphaZero-style priors for the search. An action
+    token (combat/encoding.hpp ActionToken: kind, card-selection task, and the optional source card, target
+    monster, potion and card x target interaction) is encoded with the trunk's own token encoders:
+        a = cat(emb(kind), emb(task), card, monster, potion, interaction,
+                [skips_selection, discards_potion, 4 presence flags])
+            (absent parts are zero)
+        logit = policy_out(relu(policy_state(h)[owner] + policy_action(a)))
+    policy_action has no bias and depends on the action token only, so C++ caches it per token. Training: cross
+    entropy against the root visit distribution, identical tokens of a state merged (data.py).
+
     id_dropout: in training mode, each potion / relic id is replaced by the unknown id 0 with this
     probability, so rare ids lean on their numeric description. No effect in eval mode (or in C++).
 
     Parameter names are read by topology/value_net.cpp: v2's (card_mlp, monster_mlp, interaction_mlp,
     embeddings, head_in_norm, head_in, head_blocks, head_out_norm) plus potion_id, potion_mlp.{0,2},
-    relic_id, relic_mlp.{0,2}, won_out, hp_out, keep_out.
+    relic_id, relic_mlp.{0,2}, won_out, hp_out, keep_out, and with the policy head action_kind, policy_state,
+    policy_action (no bias), policy_out.
     """
 
     KIND = "deep_sets_v3"
@@ -55,11 +66,13 @@ class DeepSetsV3(nn.Module):
     POTION_NUMERIC = 18
     RELIC_NUMERIC = 3
     POOLS = 8
+    ACTION_KINDS = 8  # EncodedActionKind (5 used)
+    ACTION_FLAGS = 6
 
     def __init__(self, card_vocab, monster_vocab, move_vocab, potion_vocab, relic_vocab, width, card_id_dim,
                  monster_id_dim, move_dim, potion_id_dim, relic_id_dim, id_dropout, pool_count_features,
                  head_input_norm, head_width, head_blocks, zero_init_blocks, score_hp_offset, score_potion_hp,
-                 score_max_hp_offset):
+                 score_max_hp_offset, policy_width):
         super().__init__()
         self.config = {
             "kind": self.KIND, "card_vocab": card_vocab, "monster_vocab": monster_vocab, "move_vocab": move_vocab,
@@ -69,7 +82,7 @@ class DeepSetsV3(nn.Module):
             "pool_count_features": bool(pool_count_features), "head_input_norm": bool(head_input_norm),
             "head_width": head_width, "head_blocks": head_blocks, "zero_init_blocks": bool(zero_init_blocks),
             "score_hp_offset": float(score_hp_offset), "score_potion_hp": float(score_potion_hp),
-            "score_max_hp_offset": float(score_max_hp_offset),
+            "score_max_hp_offset": float(score_max_hp_offset), "policy_width": int(policy_width),
         }
         self.pool_count_features = bool(pool_count_features)
         self.id_dropout = float(id_dropout)
@@ -112,6 +125,12 @@ class DeepSetsV3(nn.Module):
         self.won_out = nn.Linear(head_width, 1)
         self.hp_out = nn.Linear(head_width, 1)
         self.keep_out = nn.Linear(head_width, 1)
+        self.policy_width = int(policy_width)
+        if self.policy_width > 0:
+            self.action_kind = nn.Embedding(self.ACTION_KINDS, 4)
+            self.policy_state = nn.Linear(head_width, self.policy_width)
+            self.policy_action = nn.Linear(4 + 4 + 4 * width + self.ACTION_FLAGS, self.policy_width, bias=False)
+            self.policy_out = nn.Linear(self.policy_width, 1)
 
     @staticmethod
     def _sum(tokens, owners, batch_size):
@@ -166,9 +185,35 @@ class DeepSetsV3(nn.Module):
             h = self.head_out_norm(h)
         return h, counts[:, 6]
 
+    def policy_logits(self, h, action_state_indices, action_kinds, action_tasks, action_skips, action_discards,
+                      action_card_mask,
+                      action_card_ids, action_card_zones, action_card_types, action_target_types, action_card_numeric,
+                      action_monster_mask, action_monster_ids, action_move_ids, action_previous_move_ids,
+                      action_monster_numeric, action_monster_status, action_potion_mask, action_potion_ids,
+                      action_potion_numeric, action_interaction_mask, action_interaction_numeric):
+        """One logit per action token [A]; action_state_indices: the state (row of h) of each action."""
+        card = self.card_mlp(torch.cat((self.card_id(action_card_ids), self.zone(action_card_zones),
+                                        self.card_type(action_card_types), self.target_type(action_target_types),
+                                        action_card_numeric), -1)) * action_card_mask[:, None]
+        monster = self.monster_mlp(torch.cat((self.monster_id(action_monster_ids), self.move(action_move_ids),
+                                              self.move(action_previous_move_ids), action_monster_numeric,
+                                              action_monster_status), -1)) * action_monster_mask[:, None]
+        potion = self.potion_mlp(torch.cat((self.potion_id(self._drop_ids(action_potion_ids)), action_potion_numeric),
+                                           -1)) * action_potion_mask[:, None]
+        interaction = self.interaction_mlp(torch.cat((card, monster, action_interaction_numeric), -1)) \
+            * action_interaction_mask[:, None]
+        flags = torch.stack((action_skips, action_discards, action_card_mask, action_monster_mask,
+                             action_potion_mask, action_interaction_mask), -1)
+        a = torch.cat((self.action_kind(action_kinds), self.card_selection_task(action_tasks), card, monster, potion,
+                       interaction, flags), -1)
+        hidden = torch.relu(self.policy_state(h)[action_state_indices] + self.policy_action(a))
+        return self.policy_out(hidden).squeeze(-1)
+
     def forward_all(self, *args, max_hp, **kwargs):
-        """{"value", "won_logit", "hp_fraction" (E[final HP | win] / max_hp), "keep_fraction"
-        (E[potions left | win] / potions held)}, each [B]. max_hp: [B], global max_hp."""
+        """{"value", "won_logit", "hp_fraction" (E[final HP | win] / max_hp; also as "hp"), "keep_fraction"
+        (E[potions left | win] / potions held)}, each [B], and "policy_logits" [A] if action_* inputs are given
+        (policy head only). max_hp: [B], global max_hp."""
+        actions = {k: kwargs.pop(k) for k in list(kwargs) if k.startswith("action_")}
         h, potions = self.trunk(*args, **kwargs)
         won_logit = self.won_out(h).squeeze(-1)
         hp_fraction = torch.sigmoid(self.hp_out(h)).squeeze(-1)
@@ -176,7 +221,11 @@ class DeepSetsV3(nn.Module):
         hp_offset, potion_hp, max_hp_offset = self.score
         value = torch.sigmoid(won_logit) * (hp_offset + hp_fraction * max_hp + potion_hp * keep_fraction * potions) \
             / (max_hp_offset + max_hp)
-        return {"value": value, "won_logit": won_logit, "hp_fraction": hp_fraction, "keep_fraction": keep_fraction}
+        out = {"value": value, "won_logit": won_logit, "hp_fraction": hp_fraction, "hp": hp_fraction,
+               "keep_fraction": keep_fraction}
+        if actions and self.policy_width > 0:
+            out["policy_logits"] = self.policy_logits(h, **actions)
+        return out
 
     def forward(self, *args, **kwargs):
         return self.forward_all(*args, **kwargs)["value"]

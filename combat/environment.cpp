@@ -9,6 +9,7 @@
 #include <tuple>
 #include <sstream>
 #include <stdexcept>
+#include <optional>
 #include <utility>
 
 namespace stsrl {
@@ -154,6 +155,23 @@ const sts::CardInstance* selected_card(const sts::BattleContext& state, const st
     }
 }
 
+// The card x monster interaction numeric of `card` (in hand) played at monster slot `slot`; nullopt when it
+// deals no targeted damage or the monster is not targetable (as encode_state's interaction tokens).
+std::optional<std::array<float, 6>> interaction_numeric(const sts::BattleContext& state, const sts::CardInstance& card,
+                                                        int slot) {
+    const auto meta = card_meta(state, card);
+    if (meta.damage == 0 || meta.target == TargetType::random_enemy) return std::nullopt;
+    const auto& monster = state.monsters.arr[slot];
+    if (!monster.isTargetable()) return std::nullopt;
+    const int per_hit = state.calculateCardDamage(card, slot, meta.damage);
+    const int damage = per_hit * meta.hits;
+    const int hp_damage = std::min(monster.curHp, std::max(0, damage - monster.block));
+    const int remaining = monster.curHp - hp_damage;
+    return std::array<float, 6>{meta.hits / 10.f, damage / 100.f, hp_damage / 100.f, remaining / 100.f,
+                                monster.maxHp ? remaining / float(monster.maxHp) : 0.f,
+                                float(card.canUse(state, slot, false))};
+}
+
 } // namespace
 
 struct CombatEnvironment::Impl {
@@ -233,22 +251,64 @@ EncodedCombatState encode_state(const sts::BattleContext& state) {
     for (std::size_t ci = 0; ci < cards.size(); ++ci) {
         const auto& source = cards[ci];
         if (source.hand_index < 0) continue;  // (before card_meta: only hand cards interact)
-        const auto meta = card_meta(state, *source.card);
-        if (meta.damage == 0 || meta.target == TargetType::random_enemy) continue;
-        for (std::size_t mi = 0; mi < monsters.size(); ++mi) {
-            const auto& target = monsters[mi];
-            if (!target.monster->isTargetable()) continue;
-            const int per_hit = state.calculateCardDamage(*source.card, target.slot, meta.damage);
-            const int damage = per_hit * meta.hits;
-            const int hp_damage = std::min(target.monster->curHp, std::max(0, damage - target.monster->block));
-            const int remaining = target.monster->curHp - hp_damage;
-            encoding.card_monster_interactions.push_back({std::uint16_t(ci), std::uint8_t(mi),
-                {meta.hits / 10.f, damage / 100.f, hp_damage / 100.f, remaining / 100.f,
-                 target.monster->maxHp ? remaining / float(target.monster->maxHp) : 0.f,
-                 float(source.card->canUse(state, target.slot, false))}});
-        }
+        for (std::size_t mi = 0; mi < monsters.size(); ++mi)
+            if (const auto numeric = interaction_numeric(state, *source.card, monsters[mi].slot))
+                encoding.card_monster_interactions.push_back({std::uint16_t(ci), std::uint8_t(mi), *numeric});
     }
     return encoding;
+}
+
+ActionToken encode_action(const sts::BattleContext& state, std::uint32_t action_bits, std::size_t execution_index) {
+    const sts::search::Action action{action_bits};
+    const int select_task = state.inputState == sts::InputState::CARD_SELECT
+        ? static_cast<int>(state.cardSelectInfo.cardSelectTask)
+        : static_cast<int>(sts::CardSelectTask::INVALID);
+    ActionToken token{.kind = static_cast<EncodedActionKind>(action.getActionType()),
+                      .source_card = std::nullopt, .target_monster = std::nullopt, .potion_id = std::nullopt,
+                      .card_selection_task = select_task,
+                      .skips_selection = state.inputState == sts::InputState::CARD_SELECT &&
+                          action.getActionType() == sts::search::ActionType::SINGLE_CARD_SELECT &&
+                          state.cardSelectInfo.cardSelectTask == sts::CardSelectTask::CODEX && action.getSelectIdx() == 3,
+                      .execution_index = execution_index, .potion = std::nullopt, .interaction = std::nullopt,
+                      .discards_potion = action.getActionType() == sts::search::ActionType::POTION
+                                         && action.getTargetIdx() > 5};  // Action::execute: target > 5 discards
+    if (action.getActionType() == sts::search::ActionType::CARD) {
+        const auto source = action.getSourceIdx();
+        if (source >= 0 && source < state.cards.cardsInHand)
+            token.source_card = encode_card(state, state.cards.hand[source], CardZone::hand, true);
+    } else if (action.getActionType() == sts::search::ActionType::POTION) {
+        const auto source = action.getSourceIdx();
+        if (source >= 0 && source < static_cast<int>(state.potions.size()))
+            token.potion_id = static_cast<int>(state.potions[source]);
+    } else if (action.getActionType() == sts::search::ActionType::SINGLE_CARD_SELECT) {
+        const auto task = state.inputState == sts::InputState::CARD_SELECT
+            ? state.cardSelectInfo.cardSelectTask
+            : sts::CardSelectTask::INVALID;
+        const auto selected = action.getSelectIdx();
+        if ((task == sts::CardSelectTask::CODEX || task == sts::CardSelectTask::DISCOVERY) && selected >= 0 && selected < 3) {
+            auto info = state.cardSelectInfo;  // (its accessors are not const)
+            const auto id = task == sts::CardSelectTask::CODEX ? info.codexCards()[selected]
+                                                                : info.discovery_Cards()[selected];
+            token.source_card = CardToken{.card_id = static_cast<int>(id), .zone = CardZone::offered};
+        } else {
+            CardZone zone{};
+            if (const auto* card = selected_card(state, action, zone)) token.source_card = encode_card(state, *card, zone, false);
+        }
+    }
+    const bool requires_target = action.getActionType() == sts::search::ActionType::CARD
+        ? state.cards.hand[action.getSourceIdx()].requiresTarget()
+        : action.getActionType() == sts::search::ActionType::POTION
+            && potionRequiresTarget(state.potions[action.getSourceIdx()]);
+    if (requires_target && action.getTargetIdx() >= 0 && action.getTargetIdx() < static_cast<int>(state.monsters.arr.size()))
+        token.target_monster = encode_monster(state, state.monsters.arr[action.getTargetIdx()]);
+    if (action.getActionType() == sts::search::ActionType::POTION) {  // v4
+        const auto source = action.getSourceIdx();
+        if (source >= 0 && source < static_cast<int>(state.potions.size()))
+            token.potion = v4::encode_potion(state, state.potions[source]);
+    }
+    if (action.getActionType() == sts::search::ActionType::CARD && token.target_monster)  // v4
+        token.interaction = interaction_numeric(state, state.cards.hand[action.getSourceIdx()], action.getTargetIdx());
+    return token;
 }
 
 Decision CombatEnvironment::decision() {
@@ -260,9 +320,6 @@ Decision CombatEnvironment::decision() {
 
     Decision result;
     result.encoding = encode_state(impl_->state);
-    const int select_task = impl_->state.inputState == sts::InputState::CARD_SELECT
-        ? static_cast<int>(impl_->state.cardSelectInfo.cardSelectTask)
-        : static_cast<int>(sts::CardSelectTask::INVALID);
     result.legal_actions.reserve(node.edges.size());
     result.encoding.legal_actions.reserve(node.edges.size());
 
@@ -272,42 +329,7 @@ Decision CombatEnvironment::decision() {
         edge.action.printDesc(description, impl_->state);
         impl_->current_actions.push_back(edge.action);
         result.legal_actions.push_back({index, std::move(description).str()});
-        ActionToken token{.kind = static_cast<EncodedActionKind>(edge.action.getActionType()),
-                          .source_card = std::nullopt, .target_monster = std::nullopt, .potion_id = std::nullopt,
-                          .card_selection_task = select_task,
-                          .skips_selection = impl_->state.inputState == sts::InputState::CARD_SELECT &&
-                              edge.action.getActionType() == sts::search::ActionType::SINGLE_CARD_SELECT &&
-                              impl_->state.cardSelectInfo.cardSelectTask == sts::CardSelectTask::CODEX && edge.action.getSelectIdx() == 3,
-                          .execution_index = index};
-        if (edge.action.getActionType() == sts::search::ActionType::CARD) {
-            const auto source = edge.action.getSourceIdx();
-            if (source >= 0 && source < impl_->state.cards.cardsInHand)
-                token.source_card = encode_card(impl_->state, impl_->state.cards.hand[source], CardZone::hand, true);
-        } else if (edge.action.getActionType() == sts::search::ActionType::POTION) {
-            const auto source = edge.action.getSourceIdx();
-            if (source >= 0 && source < static_cast<int>(impl_->state.potions.size()))
-                token.potion_id = static_cast<int>(impl_->state.potions[source]);
-        } else if (edge.action.getActionType() == sts::search::ActionType::SINGLE_CARD_SELECT) {
-            const auto task = impl_->state.inputState == sts::InputState::CARD_SELECT
-                ? impl_->state.cardSelectInfo.cardSelectTask
-                : sts::CardSelectTask::INVALID;
-            const auto selected = edge.action.getSelectIdx();
-            if ((task == sts::CardSelectTask::CODEX || task == sts::CardSelectTask::DISCOVERY) && selected >= 0 && selected < 3) {
-                const auto id = task == sts::CardSelectTask::CODEX ? impl_->state.cardSelectInfo.codexCards()[selected]
-                                                                    : impl_->state.cardSelectInfo.discovery_Cards()[selected];
-                token.source_card = CardToken{.card_id = static_cast<int>(id), .zone = CardZone::offered};
-            } else {
-                CardZone zone{};
-                if (const auto* card = selected_card(impl_->state, edge.action, zone)) token.source_card = encode_card(impl_->state, *card, zone, false);
-            }
-        }
-        const bool requires_target = edge.action.getActionType() == sts::search::ActionType::CARD
-            ? impl_->state.cards.hand[edge.action.getSourceIdx()].requiresTarget()
-            : edge.action.getActionType() == sts::search::ActionType::POTION
-                && potionRequiresTarget(impl_->state.potions[edge.action.getSourceIdx()]);
-        if (requires_target && edge.action.getTargetIdx() >= 0 && edge.action.getTargetIdx() < static_cast<int>(impl_->state.monsters.arr.size()))
-            token.target_monster = encode_monster(impl_->state, impl_->state.monsters.arr[edge.action.getTargetIdx()]);
-        result.encoding.legal_actions.push_back(std::move(token));
+        result.encoding.legal_actions.push_back(encode_action(impl_->state, edge.action.bits, index));
     }
     std::sort(result.encoding.legal_actions.begin(), result.encoding.legal_actions.end(), [](const ActionToken& a, const ActionToken& b) {
         if (a.kind != b.kind) return a.kind < b.kind;

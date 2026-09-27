@@ -113,8 +113,7 @@ PotionToken encode_potion(const sts::BattleContext& state, sts::Potion potion) {
     case ENERGY_POTION: x[6] = 2 * k / 5; break;
     case SWIFT_POTION: x[7] = 3 * k / 10; break;
     case SNECKO_OIL: x[7] = 5 * k / 10; x[16] = 1; break;
-    // The simulator heals 40% of max HP, 20% with Sacred Bark (reversed from the game); encoded as simulated.
-    case BLOOD_POTION: x[8] = std::floor(max_hp * (bark ? 20 : 40) / 100.f) / 50; break;
+    case BLOOD_POTION: x[8] = std::floor(max_hp * (bark ? 40 : 20) / 100.f) / 50; break;
     case REGEN_POTION: { const float r = 5 * k; x[8] = r * (r + 1) / 2 / 50; x[12] = r / 10; break; }
     case FRUIT_JUICE: x[8] = 5 * k / 50; x[9] = 5 * k / 10; break;
     case FEAR_POTION: x[10] = 3 * k / 5; break;
@@ -132,7 +131,7 @@ PotionToken encode_potion(const sts::BattleContext& state, sts::Potion potion) {
     case BLESSING_OF_THE_FORGE: case ELIXIR_POTION: break;  // (upgrade / exhaust the hand: the id carries it)
     case ENTROPIC_BREW: case GAMBLERS_BREW: x[16] = 1; break;
     case FAIRY_POTION: x[15] = std::max(1.f, std::floor(max_hp * (bark ? 0.6f : 0.3f))) / 50; break;
-    // Smoke Bomb (escape counts as a victory in the simulator) is being removed from the potion pool.
+    // Smoke Bomb: disabled in the simulator (never generated, never legal).
     default:
         throw std::runtime_error{"unsupported potion in encoding v4: " + std::string{sts::getPotionName(potion)}};
     }

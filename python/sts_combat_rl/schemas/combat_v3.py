@@ -8,6 +8,16 @@ import pyarrow as pa
 
 NAME = "combat_v3"
 F32 = pa.float32()
+CARD = pa.struct([("card_id", pa.int16()), ("zone", pa.int8()), ("card_type", pa.int8()),
+                  ("target_type", pa.int8()), ("numeric", pa.list_(F32, 14))])
+# encoding v4 (combat/encoding.hpp v4_columns). Numeric lists inside nullable structs (a legal action's optional
+# card / monster / potion / interaction) are variable-length: parquet cannot store fixed-size lists under a null.
+# Their widths are checked by the loader (training/data_v4.py).
+ACTION_CARD = pa.struct([("card_id", pa.int16()), ("zone", pa.int8()), ("card_type", pa.int8()),
+                         ("target_type", pa.int8()), ("numeric", pa.list_(F32))])
+ACTION_MONSTER = pa.struct([("monster_id", pa.int16()), ("move_id", pa.int16()), ("numeric", pa.list_(F32)),
+                            ("previous_move_id", pa.int16()), ("status", pa.list_(F32))])
+ACTION_POTION = pa.struct([("potion_id", pa.int16()), ("numeric", pa.list_(F32))])
 COMBAT_V3 = pa.schema(
     [
         # which run / fight
@@ -30,8 +40,7 @@ COMBAT_V3 = pa.schema(
         # encoded public state
         ("encoding_version", pa.int32()),
         ("global_numeric", pa.list_(F32, 50)),
-        ("cards", pa.list_(pa.struct([("card_id", pa.int16()), ("zone", pa.int8()), ("card_type", pa.int8()),
-                                      ("target_type", pa.int8()), ("numeric", pa.list_(F32, 14))]))),
+        ("cards", pa.list_(CARD)),
         ("monsters", pa.list_(pa.struct([("monster_id", pa.int16()), ("move_id", pa.int16()),
                                          ("numeric", pa.list_(F32, 9))]))),
         ("card_monster_interactions", pa.list_(pa.struct([("card_index", pa.int16()), ("monster_index", pa.int8()),
@@ -51,6 +60,17 @@ COMBAT_V3 = pa.schema(
         ("final_hp", pa.int16()),
         ("potions", pa.int8()),
         ("terminal_value", F32),
+        # encoding v4 additions (NULL in older rows; runs/README.md). legal_actions: decision rows only.
+        ("v4_encoding_version", pa.int8()),
+        ("player_numeric", pa.list_(F32, 12)),
+        ("max_hp", F32),
+        ("monster_v4", pa.list_(pa.struct([("previous_move_id", pa.int16()), ("status", pa.list_(F32, 15))]))),
+        ("potion_tokens", pa.list_(pa.struct([("potion_id", pa.int16()), ("numeric", pa.list_(F32, 18))]))),
+        ("relic_tokens", pa.list_(pa.struct([("relic_id", pa.int16()), ("numeric", pa.list_(F32, 3))]))),
+        ("legal_actions", pa.list_(pa.struct([
+            ("action", pa.int32()), ("kind", pa.int8()), ("card_selection_task", pa.int16()),
+            ("skips_selection", pa.bool_()), ("discards_potion", pa.bool_()), ("card", ACTION_CARD),
+            ("monster", ACTION_MONSTER), ("potion", ACTION_POTION), ("interaction", pa.list_(F32))]))),
     ],
     metadata={"schema": NAME},
 )

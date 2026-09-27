@@ -85,6 +85,9 @@ struct ActionToken {
     int card_selection_task{};
     bool skips_selection{};
     std::size_t execution_index{};
+    std::optional<PotionToken> potion;                // v4: the drunk potion's token
+    std::optional<std::array<float, 6>> interaction;  // v4: card play x target (CardMonsterInteraction numeric)
+    bool discards_potion{};                           // v4: a potion action that discards (target > 5), not drinks
     auto operator==(const ActionToken&) const -> bool = default;
 };
 
@@ -147,20 +150,45 @@ inline void to_json(nlohmann::json& j, const EncodedCombatState& s) {
     };
 }
 
-// The full v4 state (every v3 key plus the v4 fields); read by python/sts_combat_rl/training/encoding_v4.py.
-inline nlohmann::json to_json_v4(const EncodedCombatState& s) {
-    nlohmann::json j = s;
-    j["encoding_version"] = combat_encoding_schema_version;
-    j["player_numeric"] = s.global.player;
-    j["max_hp"] = s.global.max_hp;
-    for (std::size_t m = 0; m < s.monsters.size(); ++m) {
-        j["monsters"][m]["previous_move_id"] = s.monsters[m].previous_move_id;
-        j["monsters"][m]["status"] = s.monsters[m].status;
+inline nlohmann::json v4_json(const MonsterToken& m) {
+    return {{"monster_id", m.monster_id}, {"move_id", m.move_id}, {"numeric", m.numeric},
+            {"previous_move_id", m.previous_move_id}, {"status", m.status}};
+}
+
+inline nlohmann::json v4_json(const ActionToken& a) {
+    nlohmann::json j = {{"action", a.execution_index}, {"kind", static_cast<int>(a.kind)},
+                        {"card_selection_task", a.card_selection_task}, {"skips_selection", a.skips_selection},
+                        {"discards_potion", a.discards_potion},
+                        {"card", nullptr}, {"monster", nullptr}, {"potion", nullptr}, {"interaction", nullptr}};
+    if (a.source_card) j["card"] = *a.source_card;
+    if (a.target_monster) j["monster"] = v4_json(*a.target_monster);
+    if (a.potion) j["potion"] = {{"potion_id", a.potion->potion_id}, {"numeric", a.potion->numeric}};
+    if (a.interaction) j["interaction"] = *a.interaction;
+    return j;
+}
+
+// The v4 columns of a combat_v3 row (python/sts_combat_rl/schemas/combat_v3.py; nullable, so rows written before
+// them read as NULL). to_json(s) plus these is a whole v4 state. legal_actions (the policy's inputs, `action` =
+// the row's actions[].action / chosen_action index) only with with_actions: decision rows, not child rows.
+inline nlohmann::json v4_columns(const EncodedCombatState& s, bool with_actions) {
+    nlohmann::json j = {{"v4_encoding_version", combat_encoding_schema_version}, {"player_numeric", s.global.player},
+                        {"max_hp", s.global.max_hp}, {"monster_v4", nlohmann::json::array()},
+                        {"potion_tokens", nlohmann::json::array()}, {"relic_tokens", nlohmann::json::array()}};
+    for (const auto& m : s.monsters)
+        j["monster_v4"].push_back({{"previous_move_id", m.previous_move_id}, {"status", m.status}});
+    for (const auto& p : s.potions) j["potion_tokens"].push_back({{"potion_id", p.potion_id}, {"numeric", p.numeric}});
+    for (const auto& r : s.relics) j["relic_tokens"].push_back({{"relic_id", r.relic_id}, {"numeric", r.numeric}});
+    if (with_actions) {
+        j["legal_actions"] = nlohmann::json::array();
+        for (const auto& a : s.legal_actions) j["legal_actions"].push_back(v4_json(a));
     }
-    j["potions"] = nlohmann::json::array();
-    for (const auto& p : s.potions) j["potions"].push_back({{"potion_id", p.potion_id}, {"numeric", p.numeric}});
-    j["relics"] = nlohmann::json::array();
-    for (const auto& r : s.relics) j["relics"].push_back({{"relic_id", r.relic_id}, {"numeric", r.numeric}});
+    return j;
+}
+
+// A whole row's state: to_json (v3 columns) plus v4_columns.
+inline nlohmann::json state_row(const EncodedCombatState& s, bool with_actions) {
+    nlohmann::json j = s;
+    j.update(v4_columns(s, with_actions));
     return j;
 }
 

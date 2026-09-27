@@ -1,7 +1,8 @@
 // Encoding v4 (combat/encoding_v4.cpp) and deep_sets_v3 inference.
 //   encoding_v4_test                        checks that the v4 fields see what the v3 encoding missed
-//   encoding_v4_test WEIGHTS OUT.json       writes [{state: to_json_v4, value: ValueNet}] for the sample
-//                                           states (the Python / C++ parity test, tests/test_deep_sets_v3.py)
+//   encoding_v4_test WEIGHTS OUT.json       writes [{state: state_row (a combat_v3 row's state columns with
+//                                           legal_actions), value, logits (policy nets)}] for the sample
+//                                           decisions (the Python / C++ parity test, tests/test_deep_sets_v3.py)
 #include "combat/encoding_v4.hpp"
 #include "combat/environment.hpp"
 #include "topology/value_net.hpp"
@@ -129,6 +130,30 @@ void encoding_checks() {
     check(encode_state(moved).monsters[0].previous_move_id == static_cast<int>(moved.monsters.arr[0].moveHistory[0]),
           "previous move");
 
+    // Action tokens: potions carry their token, targeted attacks their card x target interaction.
+    {
+        stsrl::CombatEnvironment env{s[0]};
+        const auto d = env.decision();
+        int potions = 0, interactions = 0;
+        for (const auto& a : d.encoding.legal_actions) {
+            if (a.kind == stsrl::EncodedActionKind::potion) {
+                check(a.potion.has_value() && a.potion_id && a.potion->potion_id == *a.potion_id, "potion action token");
+                potions += a.potion->potion_id == static_cast<int>(sts::Potion::FIRE_POTION) && !a.discards_potion;
+                if (a.potion->potion_id == static_cast<int>(sts::Potion::FAIRY_POTION))
+                    check(a.discards_potion, "fairy's only action is a discard");
+            }
+            if (a.interaction) {
+                check(a.source_card && a.target_monster, "interaction has card and target");
+                ++interactions;
+            }
+        }
+        check(potions == 3, "fire potion at each of three sentries");
+        check(interactions > 0, "targeted attacks have interactions");
+        const auto again = stsrl::encode_action(s[0], env.action_bits(d.encoding.legal_actions[0].execution_index),
+                                                d.encoding.legal_actions[0].execution_index);
+        check(again == d.encoding.legal_actions[0], "encode_action matches the decision's token");
+    }
+
     // Drinking a potion removes its token.
     stsrl::CombatEnvironment env{s[0]};
     const auto decision = env.decision();
@@ -155,8 +180,18 @@ int main(int argc, char** argv) {
     const stsrl::ValueNet net{argv[1]};
     auto out = nlohmann::json::array();
     for (const auto& battle : samples()) {
-        const auto e = encode_state(battle);
-        out.push_back({{"state", stsrl::to_json_v4(e)}, {"value", net.evaluate(e)}});
+        stsrl::CombatEnvironment env{battle};
+        const auto e = env.decision().encoding;
+        nlohmann::json row = {{"state", stsrl::state_row(e, true)}};
+        if (net.has_policy()) {
+            std::vector<float> logits;
+            row["value"] = net.evaluate(e, e.legal_actions, logits);
+            row["logits"] = logits;  // in e.legal_actions order
+            check(row["value"].get<float>() == net.evaluate(e), "value is the same with the policy");
+        } else {
+            row["value"] = net.evaluate(e);
+        }
+        out.push_back(std::move(row));
     }
     std::ofstream{argv[2]} << out.dump();
     return 0;

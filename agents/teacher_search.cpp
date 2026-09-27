@@ -48,7 +48,7 @@ void record_children(std::vector<Json>& rows, const CombatEnvironment& env, cons
         (void)child.decision();
         child.step(tried.index);
         if (child.done()) continue;
-        Json row = child.decision().encoding;
+        Json row = state_row(child.decision().encoding, false);
         row.update(fight);
         row.update({{"decision_index", index}, {"turn", child.battle().turn}, {"actions", Json::array()},
                     {"chosen_action", -1}, {"was_random", false}, {"root_value", tried.value},
@@ -95,7 +95,7 @@ sts::BattleContext play_fight(sts::BattleContext battle, const Json& fight, std:
         const bool random = index == random_at;
         if (random) choice.chosen = std::uniform_int_distribution<std::size_t>{0, state.legal_actions.size() - 1}(rng);
         record_children(children, env, choice, fight, index, oracle);
-        Json row = state.encoding;
+        Json row = state_row(state.encoding, true);
         row.update(fight);
         row.update({{"decision_index", index}, {"turn", env.battle().turn}, {"actions", std::move(choice.actions)},
                     {"chosen_action", choice.chosen}, {"was_random", random}, {"root_value", choice.value},
@@ -133,7 +133,7 @@ LearnerFight play_learner_fight(sts::BattleContext battle, const Json& fight, st
         // Two separate searches of the same unchanged state; the teacher's result never reaches the learner's.
         const auto label = search_decision(env, legal, teacher, false, particles);
         const auto move = search_decision(env, legal, learner, false, particles);
-        Json row = state.encoding;
+        Json row = state_row(state.encoding, true);
         row.update(fight);
         row.update({{"decision_index", index}, {"turn", env.battle().turn}, {"actions", label.actions},
                     {"chosen_action", move.chosen}, {"was_random", false}, {"root_value", label.value},

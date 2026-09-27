@@ -17,10 +17,11 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 
-from sts_combat_rl.topology import DeepSetsV2, build
+from sts_combat_rl.topology import ENCODING_VERSIONS, DeepSetsV2, DeepSetsV3, build
 
 from ..run import run_dir
 from ..schemas import combat_v3
+from . import data_v4
 from .data import RowLoader, Rows, assign_aux_targets, assign_targets, split_rows, training_rows
 
 
@@ -53,6 +54,8 @@ class TrainConfig:
     validation_fraction: float | None  # of run seeds; unless split = pinned
     corrections: str | None          # SQL selecting DAgger rows (target root_value); needs split = pinned
     correction_weight: float | None  # with corrections: share of the loss on correction rows
+    aux_keep_weight: float | None    # deep_sets_v3 only: potions-kept head (won rows holding a potion)
+    policy_weight: float | None      # deep_sets_v3 only: policy cross entropy (0 with policy_width 0)
 
     def __post_init__(self) -> None:
         types = {"str": str, "bool": bool, "int": int, "float": (int, float), "Path": Path, "dict[str, Any]": dict}
@@ -77,6 +80,11 @@ class TrainConfig:
         exactly_when("split", self.initial_checkpoint is not None, "with initial_checkpoint")
         exactly_when("validation_fraction", self.split != "pinned", "unless split = pinned")
         exactly_when("correction_weight", self.corrections is not None, "with corrections")
+        v3 = self.model["kind"] == "deep_sets_v3"
+        exactly_when("aux_keep_weight", v3, "with model kind deep_sets_v3")
+        exactly_when("policy_weight", v3, "with model kind deep_sets_v3")
+        if v3 and self.policy_weight > 0 and not self.model.get("policy_width"):
+            raise ValueError("policy_weight > 0 needs a policy head (policy_width > 0)")
         if self.corrections is not None and self.split != "pinned":
             raise ValueError("corrections need an initial checkpoint with split = 'pinned'")
         if self.correction_weight is not None and not 0 <= self.correction_weight <= 1:
@@ -118,7 +126,8 @@ def to_device(batch: dict[str, torch.Tensor], device: torch.device) -> dict[str,
     return {key: value.to(device, non_blocking=True) for key, value in batch.items()}
 
 
-AUX_KEYS = ("aux_won", "aux_hp", "aux_mask", "aux_hp_mask")
+AUX_KEYS = ("aux_won", "aux_hp", "aux_mask", "aux_hp_mask", "aux_keep", "aux_keep_mask", "policy_target",
+            "policy_mask")
 
 
 def pop_aux(batch: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
@@ -150,6 +159,64 @@ def aux_losses(outputs: dict[str, torch.Tensor], aux: dict[str, torch.Tensor]) -
                       aux["aux_mask"])
     hp = masked_mean((outputs["hp"] - aux["aux_hp"]) ** 2, aux["aux_hp_mask"])
     return won, hp
+
+
+def segment_log_softmax(logits: torch.Tensor, owner: torch.Tensor, n: int) -> torch.Tensor:
+    """log_softmax of each state's action logits (owner: the state of each action)."""
+    maxes = logits.new_full((n,), float("-inf")).scatter_reduce(0, owner, logits.detach(), "amax")
+    shifted = logits - maxes[owner]
+    sums = logits.new_zeros(n).index_add(0, owner, shifted.exp())
+    return shifted - sums.log()[owner]
+
+
+def policy_ce(outputs: dict[str, torch.Tensor], batch: dict[str, torch.Tensor], aux: dict[str, torch.Tensor]):
+    """Per-state cross entropy against the visit distribution, and its mean over states with a policy target."""
+    owner, n = batch["action_state_indices"], aux["policy_mask"].shape[0]
+    logp = segment_log_softmax(outputs["policy_logits"], owner, n)
+    ce = logp.new_zeros(n).index_add(0, owner, -aux["policy_target"] * logp)
+    return ce, masked_mean(ce, aux["policy_mask"])
+
+
+def keep_loss(outputs: dict[str, torch.Tensor], aux: dict[str, torch.Tensor]) -> torch.Tensor:
+    return masked_mean((outputs["keep_fraction"] - aux["aux_keep"]) ** 2, aux["aux_keep_mask"])
+
+
+def evaluate_policy(model: torch.nn.Module, loader: RowLoader) -> dict[str, float]:
+    """deep_sets_v3 validation: policy cross entropy, top-1 agreement with the most visited move, and the
+    potions-kept MSE, over the rows that have each target."""
+    model.eval()
+    device = next(model.parameters()).device
+    ce_sum = agree = states = keep_sum = keep_rows = 0.0
+    with torch.no_grad():
+        for batch in loader:
+            batch.pop("weight", None)
+            batch.pop("target", None)
+            aux = pop_aux(batch)
+            batch = to_device(batch, device)
+            aux = to_device(aux, device)
+            outputs = model.forward_all(**batch)
+            keep_sum += float(((outputs["keep_fraction"] - aux["aux_keep"]) ** 2 * aux["aux_keep_mask"]).sum())
+            keep_rows += float(aux["aux_keep_mask"].sum())
+            if "policy_logits" not in outputs:
+                continue
+            ce, _ = policy_ce(outputs, batch, aux)
+            mask = aux["policy_mask"]
+            ce_sum += float((ce * mask).sum())
+            states += float(mask.sum())
+            owner, n = batch["action_state_indices"], mask.shape[0]
+            logits = outputs["policy_logits"]
+            best_logit = logits.new_full((n,), float("-inf")).scatter_reduce(0, owner, logits, "amax")
+            best_target = logits.new_full((n,), -1.0).scatter_reduce(0, owner, aux["policy_target"], "amax")
+            hit = logits.new_zeros(n).index_add(0, owner, ((logits == best_logit[owner])
+                                                          & (aux["policy_target"] == best_target[owner])).float())
+            agree += float(((hit > 0).float() * mask).sum())
+    out = {}
+    if states:
+        out.update(policy_validation_ce=ce_sum / states, policy_validation_top1=agree / states,
+                   policy_validation_states=states)
+    if keep_rows:
+        out["aux_keep_validation_mse"] = keep_sum / keep_rows
+    return out
 
 
 def evaluate_aux(model: torch.nn.Module, loader: RowLoader) -> dict[str, float]:
@@ -223,11 +290,13 @@ def pinned_split(rows: Rows, reference: dict[str, Any]) -> tuple[np.ndarray, np.
     return split[0], split[1], len(rows) - len(split[0]) - len(split[1])
 
 
-def load_corrections(sql, reference) -> Rows:
+def load_corrections(sql, reference, v4: bool = False) -> Rows:
     """DAgger rows (apps/dagger) with target root_value (the teacher's estimate; never the actor's outcome).
     Uses the completed fights' parts even if the run itself didn't finish (each part is one whole fight).
     Every row must be a reference training episode / run seed."""
-    rows = training_rows(sql, corrective=True, oracle=False)
+    rows = training_rows(sql, corrective=True, oracle=False, v4=v4)
+    if v4:
+        data_v4.assign_keep_targets(rows.columns)  # all masked: corrections carry no outcome targets
     inside = (np.isin(rows["episode_id"], reference["train_episode_ids"])
               & np.isin(rows["run_seed"], np.array(reference["train_run_seeds"], dtype=np.uint64)))
     if outside := np.unique(rows["episode_id"][~inside]).tolist():
@@ -246,9 +315,13 @@ def run(args: TrainConfig) -> dict[str, Any]:
     np.random.seed(args.seed)
     torch.manual_seed(args.seed)
     architecture = args.model
-    rows = training_rows(args.data, corrective=False, oracle=args.oracle)
+    encoding_version = ENCODING_VERSIONS[architecture["kind"]]
+    v4 = encoding_version == 4
+    rows = training_rows(args.data, corrective=False, oracle=args.oracle, v4=v4)
     assign_targets(rows, args.label, args.blend)
     assign_aux_targets(rows)
+    if v4:
+        data_v4.assign_keep_targets(rows.columns)
     corrections_sql = args.corrections
     initial = args.initial_checkpoint
     weight = args.correction_weight
@@ -283,7 +356,7 @@ def run(args: TrainConfig) -> dict[str, Any]:
     source_runs = sorted(set(rows["run_id"][kept]))
     bootstrap_train = train
     if corrections_sql:
-        corrections = load_corrections(corrections_sql, reference)
+        corrections = load_corrections(corrections_sql, reference, v4)
         # Per-row weights: the mean weighted loss over all training rows is
         # (1-w) * mean bootstrap loss + w * mean correction loss, whatever the row counts.
         total = len(train) + len(corrections)
@@ -298,12 +371,14 @@ def run(args: TrainConfig) -> dict[str, Any]:
         train = np.concatenate([train, corrections])
     aux_won_weight = args.aux_won_weight
     aux_hp_weight = args.aux_hp_weight
-    use_aux = aux_won_weight > 0 or aux_hp_weight > 0
+    aux_keep_weight = args.aux_keep_weight or 0.0
+    policy_weight = args.policy_weight or 0.0
+    use_aux = aux_won_weight > 0 or aux_hp_weight > 0 or v4
     train_loader = RowLoader(rows, train, args.batch_size, shuffle=True, weight=True, aux=use_aux,
                              generator=torch.Generator().manual_seed(args.seed))
     valid_loader = RowLoader(rows, valid, args.batch_size, aux=use_aux)
     model = build(architecture)
-    if use_aux and not (isinstance(model, DeepSetsV2) and model.aux_heads):
+    if use_aux and not (isinstance(model, DeepSetsV3) or isinstance(model, DeepSetsV2) and model.aux_heads):
         raise ValueError("aux_won_weight/aux_hp_weight require a model with aux_heads=true (for example deep_sets_v2)")
     initial_sha = None
     if initial:
@@ -346,14 +421,20 @@ def run(args: TrainConfig) -> dict[str, Any]:
                 "weight_decay": args.weight_decay,
             },
             "training_config": dataclasses.asdict(args),
-            "encoding_version": 3,
+            "encoding_version": encoding_version,
             "data_schema": combat_v3.NAME,
             "row_counts": row_counts,
             "target_name": args.label,
             "target_blend": args.blend,
             "aux_won_weight": aux_won_weight,
             "aux_hp_weight": aux_hp_weight,
+            "aux_keep_weight": aux_keep_weight,
+            "policy_weight": policy_weight,
             "aux_targets": {
+                "keep": "MSE against clipped final potions / potions held, masked to won decision rows holding one "
+                        "after the last random move (deep_sets_v3)",
+                "policy": "cross entropy against the root visit share, identical tokens merged; decision rows with "
+                          "visits, not oracle (deep_sets_v3)",
                 "won": "BCEWithLogits against won, masked to decision rows after the last random move",
                 "hp": "MSE against clipped final_hp / starting_max_hp, masked to won decision rows after the last random move",
             },
@@ -436,7 +517,7 @@ def run(args: TrainConfig) -> dict[str, Any]:
         model.train()
         batch_count = len(train_loader)
         progress_every = max(1, batch_count // 20)
-        value_loss_sum = aux_won_loss_sum = aux_hp_loss_sum = 0.0
+        value_loss_sum = aux_won_loss_sum = aux_hp_loss_sum = keep_loss_sum = policy_loss_sum = 0.0
         for batch_index, batch in enumerate(train_loader, start=1):
             batch = to_device(batch, device)
             target = batch.pop("target")
@@ -451,8 +532,14 @@ def run(args: TrainConfig) -> dict[str, Any]:
                 prediction = model(**batch)
                 aux_won_loss = prediction.new_tensor(0.0)
                 aux_hp_loss = prediction.new_tensor(0.0)
+            aux_keep_loss = keep_loss(outputs, aux) if v4 else prediction.new_tensor(0.0)
+            policy_loss = (policy_ce(outputs, batch, aux)[1] if v4 and "policy_logits" in outputs
+                           else prediction.new_tensor(0.0))
             value_loss = (weights * (prediction - target) ** 2).mean()
-            loss = value_loss + aux_won_weight * aux_won_loss + aux_hp_weight * aux_hp_loss
+            loss = (value_loss + aux_won_weight * aux_won_loss + aux_hp_weight * aux_hp_loss
+                    + aux_keep_weight * aux_keep_loss + policy_weight * policy_loss)
+            keep_loss_sum += float(aux_keep_loss.detach().cpu())
+            policy_loss_sum += float(policy_loss.detach().cpu())
             value_loss_sum += float(value_loss.detach().cpu())
             aux_won_loss_sum += float(aux_won_loss.detach().cpu())
             aux_hp_loss_sum += float(aux_hp_loss.detach().cpu())
@@ -487,6 +574,12 @@ def run(args: TrainConfig) -> dict[str, Any]:
             "train_aux_won_bce": train_aux_won_loss,
             "train_aux_hp_mse": train_aux_hp_loss,
         }
+        if v4:
+            metrics.update(train_aux_keep_mse=keep_loss_sum / batch_count, train_policy_ce=policy_loss_sum / batch_count)
+            metrics.update(evaluate_policy(model, valid_loader))
+            print("  v3: " + " ".join(f"{k}={v:.5f}" for k, v in metrics.items()
+                                      if k.startswith(("policy_", "aux_keep", "train_policy", "train_aux_keep"))),
+                  flush=True)
         if use_aux:
             metrics.update(evaluate_aux(model, valid_loader))
         if corrections is not None:

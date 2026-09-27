@@ -164,6 +164,8 @@ and a fresh fight RNG seeded from `episode_id`. Only fights with `source_episode
 | `oracle` | `true`: the teacher searched the true state (one particle with the real RNG and draw order, max backup: the move played is the best-valued one, no early stop; `root_value` / `mean_value` are still means, `[run] oracle = true` in apps/bootstrap or apps/value_play). Perfect foresight, an upper bound, not fair play. NULL in runs older than the column: treat as `false` (`coalesce(oracle, false)`) |
 | `simulations_used` | simulations the search actually ran: 500 for a forced move, fewer than the budget when it stopped early because the top move could no longer be overtaken; 0 on child rows |
 | `won`, `final_hp`, `potions`, `terminal_value` | this fight's outcome, the same on every row of the fight (`potions`: potion count at fight end) |
+| `v4_encoding_version`, `player_numeric`, `max_hp`, `monster_v4`, `potion_tokens`, `relic_tokens` | encoding v4 additions (`combat/encoding_v4.cpp`; read by value net `deep_sets_v3`): `monster_v4` is aligned with `monsters` (previous move, statuses); `potion_tokens` / `relic_tokens` are the held potions / relics (not the outcome column `potions`). NULL in rows written before them |
+| `legal_actions` | decision rows only (NULL on child rows and older rows): every legal move as a policy token `{action, kind, card_selection_task, skips_selection, discards_potion, card, monster, potion, interaction}`; `action` is the index used by `actions` / `chosen_action` |
 
 `terminal_value`: win = (35 + final_hp + 4 × potions) / (55 + max_hp), loss = 0 (sts_ml `scorePrediction`, default weights).
 

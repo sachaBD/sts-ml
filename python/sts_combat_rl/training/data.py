@@ -14,6 +14,7 @@ from torch.utils.data import DataLoader
 
 from .. import query
 from ..run import run_parquet
+from . import data_v4
 
 
 def validation_run_seeds(run_seeds, validation_fraction: float, seed: int) -> set[int]:
@@ -181,7 +182,9 @@ class Rows:
         columns.setdefault("aux_hp", np.zeros(len(columns["episode_id"]), dtype=np.float32))
         columns.setdefault("aux_mask", np.zeros(len(columns["episode_id"]), dtype=np.float32))
         columns.setdefault("aux_hp_mask", np.zeros(len(columns["episode_id"]), dtype=np.float32))
-        self.starts = {group: np.cumsum(columns[group + ".count"]) - columns[group + ".count"] for group in TOKENS}
+        self.starts = {group: np.cumsum(columns[group + ".count"]) - columns[group + ".count"]
+                       for group in (*TOKENS, *data_v4.GROUPS) if group + ".count" in columns}
+        self.v4 = "player_numeric" in columns
 
     def __len__(self) -> int:
         return len(self.columns["episode_id"])
@@ -234,6 +237,8 @@ class Rows:
             monster_state_indices=long(owners["monsters"]),
             interaction_state_indices=long(owner),
         )
+        if self.v4:
+            out.update(data_v4.collate(c, self.starts, index, tokens["monsters"]))
         return out
 
 
@@ -246,16 +251,21 @@ class RowLoader(DataLoader):
                          collate_fn=lambda positions: rows.collate(positions, weight, aux))
 
 
-def training_rows(sql: str, *, corrective: bool, oracle: bool) -> Rows:
-    """The combat_v3 rows of `sql` (sts_combat_rl.query) to train on, validated.
+def training_rows(sql: str, *, corrective: bool, oracle: bool, v4: bool = False) -> Rows:
+    """The combat_v3 rows of `sql` (sts_combat_rl.query) to train on, validated. v4: also their encoding v4
+    columns (data_v4; every row must have them), for deep_sets_v3.
 
     DAgger runs (parts tagged collection_method=dagger: teacher-root-only targets, learner outcomes; the blend
     would misuse them) are only accepted as corrections, and corrections only from them. Oracle rows raise
     unless oracle=True.
     """
     parts, count = [], 0
-    for batch in query.batches(sql, META + STATE + tuple(TOKENS), oracle=oracle):
-        parts.append(_pack(batch, count))
+    columns = META + STATE + tuple(TOKENS) + (data_v4.COLUMNS if v4 else ())
+    for batch in query.batches(sql, columns, oracle=oracle):
+        part = _pack(batch, count)
+        if v4:
+            data_v4.pack(batch, count, part)
+        parts.append(part)
         count += batch.num_rows
     if not count:
         raise ValueError(f"no rows: {sql}")

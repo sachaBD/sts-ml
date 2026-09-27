@@ -74,6 +74,18 @@ ValueNet::Linear linear(const std::map<std::string, Tensor>& tensors, const std:
     return l;
 }
 
+// A Linear without bias (PyTorch bias=False): zero bias.
+ValueNet::Linear linear_no_bias(const std::map<std::string, Tensor>& tensors, const std::string& name, int in, int out) {
+    const auto& w = get(tensors, name + ".weight", 2);
+    if (w.shape[0] != static_cast<std::uint32_t>(out) || w.shape[1] != static_cast<std::uint32_t>(in))
+        throw std::runtime_error{"bad shape for " + name};
+    if (tensors.contains(name + ".bias")) throw std::runtime_error{name + " should have no bias"};
+    ValueNet::Linear l{in, out, std::vector<float>(static_cast<std::size_t>(in) * out), std::vector<float>(out, 0.f)};
+    for (int o = 0; o < out; ++o)
+        for (int i = 0; i < in; ++i) l.weight_t[static_cast<std::size_t>(i) * out + o] = w.data[static_cast<std::size_t>(o) * in + i];
+    return l;
+}
+
 // Appends embedding row `index` to x.
 float* put(float* x, const ValueNet::Embedding& e, int index) {
     if (index < 0 || index >= e.rows) throw std::out_of_range{"embedding index out of range"};
@@ -229,6 +241,14 @@ ValueNet::ValueNet(const std::string& path) {
         won_out_ = linear(t, "won_out", hw, 1);
         hp_out_ = linear(t, "hp_out", hw, 1);
         keep_out_ = linear(t, "keep_out", hw, 1);
+        policy_width_ = architecture.at("policy_width").get<int>();
+        if (policy_width_ > 0) {
+            action_kind_ = embedding(t, "action_kind");
+            policy_state_ = linear(t, "policy_state", hw, policy_width_);
+            policy_action_ = linear_no_bias(t, "policy_action",
+                                            action_kind_.dim + card_selection_task_.dim + 4 * w + 6, policy_width_);
+            policy_out_ = linear(t, "policy_out", policy_width_, 1);
+        }
     } else {
         value_out_ = linear(t, "value_out", hw, 1);
     }
@@ -330,6 +350,74 @@ const float* ValueNet::relic_hidden(const RelicToken& relic) const {
     return relic_cache_.emplace(key, std::move(out)).first->second.data();
 }
 
+const float* ValueNet::interaction_hidden(const CardToken& card, const float* card_out, const MonsterToken& monster,
+                                          const float* monster_out, const std::array<float, 6>& numeric) const {
+    InteractionKey key;
+    put_bits(put_monster(put_card(key.bits.data(), card), monster), numeric);
+    auto it = interaction_cache_.find(key);
+    ++(it == interaction_cache_.end() ? stats_.interaction_misses : stats_.interaction_hits);
+    if (it == interaction_cache_.end()) {
+        const std::size_t w = static_cast<std::size_t>(width_);
+        std::vector<float> x(interaction1_.in), hidden(w), out(w);
+        float* p = std::copy_n(card_out, w, x.data());
+        p = std::copy_n(monster_out, w, p);
+        put(p, numeric);
+        mlp(interaction1_, interaction2_, x.data(), hidden.data(), out.data());
+        it = interaction_cache_.emplace(key, std::move(out)).first;
+    }
+    return it->second.data();
+}
+
+const float* ValueNet::action_hidden(const ActionToken& a) const {
+    ActionKey key;
+    auto* k = key.bits.data();
+    *k++ = static_cast<std::uint32_t>(a.kind);
+    *k++ = static_cast<std::uint32_t>(a.card_selection_task);
+    *k++ = std::uint32_t(a.skips_selection) | std::uint32_t(a.source_card.has_value()) << 1
+         | std::uint32_t(a.target_monster.has_value()) << 2 | std::uint32_t(a.potion.has_value()) << 3
+         | std::uint32_t(a.interaction.has_value()) << 4 | std::uint32_t(a.discards_potion) << 5;
+    *k++ = 0;
+    k = a.source_card ? put_card(k, *a.source_card) : k + 16;
+    k = a.target_monster ? put_monster(k, *a.target_monster) : k + monster_key_words;
+    if (a.potion) {
+        *k++ = static_cast<std::uint32_t>(a.potion->potion_id);
+        k = put_bits(k, a.potion->numeric);
+    } else {
+        k += 1 + potion_features;
+    }
+    if (a.interaction) put_bits(k, *a.interaction);
+    if (const auto it = action_cache_.find(key); it != action_cache_.end()) {
+        ++stats_.action_hits;
+        return it->second.data();
+    }
+    ++stats_.action_misses;
+    // a = cat(emb(kind), emb(task), card, monster, potion, interaction, flags); absent parts zero
+    const std::size_t w = static_cast<std::size_t>(width_);
+    action_x_.assign(static_cast<std::size_t>(policy_action_.in), 0.0f);
+    float* x = put(put(action_x_.data(), action_kind_, static_cast<int>(a.kind)), card_selection_task_,
+                   a.card_selection_task);
+    const float* card = a.source_card ? card_hidden(*a.source_card) : nullptr;
+    const float* monster = a.target_monster ? monster_hidden(*a.target_monster) : nullptr;
+    if (card) std::copy_n(card, w, x);
+    if (monster) std::copy_n(monster, w, x + w);
+    if (a.potion) std::copy_n(potion_hidden(*a.potion), w, x + 2 * w);
+    if (a.interaction) {
+        // (Python multiplies the absent card / monster parts by 0, so an interaction needs both.)
+        if (!card || !monster) throw std::runtime_error{"action interaction without card and target"};
+        std::copy_n(interaction_hidden(*a.source_card, card, *a.target_monster, monster, *a.interaction), w, x + 3 * w);
+    }
+    float* flags = x + 4 * w;
+    flags[0] = float(a.skips_selection);
+    flags[1] = float(a.discards_potion);
+    flags[2] = float(a.source_card.has_value());
+    flags[3] = float(a.target_monster.has_value());
+    flags[4] = float(a.potion.has_value());
+    flags[5] = float(a.interaction.has_value());
+    std::vector<float> out(static_cast<std::size_t>(policy_width_));
+    apply(policy_action_, action_x_.data(), out.data(), false);
+    return action_cache_.emplace(key, std::move(out)).first->second.data();
+}
+
 void ValueNet::pool_features(const EncodedCombatState& s, std::size_t size, bool counts) const {
     // Not mid-state: card_out_ / monster_out_ point into the caches.
     if (card_cache_.size() >= 1 << 16) card_cache_.clear();
@@ -337,6 +425,7 @@ void ValueNet::pool_features(const EncodedCombatState& s, std::size_t size, bool
     if (interaction_cache_.size() >= 1 << 16) interaction_cache_.clear();
     if (potion_cache_.size() >= 1 << 12) potion_cache_.clear();
     if (relic_cache_.size() >= 1 << 12) relic_cache_.clear();
+    if (action_cache_.size() >= 1 << 16) action_cache_.clear();
     const std::size_t w = static_cast<std::size_t>(width_);
     const std::size_t pools = v3_ ? 8 : 6;
     x_.resize(std::max<std::size_t>({size, 2 * w + 6, static_cast<std::size_t>(monster1_.in)}));
@@ -369,19 +458,8 @@ void ValueNet::pool_features(const EncodedCombatState& s, std::size_t size, bool
     for (const auto& i : s.card_monster_interactions) {
         if (i.card_index >= s.cards.size() || i.monster_index >= s.monsters.size())
             throw std::out_of_range{"interaction index out of range"};
-        InteractionKey key;
-        put_bits(put_monster(put_card(key.bits.data(), s.cards[i.card_index]), s.monsters[i.monster_index]), i.numeric);
-        auto it = interaction_cache_.find(key);
-        ++(it == interaction_cache_.end() ? stats_.interaction_misses : stats_.interaction_hits);
-        if (it == interaction_cache_.end()) {
-            float* p = std::copy_n(card_out_[i.card_index], w, x_.data());
-            p = std::copy_n(monster_out_[i.monster_index], w, p);
-            put(p, i.numeric);
-            std::vector<float> out(w);
-            mlp(interaction1_, interaction2_, x_.data(), hidden_.data(), out.data());
-            it = interaction_cache_.emplace(key, std::move(out)).first;
-        }
-        const float* out = it->second.data();
+        const float* out = interaction_hidden(s.cards[i.card_index], card_out_[i.card_index],
+                                              s.monsters[i.monster_index], monster_out_[i.monster_index], i.numeric);
         for (std::size_t k = 0; k < w; ++k) interaction_sum[k] += out[k];
     }
     if (v3_) {
@@ -453,6 +531,23 @@ float ValueNet::evaluate_v3(const EncodedCombatState& s) const {
     const float max_hp = s.global.max_hp, potions = static_cast<float>(s.potions.size());
     return sigmoid(won) * (score_hp_offset_ + sigmoid(hp) * max_hp + score_potion_hp_ * sigmoid(keep) * potions)
          / (score_max_hp_offset_ + max_hp);
+}
+
+float ValueNet::evaluate(const EncodedCombatState& s, std::span<const ActionToken> actions,
+                         std::vector<float>& logits) const {
+    if (!has_policy()) throw std::logic_error{"value net has no policy head"};
+    const float value = evaluate_v3(s);  // leaves h_
+    const std::size_t pw = static_cast<std::size_t>(policy_width_);
+    policy_h_.resize(pw);
+    policy_hidden_.resize(pw);
+    apply(policy_state_, h_.data(), policy_h_.data(), false);
+    logits.resize(actions.size());
+    for (std::size_t i = 0; i < actions.size(); ++i) {
+        const float* a = action_hidden(actions[i]);
+        for (std::size_t k = 0; k < pw; ++k) policy_hidden_[k] = std::max(policy_h_[k] + a[k], 0.0f);
+        apply(policy_out_, policy_hidden_.data(), &logits[i], false);
+    }
+    return value;
 }
 
 void ValueNet::evaluate(std::span<const EncodedCombatState> states, std::vector<float>& values) const {

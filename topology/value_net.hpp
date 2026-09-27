@@ -29,12 +29,17 @@ public:
     // One value per state, written to `values` (resized to states.size()).
     void evaluate(std::span<const EncodedCombatState> states, std::vector<float>& values) const;
     float evaluate(const EncodedCombatState& state) const;
+    // deep_sets_v3 with a policy head: the value, and one policy logit per action in `logits` (softmax them for
+    // priors; identical tokens get identical logits). `actions`: the state's legal moves (encode_action).
+    float evaluate(const EncodedCombatState& state, std::span<const ActionToken> actions,
+                   std::vector<float>& logits) const;
+    bool has_policy() const { return policy_width_ > 0; }
 
     // Token cache lookups since construction (hits, misses) for card, monster and interaction encoders.
     struct CacheStats {
         std::uint64_t card_hits = 0, card_misses = 0, monster_hits = 0, monster_misses = 0,
                       interaction_hits = 0, interaction_misses = 0, potion_hits = 0, potion_misses = 0,
-                      relic_hits = 0, relic_misses = 0;
+                      relic_hits = 0, relic_misses = 0, action_hits = 0, action_misses = 0;
     };
     const CacheStats& cache_stats() const { return stats_; }
 
@@ -81,6 +86,11 @@ private:
         std::array<std::uint32_t, 1 + relic_features> bits{};
         bool operator==(const RelicKey&) const = default;
     };
+    // Every ActionToken field the policy reads (all but execution_index).
+    struct ActionKey {
+        std::array<std::uint32_t, 4 + 16 + monster_key_words + 1 + potion_features + 6> bits{};
+        bool operator==(const ActionKey&) const = default;
+    };
     struct BitsHash {
         template <class Key> std::size_t operator()(const Key& k) const;
     };
@@ -89,6 +99,10 @@ private:
     const float* monster_hidden(const MonsterToken& monster) const;
     const float* potion_hidden(const PotionToken& potion) const;
     const float* relic_hidden(const RelicToken& relic) const;
+    const float* interaction_hidden(const CardToken& card, const float* card_out, const MonsterToken& monster,
+                                    const float* monster_out, const std::array<float, 6>& numeric) const;
+    // policy_action(a) of an action token (policy_width_ floats).
+    const float* action_hidden(const ActionToken& action) const;
     // Fills features_ (size `size`): global numeric, (v3: player numeric,) the two embeddings, the width-sized
     // pools (six; v3: eight) and, if counts, log1p of the pool token counts.
     void pool_features(const EncodedCombatState& s, std::size_t size, bool counts) const;
@@ -105,6 +119,7 @@ private:
     mutable std::unordered_map<InteractionKey, std::vector<float>, BitsHash> interaction_cache_;
     mutable std::unordered_map<PotionKey, std::vector<float>, BitsHash> potion_cache_;
     mutable std::unordered_map<RelicKey, std::vector<float>, BitsHash> relic_cache_;
+    mutable std::unordered_map<ActionKey, std::vector<float>, BitsHash> action_cache_;
     // Scratch buffers of evaluate (no allocation per state).
     mutable std::vector<float> x_, hidden_, features_, out_;
     mutable std::vector<const float*> card_out_, monster_out_;
@@ -118,6 +133,11 @@ private:
     Embedding potion_id_, relic_id_;
     Linear potion1_, potion2_, relic1_, relic2_, won_out_, hp_out_, keep_out_;
     float score_hp_offset_ = 0, score_potion_hp_ = 0, score_max_hp_offset_ = 0;
+    // v3 policy head (policy_width_ > 0)
+    int policy_width_ = 0;
+    Embedding action_kind_;
+    Linear policy_state_, policy_action_, policy_out_;
+    mutable std::vector<float> policy_h_, action_x_, policy_hidden_;
     std::vector<HeadBlock> head_blocks_;
     mutable std::vector<float> h_, normed_, block_hidden_;
     mutable CacheStats stats_;
