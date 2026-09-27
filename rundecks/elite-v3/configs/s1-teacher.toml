@@ -1,0 +1,27 @@
+# Stage 1: guided-rollout MCTS teacher (the baseline agent, 20k sims / 8 particles) on 1,700 training fights per elite
+# (hash-selected from buckets 4,6,7,8,9). Rows carry encoding v4 + legal moves + root visits (policy targets).
+[run]
+id = "elite-v3-teacher"
+query = """
+select * from combat_v3
+where id = 'act1-all-bosses-a20-scaled-search' and source_episode_id is null and category = 'elite'
+  and run_seed % 10 in (4,6,7,8,9)
+  and episode_id in (
+    select episode_id from (
+      select episode_id, row_number() over (partition by encounter order by hash(episode_id)) k
+      from (select distinct episode_id, encounter from combat_v3
+            where id = 'act1-all-bosses-a20-scaled-search' and source_episode_id is null and category = 'elite'
+              and run_seed % 10 in (4,6,7,8,9)))
+    where k <= 1700)
+"""
+leaf = "guided_rollout"
+simulations = 20000
+particles = 8
+random_move = false
+oracle = false
+samples = 1
+first_sample = 0
+hp_sd = 10.0
+random_potions = true  # replace held potions with random drops: potion coverage for the potion encoder
+skip_diverged = true
+workers = 11

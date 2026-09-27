@@ -40,7 +40,7 @@ def model(seed=0, **overrides):
     return net.eval()
 
 
-def cpp(net):
+def cpp(net, *mode):
     binary = ROOT / "build" / os.environ.get("STSRL_BUILD_DIR", "main") / "encoding_v4_test"
     if not binary.exists():
         raise unittest.SkipTest(f"{binary} is not built")
@@ -49,7 +49,7 @@ def cpp(net):
         torch.save({"architecture": net.config, "encoding_version": ENCODING_VERSIONS["deep_sets_v3"],
                     "model_state": net.state_dict()}, checkpoint)
         export(checkpoint, weights)
-        subprocess.run([str(binary), str(weights), str(out)], check=True)
+        subprocess.run([str(binary), str(weights), str(out), *mode], check=True)
         return json.loads(out.read_text())
 
 
@@ -190,6 +190,13 @@ class DeepSetsV3Tests(unittest.TestCase):
         self.assertNotIn("policy_logits", out)
         for i, r in enumerate(results):
             self.assertAlmostEqual(out["value"][i].item(), r["value"], places=5)
+
+    def test_policy_net_search_runs(self):
+        """Leaf policy_net (every-node priors from the policy head) plays a legal move within budget."""
+        for r in cpp(self.net, "search"):
+            self.assertTrue(0 <= r["chosen"] < r["legal"])
+            self.assertTrue(1 <= r["used"] <= 400)
+            self.assertGreaterEqual(r["root_visits"], 1)
 
     def test_architecture_is_explicit(self):
         with self.assertRaises(ValueError):

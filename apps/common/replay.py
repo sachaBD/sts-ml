@@ -49,6 +49,18 @@ def replay_requests(rows, episodes):
     return requests
 
 
+# Errors of a replay that no longer reproduces its stored fight (the simulator changed since it was recorded: e.g.
+# Smoke Bomb removal shifts potion RNG, potion discards are no longer actions). [run] skip_diverged = true in
+# apps/value_play and apps/fight_resample skips (and lists) such fights instead of failing the run.
+DIVERGED = ("stored actions don't fit the replayed fight", "replayed fight didn't end after its stored actions",
+            "run ended before the fight", "replayed start differs from the stored fight")
+
+
+def diverged(error: Exception) -> bool:
+    """Whether `error` (a worker RuntimeError or check_start's) says the replay diverged from the stored fight."""
+    return isinstance(error, RuntimeError) and any(message in str(error) for message in DIVERGED)
+
+
 def check_start(episode, replayed, stored, columns=START):
     """Raise unless the replayed decision 0 row matches the stored one on `columns`."""
     if differs := [c for c in columns if replayed[c] != stored[c]]:

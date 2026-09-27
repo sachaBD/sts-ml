@@ -13,7 +13,7 @@ from pathlib import Path
 
 from apps.common.app import (TEACHER_KEYS, check_keys, exactly_when, main, required, run_json, snapshot,
                              teacher_settings, value_run, write_json)
-from apps.common.replay import check_start, decision_rows, replay_requests
+from apps.common.replay import check_start, decision_rows, diverged, replay_requests
 from sts_combat_rl import query
 from apps.common.worker import run_parallel, run_worker, write_part
 from sts_combat_rl.schemas.combat_v3 import NAME
@@ -22,8 +22,8 @@ log = logging.getLogger(__name__)
 BUILT = Path("build/main/fight_resample_worker")  # built by apps/common/job.sh
 MAX_SAMPLES = 1000  # episode_id = source_episode_id * 1000 + k
 RUN_KEYS = {"id", "query", "samples", "first_sample", "hp_sd", "random_potions", "value_run", "fights", "workers",
-            *TEACHER_KEYS}
-NET_LEAVES = ("value_net", "hybrid")  # need [run] value_run
+            "skip_diverged", *TEACHER_KEYS}
+NET_LEAVES = ("value_net", "hybrid", "policy_net")  # need [run] value_run
 COLUMNS = ["run_seed", "fight_index", "episode_id", "decision_index", "chosen_action", "ascension", "encounter", "floor",
            "starting_hp", "starting_max_hp"]
 
@@ -106,13 +106,35 @@ def resample(config, config_path, out):
                  " ".join(f"hp {r['starting_hp']}->{r['final_hp'] if r['won'] else 'lost'}" for r in results),
                  sum(r["won"] for r in done), len(done))
 
-    run_parallel(lambda item: play(item[0], *item[1], binary, weights, out), fights.items(), workers, on_result)
+    skip_diverged = run.get("skip_diverged", False)
+    if not isinstance(skip_diverged, bool):
+        sys.exit("[run].skip_diverged must be true or false")
+    skipped = []
+
+    def play_or_skip(item):
+        try:
+            return play(item[0], *item[1], binary, weights, out)
+        except RuntimeError as error:
+            if skip_diverged and diverged(error):
+                log.warning("episode %d skipped: replay diverged from the stored fight: %s", item[0], str(error)[-300:])
+                skipped.append(item[0])
+                return None, []
+            raise
+
+    def on_result_or_skip(item, result):
+        if result[0] is not None:
+            on_result(item, result)
+
+    run_parallel(play_or_skip, fights.items(), workers, on_result_or_skip)
+    if not done:
+        sys.exit(f"no fight played ({len(skipped)} replays diverged)")
     summary = {"schema": NAME, "query": run["query"], "sources": sources, "value_run": run.get("value_run"),  # None: no net leaf
                "teacher": teacher, "worker_sha256": worker_sha256, "samples": count,
                "hp_sd": hp_sd, "random_potions": random_potions, "source_fights": len(fights), "fights": len(done),
                "wins": sum(r["won"] for r in done),
                "mean_terminal_value": sum(r["terminal_value"] for r in done) / len(done),
-               "seconds_per_fight": sum(r["seconds"] for r in done) / len(done)}
+               "seconds_per_fight": sum(r["seconds"] for r in done) / len(done),
+               "skipped_diverged": len(skipped), "skipped_episodes": skipped}
     write_json(out / "summary.json", summary)
     log.info("done in %.1f min: %s", (time.monotonic() - started) / 60, summary)
 

@@ -1,0 +1,31 @@
+# Stage 4 (conditional): expert iteration. The chosen net + policy search plays the OTHER training fights
+# (k > 1700 per elite, ~2,400); its visits become the next policy targets.
+[run]
+id = "elite-v3-selfplay"
+query = """
+select * from combat_v3
+where id = 'act1-all-bosses-a20-scaled-search' and source_episode_id is null and category = 'elite'
+  and run_seed % 10 in (4,6,7,8,9)
+  and episode_id in (
+    select episode_id from (
+      select episode_id, row_number() over (partition by encounter order by hash(episode_id)) k
+      from (select distinct episode_id, encounter from combat_v3
+            where id = 'act1-all-bosses-a20-scaled-search' and source_episode_id is null and category = 'elite'
+              and run_seed % 10 in (4,6,7,8,9)))
+    where k > 1700)
+"""
+value_run = "{{run:value_net_v1/{{best}}}}"
+c_puct = {{c_puct}}
+fpu_reduction = 0.05
+prior_floor = 0.03
+leaf = "policy_net"
+simulations = 20000
+particles = 8
+random_move = false
+oracle = false
+samples = 1
+first_sample = 0
+hp_sd = 10.0
+random_potions = true  # replace held potions with random drops: potion coverage for the potion encoder
+skip_diverged = true
+workers = 11

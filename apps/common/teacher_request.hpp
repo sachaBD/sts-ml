@@ -1,6 +1,7 @@
 // The teacher settings of a worker request, written by apps/common/app.py teacher_settings:
 //   {leaf, simulations, oracle, random_move, particles (unless oracle), rollout_turns / rollout_steps (leaf hybrid
-//    only), merge_identical_cards / stop_factor (opt-in search tweaks, teacher::set_tweak)}.
+//    only), c_puct / fpu_reduction / prior_floor (leaf policy_net), merge_identical_cards / stop_factor (opt-in
+//    search tweaks, teacher::set_tweak)}.
 // Every setting that applies is required; anything else is an error.
 #pragma once
 

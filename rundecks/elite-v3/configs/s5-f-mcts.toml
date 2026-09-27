@@ -1,0 +1,17 @@
+# Stage 5 (conditional): guided-rollout MCTS on the 1,500 reserved final fights (buckets 2/3).
+[run]
+id = "elite-v3-f-mcts"
+input = "value_net_v1/2026-09-27/elite-terminal-v1"
+workers = 11
+leaf = "guided_rollout"
+simulations = 20000
+particles = 8
+random_move = false
+oracle = false
+skip_diverged = true  # simulator changed since these fights were stored; skip (and list) replays that diverge
+query = """
+select * from combat_v3
+where id = 'act1-all-bosses-a20-scaled-search' and source_episode_id is null and category = 'elite' and run_seed % 10 in (2,3)
+  and episode_id in (
+    select source_episode_id from read_csv_auto('experiments/act-1-combat/2026-09-28-elite-specialist/final_fights.csv'))
+"""

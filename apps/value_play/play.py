@@ -13,7 +13,7 @@ from pathlib import Path
 import pyarrow.compute as pc
 from apps.common.app import (FAIR_PLAY, ORACLE_BANNER, TEACHER_KEYS, check_keys, main, required, run_json, snapshot,
                              teacher_settings, value_run, write_json)
-from apps.common.replay import COLUMNS, check_start, decision_rows, replay_requests
+from apps.common.replay import COLUMNS, check_start, decision_rows, diverged, replay_requests
 from apps.common.worker import run_parallel, run_worker, write_part
 from apps.value_play.progress import Progress
 from sts_combat_rl import query
@@ -22,9 +22,9 @@ from sts_combat_rl.schemas.combat_v3 import NAME as COMBAT_V3_NAME
 
 log = logging.getLogger(__name__)
 BUILT = Path("build/main/value_play_worker")  # built by apps/common/job.sh; each run plays with its own copy in out/
-NET_LEAVES = ("value_net", "hybrid")
+NET_LEAVES = ("value_net", "hybrid", "policy_net")
 OUTCOME = ("won", "final_hp", "terminal_value")  # of the stored teacher's fight, logged next to the replay
-RUN_KEYS = {"id", "input", "workers", "episodes", "query", *TEACHER_KEYS}
+RUN_KEYS = {"id", "input", "workers", "episodes", "query", "skip_diverged", *TEACHER_KEYS}
 
 
 def inputs(config):
@@ -62,6 +62,17 @@ def select_episodes(run, validation):
     if outside or len(set(episodes)) != len(episodes) or not episodes:
         sys.exit(f"episodes must be distinct checkpoint validation episodes; not validation: {outside}")
     return episodes
+
+
+def play_or_skip(episode, request, start, binary, weights, out, skip_diverged):
+    """play(), or with skip_diverged (None, {"episode", "skipped": reason}) for a fight whose replay diverged."""
+    try:
+        return play(episode, request, start, binary, weights, out)
+    except RuntimeError as error:
+        if skip_diverged and diverged(error):
+            log.warning("episode %d skipped: replay diverged from the stored fight: %s", episode, str(error)[-300:])
+            return None, {"episode": episode, "skipped": str(error)[-300:]}
+        raise
 
 
 def play(episode, request, start, binary, weights, out):
@@ -103,6 +114,9 @@ def replay(config, config_path, out):
         request["teacher"] = teacher_in
     binary, sha256 = snapshot(BUILT, out)
     workers = required(run, "workers", "run", int)
+    skip_diverged = run.get("skip_diverged", False)
+    if not isinstance(skip_diverged, bool):
+        sys.exit("[run].skip_diverged must be true or false")
     log.info("%s", ORACLE_BANNER if oracle else FAIR_PLAY)
     for line in ("", "Value play" + (" [ORACLE]" if oracle else ""), "==========", f"config:    {config_path}", f"output:    {out}",
                  f"value run: {value_id}", f"weights:   {weights}", f"data runs: {', '.join(data_runs)}",
@@ -112,12 +126,16 @@ def replay(config, config_path, out):
                  f"workers:   {workers}", f"worker:    {binary} (sha256 {sha256})", "",
                  f"Each line: the {label} teacher's replay | the stored teacher's result for the same fight", ""):
         log.info("%s", line)
-    started, done, teacher = time.monotonic(), [], None
+    started, done, skipped, teacher = time.monotonic(), [], [], None
     progress = Progress(len(fights), label)
 
     def on_result(_, result):
         nonlocal teacher
-        teacher, fight = result
+        settings, fight = result
+        if "skipped" in fight:
+            skipped.append(fight)
+            return
+        teacher = settings
         done.append(fight)
         if progress.add(fight):
             log.info("[%d/%d] wins %d vs teacher %d; mean terminal value %.3f vs %.3f",
@@ -126,8 +144,11 @@ def replay(config, config_path, out):
                      sum(f["terminal_value"] for f in done) / len(done),
                      sum(f["teacher"]["terminal_value"] for f in done) / len(done))
 
-    run_parallel(lambda item: play(item[0], *item[1], binary, weights, out), fights.items(), workers, on_result)
+    run_parallel(lambda item: play_or_skip(item[0], *item[1], binary, weights, out, skip_diverged), fights.items(),
+                 workers, on_result)
     progress.finish()
+    if not done:
+        sys.exit(f"every fight's replay diverged ({len(skipped)} skipped)")
     mean = lambda values: sum(values) / len(values)
     summary = {"schema": COMBAT_V3_NAME, "value_run": value_id, "data_runs": data_runs, "teacher": teacher,
                "episodes": episodes, "worker": {"path": str(binary), "sha256": sha256},
@@ -135,13 +156,15 @@ def replay(config, config_path, out):
                "teacher_wins": sum(f["teacher"]["won"] for f in done), "rows": sum(f["rows"] for f in done),
                "mean_terminal_value": mean([f["terminal_value"] for f in done]),
                "teacher_mean_terminal_value": mean([f["teacher"]["terminal_value"] for f in done]),
-               "seconds_per_fight": mean([f["seconds"] for f in done])}
+               "seconds_per_fight": mean([f["seconds"] for f in done]),
+               "skipped_diverged": len(skipped), "skipped": skipped}
     write_json(out / "summary.json", summary)
     for line in ("", "Summary", "-------", f"teacher:        {json.dumps(teacher)}",
                  f"{'':16}{label:>22}{'teacher':>10}",
                  f"{'won':16}{summary['wins']:>22}{summary['teacher_wins']:>10}   of {summary['fights']}",
                  f"{'terminal value':16}{summary['mean_terminal_value']:>22.3f}{summary['teacher_mean_terminal_value']:>10.3f}   mean",
                  f"rows:           {summary['rows']:,}", f"seconds/fight:  {summary['seconds_per_fight']:.1f}",
+                 f"skipped:        {len(skipped)} fights whose replay diverged from the stored fight",
                  f"wall time:      {(time.monotonic() - started) / 60:.1f} min", f"summary:        {out / 'summary.json'}"):
         log.info("%s", line)
 

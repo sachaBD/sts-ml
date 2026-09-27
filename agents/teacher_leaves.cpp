@@ -81,6 +81,14 @@ bool set_tweak(const std::string& key, const Json& value) {
         tweaks().merge_identical_cards = value.get<bool>();
         return true;
     }
+    if (key == "c_puct" || key == "fpu_reduction" || key == "prior_floor") {
+        if (!value.is_number() || !std::isfinite(value.get<double>()) || value.get<double>() < 0
+            || (key == "prior_floor" && value.get<double>() > 1))
+            throw std::invalid_argument{key + " must be a finite number >= 0 (prior_floor at most 1)"};
+        (key == "c_puct" ? tweaks().c_puct : key == "fpu_reduction" ? tweaks().fpu_reduction
+                                                                    : tweaks().prior_floor) = value.get<double>();
+        return true;
+    }
     if (key == "stop_factor") {
         if (!value.is_number() || !(value.get<double>() > 0) || value.get<double>() > 1)
             throw std::invalid_argument{"stop_factor must be a number in (0, 1]"};
@@ -157,6 +165,50 @@ std::int64_t run_leaf_search(PublicBeliefCombatSearch& search, const LeafEvaluat
     return search.simulations;
 }
 
+std::int64_t run_policy_net_search(PublicBeliefCombatSearch& search, const ValueNet& net,
+                                   std::int64_t simulations, std::size_t legal_moves) {
+    if (!net.has_policy()) throw std::invalid_argument{"leaf policy_net needs a value net with a policy head"};
+    const auto& t = tweaks();
+    if (std::isnan(t.c_puct) || std::isnan(t.fpu_reduction) || std::isnan(t.prior_floor))
+        throw std::invalid_argument{"leaf policy_net needs teacher settings c_puct, fpu_reduction and prior_floor"};
+    if (!search.policyPriors) {  // a fresh search (make_search); a rebased one keeps its mode
+        search.setObjective(1, 35.0, 4.0, 0.0, 0.0);
+        search.enablePolicyPriors(t.c_puct, t.fpu_reduction);
+    }
+    const double scale = 1.0 / (56.0 + search.objectiveMaxHp());
+    const auto budget = legal_moves == 1 ? std::min(forced_simulations, simulations) : simulations;
+    std::vector<ActionToken> actions;
+    std::vector<float> logits;
+    std::vector<double> priors;
+    while (search.simulations < budget) {
+        const auto ids = search.requestBatch(value_net_batch, budget, 0, 0);
+        for (const auto id : ids) {
+            const auto& request = search.pending.at(id);
+            const auto state = encode_state(request.state);
+            if (!request.child) {  // cut off by maximumActions: value only
+                search.submit(id, std::clamp(static_cast<double>(net.evaluate(state)) * (55.0 + state.global.max_hp)
+                                             * scale, 0.0, 2.0));
+                continue;
+            }
+            const auto& edges = request.child->edges;
+            actions.clear();
+            for (std::size_t i = 0; i < edges.size(); ++i)
+                actions.push_back(encode_action(request.state, edges[i].action.bits, i));
+            const double value = net.evaluate(state, actions, logits);
+            if (!std::isfinite(value)) throw std::runtime_error{"non-finite leaf value"};
+            const float top = *std::max_element(logits.begin(), logits.end());
+            double sum = 0;
+            priors.resize(logits.size());
+            for (std::size_t i = 0; i < logits.size(); ++i) sum += priors[i] = std::exp(logits[i] - top);
+            const double floor = t.prior_floor / static_cast<double>(priors.size());
+            for (auto& p : priors) p = (1.0 - t.prior_floor) * p / sum + floor;
+            search.submit(id, std::clamp(value * (55.0 + state.global.max_hp) * scale, 0.0, 2.0), priors);
+        }
+        if (legal_moves > 1 && decided(search, budget - search.simulations)) break;
+    }
+    return search.simulations;
+}
+
 std::int64_t run_value_net_search(PublicBeliefCombatSearch& search, const ValueNet& net,
                                   std::int64_t simulations, std::size_t legal_moves) {
     return run_leaf_search(search, value_net_evaluator(net), simulations, legal_moves, 0, 0);  // immediate
@@ -172,9 +224,9 @@ std::size_t legal_index(const CombatEnvironment& env, std::size_t count, const P
 
 void validate(const Leaf& leaf, bool has_net) {
     const bool bounded = leaf.rollout_turns != 0 || leaf.rollout_steps != 0;
-    if (leaf.kind == "guided_rollout" || leaf.kind == "value_net") {
+    if (leaf.kind == "guided_rollout" || leaf.kind == "value_net" || leaf.kind == "policy_net") {
         if (bounded) throw std::invalid_argument{leaf.kind + " takes no rollout bounds"};
-        if (has_net != (leaf.kind == "value_net"))
+        if (has_net != (leaf.kind != "guided_rollout"))
             throw std::invalid_argument{leaf.kind + (has_net ? " takes no value net" : " needs a value net")};
     } else if (leaf.kind == "hybrid") {
         if (leaf.rollout_turns < 1 || leaf.rollout_steps < 1)
@@ -191,6 +243,7 @@ SearchFn leaf_search(const Leaf& leaf, const ValueNet* net, const Budget& budget
         throw std::invalid_argument{"simulations and particles must be >= 1"};
     if (leaf.kind == "guided_rollout") return guided_rollout_search(budget.simulations);
     if (leaf.kind == "value_net") return value_net_search(*net, budget.simulations);
+    if (leaf.kind == "policy_net") return policy_net_search(*net, budget.simulations);
     return hybrid_search(*net, leaf.rollout_turns, leaf.rollout_steps, budget.simulations);
 }
 
@@ -203,6 +256,12 @@ SearchFn guided_rollout_search(std::int64_t simulations) {
 SearchFn value_net_search(const ValueNet& net, std::int64_t simulations) {
     return [&net, simulations](PublicBeliefCombatSearch& search, std::size_t legal_moves) {
         return run_value_net_search(search, net, simulations, legal_moves);
+    };
+}
+
+SearchFn policy_net_search(const ValueNet& net, std::int64_t simulations) {
+    return [&net, simulations](PublicBeliefCombatSearch& search, std::size_t legal_moves) {
+        return run_policy_net_search(search, net, simulations, legal_moves);
     };
 }
 
@@ -220,6 +279,12 @@ Json search_settings(const Leaf& leaf, const Budget& budget) {
                    {"forced_simulations", forced_simulations}, {"max_actions", max_actions}};
     if (leaf.kind == "guided_rollout") result["chunk"] = chunk;
     else result["batch"] = value_net_batch;
+    if (leaf.kind == "policy_net") {
+        result["c_puct"] = tweaks().c_puct;
+        result["fpu_reduction"] = tweaks().fpu_reduction;
+        result["prior_floor"] = tweaks().prior_floor;
+        result["objective"] = "won * (35 + hp + 4 * potions) / (56 + root max hp)";
+    }
     if (leaf.kind == "hybrid") {
         result["rollout_turns"] = leaf.rollout_turns;
         result["rollout_steps"] = leaf.rollout_steps;

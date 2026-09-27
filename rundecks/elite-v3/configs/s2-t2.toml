@@ -1,0 +1,54 @@
+# Stage 2: as t1 with a 5x stronger policy loss (0.25).
+[run]
+id = "elite-v3-t2"
+
+[data]
+query = """
+select * from combat_v3
+where id = 'elite-v3-teacher' and category = 'elite' and row_kind in ('decision', 'child')
+  and v4_encoding_version = 4
+"""
+oracle = false
+
+[model]
+kind = "deep_sets_v3"
+card_vocab = 512
+monster_vocab = 128
+move_vocab = 512
+potion_vocab = 64
+relic_vocab = 192
+width = 96
+card_id_dim = 32
+monster_id_dim = 16
+move_dim = 16
+potion_id_dim = 16
+relic_id_dim = 16
+id_dropout = 0.1
+pool_count_features = true
+head_input_norm = true
+head_width = 192
+head_blocks = 2
+zero_init_blocks = true
+score_hp_offset = 35.0     # = teacher_search.cpp outcome_columns
+score_potion_hp = 4.0
+score_max_hp_offset = 55.0
+policy_width = 128
+
+[train]
+validation_fraction = 0.1  # internal checkpoint choice only; bucket-5 play (stage 3) is the real validation
+row_weighting = "elite_sqrt_source"
+device = "cuda"
+epochs = 10
+batch_size = 512
+lr = 0.0005
+weight_decay = 0.01
+seed = 0
+label = "shift"            # decision rows: root value + 0.5 (outcome - root value); child rows keep sibling order
+blend = 0.5
+aux_won_weight = 0.1
+aux_hp_weight = 0.1
+aux_keep_weight = 0.1
+policy_weight = 0.25
+lr_schedule = "cosine"
+keep = "best"
+threads = 4

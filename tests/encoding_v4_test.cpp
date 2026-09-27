@@ -3,6 +3,9 @@
 //   encoding_v4_test WEIGHTS OUT.json       writes [{state: state_row (a combat_v3 row's state columns with
 //                                           legal_actions), value, logits (policy nets)}] for the sample
 //                                           decisions (the Python / C++ parity test, tests/test_deep_sets_v3.py)
+//   encoding_v4_test WEIGHTS OUT.json search  one leaf policy_net search (400 simulations, 8 particles) per sample
+//                                           decision: [{legal, used, chosen, root_visits}]
+#include "agents/teacher_leaves.hpp"
 #include "combat/encoding_v4.hpp"
 #include "combat/environment.hpp"
 #include "topology/value_net.hpp"
@@ -173,12 +176,29 @@ int main(int argc, char** argv) {
         encoding_checks();
         return 0;
     }
-    if (argc != 3) {
-        std::cerr << "usage: encoding_v4_test [WEIGHTS OUT.json]\n";
+    if (argc != 3 && !(argc == 4 && std::string{argv[3]} == "search")) {
+        std::cerr << "usage: encoding_v4_test [WEIGHTS OUT.json [search]]\n";
         return 2;
     }
     const stsrl::ValueNet net{argv[1]};
     auto out = nlohmann::json::array();
+    if (argc == 4) {
+        namespace t = stsrl::teacher;
+        for (const auto* key : {"c_puct", "fpu_reduction", "prior_floor"})
+            t::set_tweak(key, std::string{key} == "c_puct" ? 1.5 : std::string{key} == "fpu_reduction" ? 0.1 : 0.03);
+        const auto search_fn = t::leaf_search({"policy_net"}, &net, {400, 8});
+        for (const auto& battle : samples()) {
+            stsrl::CombatEnvironment env{battle};
+            const auto legal = env.decision().legal_actions.size();
+            auto search = t::make_search(env.battle(), false, 8);
+            const auto used = search_fn(search, legal);
+            check(search.policyPriors, "policy-prior mode on");
+            const auto chosen = t::legal_index(env, legal, search, search.selectedAction());
+            out.push_back({{"legal", legal}, {"used", used}, {"chosen", chosen}, {"root_visits", search.root().visits}});
+        }
+        std::ofstream{argv[2]} << out.dump();
+        return 0;
+    }
     for (const auto& battle : samples()) {
         stsrl::CombatEnvironment env{battle};
         const auto e = env.decision().encoding;

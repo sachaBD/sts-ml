@@ -10,6 +10,7 @@
 
 #include <cstdint>
 #include <functional>
+#include <limits>
 #include <string>
 #include <vector>
 
@@ -41,6 +42,13 @@ struct SearchTweaks {
     // Early stop once N_best - N_second > stop_factor * simulations left. 1 = the exact rule (the most
     // visited move can no longer change); below 1 stops sooner, accepting that it rarely might have.
     double stop_factor = 1.0;
+    // Leaf policy_net only (PublicBeliefCombatSearch::enablePolicyPriors): PUCT exploration constant, first-play
+    // urgency reduction (values ~0..1), and the share of every node's prior spread uniformly over its moves
+    // (priors = (1 - prior_floor) * softmax(policy) + prior_floor / moves: a zero-prior move is otherwise never
+    // tried). Required settings of a policy_net request (no defaults); NaN = unset.
+    double c_puct = std::numeric_limits<double>::quiet_NaN();
+    double fpu_reduction = std::numeric_limits<double>::quiet_NaN();
+    double prior_floor = std::numeric_limits<double>::quiet_NaN();
 };
 SearchTweaks& tweaks();
 // Applies teacher setting `key` if it is a tweak (merge_identical_cards: bool, stop_factor: number in
@@ -85,6 +93,14 @@ std::int64_t run_leaf_search(sts::search::PublicBeliefCombatSearch& search, cons
                              std::int64_t simulations, std::size_t legal_moves, int rollout_turns,
                              int rollout_steps);
 
+// Policy-prior search (leaf policy_net; the net must have a policy head): the search's policy-prior mode with
+// objective 1 (35 + HP + 4 * potions on a win, 0 otherwise). Every leaf is evaluated once by the net: its
+// value (converted to the search's normalization: value * (55 + leaf max HP) / (56 + objectiveMaxHp)) and
+// priors over the leaf node's moves (tweaks c_puct / fpu_reduction / prior_floor). Same budget rules as
+// run_leaf_search (forced moves, batches of value_net_batch, early stop between batches).
+std::int64_t run_policy_net_search(sts::search::PublicBeliefCombatSearch& search, const ValueNet& net,
+                                   std::int64_t simulations, std::size_t legal_moves);
+
 // run_leaf_search with the value net, immediate leaves.
 std::int64_t run_value_net_search(sts::search::PublicBeliefCombatSearch& search, const ValueNet& net,
                                   std::int64_t simulations, std::size_t legal_moves);
@@ -100,6 +116,7 @@ using SearchFn = std::function<std::int64_t(sts::search::PublicBeliefCombatSearc
 //   guided_rollout: no net, rollout bounds 0.
 //   value_net: net, rollout bounds 0 (immediate).
 //   hybrid: net, rollout_turns >= 1 and rollout_steps >= 1.
+//   policy_net: net with a policy head (deep_sets_v3), rollout bounds 0; run_policy_net_search.
 struct Leaf {
     std::string kind;
     int rollout_turns = 0;
@@ -116,6 +133,7 @@ SearchFn leaf_search(const Leaf& leaf, const ValueNet* net, const Budget& budget
 SearchFn guided_rollout_search(std::int64_t simulations);
 SearchFn value_net_search(const ValueNet& net, std::int64_t simulations);
 SearchFn hybrid_search(const ValueNet& net, int rollout_turns, int rollout_steps, std::int64_t simulations);
+SearchFn policy_net_search(const ValueNet& net, std::int64_t simulations);
 
 // The search settings above for `leaf`: leaf, particles, simulations, early_stop, forced_simulations,
 // max_actions, then chunk (guided_rollout) or batch (net leaves); hybrid adds rollout_turns /
