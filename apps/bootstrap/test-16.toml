@@ -4,3 +4,13 @@ id = "act1-test-16x8"
 workers = 8
 ascension = 20
 seeds = 16
+oracle = false
+first_seed = 1000
+bosses = ['slime_boss', 'the_guardian', 'hexaghost']
+
+[run.simulations] # search simulations per decision, by fight category
+easy = 15000
+hard = 15000
+elite = 15000
+event = 15000
+boss = 15000

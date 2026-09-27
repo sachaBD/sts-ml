@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Paired comparison of two sets of combat_v3 fights on the candidate's fights. Spec: slop_docs/apps/compare_fights.md.
 
-[run] baseline / candidate: queries (sts_combat_rl.query); oracle = true allows oracle rows in either.
+[run] baseline / candidate: queries (sts_combat_rl.query); oracle: whether oracle rows are allowed in either (required).
 """
 import sys
 
@@ -9,7 +9,7 @@ import numpy as np
 import pyarrow as pa
 import pyarrow.parquet as pq
 from scipy import stats
-from apps.common.app import check_keys, flag, main, run_json, write_json
+from apps.common.app import check_keys, main, required, run_json, write_json
 from sts_combat_rl import query
 
 NAME = "fight_comparison_v1"
@@ -21,11 +21,11 @@ FIGHT = ("encounter", "starting_hp", "starting_max_hp")
 OUTCOME = ("won", "final_hp", "potions", "terminal_value")
 
 
-def fights(sql, oracle, episodes=None):
+def fights(sql, oracle, episodes):
     """episode_id -> one row per fight of the decision rows of `sql` (only `episodes` if given); the source run ids."""
     where = "row_kind = 'decision'" + (f" and episode_id in {query.sql_list(sorted(episodes))}" if episodes is not None else "")
     result, sources = {}, {}
-    for row in query.rows(sql, ["episode_id", *FIGHT, *OUTCOME, "turn", "simulations_used"], where, oracle):
+    for row in query.rows(sql, ["episode_id", *FIGHT, *OUTCOME, "turn", "simulations_used"], where, oracle=oracle):
         episode = row["episode_id"]
         if sources.setdefault(episode, row["run_id"]) != row["run_id"]:
             raise RuntimeError(f"episode {episode}: in both {sources[episode]} and {row['run_id']}")
@@ -57,8 +57,8 @@ def inputs(config):
 def compare(config):
     run = config["run"]
     check_keys(run, {"id", "baseline", "candidate", "oracle"}, "run")
-    oracle = flag(run, "oracle")
-    cand, candidate_runs = fights(run["candidate"], oracle)
+    oracle = required(run, "oracle", "run", bool)
+    cand, candidate_runs = fights(run["candidate"], oracle, None)
     base, baseline_runs = fights(run["baseline"], oracle, cand.keys())
     if missing := sorted(cand.keys() - base.keys()):
         sys.exit(f"{len(missing)} candidate fights missing from the baseline, e.g. {missing[:5]}")

@@ -23,3 +23,4 @@ where id = 'act1-all-bosses-a20-scaled-search' and run_seed % 10 in (0, 1)
     where (category = 'boss' and k <= 200) or (category = 'elite' and k <= 100)
        or (category not in ('boss', 'elite') and k <= 100))
 """
+oracle = false

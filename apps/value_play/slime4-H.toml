@@ -8,3 +8,7 @@ leaf = "hybrid"
 rollout_turns = 1
 rollout_steps = 16
 random_move = false
+oracle = false
+simulations = 15000
+particles = 8
+episodes = "validation"

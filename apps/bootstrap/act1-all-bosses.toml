@@ -7,8 +7,9 @@ ascension = 20
 forever = true
 stop_factor = 0.5 # opt-in earlier search stop; may shift root_value labels
 merge_identical_cards = true # search equivalent cards together
-# bosses omitted: all three (slime_boss, the_guardian, hexaghost)
-# first_seed = 0 # default: random
+oracle = false
+first_seed = 475047808354
+bosses = ['slime_boss', 'the_guardian', 'hexaghost']
 
 [run.simulations] # search simulations per decision, by fight category
 easy = 500

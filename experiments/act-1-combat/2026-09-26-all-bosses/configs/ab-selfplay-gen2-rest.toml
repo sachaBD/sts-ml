@@ -21,3 +21,6 @@ simulations = 20000
 particles = 8
 random_move = false
 workers = 11
+leaf = "value_net"
+oracle = false
+first_sample = 0

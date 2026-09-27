@@ -43,19 +43,39 @@ def check_keys(table, allowed, name):
         sys.exit(f"unknown [{name}] keys: {unknown}")
 
 
-def required(table, key, name):
-    """table[key]; exits naming the missing [name].key (settings have no defaults)."""
+def required(table, key, name, kind=None):
+    """table[key], of type `kind` if given (int excludes bool; float accepts int); exits naming the missing or
+    mistyped [name].key. Settings have no defaults."""
     if key not in table:
         sys.exit(f"missing [{name}].{key}")
-    return table[key]
-
-
-def flag(table, key):
-    """An optional true/false setting (default false)."""
-    value = table.get(key, False)
-    if not isinstance(value, bool):
-        sys.exit(f"{key} must be true or false, got {value!r}")
+    value = table[key]
+    if kind is not None:
+        kinds = (int, float) if kind is float else kind
+        if not isinstance(value, kinds) or (isinstance(value, bool) and kind is not bool):
+            sys.exit(f"[{name}].{key} must be {kind.__name__}, got {value!r}")
     return value
+
+
+def exactly_when(table, key, applies, when, name):
+    """Exit unless [name].key is present exactly when it applies (settings that only sometimes apply)."""
+    if applies != (key in table):
+        sys.exit(f"[{name}].{key} is required {when}, and only then")
+
+
+TEACHER_KEYS = {"leaf", "simulations", "oracle", "random_move", "particles", "rollout_turns", "rollout_steps",
+                "merge_identical_cards", "stop_factor"}
+
+
+def teacher_settings(run):
+    """The workers' teacher request (apps/common/teacher_request.hpp) from [run]: leaf (guided_rollout, value_net or
+    hybrid), simulations, oracle, random_move; particles unless oracle; rollout_turns / rollout_steps with leaf hybrid
+    only; opt-in search tweaks merge_identical_cards / stop_factor. The worker validates the values."""
+    teacher = {"leaf": required(run, "leaf", "run", str), "simulations": required(run, "simulations", "run", int),
+               "oracle": required(run, "oracle", "run", bool), "random_move": required(run, "random_move", "run", bool)}
+    exactly_when(run, "particles", not teacher["oracle"], "unless oracle", "run")
+    for key in ("rollout_turns", "rollout_steps"):
+        exactly_when(run, key, teacher["leaf"] == "hybrid", "with leaf hybrid", "run")
+    return {**teacher, **{k: run[k] for k in TEACHER_KEYS - set(teacher) if k in run}}
 
 
 def run_json(run_id):
@@ -65,10 +85,10 @@ def run_json(run_id):
 def value_run(run_id):
     """A finished value_net_v1 run: its out/ files (checkpoint, checkpoint_json, weights) and checkpoint metadata."""
     record = run_json(run_id)
-    if record.get("status") != "done":
-        sys.exit(f"{run_id}: status {record.get('status')!r}, need done")
+    if record["status"] != "done":
+        sys.exit(f"{run_id}: status {record['status']!r}, need done")
     out, summary = run_dir(run_id) / "out", record["summary"]
-    files = {k: out / summary[k] if summary.get(k) else None for k in ("checkpoint", "checkpoint_json", "weights")}
+    files = {k: out / summary[k] for k in ("checkpoint", "checkpoint_json", "weights")}
     return SimpleNamespace(run_id=run_id, **files, meta=json.loads(files["checkpoint_json"].read_text()))
 
 

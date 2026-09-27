@@ -15,7 +15,7 @@ COLUMNS = ("run_seed", "fight_index", "episode_id", "decision_index", "chosen_ac
 def decision_rows(run_ids, columns=COLUMNS, run_seeds=None):
     """The decision rows of the runs (only `run_seeds` if given)."""
     where = "row_kind = 'decision'" + (f" and run_seed in {query.sql_list(sorted(run_seeds))}" if run_seeds is not None else "")
-    return query.rows(f"select * from combat_v3 where run_id in {query.sql_list(run_ids)}", columns, where)
+    return query.rows(f"select * from combat_v3 where run_id in {query.sql_list(run_ids)}", columns, where, oracle=False)
 
 
 def replay_requests(rows, episodes):

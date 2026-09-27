@@ -7,7 +7,7 @@ Views:
 A query selects whole rows, e.g.
   select * from combat_v3 where id like 'act1-a20%' and encounter = 'slime_boss'
 and callers ask for the columns they need. Oracle rows (played with perfect foresight: an upper bound, not
-fair play; runs/README.md `oracle`) raise unless oracle=True.
+fair play; runs/README.md `oracle`) raise unless oracle=True; every caller says which.
 """
 from __future__ import annotations
 
@@ -40,7 +40,7 @@ def sql_list(values) -> str:
     return "(" + ", ".join(map(quote, values)) + ")" if values else "(null)"
 
 
-def rows(sql: str, columns=None, where: str | None = None, oracle: bool = False,
+def rows(sql: str, columns=None, where: str | None = None, *, oracle: bool,
          root: Path = RUNS) -> list[dict[str, Any]]:
     """The rows of `sql` that also match `where`: only `columns` (plus run_id) if given, else every column."""
     source = f"(select * from ({sql}) where {where})" if where else f"({sql})"
@@ -53,7 +53,7 @@ def rows(sql: str, columns=None, where: str | None = None, oracle: bool = False,
     return table.to_pylist()
 
 
-def batches(sql: str, columns, oracle: bool = False, batch_rows: int = 65536, root: Path = RUNS):
+def batches(sql: str, columns, *, oracle: bool, batch_rows: int = 65536, root: Path = RUNS):
     """The rows of `sql` as a stream of Arrow record batches with only `columns` (plus run_id): for loads too big
     for rows(). Raises on oracle rows unless oracle=True."""
     wanted = ", ".join(dict.fromkeys([*columns, "run_id", "oracle"]))

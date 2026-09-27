@@ -12,14 +12,14 @@ import sys
 import time
 from pathlib import Path
 
-from apps.common.app import check_keys, main, sha256, snapshot, value_run, write_json
+from apps.common.app import check_keys, exactly_when, main, required, sha256, snapshot, value_run, write_json
 from apps.common.replay import COLUMNS, START, check_start, decision_rows, replay_requests
 from apps.common.worker import run_parallel, run_worker, write_part
 from sts_combat_rl.run import bootstrap_inputs
 from sts_combat_rl.schemas.combat_v3 import NAME as COMBAT_V3_NAME
 
 log = logging.getLogger(__name__)
-BUILT = Path("build/dagger/dagger_worker")  # built by apps/common/job.sh
+BUILT = Path("build/main/dagger_worker")  # built by apps/common/job.sh
 METADATA = {"collection_method": "dagger", "training_target": "teacher_root_only"}
 RUN_KEYS = {"id", "input", "workers"}
 COLLECTION_KEYS = {"count", "seed", "episodes", "exclude_run_seeds", "max_decisions", "max_turns", "timeout_seconds"}
@@ -34,12 +34,15 @@ def inputs(config):
 
 def select(collection, checkpoint, available):
     """Episodes to play: training episodes of the checkpoint minus exclusions, whose run seed is still in
-    the sources (`available`; independent of outcomes); explicit list or seeded sample."""
+    the sources (`available`; independent of outcomes); explicit list or seeded sample. exclude_run_seeds
+    (optional): run seeds never to play."""
     check_keys(collection, COLLECTION_KEYS, "collection")
     if ("episodes" in collection) == ("count" in collection):
         sys.exit("set exactly one of [collection] episodes / count")
+    exactly_when(collection, "seed", "count" in collection, "with count", "collection")
     train_seeds = set(checkpoint["train_run_seeds"])
-    forbidden_seeds = set(checkpoint["validation_run_seeds"]) | set(collection.get("exclude_run_seeds", []))
+    excluded = required(collection, "exclude_run_seeds", "collection", list) if "exclude_run_seeds" in collection else []
+    forbidden_seeds = set(checkpoint["validation_run_seeds"]) | set(excluded)
     eligible = sorted(e for e in set(checkpoint["train_episode_ids"]) - set(checkpoint["validation_episode_ids"])
                       if e // 100 in train_seeds and e // 100 not in forbidden_seeds and e // 100 in available)
     if "episodes" in collection:
@@ -51,7 +54,7 @@ def select(collection, checkpoint, available):
     count = collection["count"]
     if not 0 < count <= len(eligible):
         sys.exit(f"count {count}: {len(eligible)} eligible episodes")
-    return sorted(random.Random(collection.get("seed", 0)).sample(eligible, count)), len(eligible)
+    return sorted(random.Random(required(collection, "seed", "collection", int)).sample(eligible, count)), len(eligible)
 
 
 def play(episode, request, start, binary, weights, out, timeout):
@@ -84,8 +87,10 @@ def play(episode, request, start, binary, weights, out, timeout):
 
 
 def collect(config, config_path, out):
-    run, collection = config["run"], config.get("collection", {})
+    check_keys(config, {"run", "collection"}, "top level")
+    run, collection = config["run"], required(config, "collection", "top level", dict)
     check_keys(run, RUN_KEYS, "run")
+    workers = required(run, "workers", "run", int)
     learner, *sources = inputs(config)
     value = value_run(learner)
     checkpoint = value.meta
@@ -94,9 +99,9 @@ def collect(config, config_path, out):
     if missing := len(train_seeds - available):
         log.warning("%d checkpoint training run seeds are no longer in the sources; not eligible", missing)
     episodes, eligible = select(collection, checkpoint, available)
-    max_decisions = collection.get("max_decisions", 500)
-    max_turns = collection.get("max_turns", 50)
-    timeout = collection.get("timeout_seconds", 600)
+    max_decisions = required(collection, "max_decisions", "collection", int)
+    max_turns = required(collection, "max_turns", "collection", int)
+    timeout = required(collection, "timeout_seconds", "collection", int)
     fights = replay_requests(decision_rows(sources, COLUMNS, {e // 100 for e in episodes}), episodes)
     (out / "diagnostics").mkdir(parents=True, exist_ok=True)
     weights, weights_sha = snapshot(value.weights, out, "value_weights.bin")
@@ -120,7 +125,7 @@ def collect(config, config_path, out):
         write_json(out / "inputs" / f"{episode}.json", {"request": request, "expected_start": start})
     write_json(out / "collection.json", manifest)
     log.info("DAgger: %d of %d eligible episodes from %s, learner %s, %d workers -> %s",
-             len(episodes), eligible, ", ".join(sources), learner, run["workers"], out)
+             len(episodes), eligible, ", ".join(sources), learner, workers, out)
     records, started = [], time.monotonic()
 
     def done(_, r):
@@ -129,7 +134,7 @@ def collect(config, config_path, out):
                  f" won={r['won']} tv={r['terminal_value']:.3f} disagree={r['teacher_disagreements']}/{r['decisions']}"
                  if r["status"] == "completed" else f" {r.get('error', '')}", r["seconds"])
 
-    run_parallel(lambda item: play(item[0], *item[1], binary, weights, out, timeout), fights.items(), run["workers"], done)
+    run_parallel(lambda item: play(item[0], *item[1], binary, weights, out, timeout), fights.items(), workers, done)
     counts = {s: sum(r["status"] == s for r in records) for s in STATUSES}
     complete = counts["completed"] == len(episodes)
     summary = {**{k: manifest[k] for k in ("schema", *METADATA, "learner_run", "sources", "weights_sha256", "checkpoint_sha256",
@@ -139,7 +144,7 @@ def collect(config, config_path, out):
                "missing": sorted(set(episodes) - {r["episode"] for r in records if r["status"] == "completed"}),
                "learner": next((r["learner"] for r in records if "learner" in r), None),
                "teacher": next((r["teacher"] for r in records if "teacher" in r), None),
-               "wins": sum(r.get("won", False) for r in records),
+               "wins": sum(r["won"] for r in records if r["status"] == "completed"),
                "fights": sorted(records, key=lambda r: r["episode"]),
                "minutes": (time.monotonic() - started) / 60}
     write_json(out / "summary.json", summary)

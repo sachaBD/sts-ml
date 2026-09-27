@@ -11,18 +11,19 @@ import sys
 import time
 from pathlib import Path
 
-from apps.common.app import check_keys, main, run_json, snapshot, value_run, write_json
+from apps.common.app import (TEACHER_KEYS, check_keys, exactly_when, main, required, run_json, snapshot,
+                             teacher_settings, value_run, write_json)
 from apps.common.replay import check_start, decision_rows, replay_requests
 from sts_combat_rl import query
 from apps.common.worker import run_parallel, run_worker, write_part
 from sts_combat_rl.schemas.combat_v3 import NAME
 
 log = logging.getLogger(__name__)
-BUILT = Path("build/resample/fight_resample_worker")  # built by apps/common/job.sh
+BUILT = Path("build/main/fight_resample_worker")  # built by apps/common/job.sh
 MAX_SAMPLES = 1000  # episode_id = source_episode_id * 1000 + k
-RUN_KEYS = {"id", "query", "samples", "hp_sd", "random_potions", "value_run", "fights", "workers",
-            "simulations", "particles", "random_move", "first_sample",  # search budget / random move; worker defaults 15000, 8, true
-            "stop_factor", "merge_identical_cards"}  # opt-in search variants (slop_docs/search_perf.md); worker validates
+RUN_KEYS = {"id", "query", "samples", "first_sample", "hp_sd", "random_potions", "value_run", "fights", "workers",
+            *TEACHER_KEYS}
+NET_LEAVES = ("value_net", "hybrid")  # need [run] value_run
 COLUMNS = ["run_seed", "fight_index", "episode_id", "decision_index", "chosen_action", "ascension", "encounter", "floor",
            "starting_hp", "starting_max_hp"]
 
@@ -34,12 +35,12 @@ def inputs(config):
     if not sources:
         sys.exit(f"no fights: {run['query']}")
     for source in sources:
-        if run_json(source).get("inputs"):
+        if run_json(source)["inputs"]:
             sys.exit(f"{source}: not a bootstrap run (it has inputs); only bootstrap fights replay")
     return sources + ([run["value_run"]] if "value_run" in run else [])
 
 
-def samples(start, count, hp_sd, first=0):
+def samples(start, count, hp_sd, first):
     """Sample k (first <= k < first + count): episode_id = source * 1000 + k, starting HP ~ Normal(stored HP, hp_sd)
     rounded into [1, max HP]. A later run with a higher `first` plays new versions of the same fights."""
     result = []
@@ -72,36 +73,28 @@ def play(episode, request, start, binary, weights, out):
 def resample(config, config_path, out):
     run = config["run"]
     check_keys(run, RUN_KEYS, "run")
-    first = run.get("first_sample", 0)
-    if type(first) is not int or first < 0 or not 1 <= run["samples"] <= MAX_SAMPLES - first:
+    teacher = teacher_settings(run)
+    exactly_when(run, "value_run", teacher["leaf"] in NET_LEAVES, f"with leaf {' / '.join(NET_LEAVES)}", "run")
+    first = required(run, "first_sample", "run", int)
+    count = required(run, "samples", "run", int)
+    hp_sd = required(run, "hp_sd", "run", float)
+    random_potions = required(run, "random_potions", "run", bool)
+    workers = required(run, "workers", "run", int)
+    if first < 0 or not 1 <= count <= MAX_SAMPLES - first:
         sys.exit(f"need first_sample >= 0 and 1 <= samples <= {MAX_SAMPLES} - first_sample")
     sources = [r for r in inputs(config) if r != run.get("value_run")]
     weights = None
     if "value_run" in run:
         weights, _ = snapshot(value_run(run["value_run"]).weights, out, "value_weights.bin")
     binary, worker_sha256 = snapshot(BUILT, out)
-    episodes = sorted({r["episode_id"] for r in query.rows(run["query"], ["episode_id"])})
-    episodes = episodes[:run.get("fights", len(episodes))]
+    episodes = sorted({r["episode_id"] for r in query.rows(run["query"], ["episode_id"], oracle=False)})
+    if "fights" in run:  # only the first N queried fights (by episode_id)
+        episodes = episodes[:required(run, "fights", "run", int)]
     fights = replay_requests(decision_rows(sources, COLUMNS, {e // 100 for e in episodes}), episodes)
-    random_potions = run.get("random_potions", False)
-    teacher = {}
-    for key in ("simulations", "particles"):
-        if key in run:
-            if type(run[key]) is not int or run[key] < 1:  # bool is an int subclass: excluded
-                sys.exit(f"{key} must be a positive integer, got {run[key]!r}")
-            teacher[key] = run[key]
-    if "random_move" in run:
-        if type(run["random_move"]) is not bool:
-            sys.exit(f"random_move must be true or false, got {run['random_move']!r}")
-        teacher["random_move"] = run["random_move"]
-    teacher.update({k: run[k] for k in ("stop_factor", "merge_identical_cards") if k in run})
     for request, start in fights.values():
-        request.update(random_potions=random_potions, samples=samples(start, run["samples"], run["hp_sd"], first))
-        if teacher:
-            request["teacher"] = teacher
-    log.info("%d source fights x %d samples, hp_sd %s, random_potions %s, teacher %s, %d workers -> %s",
-             len(fights), run["samples"], run["hp_sd"], random_potions,
-             f"value_net {weights}" if weights else "guided_rollout", run["workers"], out)
+        request.update(random_potions=random_potions, samples=samples(start, count, hp_sd, first), teacher=teacher)
+    log.info("%d source fights x %d samples, hp_sd %s, random_potions %s, teacher %s, weights %s, %d workers -> %s",
+             len(fights), count, hp_sd, random_potions, teacher, weights, workers, out)
     started, done, teacher, finished = time.monotonic(), [], None, 0
 
     def on_result(item, result):
@@ -113,10 +106,10 @@ def resample(config, config_path, out):
                  " ".join(f"hp {r['starting_hp']}->{r['final_hp'] if r['won'] else 'lost'}" for r in results),
                  sum(r["won"] for r in done), len(done))
 
-    run_parallel(lambda item: play(item[0], *item[1], binary, weights, out), fights.items(), run["workers"], on_result)
-    summary = {"schema": NAME, "query": run["query"], "sources": sources, "value_run": run.get("value_run"),
-               "teacher": teacher, "worker_sha256": worker_sha256, "samples": run["samples"],
-               "hp_sd": run["hp_sd"], "random_potions": random_potions, "source_fights": len(fights), "fights": len(done),
+    run_parallel(lambda item: play(item[0], *item[1], binary, weights, out), fights.items(), workers, on_result)
+    summary = {"schema": NAME, "query": run["query"], "sources": sources, "value_run": run.get("value_run"),  # None: no net leaf
+               "teacher": teacher, "worker_sha256": worker_sha256, "samples": count,
+               "hp_sd": hp_sd, "random_potions": random_potions, "source_fights": len(fights), "fights": len(done),
                "wins": sum(r["won"] for r in done),
                "mean_terminal_value": sum(r["terminal_value"] for r in done) / len(done),
                "seconds_per_fight": sum(r["seconds"] for r in done) / len(done)}

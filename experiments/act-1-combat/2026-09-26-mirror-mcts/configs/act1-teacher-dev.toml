@@ -21,3 +21,4 @@ where id = 'act1-a20-8' and run_seed % 10 in (0, 1)
     where encounter = 'slime_boss' or k <= 250)
   and encounter <> 'slime_boss'
 """
+oracle = false

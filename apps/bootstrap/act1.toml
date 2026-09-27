@@ -3,7 +3,15 @@
 id = "act1-a20-6"
 workers = 10
 ascension = 20
-bosses = ["slime_boss"] # preserve this Slime Boss-only run; omit for all bosses
-# oracle = true # teacher searches the true state (perfect RNG foresight): upper-bound data, rows tagged oracle
+bosses = ["slime_boss"] # any of slime_boss, the_guardian, hexaghost
+# oracle = true: teacher searches the true state (perfect RNG foresight): upper-bound data, rows tagged oracle
 forever = true # alternatively: seeds = 100
-# first_seed = 0 # default: random, so separate runs play different seeds (logged + in summary.json)
+oracle = false
+first_seed = 58968891185
+
+[run.simulations] # search simulations per decision, by fight category
+easy = 15000
+hard = 15000
+elite = 15000
+event = 15000
+boss = 15000

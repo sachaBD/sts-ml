@@ -32,19 +32,19 @@ class QueryTests(unittest.TestCase):
 
     def test_rows_columns_where_and_run_ids(self):
         sql = "select * from combat_v3 where id like 'boot%' and encounter = 'slime_boss'"
-        rows = query.rows(sql, ["episode_id"], root=self.root)
+        rows = query.rows(sql, ["episode_id"], oracle=False, root=self.root)
         self.assertEqual(sorted(rows, key=lambda r: r["episode_id"]),
                          [{"episode_id": 100, "run_id": "combat_v3/2026-01-01/boot-a"},
                           {"episode_id": 200, "run_id": "combat_v3/2026-01-01/boot-b"}])
-        self.assertEqual([r["episode_id"] for r in query.rows(sql, ["episode_id"], "row_kind = 'decision'", root=self.root)],
+        self.assertEqual([r["episode_id"] for r in query.rows(sql, ["episode_id"], "row_kind = 'decision'", oracle=False, root=self.root)],
                          [100])
         self.assertEqual(query.run_ids(sql, root=self.root), ["combat_v3/2026-01-01/boot-a", "combat_v3/2026-01-01/boot-b"])
-        self.assertEqual(len(query.rows(sql, root=self.root)[0]), len(COMBAT_V3) + 4)  # + run_id, schema, date, id
+        self.assertEqual(len(query.rows(sql, oracle=False, root=self.root)[0]), len(COMBAT_V3) + 4)  # + run_id, schema, date, id
 
     def test_oracle_refused_unless_allowed(self):
         sql = "select * from combat_v3 where encounter = 'slime_boss'"
         with self.assertRaisesRegex(ValueError, "oracle"):
-            query.rows(sql, ["episode_id"], root=self.root)
+            query.rows(sql, ["episode_id"], oracle=False, root=self.root)
         self.assertEqual(len(query.rows(sql, ["episode_id"], oracle=True, root=self.root)), 3)
 
     def test_runs_view(self):

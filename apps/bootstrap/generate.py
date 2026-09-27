@@ -2,27 +2,28 @@
 """Play one seeded act 1 per seed in C++ (every combat teacher-searched) and write its rows as combat_v3 parquet."""
 import itertools
 import logging
-import random
 import sys
 import time
 from dataclasses import dataclass
 from pathlib import Path
 from threading import Event, Lock, Thread, current_thread
 
-from apps.common.app import FAIR_PLAY, ORACLE_BANNER, check_keys, flag, main, snapshot, write_json
+from apps.common.app import FAIR_PLAY, ORACLE_BANNER, check_keys, main, required, snapshot, write_json
 from apps.common.worker import run_parallel, run_worker, write_part
 from sts_combat_rl.schemas.combat_v3 import NAME
 
 log = logging.getLogger(__name__)
 BUILT = Path("build/main/bootstrap_fight_worker")  # built by apps/common/job.sh; each run plays with its own copy in out/
-RUN_KEYS = {"id", "binary", "workers", "ascension", "oracle", "forever", "seeds", "first_seed", "status_seconds", "bosses",
+RUN_KEYS = {"id", "workers", "ascension", "oracle", "forever", "seeds", "first_seed", "bosses",
             "stop_factor", "merge_identical_cards", "simulations"}
+CATEGORIES = {"easy", "hard", "elite", "event", "boss"}
+STATUS_SECONDS = 10  # progress table interval
 ACT1_BOSSES = ("slime_boss", "the_guardian", "hexaghost")
 
 
 def selected_bosses(run):
-    """Optional nonempty subset of act 1 bosses; omitted means all three."""
-    bosses = run.get("bosses", list(ACT1_BOSSES))
+    """Nonempty subset of act 1 bosses."""
+    bosses = required(run, "bosses", "run", list)
     if (not isinstance(bosses, list) or not bosses or any(type(boss) is not str or boss not in ACT1_BOSSES for boss in bosses)
             or len(bosses) != len(set(bosses))):
         sys.exit(f"bosses must be a nonempty list of unique names from {ACT1_BOSSES}")
@@ -40,13 +41,11 @@ def teacher_options(run):
 
 
 def simulation_budgets(run):
-    """Per-category search caps; unspecified categories retain the 15k default."""
-    budgets = run.get("simulations", {})
-    if not isinstance(budgets, dict):
-        sys.exit("simulations must be a table of fight category budgets")
-    check_keys(budgets, {"easy", "hard", "elite", "event", "boss"}, "run.simulations")
-    for category, budget in budgets.items():
-        if type(budget) is not int or budget < 1:
+    """Search simulations per decision, for every fight category."""
+    budgets = required(run, "simulations", "run", dict)
+    check_keys(budgets, CATEGORIES, "run.simulations")
+    for category in sorted(CATEGORIES):
+        if required(budgets, category, "run.simulations", int) < 1:
             sys.exit(f"simulations.{category} must be a positive integer")
     return budgets
 
@@ -103,7 +102,7 @@ class Status:
     def record(self, run):
         with self.lock:
             self.runs += run.status != "other_boss"  # a run = a seed actually played
-            self.statuses[run.status] = self.statuses.get(run.status, 0) + 1
+            self.statuses[run.status] += 1
             self.fights += run.fights
             self.bosses += run.boss
             self.rows += run.rows
@@ -162,23 +161,26 @@ def play(seed, binary, ascension, oracle, bosses, teacher, simulations, out, sta
 def generate(config, config_path, out):
     run = config["run"]
     check_keys(run, RUN_KEYS, "run")
-    # Random start so separate runs play different seeds; the lower half of [0, SEED_LIMIT) leaves room to count up.
-    first_seed = run.get("first_seed", random.randrange(SEED_LIMIT // 2))
-    seeds = itertools.count(first_seed) if run.get("forever") else range(first_seed, first_seed + run["seeds"])
-    workers = run["workers"]
-    ascension = run.get("ascension", 1)
-    oracle = flag(run, "oracle")
+    # Separate runs should play different seeds; keep first_seed in the lower half of [0, SEED_LIMIT) to count up.
+    first_seed = required(run, "first_seed", "run", int)
+    forever = "forever" in run
+    if forever == ("seeds" in run) or (forever and run["forever"] is not True):
+        sys.exit("set exactly one of [run] forever = true / seeds = N")
+    seeds = itertools.count(first_seed) if forever else range(first_seed, first_seed + required(run, "seeds", "run", int))
+    workers = required(run, "workers", "run", int)
+    ascension = required(run, "ascension", "run", int)
+    oracle = required(run, "oracle", "run", bool)
     bosses = selected_bosses(run)
     teacher = teacher_options(run)
     simulations = simulation_budgets(run)
-    binary, worker_sha256 = snapshot(run.get("binary", BUILT), out, "bootstrap_fight_worker")
+    binary, worker_sha256 = snapshot(BUILT, out)
     start = time.monotonic()
     log.info("%s", ORACLE_BANNER if oracle else FAIR_PLAY)
     log.info("starting %s seeds from first_seed %d on %d workers; bosses: %s -> %s",
-             "unlimited" if run.get("forever") else run["seeds"], first_seed, workers, ", ".join(bosses), out)
-    log.info("teacher tweaks: %s; simulations by category: %s", teacher or "defaults", simulations or "15k each")
+             "unlimited" if forever else run["seeds"], first_seed, workers, ", ".join(bosses), out)
+    log.info("teacher tweaks: %s; simulations by category: %s", teacher or "none", simulations)
     log.info("w0..w%d: seconds since that worker last finished a run", workers - 1)
-    with Status(workers, run.get("status_seconds", 10), oracle) as status:
+    with Status(workers, STATUS_SECONDS, oracle) as status:
         # each worker takes the next seed as soon as its last run finishes (no batch barrier)
         run_parallel(lambda seed: play(seed, binary, ascension, oracle, bosses, teacher, simulations, out, status),
                      seeds, workers)
