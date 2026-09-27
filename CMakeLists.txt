@@ -76,5 +76,11 @@ target_compile_features(search_perf_test PRIVATE cxx_std_23)
 target_compile_options(search_perf_test PRIVATE -Wall -Wextra -Wpedantic)
 add_test(NAME search_perf_test COMMAND search_perf_test)
 
+add_executable(search_priors_test tests/search_priors_test.cpp)
+target_link_libraries(search_priors_test PRIVATE combat_core)
+target_compile_features(search_priors_test PRIVATE cxx_std_23)
+target_compile_options(search_priors_test PRIVATE -Wall -Wextra -Wpedantic)
+add_test(NAME search_priors_test COMMAND search_priors_test)
+
 # The native value net's inner loops benefit from AVX2/FMA on the machine that runs it.
 set_source_files_properties(topology/value_net.cpp PROPERTIES COMPILE_OPTIONS "-march=native")
