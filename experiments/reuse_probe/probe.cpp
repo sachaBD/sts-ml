@@ -28,7 +28,7 @@ int main(int argc, char** argv) {
         auto env = scenarios::slime_boss(seed);
         while (!env.done()) {
             const auto legal = env.decision().legal_actions.size();
-            auto choice = teacher::search_decision(env, legal, run);
+            auto choice = teacher::search_decision(env, legal, run, false, teacher::particles);
             const auto before = env.battle();
             const auto bits = env.action_bits(choice.chosen);
             env.step(choice.chosen);

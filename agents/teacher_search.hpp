@@ -35,7 +35,7 @@ struct SearchDecision {
 };
 
 SearchDecision search_decision(const CombatEnvironment& env, std::size_t legal_count, const SearchFn& run,
-                               bool oracle = false, int particles = teacher::particles);
+                               bool oracle, int particles);
 // Same, continuing `search` (rooted at env's state; e.g. rebased by rebase_search).
 SearchDecision search_decision(const CombatEnvironment& env, std::size_t legal_count, const SearchFn& run,
                                sts::search::PublicBeliefCombatSearch& search);
@@ -45,9 +45,7 @@ nlohmann::json outcome_columns(const CombatEnvironment& env, int max_hp);
 
 // search_settings plus the recording settings (and `oracle`), as recorded in summary.json.
 // Under oracle, particles is reported as 1 (make_search ignores budget.particles).
-nlohmann::json settings(const Leaf& leaf, bool oracle = false, const Budget& budget = {});
-// leaf = "guided_rollout" or "value_net".
-nlohmann::json settings(const std::string& leaf, bool oracle = false);
+nlohmann::json settings(const Leaf& leaf, bool oracle, const Budget& budget);
 
 // Teacher plays one fight. With `random_move`, one decision in [0, random_window), drawn from
 // mt19937_64(episode_id ^ 0xe9510), plays a uniformly random legal move instead (was_random); without
@@ -57,12 +55,13 @@ nlohmann::json settings(const std::string& leaf, bool oracle = false);
 // `reuse`: keep the played move's subtree between decisions (rebase_search); decision rows get
 // retained_visits (simulations_used still counts new simulations only).
 sts::BattleContext play_fight(sts::BattleContext battle, const nlohmann::json& fight,
-                              std::vector<nlohmann::json>& rows, const SearchFn& search, bool random_move = true,
-                              bool oracle = false, int particles = teacher::particles, bool reuse = false);
+                              std::vector<nlohmann::json>& rows, const SearchFn& search, bool random_move,
+                              bool oracle, int particles, bool reuse);
 
 // A learner plays one fight while a teacher labels it (apps/dagger). At each decision, separate searches
 // of the same pre-action state: `teacher` gives actions / root_value / simulations_used, `learner` picks
-// chosen_action, and only the learner's move is played. No random move, no child rows.
+// chosen_action, and only the learner's move is played. Both search fair play (no oracle) with `particles`.
+// No random move, no child rows.
 //   status: completed (the fight ended), capped (max_decisions reached) or turn_limit (turn max_turns
 //   reached: e.g. block-stacking stalls). Only a completed fight appends its decision
 //   rows (with the outcome columns) to `rows`; the others append nothing (not a loss).
@@ -78,6 +77,6 @@ struct LearnerFight {
 
 LearnerFight play_learner_fight(sts::BattleContext battle, const nlohmann::json& fight,
                                 std::vector<nlohmann::json>& rows, const SearchFn& learner, const SearchFn& teacher,
-                                int max_decisions, int max_turns = 50);
+                                int particles, int max_decisions, int max_turns);
 
 }  // namespace stsrl::teacher

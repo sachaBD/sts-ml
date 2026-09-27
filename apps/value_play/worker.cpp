@@ -24,7 +24,7 @@ Json play(const Json& input, const stsrl::ValueNet* net) {
     std::vector<Json> rows;
     const auto fight = stsrl::replay::to_fight(input, [&](const sts::BattleContext& start, const Json& columns) {
         return stsrl::teacher::play_fight(start, columns, rows, search, teacher.random_move, teacher.oracle,
-                                            teacher.budget.particles);
+                                            teacher.budget.particles, false);
     });
     const auto episode = fight.at("episode_id");
     auto settings = stsrl::teacher::settings(teacher.leaf, teacher.oracle, teacher.budget);

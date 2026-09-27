@@ -24,11 +24,11 @@ constexpr std::int64_t forced_simulations = 500;  // one legal move: only for ro
 constexpr std::int64_t chunk = 500;               // guided-rollout early-stop check interval
 constexpr int value_net_batch = 64;               // value-net leaves per batch (and early-stop check)
 
-// Search size: simulation cap per decision and belief particles (defaults: the teacher's 15k, 8).
-// Forced moves still get min(forced_simulations, simulations).
+// Search size: simulation cap per decision and belief particles (the bootstrap teacher: simulations, particles
+// above). Forced moves still get min(forced_simulations, simulations).
 struct Budget {
-    std::int64_t simulations = teacher::simulations;
-    int particles = teacher::particles;
+    std::int64_t simulations;
+    int particles;
 };
 
 // Opt-in search variants; defaults = the historical teacher. Process-wide: a worker sets them from its
@@ -52,26 +52,22 @@ bool set_tweak(const std::string& key, const nlohmann::json& value);
 // move played is the best-valued root edge; no early stop): perfect-information search of the
 // deterministic simulator, an upper-bound teacher, not a fair player. `particles`: the first n of the
 // same deterministic particle stream (ignored under oracle).
-sts::search::PublicBeliefCombatSearch make_search(const sts::BattleContext& observed, bool oracle = false,
-                                                  int particles = teacher::particles);
+sts::search::PublicBeliefCombatSearch make_search(const sts::BattleContext& observed, bool oracle, int particles);
 
 // Tree reuse: after `played_bits` was played at `before` (the search's root) and `after` is observed, keep
 // the played move's subtree as the new root (PublicBeliefCombatSearch::rebase) with `after`'s particles
 // (as make_search). The budget still counts only new simulations, so each decision has at least a fresh
 // search's evidence; kept visits only add to it (and can make early stop fire sooner).
 void rebase_search(sts::search::PublicBeliefCombatSearch& search, const sts::BattleContext& before,
-                   std::uint32_t played_bits, const sts::BattleContext& after, bool oracle = false,
-                   int particles = teacher::particles);
+                   std::uint32_t played_bits, const sts::BattleContext& after, bool oracle, int particles);
 
 // Guided-rollout search with the teacher budget; returns simulations used. Plays the same move as
 // search.search(simulations) with less compute:
 //   forced: one legal move -> only forced_simulations.
-//   early stop: search in chunks; stop once N_best - N_second > simulations left, so the
+//   early stop: search in chunks of `chunk`; stop once N_best - N_second > simulations left, so the
 //   most-visited root edge can no longer be caught.
 std::int64_t run_teacher_search(sts::search::PublicBeliefCombatSearch& search, std::int64_t simulations,
-                                std::size_t legal_moves, bool early_stop,
-                                std::int64_t forced_simulations = teacher::forced_simulations,
-                                std::int64_t chunk = teacher::chunk);
+                                std::size_t legal_moves, bool early_stop);
 
 // Scores pending (non-terminal) leaf states: one value per leaf into `values`.
 using LeafEvaluator =
@@ -86,8 +82,8 @@ LeafEvaluator value_net_evaluator(const ValueNet& net);
 // actions (PublicBeliefCombatSearch::requestBatch); a rollout that ends the fight is backed up with
 // its terminal value, not evaluated. 0, 0: the leaf is scored where it is expanded (immediate).
 std::int64_t run_leaf_search(sts::search::PublicBeliefCombatSearch& search, const LeafEvaluator& evaluate,
-                             std::int64_t simulations, std::size_t legal_moves, int rollout_turns = 0,
-                             int rollout_steps = 0);
+                             std::int64_t simulations, std::size_t legal_moves, int rollout_turns,
+                             int rollout_steps);
 
 // run_leaf_search with the value net, immediate leaves.
 std::int64_t run_value_net_search(sts::search::PublicBeliefCombatSearch& search, const ValueNet& net,
@@ -105,7 +101,7 @@ using SearchFn = std::function<std::int64_t(sts::search::PublicBeliefCombatSearc
 //   value_net: net, rollout bounds 0 (immediate).
 //   hybrid: net, rollout_turns >= 1 and rollout_steps >= 1.
 struct Leaf {
-    std::string kind = "guided_rollout";
+    std::string kind;
     int rollout_turns = 0;
     int rollout_steps = 0;
 };
@@ -115,17 +111,16 @@ struct Leaf {
 void validate(const Leaf& leaf, bool has_net);
 
 // The search for `leaf` (validated) with budget.simulations; `net` must outlive the result.
-SearchFn leaf_search(const Leaf& leaf, const ValueNet* net, const Budget& budget = {});
+SearchFn leaf_search(const Leaf& leaf, const ValueNet* net, const Budget& budget);
 
-SearchFn guided_rollout_search(std::int64_t simulations = teacher::simulations);
-SearchFn value_net_search(const ValueNet& net, std::int64_t simulations = teacher::simulations);
-SearchFn hybrid_search(const ValueNet& net, int rollout_turns, int rollout_steps,
-                       std::int64_t simulations = teacher::simulations);
+SearchFn guided_rollout_search(std::int64_t simulations);
+SearchFn value_net_search(const ValueNet& net, std::int64_t simulations);
+SearchFn hybrid_search(const ValueNet& net, int rollout_turns, int rollout_steps, std::int64_t simulations);
 
 // The search settings above for `leaf`: leaf, particles, simulations, early_stop, forced_simulations,
 // max_actions, then chunk (guided_rollout) or batch (net leaves); hybrid adds rollout_turns /
 // rollout_steps. particles / simulations come from `budget`. teacher::settings (teacher_search.hpp) adds
 // the recording settings.
-nlohmann::json search_settings(const Leaf& leaf, const Budget& budget = {});
+nlohmann::json search_settings(const Leaf& leaf, const Budget& budget);
 
 }  // namespace stsrl::teacher

@@ -28,12 +28,13 @@ inline Request parse_request(const nlohmann::json& t) {
             throw std::invalid_argument{key + " must be a positive integer"};
         return value.get<std::int64_t>();
     };
-    Request request{.leaf = {t.at("leaf").get<std::string>()}, .budget = {}, .oracle = t.at("oracle").get<bool>(),
-                    .random_move = t.at("random_move").get<bool>()};
-    request.budget.simulations = positive("simulations");
-    if (request.oracle == t.contains("particles"))
+    const bool oracle = t.at("oracle").get<bool>();
+    if (oracle == t.contains("particles"))
         throw std::invalid_argument{"particles is required unless oracle (one true-state particle), and only then"};
-    if (!request.oracle) request.budget.particles = static_cast<int>(positive("particles"));
+    Request request{.leaf = {t.at("leaf").get<std::string>()},
+                    .budget = {.simulations = positive("simulations"),
+                               .particles = oracle ? 1 : static_cast<int>(positive("particles"))},
+                    .oracle = oracle, .random_move = t.at("random_move").get<bool>()};
     const bool hybrid = request.leaf.kind == "hybrid";
     if (hybrid != t.contains("rollout_turns") || hybrid != t.contains("rollout_steps"))
         throw std::invalid_argument{"rollout_turns / rollout_steps are required with leaf hybrid, and only then"};

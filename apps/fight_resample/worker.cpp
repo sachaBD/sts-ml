@@ -48,7 +48,7 @@ Json play(const Json& input, const stsrl::ValueNet* net) {
             fight.update({{"episode_id", episode_id}, {"source_episode_id", source.at("episode_id")},
                           {"starting_hp", battle.player.curHp}});
             stsrl::teacher::play_fight(battle, fight, rows, search, teacher.random_move, teacher.oracle,
-                                        teacher.budget.particles);
+                                        teacher.budget.particles, false);
         }
         return start;  // the replayed run stops after this fight
     });

@@ -79,8 +79,6 @@ Json settings(const Leaf& leaf, bool oracle, const Budget& budget) {
     return result;
 }
 
-Json settings(const std::string& leaf, bool oracle) { return settings(Leaf{leaf}, oracle); }
-
 sts::BattleContext play_fight(sts::BattleContext battle, const Json& fight, std::vector<Json>& rows,
                               const SearchFn& run, bool random_move, bool oracle, int particles, bool reuse) {
     CombatEnvironment env{std::move(battle)};
@@ -121,7 +119,8 @@ sts::BattleContext play_fight(sts::BattleContext battle, const Json& fight, std:
 }
 
 LearnerFight play_learner_fight(sts::BattleContext battle, const Json& fight, std::vector<Json>& rows,
-                                const SearchFn& learner, const SearchFn& teacher, int max_decisions, int max_turns) {
+                                const SearchFn& learner, const SearchFn& teacher, int particles, int max_decisions,
+                                int max_turns) {
     if (max_decisions < 1 || max_turns < 1) throw std::invalid_argument{"max_decisions and max_turns must be >= 1"};
     CombatEnvironment env{std::move(battle)};
     const int max_hp = env.player_max_hp();
@@ -132,8 +131,8 @@ LearnerFight play_learner_fight(sts::BattleContext battle, const Json& fight, st
         auto state = env.decision();
         const auto legal = state.legal_actions.size();
         // Two separate searches of the same unchanged state; the teacher's result never reaches the learner's.
-        const auto label = search_decision(env, legal, teacher);
-        const auto move = search_decision(env, legal, learner);
+        const auto label = search_decision(env, legal, teacher, false, particles);
+        const auto move = search_decision(env, legal, learner, false, particles);
         Json row = state.encoding;
         row.update(fight);
         row.update({{"decision_index", index}, {"turn", env.battle().turn}, {"actions", label.actions},

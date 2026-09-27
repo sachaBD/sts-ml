@@ -49,7 +49,7 @@ std::vector<sts::BattleContext> sample_states() {
             states.push_back(env.battle());
             const auto legal = env.decision().legal_actions.size();
             if (step % 7 == 0) {
-                auto search = teacher::make_search(env.battle());
+                auto search = teacher::make_search(env.battle(), false, teacher::particles);
                 while (search.simulations < 256) {
                     for (const auto id : search.requestBatch(64, 256, 0, 0)) {
                         states.push_back(search.pending.at(id).state);
@@ -163,7 +163,7 @@ void test_merge_identical_cards() {
         const auto count = [&](bool merge) {
             teacher::tweaks() = {};
             teacher::tweaks().merge_identical_cards = merge;
-            return teacher::make_search(env.battle()).root().edges.size();
+            return teacher::make_search(env.battle(), false, teacher::particles).root().edges.size();
         };
         const auto split = count(false), merged = count(true);
         teacher::tweaks() = {};
@@ -183,10 +183,11 @@ void test_merge_identical_cards() {
 
 void test_tweaks() {
     teacher::tweaks() = {};
-    check(!teacher::settings("value_net").contains("stop_factor"), "default settings: no tweaks recorded");
+    const teacher::Budget budget{teacher::simulations, teacher::particles};
+    check(!teacher::settings({"value_net"}, false, budget).contains("stop_factor"), "no tweaks: none recorded");
     check(teacher::set_tweak("stop_factor", 0.25) && teacher::tweaks().stop_factor == 0.25, "stop_factor set");
     check(teacher::set_tweak("merge_identical_cards", true) && teacher::tweaks().merge_identical_cards, "merge set");
-    const auto settings = teacher::settings("value_net");
+    const auto settings = teacher::settings({"value_net"}, false, budget);
     check(settings.at("stop_factor") == 0.25 && settings.at("merge_identical_cards") == true, "tweaks recorded");
     check(!teacher::set_tweak("simulations", 5), "other keys are not tweaks");
     for (const auto& bad : {nlohmann::json(0), nlohmann::json(1.5), nlohmann::json("x")}) {

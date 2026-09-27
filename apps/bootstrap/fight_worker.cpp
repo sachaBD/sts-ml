@@ -38,7 +38,10 @@ Json play_run(std::uint64_t seed, int ascension, bool oracle, const Json& bosses
         if (!value.is_number_integer() || value.is_boolean() || value.get<std::int64_t>() < 1)
             throw std::invalid_argument{std::string{"simulations for "} + key + " must be a positive integer"};
     }
-    auto teacher = stsrl::teacher::settings("guided_rollout", oracle);
+    // The bootstrap teacher: guided-rollout leaves, teacher::particles, a random move, simulations by fight category.
+    namespace teacher_ = stsrl::teacher;
+    auto teacher = teacher_::settings({"guided_rollout"}, oracle, {teacher_::simulations, teacher_::particles});
+    teacher.erase("simulations");
     teacher["simulations_by_category"] = simulations;
     sts::GameContext game{sts::CharacterClass::IRONCLAD, seed, ascension};
     if (!bosses.is_array() || bosses.empty()) throw std::invalid_argument{"bosses must be a nonempty array"};
@@ -53,9 +56,9 @@ Json play_run(std::uint64_t seed, int ascension, bool oracle, const Json& bosses
     std::vector<Json> rows;
     const auto run = stsrl::act1::play(game, [&](const sts::BattleContext& start, const Json& fight) {
         const auto category = fight.at("category").get<std::string>();
-        const auto search = stsrl::teacher::guided_rollout_search(
+        const auto search = teacher_::guided_rollout_search(
             simulations.at(category).get<std::int64_t>());
-        return stsrl::teacher::play_fight(start, fight, rows, search, true, oracle);
+        return teacher_::play_fight(start, fight, rows, search, true, oracle, teacher_::particles, false);
     });
     return {{"seed", seed}, {"status", run.status}, {"floor", run.floor}, {"fights", run.fights}, {"teacher", teacher},
             {"rows", rows}};

@@ -21,9 +21,11 @@ namespace teacher = stsrl::teacher;
 
 Json play(const Json& input, const stsrl::ValueNet* net) {
     if (!net) throw std::invalid_argument{"dagger_worker needs WEIGHTS (the learner's value net)"};
+    // Both searches at the bootstrap teacher's budget.
     const teacher::Leaf learner_leaf{"value_net"}, teacher_leaf{"guided_rollout"};
-    const auto learner = teacher::leaf_search(learner_leaf, net);
-    const auto labels = teacher::leaf_search(teacher_leaf, nullptr);
+    const teacher::Budget budget{teacher::simulations, teacher::particles};
+    const auto learner = teacher::leaf_search(learner_leaf, net, budget);
+    const auto labels = teacher::leaf_search(teacher_leaf, nullptr, budget);
     const auto max_decisions = input.at("max_decisions").get<int>();
     const auto max_turns = input.at("max_turns").get<int>();
     std::vector<Json> rows;
@@ -34,17 +36,18 @@ Json play(const Json& input, const stsrl::ValueNet* net) {
     try {
         stsrl::replay::to_fight(input, [&](const sts::BattleContext& start, const Json& columns) {
             fight = columns;
-            result = teacher::play_learner_fight(start, columns, rows, learner, labels, max_decisions, max_turns);
+            result = teacher::play_learner_fight(start, columns, rows, learner, labels, budget.particles, max_decisions,
+                                                  max_turns);
             if (!result.completed) throw Capped{};
             return result.battle;
         });
     } catch (const Capped&) {
     }
-    auto learner_settings = teacher::search_settings(learner_leaf);
+    auto learner_settings = teacher::search_settings(learner_leaf, budget);
     learner_settings["random_move"] = false;
     return {{"episode_id", fight.at("episode_id")}, {"status", result.status},
             {"decisions", result.decisions.size()}, {"start", result.start}, {"diagnostics", result.decisions},
-            {"learner", learner_settings}, {"teacher", teacher::search_settings(teacher_leaf)}, {"rows", rows}};
+            {"learner", learner_settings}, {"teacher", teacher::search_settings(teacher_leaf, budget)}, {"rows", rows}};
 }
 
 }  // namespace

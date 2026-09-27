@@ -22,17 +22,17 @@ void paired(std::uint64_t seed) {
     const auto run = teacher::guided_rollout_search(teacher::simulations);
     auto env = scenarios::slime_boss(seed);
     auto start = std::chrono::steady_clock::now();
-    auto tree = teacher::make_search(env.battle());
+    auto tree = teacher::make_search(env.battle(), false, teacher::particles);
     double setup = seconds_since(start);  // make_search / rebase time, charged to the reused search
     for (int index = 0; !env.done(); ++index) {
         const auto legal = env.decision().legal_actions.size();
         start = std::chrono::steady_clock::now();
-        const auto fresh = teacher::search_decision(env, legal, run);
+        const auto fresh = teacher::search_decision(env, legal, run, false, teacher::particles);
         const double fresh_seconds = seconds_since(start);
         start = std::chrono::steady_clock::now();
         const auto reused = teacher::search_decision(env, legal, run, tree);
         const double reused_seconds = setup + seconds_since(start);
-        auto other = teacher::make_search(env.battle());
+        auto other = teacher::make_search(env.battle(), false, teacher::particles);
         other.random.seed(seed * 7919 + index);
         other.rollout.randGen.seed(seed * 7919 + index);
         const auto control = teacher::search_decision(env, legal, run, other);
@@ -46,7 +46,7 @@ void paired(std::uint64_t seed) {
         const auto bits = env.action_bits(fresh.chosen);
         env.step(fresh.chosen);
         start = std::chrono::steady_clock::now();
-        if (!env.done()) teacher::rebase_search(tree, before, bits, env.battle());
+        if (!env.done()) teacher::rebase_search(tree, before, bits, env.battle(), false, teacher::particles);
         setup = seconds_since(start);
     }
 }

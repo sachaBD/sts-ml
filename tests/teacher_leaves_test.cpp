@@ -67,13 +67,14 @@ struct SearchResult {
     std::vector<std::pair<std::int64_t, double>> edges;
 };
 
+const teacher::Budget BUDGET{teacher::simulations, teacher::particles};
+
 SearchResult leaf_search(const sts::BattleContext& root, Recorder& recorder, std::int64_t budget, int turns,
-                         int steps, bool defaults = false) {
+                         int steps) {
     stsrl::CombatEnvironment env{root};
     const auto legal = env.decision().legal_actions.size();
-    auto search = teacher::make_search(root);
-    const auto used = defaults ? teacher::run_leaf_search(search, recorder.evaluator(), budget, legal)
-                               : teacher::run_leaf_search(search, recorder.evaluator(), budget, legal, turns, steps);
+    auto search = teacher::make_search(root, false, teacher::particles);
+    const auto used = teacher::run_leaf_search(search, recorder.evaluator(), budget, legal, turns, steps);
     SearchResult result{used, {}};
     for (const auto& e : search.root().edges) result.edges.emplace_back(e.visits, e.valueSum);
     return result;
@@ -93,7 +94,7 @@ void test_validation() {
     check(throws([] { teacher::validate(Leaf{"hybrid", 0, 16}, true); }), "hybrid zero turns");
     check(throws([] { teacher::validate(Leaf{"hybrid", 1, 16}, false); }), "hybrid without net");
     check(throws([] { teacher::validate(Leaf{"mixed"}, true); }), "unknown leaf");
-    check(throws([] { teacher::leaf_search(Leaf{"value_net"}, nullptr); }), "leaf_search validates");
+    check(throws([] { teacher::leaf_search(Leaf{"value_net"}, nullptr, BUDGET); }), "leaf_search validates");
     Recorder recorder;
     check(throws([&] { leaf_search(stsrl::scenarios::jaw_worm(1).battle(), recorder, 10, -1, 0); }),
           "negative rollout bound");
@@ -104,26 +105,25 @@ void test_settings() {
     const Json guided = {{"leaf", "guided_rollout"}, {"particles", 8}, {"simulations", 15000}, {"early_stop", true},
                          {"forced_simulations", 500}, {"max_actions", 512}, {"child_min_visits", 50},
                          {"random_window", 24}, {"chunk", 500}, {"oracle", false}};
-    check(teacher::settings("guided_rollout") == guided, "guided_rollout settings");
+    check(teacher::settings({"guided_rollout"}, false, BUDGET) == guided, "guided_rollout settings");
     auto value = guided;
     value["leaf"] = "value_net";
     value.erase("chunk");
     value["batch"] = 64;
-    check(teacher::settings("value_net") == value, "value_net settings");
+    check(teacher::settings({"value_net"}, false, BUDGET) == value, "value_net settings");
     auto hybrid = value;
     hybrid["leaf"] = "hybrid";
     hybrid["rollout_turns"] = 1;
     hybrid["rollout_steps"] = 16;
-    check(teacher::settings(teacher::Leaf{"hybrid", 1, 16}) == hybrid, "hybrid settings");
+    check(teacher::settings({"hybrid", 1, 16}, false, BUDGET) == hybrid, "hybrid settings");
 }
 
 void test_leaf_search() {
     const auto root = stsrl::scenarios::jaw_worm(3).battle();
-    // Zero bounds are the immediate path: same search as the default arguments.
-    Recorder a, b;
-    const auto defaults = leaf_search(root, a, 300, 0, 0, true);
-    const auto zero = leaf_search(root, b, 300, 0, 0);
-    check(defaults.used == zero.used && defaults.edges == zero.edges && a.turns == b.turns, "zero bounds == default");
+    // Zero bounds are the immediate path: leaves are evaluated where they are expanded.
+    Recorder a;
+    const auto zero = leaf_search(root, a, 300, 0, 0);
+    check(zero.used > 0 && zero.used <= 300, "immediate budget");
     check(!a.turns.empty(), "immediate evaluates leaves");
     check(std::ranges::any_of(a.turns, [&](int t) { return t == root.turn; }), "immediate leaves at the root turn");
 
@@ -140,7 +140,7 @@ void test_leaf_search() {
         stsrl::CombatEnvironment env{lethal};
         const auto legal = env.decision().legal_actions.size();
         check(legal > 1, "lethal state has a choice");
-        auto search = teacher::make_search(lethal);
+        auto search = teacher::make_search(lethal, false, teacher::particles);
         Recorder r;
         const auto used = teacher::run_leaf_search(search, r.evaluator(0), 200, legal, turns, steps);
         check(used == search.simulations && used > 0 && used <= 200, "terminal budget");
@@ -161,14 +161,12 @@ void test_exploration() {
     const auto cheap = teacher::SearchFn{[](auto& search, std::size_t) { search.search(20); return std::int64_t{20}; }};
     const Json fight = {{"episode_id", episode_with_random_at_zero()}};
     const auto battle = stsrl::scenarios::jaw_worm(5).battle();
-    const auto play = [&](int mode) {
+    const auto play = [&](bool random_move) {
         std::vector<Json> rows;
-        if (mode < 0) teacher::play_fight(battle, fight, rows, cheap);
-        else teacher::play_fight(battle, fight, rows, cheap, mode == 1);
+        teacher::play_fight(battle, fight, rows, cheap, random_move, false, teacher::particles, false);
         return rows;
     };
-    const auto defaults = play(-1), on = play(1), off = play(0);
-    check(defaults == on, "default is random_move = true");
+    const auto on = play(true), off = play(false);
     const auto random_rows = [](const std::vector<Json>& rows) {
         return std::ranges::count_if(rows, [](const Json& r) { return r.at("was_random").get<bool>(); });
     };

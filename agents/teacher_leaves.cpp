@@ -100,8 +100,7 @@ PublicBeliefCombatSearch make_search(const sts::BattleContext& observed, bool or
 }
 
 std::int64_t run_teacher_search(PublicBeliefCombatSearch& search, std::int64_t simulations,
-                                std::size_t legal_moves, bool early_stop,
-                                std::int64_t forced_simulations, std::int64_t chunk) {
+                                std::size_t legal_moves, bool early_stop) {
     if (!early_stop) { search.search(simulations); return simulations; }
     if (legal_moves == 1) {
         const auto n = std::min(forced_simulations, simulations);
@@ -160,7 +159,7 @@ std::int64_t run_leaf_search(PublicBeliefCombatSearch& search, const LeafEvaluat
 
 std::int64_t run_value_net_search(PublicBeliefCombatSearch& search, const ValueNet& net,
                                   std::int64_t simulations, std::size_t legal_moves) {
-    return run_leaf_search(search, value_net_evaluator(net), simulations, legal_moves);
+    return run_leaf_search(search, value_net_evaluator(net), simulations, legal_moves, 0, 0);  // immediate
 }
 
 std::size_t legal_index(const CombatEnvironment& env, std::size_t count, const PublicBeliefCombatSearch& search,
