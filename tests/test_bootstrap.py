@@ -5,8 +5,10 @@ from apps.bootstrap.generate import ACT1_BOSSES, selected_bosses, simulation_bud
 
 
 class BossSelectionTests(unittest.TestCase):
-    def test_default_and_subset(self):
-        self.assertEqual(selected_bosses({}), list(ACT1_BOSSES))
+    def test_required_and_subset(self):
+        with self.assertRaises(SystemExit):
+            selected_bosses({})
+        self.assertEqual(selected_bosses({"bosses": list(ACT1_BOSSES)}), list(ACT1_BOSSES))
         self.assertEqual(selected_bosses({"bosses": ["hexaghost", "slime_boss"]}),
                          ["hexaghost", "slime_boss"])
 
@@ -20,10 +22,12 @@ class BossSelectionTests(unittest.TestCase):
                 teacher_options(options)
 
     def test_simulation_budgets(self):
-        self.assertEqual(simulation_budgets({}), {})
-        self.assertEqual(simulation_budgets({"simulations": {"easy": 500, "boss": 15000}}),
-                         {"easy": 500, "boss": 15000})
-        for budgets in ([], {"unknown": 100}, {"easy": 0}, {"boss": True}, {"event": 2.5}):
+        full = {"easy": 500, "hard": 2000, "elite": 5000, "event": 5000, "boss": 15000}
+        self.assertEqual(simulation_budgets({"simulations": full}), full)
+        with self.assertRaises(SystemExit):
+            simulation_budgets({})
+        for budgets in ([], {"easy": 500, "boss": 15000}, {**full, "unknown": 100}, {**full, "easy": 0},
+                        {**full, "boss": True}, {**full, "event": 2.5}):
             with self.subTest(budgets=budgets), self.assertRaises(SystemExit):
                 simulation_budgets({"simulations": budgets})
 

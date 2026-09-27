@@ -92,10 +92,26 @@ class AppTests(unittest.TestCase):
         app.check_keys({"a": 1}, {"a", "b"}, "run")
         with self.assertRaises(SystemExit):
             app.check_keys({"c": 1}, {"a"}, "run")
-        self.assertFalse(app.flag({}, "oracle"))
-        self.assertTrue(app.flag({"oracle": True}, "oracle"))
-        with self.assertRaises(SystemExit):
-            app.flag({"oracle": 1}, "oracle")
+        self.assertTrue(app.required({"oracle": True}, "oracle", "run", bool))
+        self.assertEqual(app.required({"lr": 1}, "lr", "train", float), 1)  # an int is a float
+        for table, kind in (({}, bool), ({"oracle": 1}, bool), ({"n": True}, int), ({"n": 1.5}, int)):
+            with self.subTest(table=table), self.assertRaises(SystemExit):
+                app.required(table, next(iter(table), "oracle"), "run", kind)
+
+    def test_teacher_settings(self):
+        base = {"leaf": "value_net", "simulations": 100, "oracle": False, "random_move": True, "particles": 8}
+        self.assertEqual(app.teacher_settings(base), base)
+        hybrid = {**base, "leaf": "hybrid", "rollout_turns": 1, "rollout_steps": 16}
+        self.assertEqual(app.teacher_settings(hybrid), hybrid)
+        oracle = {k: v for k, v in base.items() if k != "particles"} | {"oracle": True}
+        self.assertEqual(app.teacher_settings(oracle), oracle)
+        for bad in ({k: v for k, v in base.items() if k != "simulations"},  # missing
+                    {**base, "oracle": True},                                # particles with oracle
+                    {k: v for k, v in base.items() if k != "particles"},     # no particles without oracle
+                    {**base, "rollout_turns": 1},                            # rollout bounds without hybrid
+                    {**base, "leaf": "hybrid"}):                             # hybrid without bounds
+            with self.subTest(bad=bad), self.assertRaises(SystemExit):
+                app.teacher_settings(bad)
 
 
 class ReplayTests(unittest.TestCase):

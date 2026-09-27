@@ -7,6 +7,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
+from apps.common.app import teacher_settings
 from apps.value_play import play
 from sts_combat_rl.run import NAME
 
@@ -42,8 +43,8 @@ class RunTests(unittest.TestCase):
 
 
 class EpisodeTests(unittest.TestCase):
-    def test_default_is_all_validation(self):
-        self.assertEqual(play.select_episodes({}, VALIDATION), VALIDATION)
+    def test_all_validation(self):
+        self.assertEqual(play.select_episodes({"episodes": "validation"}, VALIDATION), VALIDATION)
 
     def test_subset(self):
         self.assertEqual(play.select_episodes({"episodes": [9305]}, VALIDATION), [9305])
@@ -55,30 +56,26 @@ class EpisodeTests(unittest.TestCase):
 
 
 class TeacherTests(unittest.TestCase):
-    def test_legacy_default(self):
-        # The worker's default without a teacher object: value_net, random move on.
-        self.assertEqual(play.teacher_config({"id": "x", "input": "y", "workers": 2}),
-                         {"leaf": "value_net", "random_move": True})
-        self.assertEqual(play.teacher_config(config("slime.toml")), {"leaf": "value_net", "random_move": True})
-
-    def test_unknown_key(self):
-        with self.assertRaises(SystemExit):
-            play.teacher_config({"leaf": "hybrid", "random_moves": False})
-
     def test_pilot_configs(self):
+        budget = {"oracle": False, "simulations": 15000, "particles": 8}
         expected = {
-            "slime4-R.toml": {"leaf": "guided_rollout", "random_move": False},
-            "slime4-N.toml": {"leaf": "value_net", "random_move": False},
-            "slime4-H.toml": {"leaf": "hybrid", "random_move": False, "rollout_turns": 1, "rollout_steps": 16},
+            "slime4-R.toml": {"leaf": "guided_rollout", "random_move": False, **budget},
+            "slime4-N.toml": {"leaf": "value_net", "random_move": False, **budget},
+            "slime4-H.toml": {"leaf": "hybrid", "random_move": False, "rollout_turns": 1, "rollout_steps": 16, **budget},
         }
         for name, teacher in expected.items():
             with self.subTest(name=name):
                 run = config(name)
-                self.assertEqual(play.teacher_config(run), teacher)
+                self.assertEqual(teacher_settings(run), teacher)
+                play.check_keys(run, play.RUN_KEYS, "run")
                 self.assertEqual(run["input"], "value_net_v1/2026-09-23/slime-value-4")
                 self.assertEqual(run["workers"], 1)
                 self.assertTrue(NAME.match(run["id"]), run["id"])  # sts_combat_rl.run id validation
-                self.assertNotIn("episodes", run)  # all validation episodes
+                self.assertEqual(run["episodes"], "validation")
+
+    def test_unknown_key(self):
+        with self.assertRaises(SystemExit):
+            play.check_keys({"leaf": "hybrid", "random_moves": False}, play.RUN_KEYS, "run")
 
 
 if __name__ == "__main__":
