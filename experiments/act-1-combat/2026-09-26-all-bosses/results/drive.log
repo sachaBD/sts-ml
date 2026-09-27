@@ -1,0 +1,16 @@
+2026-09-26T22:56:44Z start ab-gen0
+2026-09-26T23:24:00Z start ab-gen0
+2026-09-26T23:29:07Z end   ab-gen0 exit=0 minutes=5
+2026-09-26T23:29:07Z start ab-teacher-dev
+2026-09-26T23:44:54Z end   ab-teacher-dev exit=0 minutes=15
+2026-09-26T23:44:54Z start ab-gen0-dev
+2026-09-27T00:01:19Z end   ab-gen0-dev exit=0 minutes=16
+2026-09-27T00:01:19Z start ab-selfplay-gen1-boss
+2026-09-27T00:41:52Z end   ab-selfplay-gen1-boss exit=0 minutes=40
+2026-09-27T00:41:53Z start ab-selfplay-gen1-rest
+2026-09-27T01:11:24Z end   ab-selfplay-gen1-rest exit=0 minutes=29
+2026-09-27T01:11:24Z start ab-gen1
+2026-09-27T01:12:53Z end   ab-gen1 exit=0 minutes=1
+2026-09-27T01:12:54Z start ab-gen1-dev
+2026-09-27T01:31:00Z end   ab-gen1-dev exit=0 minutes=18
+2026-09-27T01:31:00Z all done: ab-gen0 ab-teacher-dev ab-gen0-dev ab-selfplay-gen1-boss ab-selfplay-gen1-rest ab-gen1 ab-gen1-dev

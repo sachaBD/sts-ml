@@ -1,0 +1,45 @@
+run: /home/sborowsk/project/sts_combat_rl/scratch/schema=value_net_v1/date=2026-09-26/id=ab-gen0-sweep-wd05
+log: /home/sborowsk/project/sts_combat_rl/scratch/schema=value_net_v1/date=2026-09-26/id=ab-gen0-sweep-wd05/logs/stdout.log (stderr: /home/sborowsk/project/sts_combat_rl/scratch/schema=value_net_v1/date=2026-09-26/id=ab-gen0-sweep-wd05/logs/stderr.log)
+
+Value training
+==============
+config:     /home/sborowsk/project/sts_combat_rl/experiments/act-1-combat/2026-09-26-all-bosses/configs/sweep/wd05.toml
+output:     /home/sborowsk/project/sts_combat_rl/scratch/schema=value_net_v1/date=2026-09-26/id=ab-gen0-sweep-wd05/out
+checkpoint: /home/sborowsk/project/sts_combat_rl/scratch/schema=value_net_v1/date=2026-09-26/id=ab-gen0-sweep-wd05/out/value_checkpoint.pt
+
+Inputs
+------
+data:        select * from combat_v3
+where id = 'act1-all-bosses-a20-scaled-search' and source_episode_id is null and run_seed % 10 >= 6
+  and episode_id in (
+    select episode_id from (
+      select episode_id, row_number() over (partition by category, encounter order by hash(episode_id)) k
+      from (select distinct episode_id, category, encounter from combat_v3
+            where id = 'act1-all-bosses-a20-scaled-search' and source_episode_id is null and run_seed % 10 >= 6))
+    where k <= 1300)
+
+
+Model
+-----
+kind:                deep_sets_v2
+
+Config
+------
+epochs:              5
+batch_size:          1024
+lr:                  0.001
+weight_decay:        0.05
+width:               64
+seed:                0
+validation_fraction: 0.1
+label:               shift
+blend:               0.5
+split:               pinned
+lr_schedule:         cosine
+keep:                best
+threads:             1
+device:              cuda
+aux_won_weight:      0.01
+aux_hp_weight:       0.1
+device: cuda (NVIDIA GeForce RTX 3060)
+run: failed (exit -15) /home/sborowsk/project/sts_combat_rl/scratch/schema=value_net_v1/date=2026-09-26/id=ab-gen0-sweep-wd05

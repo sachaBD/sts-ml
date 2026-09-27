@@ -1,0 +1,29 @@
+# ./apps/value_train/run.sh experiments/act-1-combat/2026-09-26-mirror-mcts/configs/act1-gen1.toml
+# gen1: gen0 fine-tuned on its own self-play fights, every played position labelled with its fight's final score
+# (terminal value). Low lr from gen0's weights (a fine-tune), cosine decay, best-validation checkpoint.
+[run]
+id = "act1-gen1"
+
+[data]
+query = """
+select * from combat_v3
+where id = 'act1-selfplay-gen1' and row_kind = 'decision'
+"""
+
+[train]
+initial_checkpoint = "value_net_v1/2026-09-26/act1-gen0"
+split = "fresh"
+epochs = 10
+batch_size = 128
+lr = 0.0001
+weight_decay = 0.0001
+width = 64
+seed = 0
+validation_fraction = 0.1
+label = "terminal"
+lr_schedule = "cosine"
+keep = "best"
+
+[export]
+native_weights = true
+path = "value_weights.bin"

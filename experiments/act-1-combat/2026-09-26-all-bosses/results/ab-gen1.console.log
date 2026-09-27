@@ -1,0 +1,564 @@
+run: /home/sborowsk/project/sts_combat_rl/runs/schema=value_net_v1/date=2026-09-27/id=ab-gen1
+log: /home/sborowsk/project/sts_combat_rl/runs/schema=value_net_v1/date=2026-09-27/id=ab-gen1/logs/stdout.log (stderr: /home/sborowsk/project/sts_combat_rl/runs/schema=value_net_v1/date=2026-09-27/id=ab-gen1/logs/stderr.log)
+
+Value training
+==============
+config:     /home/sborowsk/project/sts_combat_rl/experiments/act-1-combat/2026-09-26-all-bosses/configs/ab-gen1.toml
+output:     /home/sborowsk/project/sts_combat_rl/runs/schema=value_net_v1/date=2026-09-27/id=ab-gen1/out
+checkpoint: /home/sborowsk/project/sts_combat_rl/runs/schema=value_net_v1/date=2026-09-27/id=ab-gen1/out/value_checkpoint.pt
+
+Inputs
+------
+data:        select * from combat_v3
+where id in ('ab-selfplay-gen1-boss', 'ab-selfplay-gen1-rest') and row_kind = 'decision'
+
+initial:     /home/sborowsk/project/sts_combat_rl/runs/schema=value_net_v1/date=2026-09-26/id=ab-gen0/out/value_checkpoint.pt
+
+Model
+-----
+kind:                deep_sets_v2
+width:               64
+head_width:          128
+head_blocks:         1
+
+Config
+------
+epochs:              10
+batch_size:          1024
+lr:                  0.0001
+weight_decay:        0.01
+width:               64
+seed:                0
+validation_fraction: 0.1
+label:               terminal
+blend:               0.5
+split:               fresh
+lr_schedule:         cosine
+keep:                best
+threads:             1
+device:              cuda
+aux_won_weight:      0.01
+aux_hp_weight:       0.1
+device: cuda (NVIDIA GeForce RTX 3060)
+
+Dataset
+-------
+rows: train=110,618  valid=12,442
+runs: train=1,081  valid=120
+fights: train=5,644  valid=646
+encounter: {'blue_slaver': 2577, 'cultist': 3116, 'exordium_thugs': 2547, 'exordium_wildlife': 1839, 'gremlin_gang': 1761, 'gremlin_nob': 4426, 'hexaghost': 21438, 'jaw_worm': 3387, 'lagavulin': 6826, 'lagavulin_event': 749, 'large_slime': 3104, 'looter': 2472, 'lots_of_slimes': 3474, 'mushrooms_event': 1116, 'red_slaver': 1297, 'slime_boss': 19154, 'small_slimes': 3799, 'the_guardian': 23256, 'three_louse': 2313, 'three_sentries': 8864, 'two_fungi_beasts': 2357, 'two_louse': 3188}
+category: {'boss': 63848, 'easy': 13490, 'elite': 18932, 'event': 3049, 'hard': 23741}
+target: label=terminal  blend=0.5
+aux: won_weight=0.01  hp_weight=0.1  masked_rows=100.0%  hp_masked_rows=77.8%
+initial checkpoint: /home/sborowsk/project/sts_combat_rl/runs/schema=value_net_v1/date=2026-09-26/id=ab-gen0/out/value_checkpoint.pt (weights only, fresh optimizer; split fresh)
+
+Training
+--------
+Each epoch prints batch progress, then validation metrics.
+epoch  time    train_mse  train_mae  valid_mse  valid_mae  baseline   teacher
+-----  ------  ---------  ---------  ---------  ---------  ---------  ---------
+  epoch   1/10  [#.......................]     5/109   loss=0.021070
+  epoch   1/10  [##......................]    10/109   loss=0.017954
+  epoch   1/10  [###.....................]    15/109   loss=0.017930
+  epoch   1/10  [####....................]    20/109   loss=0.017820
+  epoch   1/10  [######..................]    25/109   loss=0.018620
+  epoch   1/10  [#######.................]    30/109   loss=0.018167
+  epoch   1/10  [########................]    35/109   loss=0.017059
+  epoch   1/10  [#########...............]    40/109   loss=0.018310
+  epoch   1/10  [##########..............]    45/109   loss=0.015478
+  epoch   1/10  [###########.............]    50/109   loss=0.016599
+  epoch   1/10  [############............]    55/109   loss=0.014846
+  epoch   1/10  [#############...........]    60/109   loss=0.013615
+  epoch   1/10  [##############..........]    65/109   loss=0.014640
+  epoch   1/10  [###############.........]    70/109   loss=0.014352
+  epoch   1/10  [#################.......]    75/109   loss=0.014929
+  epoch   1/10  [##################......]    80/109   loss=0.013886
+  epoch   1/10  [###################.....]    85/109   loss=0.014585
+  epoch   1/10  [####################....]    90/109   loss=0.014522
+  epoch   1/10  [#####################...]    95/109   loss=0.014803
+  epoch   1/10  [######################..]   100/109   loss=0.015232
+  epoch   1/10  [#######################.]   105/109   loss=0.013838
+  epoch   1/10  [########################]   109/109   loss=0.007630
+  summary epoch=1/10 time=3.2s train_mse=0.010388 train_mae=0.067970 valid_mse=0.010252 valid_mae=0.066820 baseline_mse=0.066547 teacher_mse=0.020948 value_loss=0.012017 aux_won_bce=0.296050 aux_hp_mse=0.011093 lr_end=9.76e-05
+  validation by encounter             rows       mse  baseline   teacher
+  boss/hexaghost                      2060   0.01394   0.04777   0.01790
+  boss/slime_boss                     1961   0.02143   0.06384   0.03819
+  boss/the_guardian                   2404   0.01156   0.04338   0.03194
+  easy/cultist                         331   0.00061   0.00902   0.00830
+  easy/jaw_worm                        368   0.00170   0.01027   0.00567
+  easy/small_slimes                    340   0.00088   0.01730   0.00290
+  easy/two_louse                       488   0.00083   0.01128   0.00161
+  elite/gremlin_nob                    422   0.00469   0.04842   0.02432
+  elite/lagavulin                      601   0.01340   0.04261   0.02935
+  elite/three_sentries                 843   0.00948   0.04587   0.01978
+  event/gremlin_nob                     35   0.00494   0.00115   0.03409
+  event/lagavulin_event                 67   0.02052   0.08220   0.01899
+  event/mushrooms_event                 97   0.00405   0.05121   0.02008
+  event/three_sentries                  63   0.02573   0.00450   0.04006
+  hard/blue_slaver                     236   0.00121   0.01156   0.00319
+  hard/exordium_thugs                  332   0.00224   0.01344   0.00659
+  hard/exordium_wildlife               173   0.00103   0.01144   0.00554
+  hard/gremlin_gang                    209   0.00563   0.02457   0.01925
+  hard/large_slime                     359   0.00610   0.01613   0.00812
+  hard/looter                          295   0.00116   0.01767   0.00197
+  hard/lots_of_slimes                   72   0.00064   0.00911   0.00556
+  hard/red_slaver                      116   0.00246   0.00768   0.00317
+  hard/three_louse                     296   0.00114   0.02263   0.00249
+  hard/two_fungi_beasts                274   0.00115   0.01358   0.00379
+  saved /home/sborowsk/project/sts_combat_rl/runs/schema=value_net_v1/date=2026-09-27/id=ab-gen1/out/value_checkpoint.pt (epoch 1)
+  epoch   2/10  [#.......................]     5/109   loss=0.013187
+  epoch   2/10  [##......................]    10/109   loss=0.015179
+  epoch   2/10  [###.....................]    15/109   loss=0.013838
+  epoch   2/10  [####....................]    20/109   loss=0.012481
+  epoch   2/10  [######..................]    25/109   loss=0.015211
+  epoch   2/10  [#######.................]    30/109   loss=0.012363
+  epoch   2/10  [########................]    35/109   loss=0.013121
+  epoch   2/10  [#########...............]    40/109   loss=0.012907
+  epoch   2/10  [##########..............]    45/109   loss=0.010178
+  epoch   2/10  [###########.............]    50/109   loss=0.011748
+  epoch   2/10  [############............]    55/109   loss=0.012338
+  epoch   2/10  [#############...........]    60/109   loss=0.013118
+  epoch   2/10  [##############..........]    65/109   loss=0.012049
+  epoch   2/10  [###############.........]    70/109   loss=0.013028
+  epoch   2/10  [#################.......]    75/109   loss=0.012969
+  epoch   2/10  [##################......]    80/109   loss=0.014836
+  epoch   2/10  [###################.....]    85/109   loss=0.011844
+  epoch   2/10  [####################....]    90/109   loss=0.012599
+  epoch   2/10  [#####################...]    95/109   loss=0.012646
+  epoch   2/10  [######################..]   100/109   loss=0.013093
+  epoch   2/10  [#######################.]   105/109   loss=0.011320
+  epoch   2/10  [########################]   109/109   loss=0.005957
+  summary epoch=2/10 time=2.8s train_mse=0.009174 train_mae=0.063337 valid_mse=0.010062 valid_mae=0.064640 baseline_mse=0.066547 teacher_mse=0.020948 value_loss=0.009826 aux_won_bce=0.196956 aux_hp_mse=0.009760 lr_end=9.05e-05
+  validation by encounter             rows       mse  baseline   teacher
+  boss/hexaghost                      2060   0.01390   0.04777   0.01790
+  boss/slime_boss                     1961   0.02105   0.06384   0.03819
+  boss/the_guardian                   2404   0.01101   0.04338   0.03194
+  easy/cultist                         331   0.00062   0.00902   0.00830
+  easy/jaw_worm                        368   0.00151   0.01027   0.00567
+  easy/small_slimes                    340   0.00074   0.01730   0.00290
+  easy/two_louse                       488   0.00077   0.01128   0.00161
+  elite/gremlin_nob                    422   0.00441   0.04842   0.02432
+  elite/lagavulin                      601   0.01415   0.04261   0.02935
+  elite/three_sentries                 843   0.00950   0.04587   0.01978
+  event/gremlin_nob                     35   0.00421   0.00115   0.03409
+  event/lagavulin_event                 67   0.02166   0.08220   0.01899
+  event/mushrooms_event                 97   0.00325   0.05121   0.02008
+  event/three_sentries                  63   0.02531   0.00450   0.04006
+  hard/blue_slaver                     236   0.00111   0.01156   0.00319
+  hard/exordium_thugs                  332   0.00218   0.01344   0.00659
+  hard/exordium_wildlife               173   0.00098   0.01144   0.00554
+  hard/gremlin_gang                    209   0.00514   0.02457   0.01925
+  hard/large_slime                     359   0.00593   0.01613   0.00812
+  hard/looter                          295   0.00110   0.01767   0.00197
+  hard/lots_of_slimes                   72   0.00060   0.00911   0.00556
+  hard/red_slaver                      116   0.00198   0.00768   0.00317
+  hard/three_louse                     296   0.00097   0.02263   0.00249
+  hard/two_fungi_beasts                274   0.00110   0.01358   0.00379
+  saved /home/sborowsk/project/sts_combat_rl/runs/schema=value_net_v1/date=2026-09-27/id=ab-gen1/out/value_checkpoint.pt (epoch 2)
+  epoch   3/10  [#.......................]     5/109   loss=0.010661
+  epoch   3/10  [##......................]    10/109   loss=0.011829
+  epoch   3/10  [###.....................]    15/109   loss=0.012545
+  epoch   3/10  [####....................]    20/109   loss=0.011859
+  epoch   3/10  [######..................]    25/109   loss=0.010909
+  epoch   3/10  [#######.................]    30/109   loss=0.012458
+  epoch   3/10  [########................]    35/109   loss=0.010583
+  epoch   3/10  [#########...............]    40/109   loss=0.010393
+  epoch   3/10  [##########..............]    45/109   loss=0.011604
+  epoch   3/10  [###########.............]    50/109   loss=0.011324
+  epoch   3/10  [############............]    55/109   loss=0.012251
+  epoch   3/10  [#############...........]    60/109   loss=0.010909
+  epoch   3/10  [##############..........]    65/109   loss=0.012731
+  epoch   3/10  [###############.........]    70/109   loss=0.011861
+  epoch   3/10  [#################.......]    75/109   loss=0.011321
+  epoch   3/10  [##################......]    80/109   loss=0.012177
+  epoch   3/10  [###################.....]    85/109   loss=0.012148
+  epoch   3/10  [####################....]    90/109   loss=0.012887
+  epoch   3/10  [#####################...]    95/109   loss=0.011880
+  epoch   3/10  [######################..]   100/109   loss=0.011985
+  epoch   3/10  [#######################.]   105/109   loss=0.010950
+  epoch   3/10  [########################]   109/109   loss=0.007308
+  summary epoch=3/10 time=2.8s train_mse=0.008402 train_mae=0.060209 valid_mse=0.010327 valid_mae=0.064569 baseline_mse=0.066547 teacher_mse=0.020948 value_loss=0.008903 aux_won_bce=0.170508 aux_hp_mse=0.009442 lr_end=7.94e-05
+  validation by encounter             rows       mse  baseline   teacher
+  boss/hexaghost                      2060   0.01389   0.04777   0.01790
+  boss/slime_boss                     1961   0.02218   0.06384   0.03819
+  boss/the_guardian                   2404   0.01118   0.04338   0.03194
+  easy/cultist                         331   0.00069   0.00902   0.00830
+  easy/jaw_worm                        368   0.00154   0.01027   0.00567
+  easy/small_slimes                    340   0.00079   0.01730   0.00290
+  easy/two_louse                       488   0.00071   0.01128   0.00161
+  elite/gremlin_nob                    422   0.00461   0.04842   0.02432
+  elite/lagavulin                      601   0.01505   0.04261   0.02935
+  elite/three_sentries                 843   0.00921   0.04587   0.01978
+  event/gremlin_nob                     35   0.00323   0.00115   0.03409
+  event/lagavulin_event                 67   0.02180   0.08220   0.01899
+  event/mushrooms_event                 97   0.00298   0.05121   0.02008
+  event/three_sentries                  63   0.02355   0.00450   0.04006
+  hard/blue_slaver                     236   0.00116   0.01156   0.00319
+  hard/exordium_thugs                  332   0.00229   0.01344   0.00659
+  hard/exordium_wildlife               173   0.00103   0.01144   0.00554
+  hard/gremlin_gang                    209   0.00536   0.02457   0.01925
+  hard/large_slime                     359   0.00687   0.01613   0.00812
+  hard/looter                          295   0.00109   0.01767   0.00197
+  hard/lots_of_slimes                   72   0.00063   0.00911   0.00556
+  hard/red_slaver                      116   0.00196   0.00768   0.00317
+  hard/three_louse                     296   0.00098   0.02263   0.00249
+  hard/two_fungi_beasts                274   0.00111   0.01358   0.00379
+  not saved: valid_mse 0.010327 >= best 0.010062 (keep = best)
+  epoch   4/10  [#.......................]     5/109   loss=0.011659
+  epoch   4/10  [##......................]    10/109   loss=0.011213
+  epoch   4/10  [###.....................]    15/109   loss=0.010922
+  epoch   4/10  [####....................]    20/109   loss=0.010276
+  epoch   4/10  [######..................]    25/109   loss=0.011212
+  epoch   4/10  [#######.................]    30/109   loss=0.011960
+  epoch   4/10  [########................]    35/109   loss=0.011135
+  epoch   4/10  [#########...............]    40/109   loss=0.010891
+  epoch   4/10  [##########..............]    45/109   loss=0.010720
+  epoch   4/10  [###########.............]    50/109   loss=0.010559
+  epoch   4/10  [############............]    55/109   loss=0.011403
+  epoch   4/10  [#############...........]    60/109   loss=0.009916
+  epoch   4/10  [##############..........]    65/109   loss=0.011846
+  epoch   4/10  [###############.........]    70/109   loss=0.009487
+  epoch   4/10  [#################.......]    75/109   loss=0.011058
+  epoch   4/10  [##################......]    80/109   loss=0.010296
+  epoch   4/10  [###################.....]    85/109   loss=0.010713
+  epoch   4/10  [####################....]    90/109   loss=0.009713
+  epoch   4/10  [#####################...]    95/109   loss=0.011187
+  epoch   4/10  [######################..]   100/109   loss=0.010221
+  epoch   4/10  [#######################.]   105/109   loss=0.011452
+  epoch   4/10  [########################]   109/109   loss=0.006116
+  summary epoch=4/10 time=2.9s train_mse=0.007917 train_mae=0.058693 valid_mse=0.010427 valid_mae=0.064795 baseline_mse=0.066547 teacher_mse=0.020948 value_loss=0.008193 aux_won_bce=0.154296 aux_hp_mse=0.009156 lr_end=6.55e-05
+  validation by encounter             rows       mse  baseline   teacher
+  boss/hexaghost                      2060   0.01432   0.04777   0.01790
+  boss/slime_boss                     1961   0.02171   0.06384   0.03819
+  boss/the_guardian                   2404   0.01154   0.04338   0.03194
+  easy/cultist                         331   0.00066   0.00902   0.00830
+  easy/jaw_worm                        368   0.00144   0.01027   0.00567
+  easy/small_slimes                    340   0.00077   0.01730   0.00290
+  easy/two_louse                       488   0.00072   0.01128   0.00161
+  elite/gremlin_nob                    422   0.00486   0.04842   0.02432
+  elite/lagavulin                      601   0.01484   0.04261   0.02935
+  elite/three_sentries                 843   0.00989   0.04587   0.01978
+  event/gremlin_nob                     35   0.00369   0.00115   0.03409
+  event/lagavulin_event                 67   0.02168   0.08220   0.01899
+  event/mushrooms_event                 97   0.00281   0.05121   0.02008
+  event/three_sentries                  63   0.02560   0.00450   0.04006
+  hard/blue_slaver                     236   0.00110   0.01156   0.00319
+  hard/exordium_thugs                  332   0.00228   0.01344   0.00659
+  hard/exordium_wildlife               173   0.00107   0.01144   0.00554
+  hard/gremlin_gang                    209   0.00541   0.02457   0.01925
+  hard/large_slime                     359   0.00636   0.01613   0.00812
+  hard/looter                          295   0.00106   0.01767   0.00197
+  hard/lots_of_slimes                   72   0.00065   0.00911   0.00556
+  hard/red_slaver                      116   0.00169   0.00768   0.00317
+  hard/three_louse                     296   0.00106   0.02263   0.00249
+  hard/two_fungi_beasts                274   0.00112   0.01358   0.00379
+  not saved: valid_mse 0.010427 >= best 0.010062 (keep = best)
+  epoch   5/10  [#.......................]     5/109   loss=0.010608
+  epoch   5/10  [##......................]    10/109   loss=0.009922
+  epoch   5/10  [###.....................]    15/109   loss=0.008832
+  epoch   5/10  [####....................]    20/109   loss=0.010850
+  epoch   5/10  [######..................]    25/109   loss=0.010133
+  epoch   5/10  [#######.................]    30/109   loss=0.009479
+  epoch   5/10  [########................]    35/109   loss=0.010251
+  epoch   5/10  [#########...............]    40/109   loss=0.008687
+  epoch   5/10  [##########..............]    45/109   loss=0.009816
+  epoch   5/10  [###########.............]    50/109   loss=0.010791
+  epoch   5/10  [############............]    55/109   loss=0.009217
+  epoch   5/10  [#############...........]    60/109   loss=0.010846
+  epoch   5/10  [##############..........]    65/109   loss=0.011176
+  epoch   5/10  [###############.........]    70/109   loss=0.009690
+  epoch   5/10  [#################.......]    75/109   loss=0.009927
+  epoch   5/10  [##################......]    80/109   loss=0.010717
+  epoch   5/10  [###################.....]    85/109   loss=0.009759
+  epoch   5/10  [####################....]    90/109   loss=0.009816
+  epoch   5/10  [#####################...]    95/109   loss=0.010870
+  epoch   5/10  [######################..]   100/109   loss=0.009951
+  epoch   5/10  [#######################.]   105/109   loss=0.009373
+  epoch   5/10  [########################]   109/109   loss=0.010753
+  summary epoch=5/10 time=3.0s train_mse=0.007440 train_mae=0.056420 valid_mse=0.010548 valid_mae=0.064067 baseline_mse=0.066547 teacher_mse=0.020948 value_loss=0.007745 aux_won_bce=0.144144 aux_hp_mse=0.009028 lr_end=5.00e-05
+  validation by encounter             rows       mse  baseline   teacher
+  boss/hexaghost                      2060   0.01436   0.04777   0.01790
+  boss/slime_boss                     1961   0.02190   0.06384   0.03819
+  boss/the_guardian                   2404   0.01172   0.04338   0.03194
+  easy/cultist                         331   0.00063   0.00902   0.00830
+  easy/jaw_worm                        368   0.00140   0.01027   0.00567
+  easy/small_slimes                    340   0.00073   0.01730   0.00290
+  easy/two_louse                       488   0.00063   0.01128   0.00161
+  elite/gremlin_nob                    422   0.00477   0.04842   0.02432
+  elite/lagavulin                      601   0.01632   0.04261   0.02935
+  elite/three_sentries                 843   0.00992   0.04587   0.01978
+  event/gremlin_nob                     35   0.00283   0.00115   0.03409
+  event/lagavulin_event                 67   0.02124   0.08220   0.01899
+  event/mushrooms_event                 97   0.00271   0.05121   0.02008
+  event/three_sentries                  63   0.02540   0.00450   0.04006
+  hard/blue_slaver                     236   0.00104   0.01156   0.00319
+  hard/exordium_thugs                  332   0.00219   0.01344   0.00659
+  hard/exordium_wildlife               173   0.00100   0.01144   0.00554
+  hard/gremlin_gang                    209   0.00533   0.02457   0.01925
+  hard/large_slime                     359   0.00647   0.01613   0.00812
+  hard/looter                          295   0.00102   0.01767   0.00197
+  hard/lots_of_slimes                   72   0.00066   0.00911   0.00556
+  hard/red_slaver                      116   0.00150   0.00768   0.00317
+  hard/three_louse                     296   0.00092   0.02263   0.00249
+  hard/two_fungi_beasts                274   0.00112   0.01358   0.00379
+  not saved: valid_mse 0.010548 >= best 0.010062 (keep = best)
+  epoch   6/10  [#.......................]     5/109   loss=0.010777
+  epoch   6/10  [##......................]    10/109   loss=0.009611
+  epoch   6/10  [###.....................]    15/109   loss=0.009293
+  epoch   6/10  [####....................]    20/109   loss=0.010359
+  epoch   6/10  [######..................]    25/109   loss=0.010566
+  epoch   6/10  [#######.................]    30/109   loss=0.010139
+  epoch   6/10  [########................]    35/109   loss=0.010896
+  epoch   6/10  [#########...............]    40/109   loss=0.010032
+  epoch   6/10  [##########..............]    45/109   loss=0.008419
+  epoch   6/10  [###########.............]    50/109   loss=0.009970
+  epoch   6/10  [############............]    55/109   loss=0.009474
+  epoch   6/10  [#############...........]    60/109   loss=0.009594
+  epoch   6/10  [##############..........]    65/109   loss=0.009181
+  epoch   6/10  [###############.........]    70/109   loss=0.009978
+  epoch   6/10  [#################.......]    75/109   loss=0.009199
+  epoch   6/10  [##################......]    80/109   loss=0.008948
+  epoch   6/10  [###################.....]    85/109   loss=0.008446
+  epoch   6/10  [####################....]    90/109   loss=0.009406
+  epoch   6/10  [#####################...]    95/109   loss=0.008680
+  epoch   6/10  [######################..]   100/109   loss=0.010333
+  epoch   6/10  [#######################.]   105/109   loss=0.010651
+  epoch   6/10  [########################]   109/109   loss=0.005802
+  summary epoch=6/10 time=3.0s train_mse=0.007122 train_mae=0.055207 valid_mse=0.010652 valid_mae=0.064198 baseline_mse=0.066547 teacher_mse=0.020948 value_loss=0.007347 aux_won_bce=0.135384 aux_hp_mse=0.008876 lr_end=3.45e-05
+  validation by encounter             rows       mse  baseline   teacher
+  boss/hexaghost                      2060   0.01437   0.04777   0.01790
+  boss/slime_boss                     1961   0.02225   0.06384   0.03819
+  boss/the_guardian                   2404   0.01186   0.04338   0.03194
+  easy/cultist                         331   0.00064   0.00902   0.00830
+  easy/jaw_worm                        368   0.00141   0.01027   0.00567
+  easy/small_slimes                    340   0.00074   0.01730   0.00290
+  easy/two_louse                       488   0.00061   0.01128   0.00161
+  elite/gremlin_nob                    422   0.00489   0.04842   0.02432
+  elite/lagavulin                      601   0.01680   0.04261   0.02935
+  elite/three_sentries                 843   0.00995   0.04587   0.01978
+  event/gremlin_nob                     35   0.00268   0.00115   0.03409
+  event/lagavulin_event                 67   0.02052   0.08220   0.01899
+  event/mushrooms_event                 97   0.00268   0.05121   0.02008
+  event/three_sentries                  63   0.02247   0.00450   0.04006
+  hard/blue_slaver                     236   0.00107   0.01156   0.00319
+  hard/exordium_thugs                  332   0.00222   0.01344   0.00659
+  hard/exordium_wildlife               173   0.00101   0.01144   0.00554
+  hard/gremlin_gang                    209   0.00539   0.02457   0.01925
+  hard/large_slime                     359   0.00671   0.01613   0.00812
+  hard/looter                          295   0.00098   0.01767   0.00197
+  hard/lots_of_slimes                   72   0.00065   0.00911   0.00556
+  hard/red_slaver                      116   0.00151   0.00768   0.00317
+  hard/three_louse                     296   0.00095   0.02263   0.00249
+  hard/two_fungi_beasts                274   0.00115   0.01358   0.00379
+  not saved: valid_mse 0.010652 >= best 0.010062 (keep = best)
+  epoch   7/10  [#.......................]     5/109   loss=0.008315
+  epoch   7/10  [##......................]    10/109   loss=0.010126
+  epoch   7/10  [###.....................]    15/109   loss=0.008989
+  epoch   7/10  [####....................]    20/109   loss=0.010232
+  epoch   7/10  [######..................]    25/109   loss=0.009211
+  epoch   7/10  [#######.................]    30/109   loss=0.008779
+  epoch   7/10  [########................]    35/109   loss=0.009403
+  epoch   7/10  [#########...............]    40/109   loss=0.008686
+  epoch   7/10  [##########..............]    45/109   loss=0.009161
+  epoch   7/10  [###########.............]    50/109   loss=0.010743
+  epoch   7/10  [############............]    55/109   loss=0.009072
+  epoch   7/10  [#############...........]    60/109   loss=0.009401
+  epoch   7/10  [##############..........]    65/109   loss=0.009932
+  epoch   7/10  [###############.........]    70/109   loss=0.009098
+  epoch   7/10  [#################.......]    75/109   loss=0.008846
+  epoch   7/10  [##################......]    80/109   loss=0.008845
+  epoch   7/10  [###################.....]    85/109   loss=0.009294
+  epoch   7/10  [####################....]    90/109   loss=0.009151
+  epoch   7/10  [#####################...]    95/109   loss=0.009585
+  epoch   7/10  [######################..]   100/109   loss=0.009275
+  epoch   7/10  [#######################.]   105/109   loss=0.009056
+  epoch   7/10  [########################]   109/109   loss=0.010517
+  summary epoch=7/10 time=2.9s train_mse=0.006945 train_mae=0.054403 valid_mse=0.010773 valid_mae=0.064364 baseline_mse=0.066547 teacher_mse=0.020948 value_loss=0.007088 aux_won_bce=0.131804 aux_hp_mse=0.008740 lr_end=2.06e-05
+  validation by encounter             rows       mse  baseline   teacher
+  boss/hexaghost                      2060   0.01449   0.04777   0.01790
+  boss/slime_boss                     1961   0.02256   0.06384   0.03819
+  boss/the_guardian                   2404   0.01203   0.04338   0.03194
+  easy/cultist                         331   0.00063   0.00902   0.00830
+  easy/jaw_worm                        368   0.00140   0.01027   0.00567
+  easy/small_slimes                    340   0.00073   0.01730   0.00290
+  easy/two_louse                       488   0.00057   0.01128   0.00161
+  elite/gremlin_nob                    422   0.00493   0.04842   0.02432
+  elite/lagavulin                      601   0.01698   0.04261   0.02935
+  elite/three_sentries                 843   0.00998   0.04587   0.01978
+  event/gremlin_nob                     35   0.00269   0.00115   0.03409
+  event/lagavulin_event                 67   0.02091   0.08220   0.01899
+  event/mushrooms_event                 97   0.00262   0.05121   0.02008
+  event/three_sentries                  63   0.02397   0.00450   0.04006
+  hard/blue_slaver                     236   0.00107   0.01156   0.00319
+  hard/exordium_thugs                  332   0.00222   0.01344   0.00659
+  hard/exordium_wildlife               173   0.00099   0.01144   0.00554
+  hard/gremlin_gang                    209   0.00549   0.02457   0.01925
+  hard/large_slime                     359   0.00668   0.01613   0.00812
+  hard/looter                          295   0.00099   0.01767   0.00197
+  hard/lots_of_slimes                   72   0.00065   0.00911   0.00556
+  hard/red_slaver                      116   0.00148   0.00768   0.00317
+  hard/three_louse                     296   0.00093   0.02263   0.00249
+  hard/two_fungi_beasts                274   0.00116   0.01358   0.00379
+  not saved: valid_mse 0.010773 >= best 0.010062 (keep = best)
+  epoch   8/10  [#.......................]     5/109   loss=0.008971
+  epoch   8/10  [##......................]    10/109   loss=0.009072
+  epoch   8/10  [###.....................]    15/109   loss=0.008889
+  epoch   8/10  [####....................]    20/109   loss=0.009223
+  epoch   8/10  [######..................]    25/109   loss=0.008524
+  epoch   8/10  [#######.................]    30/109   loss=0.009823
+  epoch   8/10  [########................]    35/109   loss=0.009308
+  epoch   8/10  [#########...............]    40/109   loss=0.009181
+  epoch   8/10  [##########..............]    45/109   loss=0.008951
+  epoch   8/10  [###########.............]    50/109   loss=0.010050
+  epoch   8/10  [############............]    55/109   loss=0.008812
+  epoch   8/10  [#############...........]    60/109   loss=0.008076
+  epoch   8/10  [##############..........]    65/109   loss=0.009557
+  epoch   8/10  [###############.........]    70/109   loss=0.009407
+  epoch   8/10  [#################.......]    75/109   loss=0.008936
+  epoch   8/10  [##################......]    80/109   loss=0.008903
+  epoch   8/10  [###################.....]    85/109   loss=0.009268
+  epoch   8/10  [####################....]    90/109   loss=0.009223
+  epoch   8/10  [#####################...]    95/109   loss=0.009056
+  epoch   8/10  [######################..]   100/109   loss=0.008701
+  epoch   8/10  [#######################.]   105/109   loss=0.009478
+  epoch   8/10  [########################]   109/109   loss=0.009725
+  summary epoch=8/10 time=2.9s train_mse=0.006846 train_mae=0.054034 valid_mse=0.010784 valid_mae=0.064302 baseline_mse=0.066547 teacher_mse=0.020948 value_loss=0.006926 aux_won_bce=0.128645 aux_hp_mse=0.008675 lr_end=9.55e-06
+  validation by encounter             rows       mse  baseline   teacher
+  boss/hexaghost                      2060   0.01455   0.04777   0.01790
+  boss/slime_boss                     1961   0.02251   0.06384   0.03819
+  boss/the_guardian                   2404   0.01197   0.04338   0.03194
+  easy/cultist                         331   0.00064   0.00902   0.00830
+  easy/jaw_worm                        368   0.00146   0.01027   0.00567
+  easy/small_slimes                    340   0.00076   0.01730   0.00290
+  easy/two_louse                       488   0.00057   0.01128   0.00161
+  elite/gremlin_nob                    422   0.00493   0.04842   0.02432
+  elite/lagavulin                      601   0.01736   0.04261   0.02935
+  elite/three_sentries                 843   0.01002   0.04587   0.01978
+  event/gremlin_nob                     35   0.00248   0.00115   0.03409
+  event/lagavulin_event                 67   0.02064   0.08220   0.01899
+  event/mushrooms_event                 97   0.00260   0.05121   0.02008
+  event/three_sentries                  63   0.02288   0.00450   0.04006
+  hard/blue_slaver                     236   0.00108   0.01156   0.00319
+  hard/exordium_thugs                  332   0.00221   0.01344   0.00659
+  hard/exordium_wildlife               173   0.00098   0.01144   0.00554
+  hard/gremlin_gang                    209   0.00543   0.02457   0.01925
+  hard/large_slime                     359   0.00686   0.01613   0.00812
+  hard/looter                          295   0.00098   0.01767   0.00197
+  hard/lots_of_slimes                   72   0.00066   0.00911   0.00556
+  hard/red_slaver                      116   0.00151   0.00768   0.00317
+  hard/three_louse                     296   0.00093   0.02263   0.00249
+  hard/two_fungi_beasts                274   0.00118   0.01358   0.00379
+  not saved: valid_mse 0.010784 >= best 0.010062 (keep = best)
+  epoch   9/10  [#.......................]     5/109   loss=0.009063
+  epoch   9/10  [##......................]    10/109   loss=0.008173
+  epoch   9/10  [###.....................]    15/109   loss=0.009460
+  epoch   9/10  [####....................]    20/109   loss=0.007708
+  epoch   9/10  [######..................]    25/109   loss=0.009840
+  epoch   9/10  [#######.................]    30/109   loss=0.009394
+  epoch   9/10  [########................]    35/109   loss=0.008318
+  epoch   9/10  [#########...............]    40/109   loss=0.008068
+  epoch   9/10  [##########..............]    45/109   loss=0.009490
+  epoch   9/10  [###########.............]    50/109   loss=0.009050
+  epoch   9/10  [############............]    55/109   loss=0.008479
+  epoch   9/10  [#############...........]    60/109   loss=0.009035
+  epoch   9/10  [##############..........]    65/109   loss=0.007763
+  epoch   9/10  [###############.........]    70/109   loss=0.009679
+  epoch   9/10  [#################.......]    75/109   loss=0.007483
+  epoch   9/10  [##################......]    80/109   loss=0.008524
+  epoch   9/10  [###################.....]    85/109   loss=0.009450
+  epoch   9/10  [####################....]    90/109   loss=0.008494
+  epoch   9/10  [#####################...]    95/109   loss=0.008943
+  epoch   9/10  [######################..]   100/109   loss=0.008463
+  epoch   9/10  [#######################.]   105/109   loss=0.009155
+  epoch   9/10  [########################]   109/109   loss=0.013135
+  summary epoch=9/10 time=2.8s train_mse=0.006807 train_mae=0.053883 valid_mse=0.010794 valid_mae=0.064297 baseline_mse=0.066547 teacher_mse=0.020948 value_loss=0.006870 aux_won_bce=0.127089 aux_hp_mse=0.008653 lr_end=2.45e-06
+  validation by encounter             rows       mse  baseline   teacher
+  boss/hexaghost                      2060   0.01456   0.04777   0.01790
+  boss/slime_boss                     1961   0.02253   0.06384   0.03819
+  boss/the_guardian                   2404   0.01202   0.04338   0.03194
+  easy/cultist                         331   0.00064   0.00902   0.00830
+  easy/jaw_worm                        368   0.00144   0.01027   0.00567
+  easy/small_slimes                    340   0.00075   0.01730   0.00290
+  easy/two_louse                       488   0.00057   0.01128   0.00161
+  elite/gremlin_nob                    422   0.00497   0.04842   0.02432
+  elite/lagavulin                      601   0.01727   0.04261   0.02935
+  elite/three_sentries                 843   0.00999   0.04587   0.01978
+  event/gremlin_nob                     35   0.00248   0.00115   0.03409
+  event/lagavulin_event                 67   0.02077   0.08220   0.01899
+  event/mushrooms_event                 97   0.00259   0.05121   0.02008
+  event/three_sentries                  63   0.02326   0.00450   0.04006
+  hard/blue_slaver                     236   0.00107   0.01156   0.00319
+  hard/exordium_thugs                  332   0.00221   0.01344   0.00659
+  hard/exordium_wildlife               173   0.00098   0.01144   0.00554
+  hard/gremlin_gang                    209   0.00543   0.02457   0.01925
+  hard/large_slime                     359   0.00682   0.01613   0.00812
+  hard/looter                          295   0.00098   0.01767   0.00197
+  hard/lots_of_slimes                   72   0.00066   0.00911   0.00556
+  hard/red_slaver                      116   0.00147   0.00768   0.00317
+  hard/three_louse                     296   0.00092   0.02263   0.00249
+  hard/two_fungi_beasts                274   0.00118   0.01358   0.00379
+  not saved: valid_mse 0.010794 >= best 0.010062 (keep = best)
+  epoch  10/10  [#.......................]     5/109   loss=0.009397
+  epoch  10/10  [##......................]    10/109   loss=0.009819
+  epoch  10/10  [###.....................]    15/109   loss=0.009415
+  epoch  10/10  [####....................]    20/109   loss=0.009248
+  epoch  10/10  [######..................]    25/109   loss=0.007782
+  epoch  10/10  [#######.................]    30/109   loss=0.010233
+  epoch  10/10  [########................]    35/109   loss=0.009583
+  epoch  10/10  [#########...............]    40/109   loss=0.010495
+  epoch  10/10  [##########..............]    45/109   loss=0.008313
+  epoch  10/10  [###########.............]    50/109   loss=0.008596
+  epoch  10/10  [############............]    55/109   loss=0.007934
+  epoch  10/10  [#############...........]    60/109   loss=0.008234
+  epoch  10/10  [##############..........]    65/109   loss=0.008956
+  epoch  10/10  [###############.........]    70/109   loss=0.009143
+  epoch  10/10  [#################.......]    75/109   loss=0.009667
+  epoch  10/10  [##################......]    80/109   loss=0.008436
+  epoch  10/10  [###################.....]    85/109   loss=0.008047
+  epoch  10/10  [####################....]    90/109   loss=0.008704
+  epoch  10/10  [#####################...]    95/109   loss=0.008757
+  epoch  10/10  [######################..]   100/109   loss=0.009003
+  epoch  10/10  [#######################.]   105/109   loss=0.008293
+  epoch  10/10  [########################]   109/109   loss=0.007280
+  summary epoch=10/10 time=2.8s train_mse=0.006802 train_mae=0.053874 valid_mse=0.010786 valid_mae=0.064257 baseline_mse=0.066547 teacher_mse=0.020948 value_loss=0.006793 aux_won_bce=0.125410 aux_hp_mse=0.008639 lr_end=0.00e+00
+  validation by encounter             rows       mse  baseline   teacher
+  boss/hexaghost                      2060   0.01457   0.04777   0.01790
+  boss/slime_boss                     1961   0.02253   0.06384   0.03819
+  boss/the_guardian                   2404   0.01201   0.04338   0.03194
+  easy/cultist                         331   0.00064   0.00902   0.00830
+  easy/jaw_worm                        368   0.00143   0.01027   0.00567
+  easy/small_slimes                    340   0.00075   0.01730   0.00290
+  easy/two_louse                       488   0.00056   0.01128   0.00161
+  elite/gremlin_nob                    422   0.00497   0.04842   0.02432
+  elite/lagavulin                      601   0.01730   0.04261   0.02935
+  elite/three_sentries                 843   0.00995   0.04587   0.01978
+  event/gremlin_nob                     35   0.00246   0.00115   0.03409
+  event/lagavulin_event                 67   0.02073   0.08220   0.01899
+  event/mushrooms_event                 97   0.00260   0.05121   0.02008
+  event/three_sentries                  63   0.02283   0.00450   0.04006
+  hard/blue_slaver                     236   0.00106   0.01156   0.00319
+  hard/exordium_thugs                  332   0.00220   0.01344   0.00659
+  hard/exordium_wildlife               173   0.00097   0.01144   0.00554
+  hard/gremlin_gang                    209   0.00540   0.02457   0.01925
+  hard/large_slime                     359   0.00681   0.01613   0.00812
+  hard/looter                          295   0.00098   0.01767   0.00197
+  hard/lots_of_slimes                   72   0.00066   0.00911   0.00556
+  hard/red_slaver                      116   0.00145   0.00768   0.00317
+  hard/three_louse                     296   0.00091   0.02263   0.00249
+  hard/two_fungi_beasts                274   0.00118   0.01358   0.00379
+  not saved: valid_mse 0.010786 >= best 0.010062 (keep = best)
+
+Export
+------
+native weights: /home/sborowsk/project/sts_combat_rl/runs/schema=value_net_v1/date=2026-09-27/id=ab-gen1/out/value_weights.bin
+
+Outputs
+-------
+checkpoint:      /home/sborowsk/project/sts_combat_rl/runs/schema=value_net_v1/date=2026-09-27/id=ab-gen1/out/value_checkpoint.pt
+checkpoint json: /home/sborowsk/project/sts_combat_rl/runs/schema=value_net_v1/date=2026-09-27/id=ab-gen1/out/value_checkpoint.json
+native weights:  /home/sborowsk/project/sts_combat_rl/runs/schema=value_net_v1/date=2026-09-27/id=ab-gen1/out/value_weights.bin
+summary:         /home/sborowsk/project/sts_combat_rl/runs/schema=value_net_v1/date=2026-09-27/id=ab-gen1/out/summary.json
+
+Done
+validation_mse: 0.010062227956950665
+run: done (exit 0) /home/sborowsk/project/sts_combat_rl/runs/schema=value_net_v1/date=2026-09-27/id=ab-gen1

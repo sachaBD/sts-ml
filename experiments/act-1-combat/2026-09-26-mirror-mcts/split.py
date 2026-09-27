@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Fixed train / dev / confirm split for the act-1 general value net. Writes split.md tables + dev_fights.csv.
+"""Fixed train / dev / confirm split for the act-1 general value net. Writes results/split_tables.md + dev_fights.csv.
 
 Run: PYTHONPATH=python .venv/bin/python experiments/act-1-combat/2026-09-26-mirror-mcts/split.py
 """
@@ -59,5 +59,5 @@ out.append("## Teacher (stored bootstrap, 15k sims, one random move) on train fi
 out.append("## Dev eval cost proxy (stored teacher simulations)\n\n" + md("""
     select encounter = 'slime_boss' boss, count(*) fights, sum(decisions) decisions, round(sum(sims) / 1e6) "M sims"
     from dev_eval group by all order by boss"""))
-(HERE / "split_tables.md").write_text("\n".join(out))
+(HERE / "results" / "split_tables.md").write_text("\n".join(out))
 print("\n".join(out))

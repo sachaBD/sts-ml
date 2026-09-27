@@ -1,4 +1,4 @@
-# Sixteen seeds (about a third have Slime Boss and are played as runs), eight at a time.
+# Sixteen seeds across all three act 1 bosses, eight at a time.
 [run]
 id = "act1-test-16x8"
 workers = 8

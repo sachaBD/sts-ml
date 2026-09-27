@@ -1,0 +1,18 @@
+# ./apps/bootstrap/run.sh apps/bootstrap/act1-all-bosses.toml
+# Unbounded teacher samples from complete Ironclad act 1 runs against every act 1 boss.
+[run]
+id = "act1-all-bosses-a20-scaled-search"
+workers = 10
+ascension = 20
+forever = true
+stop_factor = 0.5 # opt-in earlier search stop; may shift root_value labels
+merge_identical_cards = true # search equivalent cards together
+# bosses omitted: all three (slime_boss, the_guardian, hexaghost)
+# first_seed = 0 # default: random
+
+[run.simulations] # search simulations per decision, by fight category
+easy = 500
+hard = 2000
+elite = 5000
+event = 5000
+boss = 15000

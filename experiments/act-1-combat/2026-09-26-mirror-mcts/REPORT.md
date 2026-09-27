@@ -1,80 +1,112 @@
-# act-1 gen0 report: one general value net vs the MCTS teacher
+# Results
 
-**Verdict: the current topology (Deep Sets, width 64) fits act-1 teacher play.** One net trained on every act-1
-fight falls short of the teacher on every encounter, but never by more than the slime specialist's known apprentice
-gap. On Slime Boss it plays exactly as well as the specialist. No encounter is an outlier, so no topology, depth,
-conditioning or per-fight head changes are needed at this stage. The next step is the self-play loop that took slime
-from −3 to +4 HP-eq against the teacher.
+## gen0: imitating the teacher (2026-09-26)
 
-Setup, split and units: `README.md`. HP-eq = Δ terminal value × (55 + max HP); 1 HP-eq is 1 HP, a potion is
-4 HP-eq, and a death costs all remaining HP + 35.
+**Question:** can the current small network (63k parameters) learn every act-1 fight, or does it need to be bigger or
+different?
 
-## Headline
+**Answer: the current architecture is a viable shared baseline.** One net trained on all fights plays almost as
+well as the teacher across encounters. On Slime Boss it matches the slime-only net's win count, with no detectable
+value difference. There is no demonstrated architecture bottleneck yet; this does not rule out gains from more capacity.
 
-| | result |
+| | gen0 vs teacher |
 |---|---|
-| All 4,810 dev fights | **−1.2 HP-eq per fight** (95% CI −1.5, −0.8). Wins 93.0% → 91.6% |
-| Per act-1 run (fights weighted by how often a run meets them) | **−6.5 HP-eq per run** (−8.3, −4.7). About 2.4 of this is the boss and 1.3 is the elites |
-| Slime Boss: general net vs slime specialist, same 999 fights | **−0.1 HP-eq** (−1.6, +1.4). Wins 698 vs 698 (82 / 82 swaps) |
-| Reference: slime specialist vs teacher | −2.8 HP-eq (−4.3, −1.3). Every encounter below is at or inside this |
+| All 4,810 dev fights | **−1.2 HP-eq per fight** (95% CI −1.5 to −0.8); wins 93.0% → 91.6% |
+| Encounter-weighted estimate per act-1 run | about **−6.5 HP-eq**, mostly from the boss (−2.4) and the elites (−1.3) |
+| Slime Boss | −2.9 HP-eq; wins 74.7% → 69.9% |
+| Elites | lagavulin −2.2, sentries −1.9, gremlin nob +1.0 |
+| Hallway fights | −0.2 to −1.3 HP-eq each; almost no extra deaths |
+| Slime Boss, vs the slime-only net | −0.1 HP-eq (CI −1.6 to +1.4); both won 698 of 999 |
 
-## Per encounter (net − teacher, paired on the same dev fights)
+**Where the gap is:** in lost fights, not in HP. On fights both players win, HP lost is within about 0.7 HP
+everywhere. The net loses a few more boss and elite fights than the teacher. That matches the slime-only net, which
+self-play then fixed.
 
-| encounter | fights | Δ HP-eq per fight (95% CI) | win % teacher → net | swaps net / teacher (McNemar p) | HP lost when both won: teacher → net | val R² |
-|---|---:|---|---|---|---|---:|
-| boss/slime_boss | 999 | −2.9 (−4.4, −1.5) | 74.7 → 69.9 | 55 / 103 (<0.001) | 19.6 → 19.7 | 0.84 |
-| elite/gremlin_nob | 250 | +1.0 (+0.0, +2.0) | 94.8 → 96.4 | 5 / 1 (0.22) | 21.9 → 21.4 | 0.82 |
-| elite/lagavulin | 250 | −2.2 (−3.6, −0.8) | 92.4 → 88.4 | 1 / 11 (0.006) | 26.4 → 26.8 | 0.84 |
-| elite/three_sentries | 250 | −1.9 (−3.7, −0.1) | 90.4 → 87.2 | 6 / 14 (0.12) | 27.3 → 27.7 | 0.84 |
-| easy (4 encounters) | 250 each | −0.2 to −0.8 | 100 → 99.6–100 | ≤1 loss | within 0.7 HP | 0.85–0.95 |
-| hard (10 encounters) | 124–247 | −0.5 to −1.3 | 97.6–100 | ≤2 losses | within 0.5 HP | 0.87–0.95 |
-| events (4, pooled, descriptive) | 178 | −0.1 to +3.1, all CIs cross 0 | — | — | — | 0.81–0.90 |
+**Training:** 1.82M positions, 12 epochs, 45 min on one CPU thread. Nearly all of the learning happened in the first
+epoch, and there was no overfitting. The run is `value_net_v1/2026-09-26/act1-gen0`.
 
-Full table: `gen0-vs-teacher.md` / `.json`. Slime vs specialist: `gen0-vs-slime-specialist.json`.
+**Runs:** `combat_v3/2026-09-26/act1-teacher-dev` (teacher, 35 min) and `combat_v3/2026-09-26/act1-gen0-dev`
+(gen0, 76 min, before the search speed-up). The confirm set is untouched.
 
-What the table shows:
-- **The gap is mostly in winning, not in HP.** On fights both players win, HP lost is within about 0.5 HP everywhere.
-  The HP-eq gap on the boss, lagavulin and sentries comes from extra losses, the same pattern as the slime specialist.
-- **Hallway fights cost about 0.5–1 HP per fight.** That is statistically clear but small.
-- **Lagavulin is the weakest elite** (11 losses vs 1). It is still inside the slime reference gap.
-- 22 intervals are shown, so about one could exclude the truth by chance. The gremlin_nob +1.0 is borderline and
-  should not be read as a real gain.
+Per-encounter table: `results/gen0-vs-teacher.md`.
 
-## Training (value_net_v1/2026-09-26/act1-gen0)
+## gen1: one round of self-play (2026-09-26)
 
-- 1.82M rows (30,206 train fights, natural encounter mix), 10% of train runs held out for validation.
-- 12 epochs, AdamW, lr 1e-3 with cosine decay to 0, batch 128, width 64, blend 0.5 labels. The checkpoint kept is
-  the best on validation (epoch 11). Training took 45 min on 1 CPU thread.
-- Validation MSE by epoch: 0.00471 → 0.00464 → 0.00457 → 0.00456 → 0.00450 → 0.00448 → 0.00459 → 0.00449 → 0.00449 →
-  0.00446 → **0.00445** → 0.00446. Train MSE was 0.0027, so the gap is small and there was no real overfitting. Most
-  of the gain came in epoch 1; after that the curve is flat, so more epochs or a wider net would add little on this
-  data.
-- Slime Boss validation MSE was 0.0073, the same as the specialist's best (0.0072). Sharing the net cost slime nothing.
-- Per-encounter R² (1 − MSE / variance) was 0.81–0.95. Elites and the boss are lowest; see `training_history.json`
-  in the run.
+**Question:** does one round of self-play fix the boss and elite losses that gen0 had, as it did on Slime Boss alone?
 
-## Runs and compute
+**Answer: clearly on Slime Boss; elite results remain uncertain.** gen1 beats the teacher on the aggregate benchmark,
+and gen0 by a wide margin. The advantage over the teacher comes from Slime Boss; elsewhere it broadly matches the
+teacher. Lagavulin's previous deficit is no longer evident, while Three Sentries retains a negative point estimate.
 
-| run | what | time (10 workers) |
-|---|---|---|
-| `value_net_v1/2026-09-26/act1-gen0` | general net | 45 min, 1 thread |
-| `combat_v3/2026-09-26/act1-teacher-dev` | teacher (guided rollout, 20k sims, 8 particles, no random move), 3,811 non-boss dev fights | 35 min |
-| `combat_v3/2026-09-25/slime-v8-rollout-teacher-dev` | teacher on the 999 slime dev fights (reused, not re-run) | — |
-| `combat_v3/2026-09-26/act1-gen0-dev` | net (value leaves, same budget), all 4,810 dev fights | 76 min |
+| | gen0 vs teacher | **gen1 vs teacher** | gen1 vs gen0 |
+|---|---|---|---|
+| All 4,810 dev fights, HP-eq per fight | −1.2 (−1.5, −0.8) | **+0.6 (+0.3, +0.9)** | +1.8 (+1.4, +2.1) |
+| Wins | 93.0% → 91.6% | **93.0% → 93.5%** | 91.6% → 93.5% |
+| Encounter-weighted estimate per act-1 run, HP-eq | −6.5 (−8.3, −4.7) | **+2.4 (+0.7, +4.1)** | +8.9 (+7.2, +10.7) |
 
-The net search is slower than the teacher: 9.4 s per fight overall, against 5.5 s for the teacher on non-boss fights.
+Values in brackets are 95% CIs. Positive means the first player named is better.
+
+### Where the difference comes from (HP-eq per act-1 run)
+
+Each encounter's result is weighted by its frequency in the stored training runs. This is an isolated-fight utility
+estimate, not measured HP gain or survival improvement in played-through acts; changed outcomes alter later states.
+
+| part of the run | gen0 vs teacher | gen1 vs teacher | gen1 vs gen0 |
+|---|---:|---:|---:|
+| Boss (Slime Boss) | −2.4 | **+2.7** | +5.1 |
+| Elites | −1.3 | −0.4 | +0.9 |
+| Hallway fights | −2.9 | +0.1 | +3.0 |
+| Events | 0.0 | 0.0 | 0.0 |
+| **Total** | **−6.5** | **+2.4** | **+8.9** |
+
+> 📊 **Chart placeholder:** stacked or grouped bars of HP-eq per run by part (boss / elites / hallway), one group each
+> for gen0 vs teacher and gen1 vs teacher. Shows the boss contribution going from negative to positive.
+
+### Boss and elites
+
+| encounter | fights | win %: teacher / gen0 / gen1 | gen1 vs teacher, HP-eq per fight | gen1 vs gen0, HP-eq per fight |
+|---|---:|---|---|---|
+| Slime Boss | 999 | 74.7 / 69.9 / **78.3** | **+3.3** (+1.9, +4.7) | **+6.2** (+4.8, +7.6) |
+| Gremlin Nob | 250 | 94.8 / 96.4 / 95.2 | +0.6 (−0.6, +1.7) | −0.4 (−1.4, +0.5) |
+| Lagavulin | 250 | 92.4 / 88.4 / 91.6 | −0.1 (−1.8, +1.6) | **+2.1** (+0.5, +3.7) |
+| Three Sentries | 250 | 90.4 / 87.2 / 87.2 | −1.5 (−3.2, +0.2) | +0.4 (−1.1, +1.9) |
+
+- **Slime Boss:** gen1 wins 93 fights the teacher loses, and loses 57 that the teacher wins (McNemar p = 0.004).
+  On fights both win, it also keeps more HP: it loses 18.3 HP per fight against the teacher's 20.4.
+- **Lagavulin:** back to the teacher's level. gen0's extra losses (1 fight won only by gen0, 11 won only by the
+  teacher) are gone (6 / 8).
+- **Three Sentries:** a possible remaining gap. It has the same win rate as gen0 and loses 14 fights the teacher wins,
+  against 6 the other way (p = 0.12). Worth monitoring, but not an established deficit or architecture failure.
+- **Gremlin Nob:** no real difference among the three players.
+
+> 📊 **Chart placeholder:** grouped bars of win % for teacher / gen0 / gen1 on Slime Boss and the three elites.
+
+> 📊 **Chart placeholder:** forest plot of gen1 vs teacher HP-eq per fight with 95% CIs, one row per encounter (boss
+> and elites at the top). Shows at a glance that only Slime Boss is clearly different.
+
+### Hallway fights and events
+
+- **Hallway fights:** gen1 matches the teacher on every encounter, within −0.6 to +0.8 HP-eq per fight, with at most
+  2 extra deaths per encounter. It is clearly better than gen0 on most of them, by about +0.5 to +2 HP-eq, because it
+  loses less HP.
+- **Events:** each one has only 25–89 fights, so the results are noisy. event/lagavulin_event is −2.9 against gen0
+  (31 fights, one extra loss), which is not a reliable signal.
+
+### How gen1 was made
+
+1. **Self-play:** gen0 replayed 4,076 train fights (`act1-a20-8`, `run_seed % 10 = 4`) with new randomness. It won
+   3,787 of them. Run: `combat_v3/2026-09-26/act1-selfplay-gen1` (19 min).
+2. **Fine-tune:** training started from gen0's weights on 52.5k positions from those fights, labelled with how each
+   fight actually ended. Validation error was lowest after epoch 1, and that is the checkpoint kept. Later epochs
+   overfit slightly (validation MSE 0.0071 → 0.0075). Run: `value_net_v1/2026-09-26/act1-gen1` (1 min).
+3. **Evaluation:** the same 4,810 dev fights and search settings as gen0. Run:
+   `combat_v3/2026-09-26/act1-gen1-dev` (31 min).
+
 The confirm set is untouched.
 
-## Code changes (uncommitted)
+**Caveats:** this is one round of self-play, evaluated on dev only. The differences on elites are within noise at 250
+fights per encounter. The best checkpoint came from epoch 1, which suggests the self-play set is small for 10 epochs.
+More self-play fights, or fewer epochs, are worth trying in gen2. CIs bootstrap fights rather than source runs
+(and combine encounters independently), so they do not account for within-run dependence and may be too narrow.
 
-- `python/sts_combat_rl/training/train_value.py` and `apps/value_train/train.py` gained two new options. Both
-  default off, so existing configs behave exactly as before:
-  - `lr_schedule = "cosine"`: per-step decay to 0.
-  - `keep = "best"`: keep the best-validation checkpoint.
-- Every run now logs validation MSE per encounter each epoch, and writes the per-epoch history to
-  `out/training_history.json` and the checkpoint json.
-- In this directory: `split.py`, `analyze.py`, `configs/`.
-
-## Next step
-
-Self-play with terminal-value fine-tuning (expert iteration). The plan is in `README.md`, under "Next: gen1".
+Per-encounter tables: `results/gen1-vs-teacher.md`, `results/gen1-vs-gen0.md`.

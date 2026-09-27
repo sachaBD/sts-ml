@@ -1,0 +1,18 @@
+# ./apps/fight_resample/run.sh experiments/act-1-combat/2026-09-26-all-bosses/configs/ab-selfplay-gen1-boss.toml
+# Self-play for gen1, bosses: ab-gen0 plays every boss fight of train bucket run_seed % 10 = 4 (runs no net trained on;
+# ~970 fights, ~330 per boss) twice each: fresh combat RNG, starting HP ~ N(stored, 10). Dev-eval search: 20k sims, 8 particles,
+# no random move.
+[run]
+id = "ab-selfplay-gen1-boss"
+query = """
+select * from combat_v3
+where id = 'act1-all-bosses-a20-scaled-search' and source_episode_id is null and run_seed % 10 = 4 and category = 'boss'
+"""
+samples = 2
+hp_sd = 10
+random_potions = false
+value_run = "value_net_v1/2026-09-26/ab-gen0"
+simulations = 20000
+particles = 8
+random_move = false
+workers = 10

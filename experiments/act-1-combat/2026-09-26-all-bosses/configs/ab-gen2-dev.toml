@@ -1,0 +1,24 @@
+# ./apps/value_play/run.sh experiments/act-1-combat/2026-09-26-all-bosses/configs/ab-gen2-dev.toml
+# ab-gen2 plays the 1,000 dev eval fights (same set as ab-teacher-dev). Same search: 20k sims, 8 particles, no
+# random move; only the leaf differs (value net).
+[run]
+id = "ab-gen2-dev"
+input = "value_net_v1/2026-09-26/ab-gen2"
+workers = 10
+leaf = "value_net"
+simulations = 20000
+particles = 8
+random_move = false
+query = """
+select * from combat_v3
+where id = 'act1-all-bosses-a20-scaled-search' and run_seed % 10 in (0, 1)
+  and episode_id in (
+    select episode_id from (
+      select episode_id, category, encounter,
+             row_number() over (partition by case when category in ('boss', 'elite') then encounter else 'other' end
+                                order by hash(episode_id)) k
+      from (select distinct episode_id, category, encounter from combat_v3
+            where id = 'act1-all-bosses-a20-scaled-search' and run_seed % 10 in (0, 1) and source_episode_id is null))
+    where (category = 'boss' and k <= 200) or (category = 'elite' and k <= 100)
+       or (category not in ('boss', 'elite') and k <= 100))
+"""

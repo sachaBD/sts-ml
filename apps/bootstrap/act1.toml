@@ -3,6 +3,7 @@
 id = "act1-a20-6"
 workers = 10
 ascension = 20
+bosses = ["slime_boss"] # preserve this Slime Boss-only run; omit for all bosses
 # oracle = true # teacher searches the true state (perfect RNG foresight): upper-bound data, rows tagged oracle
 forever = true # alternatively: seeds = 100
 # first_seed = 0 # default: random, so separate runs play different seeds (logged + in summary.json)

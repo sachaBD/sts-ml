@@ -1,0 +1,17 @@
+# ./apps/fight_resample/run.sh experiments/act-1-combat/2026-09-26-mirror-mcts/configs/act1-selfplay-gen1.toml
+# Self-play: gen0 replays every fight of one train deck bucket (4,076 fights, all encounters) with a fresh combat RNG
+# and starting HP ~ N(stored, 10). Same search as the dev eval: value-net leaves, 20k sims, 8 particles, no random move.
+[run]
+id = "act1-selfplay-gen1"
+query = """
+select * from combat_v3
+where source_episode_id is null and id = 'act1-a20-8' and run_seed % 10 = 4
+"""
+samples = 1
+hp_sd = 10
+random_potions = false
+value_run = "value_net_v1/2026-09-26/act1-gen0"
+simulations = 20000
+particles = 8
+random_move = false
+workers = 10

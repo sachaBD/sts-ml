@@ -3,6 +3,7 @@
 import itertools
 import logging
 import random
+import sys
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -14,7 +15,42 @@ from sts_combat_rl.schemas.combat_v3 import NAME
 
 log = logging.getLogger(__name__)
 BUILT = Path("build/main/bootstrap_fight_worker")  # built by apps/common/job.sh; each run plays with its own copy in out/
-RUN_KEYS = {"id", "binary", "workers", "ascension", "oracle", "forever", "seeds", "first_seed", "status_seconds"}
+RUN_KEYS = {"id", "binary", "workers", "ascension", "oracle", "forever", "seeds", "first_seed", "status_seconds", "bosses",
+            "stop_factor", "merge_identical_cards", "simulations"}
+ACT1_BOSSES = ("slime_boss", "the_guardian", "hexaghost")
+
+
+def selected_bosses(run):
+    """Optional nonempty subset of act 1 bosses; omitted means all three."""
+    bosses = run.get("bosses", list(ACT1_BOSSES))
+    if (not isinstance(bosses, list) or not bosses or any(type(boss) is not str or boss not in ACT1_BOSSES for boss in bosses)
+            or len(bosses) != len(set(bosses))):
+        sys.exit(f"bosses must be a nonempty list of unique names from {ACT1_BOSSES}")
+    return bosses
+
+
+def teacher_options(run):
+    """Opt-in search tweaks; the worker also validates the request."""
+    if "stop_factor" in run and (type(run["stop_factor"]) not in (int, float) or
+                                 not 0 < run["stop_factor"] <= 1):
+        sys.exit("stop_factor must be a number in (0, 1]")
+    if "merge_identical_cards" in run and type(run["merge_identical_cards"]) is not bool:
+        sys.exit("merge_identical_cards must be true or false")
+    return {key: run[key] for key in ("stop_factor", "merge_identical_cards") if key in run}
+
+
+def simulation_budgets(run):
+    """Per-category search caps; unspecified categories retain the 15k default."""
+    budgets = run.get("simulations", {})
+    if not isinstance(budgets, dict):
+        sys.exit("simulations must be a table of fight category budgets")
+    check_keys(budgets, {"easy", "hard", "elite", "event", "boss"}, "run.simulations")
+    for category, budget in budgets.items():
+        if type(budget) is not int or budget < 1:
+            sys.exit(f"simulations.{category} must be a positive integer")
+    return budgets
+
+
 # Run seeds stay below 2^40 so every derived episode_id fits int64: run_seed * 100 + fight_index here,
 # and source_episode_id * 1000 + k in apps/fight_resample (< 2^40 * 10^5 ~ 1.1e17).
 SEED_LIMIT = 2**40
@@ -27,7 +63,7 @@ class Run:
     status: str
     floor: int
     fights: int
-    boss: bool  # reached the Slime Boss fight
+    boss: bool  # reached the act 1 boss fight
     rows: int
     seconds: float
     teacher: dict  # search settings (agents/teacher_search.cpp)
@@ -79,7 +115,7 @@ class Status:
         with self.lock:
             return {"schema": NAME, "oracle": oracle, "ascension": ascension, "first_seed": first_seed,
                     "worker_sha256": worker_sha256, "teacher": self.teacher, "runs": self.runs, **self.statuses,
-                    "slime_fights": self.bosses, "fights": self.fights, "rows": self.rows}
+                    "boss_fights": self.bosses, "fights": self.fights, "rows": self.rows}
 
     def header(self):
         workers = "".join(f"{f'w{i}':>5}" for i in range(self.workers))
@@ -104,7 +140,7 @@ class Status:
             log.info("%s", self.line())
 
 
-def play(seed, binary, ascension, oracle, out, status):
+def play(seed, binary, ascension, oracle, bosses, teacher, simulations, out, status):
     """One act 1 -> out/part-<seed>.parquet (no file for a run with no fights, e.g. other_boss).
 
     Rows arrive in play order: by fight_index, then decision rows, then child rows.
@@ -113,7 +149,8 @@ def play(seed, binary, ascension, oracle, out, status):
     if seed >= SEED_LIMIT:
         raise ValueError(f"run seed {seed} >= 2^40 (SEED_LIMIT)")
     start = time.monotonic()
-    result = run_worker(binary, {"seed": seed, "ascension": ascension, "oracle": oracle})
+    result = run_worker(binary, {"seed": seed, "ascension": ascension, "oracle": oracle, "bosses": bosses,
+                                 "teacher": teacher, "simulations": simulations})
     rows = result["rows"]
     if rows:
         write_part(out, seed, rows)
@@ -131,16 +168,21 @@ def generate(config, config_path, out):
     workers = run["workers"]
     ascension = run.get("ascension", 1)
     oracle = flag(run, "oracle")
+    bosses = selected_bosses(run)
+    teacher = teacher_options(run)
+    simulations = simulation_budgets(run)
     binary, worker_sha256 = snapshot(run.get("binary", BUILT), out, "bootstrap_fight_worker")
     start = time.monotonic()
     log.info("%s", ORACLE_BANNER if oracle else FAIR_PLAY)
-    log.info("starting %s seeds from first_seed %d on %d workers -> %s",
-             "unlimited" if run.get("forever") else run["seeds"], first_seed, workers, out)
+    log.info("starting %s seeds from first_seed %d on %d workers; bosses: %s -> %s",
+             "unlimited" if run.get("forever") else run["seeds"], first_seed, workers, ", ".join(bosses), out)
+    log.info("teacher tweaks: %s; simulations by category: %s", teacher or "defaults", simulations or "15k each")
     log.info("w0..w%d: seconds since that worker last finished a run", workers - 1)
     with Status(workers, run.get("status_seconds", 10), oracle) as status:
         # each worker takes the next seed as soon as its last run finishes (no batch barrier)
-        run_parallel(lambda seed: play(seed, binary, ascension, oracle, out, status), seeds, workers)
-    write_json(out / "summary.json", status.summary(ascension, first_seed, oracle, worker_sha256))
+        run_parallel(lambda seed: play(seed, binary, ascension, oracle, bosses, teacher, simulations, out, status),
+                     seeds, workers)
+    write_json(out / "summary.json", {**status.summary(ascension, first_seed, oracle, worker_sha256), "bosses": bosses})
     log.info("%s", status.header())
     log.info("%s", status.line())
     log.info("done in %.1f min%s", (time.monotonic() - start) / 60, " [ORACLE run]" if oracle else "")

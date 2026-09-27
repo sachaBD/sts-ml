@@ -1,0 +1,41 @@
+# ./apps/value_train/run.sh experiments/act-1-combat/2026-09-26-all-bosses/configs/ab-gen0.toml
+# gen0: imitate the teacher. v2 model (defaults), GPU, label shift (blend 0.5), aux heads.
+# Data: train buckets run_seed % 10 in 6..9 (buckets 4, 5 are kept unseen for self-play), balanced per encounter:
+# at most 1,300 fights per (category, encounter), random by hash(episode_id) (~ each boss's count; rarer encounters
+# keep all). ~21.3k fights, ~1.36M rows. Decision + child rows.
+[run]
+id = "ab-gen0-sweep-lr3e4"
+
+[data]
+query = """
+select * from combat_v3
+where id = 'act1-all-bosses-a20-scaled-search' and source_episode_id is null and run_seed % 10 >= 6
+  and episode_id in (
+    select episode_id from (
+      select episode_id, row_number() over (partition by category, encounter order by hash(episode_id)) k
+      from (select distinct episode_id, category, encounter from combat_v3
+            where id = 'act1-all-bosses-a20-scaled-search' and source_episode_id is null and run_seed % 10 >= 6))
+    where k <= 1300)
+"""
+
+[model]
+kind = "deep_sets_v2"
+
+[train]
+device = "cuda"
+epochs = 5
+batch_size = 1024
+lr = 0.0003
+weight_decay = 0.0001
+seed = 0
+validation_fraction = 0.1
+label = "shift"
+blend = 0.5
+aux_won_weight = 0.01
+aux_hp_weight = 0.1
+lr_schedule = "cosine"
+keep = "best"
+
+[export]
+native_weights = true
+path = "value_weights.bin"

@@ -1,0 +1,130 @@
+run: /home/sborowsk/project/sts_combat_rl/runs/schema=combat_v3/date=2026-09-26/id=ab-teacher-dev
+log: /home/sborowsk/project/sts_combat_rl/runs/schema=combat_v3/date=2026-09-26/id=ab-teacher-dev/logs/stdout.log (stderr: /home/sborowsk/project/sts_combat_rl/runs/schema=combat_v3/date=2026-09-26/id=ab-teacher-dev/logs/stderr.log)
+00:31:25 oracle: off (teacher searches sampled beliefs, fair play)
+00:31:25 
+00:31:25 Value play
+00:31:25 ==========
+00:31:25 config:    /home/sborowsk/project/sts_combat_rl/experiments/act-1-combat/2026-09-26-all-bosses/configs/ab-teacher-dev.toml
+00:31:25 output:    /home/sborowsk/project/sts_combat_rl/runs/schema=combat_v3/date=2026-09-26/id=ab-teacher-dev/out
+00:31:25 value run: value_net_v1/2026-09-26/act1-gen0
+00:31:25 weights:   None
+00:31:25 data runs: combat_v3/2026-09-26/act1-all-bosses-a20-scaled-search
+00:31:25 teacher:   {"leaf": "guided_rollout", "random_move": false, "simulations": 20000, "particles": 8}
+00:31:25 fights:    1000 from query "select * from combat_v3\nwhere id = 'act1-all-bosses-a20-scaled-search' and run_seed % 10 in (0, 1)\n  and episode_id in (\n    select episode_id from (\n      select episode_id, category, encounter,\n             row_number() over (partition by case when category in ('boss', 'elite') then encounter else 'other' end\n                                order by hash(episode_id)) k\n      from (select distinct episode_id, category, encounter from combat_v3\n            where id = 'act1-all-bosses-a20-scaled-search' and run_seed % 10 in (0, 1) and source_episode_id is null))\n    where (category = 'boss' and k <= 200) or (category = 'elite' and k <= 100)\n       or (category not in ('boss', 'elite') and k <= 100))\n"
+00:31:25 workers:   10
+00:31:25 worker:    /home/sborowsk/project/sts_combat_rl/runs/schema=combat_v3/date=2026-09-26/id=ab-teacher-dev/out/value_play_worker (sha256 c53e4656429175259c2390372f4da072493a72e2f0d110b77fa7a3789eeda0b4)
+00:31:25 
+00:31:25 Each line: the guided_rollout teacher's replay | the stored teacher's result for the same fight
+00:31:25 
+00:31:31 [10/1000] wins 9 vs teacher 8; mean terminal value 0.538 vs 0.493
+00:31:40 [20/1000] wins 12 vs teacher 11; mean terminal value 0.342 vs 0.317
+00:31:44 [30/1000] wins 20 vs teacher 20; mean terminal value 0.383 vs 0.372
+00:31:51 [40/1000] wins 25 vs teacher 25; mean terminal value 0.352 vs 0.344
+00:32:01 [50/1000] wins 34 vs teacher 34; mean terminal value 0.360 vs 0.356
+00:32:08 [60/1000] wins 40 vs teacher 40; mean terminal value 0.362 vs 0.357
+00:32:17 [70/1000] wins 49 vs teacher 50; mean terminal value 0.387 vs 0.379
+00:32:28 [80/1000] wins 57 vs teacher 59; mean terminal value 0.387 vs 0.387
+00:32:36 [90/1000] wins 66 vs teacher 66; mean terminal value 0.388 vs 0.379
+00:32:48 [100/1000] wins 76 vs teacher 75; mean terminal value 0.398 vs 0.381
+00:32:57 [110/1000] wins 84 vs teacher 83; mean terminal value 0.399 vs 0.386
+00:33:06 [120/1000] wins 93 vs teacher 92; mean terminal value 0.404 vs 0.389
+00:33:16 [130/1000] wins 100 vs teacher 99; mean terminal value 0.396 vs 0.382
+00:33:22 [140/1000] wins 105 vs teacher 107; mean terminal value 0.389 vs 0.380
+00:33:31 [150/1000] wins 113 vs teacher 115; mean terminal value 0.389 vs 0.381
+00:33:39 [160/1000] wins 120 vs teacher 122; mean terminal value 0.389 vs 0.380
+00:33:44 [170/1000] wins 127 vs teacher 131; mean terminal value 0.387 vs 0.381
+00:33:53 [180/1000] wins 135 vs teacher 138; mean terminal value 0.385 vs 0.378
+00:34:02 [190/1000] wins 142 vs teacher 144; mean terminal value 0.381 vs 0.373
+00:34:09 [200/1000] wins 151 vs teacher 152; mean terminal value 0.383 vs 0.373
+00:34:18 [210/1000] wins 158 vs teacher 160; mean terminal value 0.384 vs 0.375
+00:34:26 [220/1000] wins 166 vs teacher 169; mean terminal value 0.386 vs 0.379
+00:34:33 [230/1000] wins 175 vs teacher 178; mean terminal value 0.389 vs 0.380
+00:34:42 [240/1000] wins 183 vs teacher 186; mean terminal value 0.390 vs 0.380
+00:34:51 [250/1000] wins 191 vs teacher 194; mean terminal value 0.391 vs 0.381
+00:34:58 [260/1000] wins 200 vs teacher 203; mean terminal value 0.394 vs 0.385
+00:35:10 [270/1000] wins 207 vs teacher 208; mean terminal value 0.391 vs 0.379
+00:35:18 [280/1000] wins 214 vs teacher 215; mean terminal value 0.390 vs 0.378
+00:35:25 [290/1000] wins 222 vs teacher 221; mean terminal value 0.390 vs 0.375
+00:35:32 [300/1000] wins 228 vs teacher 228; mean terminal value 0.386 vs 0.373
+00:35:37 [310/1000] wins 235 vs teacher 235; mean terminal value 0.386 vs 0.373
+00:35:46 [320/1000] wins 245 vs teacher 242; mean terminal value 0.389 vs 0.373
+00:35:55 [330/1000] wins 254 vs teacher 251; mean terminal value 0.393 vs 0.377
+00:36:05 [340/1000] wins 260 vs teacher 256; mean terminal value 0.390 vs 0.374
+00:36:11 [350/1000] wins 267 vs teacher 264; mean terminal value 0.389 vs 0.374
+00:36:21 [360/1000] wins 275 vs teacher 271; mean terminal value 0.389 vs 0.372
+00:36:28 [370/1000] wins 283 vs teacher 280; mean terminal value 0.389 vs 0.374
+00:36:36 [380/1000] wins 293 vs teacher 289; mean terminal value 0.391 vs 0.376
+00:36:44 [390/1000] wins 299 vs teacher 294; mean terminal value 0.388 vs 0.372
+00:36:56 [400/1000] wins 309 vs teacher 303; mean terminal value 0.388 vs 0.372
+00:37:03 [410/1000] wins 317 vs teacher 311; mean terminal value 0.388 vs 0.372
+00:37:13 [420/1000] wins 324 vs teacher 318; mean terminal value 0.387 vs 0.372
+00:37:22 [430/1000] wins 333 vs teacher 326; mean terminal value 0.389 vs 0.374
+00:37:27 [440/1000] wins 343 vs teacher 335; mean terminal value 0.391 vs 0.375
+00:37:43 [450/1000] wins 351 vs teacher 343; mean terminal value 0.390 vs 0.375
+00:37:51 [460/1000] wins 357 vs teacher 351; mean terminal value 0.389 vs 0.375
+00:37:58 [470/1000] wins 366 vs teacher 359; mean terminal value 0.390 vs 0.375
+00:38:05 [480/1000] wins 375 vs teacher 366; mean terminal value 0.391 vs 0.375
+00:38:11 [490/1000] wins 382 vs teacher 372; mean terminal value 0.389 vs 0.372
+00:38:17 [500/1000] wins 392 vs teacher 381; mean terminal value 0.392 vs 0.375
+00:38:24 [510/1000] wins 399 vs teacher 389; mean terminal value 0.392 vs 0.374
+00:38:31 [520/1000] wins 409 vs teacher 397; mean terminal value 0.393 vs 0.375
+00:38:42 [530/1000] wins 416 vs teacher 403; mean terminal value 0.391 vs 0.372
+00:38:49 [540/1000] wins 424 vs teacher 411; mean terminal value 0.391 vs 0.372
+00:38:55 [550/1000] wins 432 vs teacher 419; mean terminal value 0.391 vs 0.373
+00:39:05 [560/1000] wins 442 vs teacher 428; mean terminal value 0.394 vs 0.374
+00:39:13 [570/1000] wins 451 vs teacher 436; mean terminal value 0.395 vs 0.374
+00:39:18 [580/1000] wins 457 vs teacher 443; mean terminal value 0.393 vs 0.373
+00:39:24 [590/1000] wins 465 vs teacher 451; mean terminal value 0.395 vs 0.375
+00:39:29 [600/1000] wins 474 vs teacher 460; mean terminal value 0.396 vs 0.376
+00:39:36 [610/1000] wins 482 vs teacher 467; mean terminal value 0.395 vs 0.375
+00:39:45 [620/1000] wins 489 vs teacher 473; mean terminal value 0.394 vs 0.373
+00:39:53 [630/1000] wins 496 vs teacher 479; mean terminal value 0.393 vs 0.372
+00:39:58 [640/1000] wins 506 vs teacher 489; mean terminal value 0.394 vs 0.374
+00:40:05 [650/1000] wins 513 vs teacher 496; mean terminal value 0.394 vs 0.374
+00:40:13 [660/1000] wins 523 vs teacher 506; mean terminal value 0.395 vs 0.376
+00:40:20 [670/1000] wins 530 vs teacher 512; mean terminal value 0.395 vs 0.375
+00:40:30 [680/1000] wins 537 vs teacher 520; mean terminal value 0.395 vs 0.375
+00:40:40 [690/1000] wins 543 vs teacher 527; mean terminal value 0.393 vs 0.374
+00:40:45 [700/1000] wins 549 vs teacher 534; mean terminal value 0.392 vs 0.373
+00:40:54 [710/1000] wins 556 vs teacher 540; mean terminal value 0.391 vs 0.372
+00:41:05 [720/1000] wins 561 vs teacher 546; mean terminal value 0.388 vs 0.369
+00:41:14 [730/1000] wins 570 vs teacher 555; mean terminal value 0.389 vs 0.370
+00:41:22 [740/1000] wins 577 vs teacher 563; mean terminal value 0.389 vs 0.371
+00:41:29 [750/1000] wins 582 vs teacher 567; mean terminal value 0.387 vs 0.369
+00:41:35 [760/1000] wins 588 vs teacher 575; mean terminal value 0.386 vs 0.370
+00:41:38 [770/1000] wins 596 vs teacher 584; mean terminal value 0.387 vs 0.371
+00:41:47 [780/1000] wins 604 vs teacher 589; mean terminal value 0.387 vs 0.370
+00:41:52 [790/1000] wins 611 vs teacher 597; mean terminal value 0.387 vs 0.370
+00:41:59 [800/1000] wins 618 vs teacher 604; mean terminal value 0.387 vs 0.371
+00:42:08 [810/1000] wins 627 vs teacher 612; mean terminal value 0.388 vs 0.371
+00:42:18 [820/1000] wins 634 vs teacher 620; mean terminal value 0.389 vs 0.372
+00:42:27 [830/1000] wins 641 vs teacher 629; mean terminal value 0.388 vs 0.372
+00:42:34 [840/1000] wins 649 vs teacher 637; mean terminal value 0.388 vs 0.372
+00:42:46 [850/1000] wins 657 vs teacher 646; mean terminal value 0.389 vs 0.373
+00:43:01 [860/1000] wins 664 vs teacher 653; mean terminal value 0.388 vs 0.372
+00:43:07 [870/1000] wins 671 vs teacher 661; mean terminal value 0.387 vs 0.372
+00:43:13 [880/1000] wins 678 vs teacher 669; mean terminal value 0.387 vs 0.373
+00:43:22 [890/1000] wins 684 vs teacher 676; mean terminal value 0.386 vs 0.372
+00:43:32 [900/1000] wins 694 vs teacher 685; mean terminal value 0.388 vs 0.373
+00:43:42 [910/1000] wins 702 vs teacher 692; mean terminal value 0.387 vs 0.372
+00:43:48 [920/1000] wins 709 vs teacher 698; mean terminal value 0.386 vs 0.371
+00:43:54 [930/1000] wins 718 vs teacher 707; mean terminal value 0.386 vs 0.372
+00:44:02 [940/1000] wins 727 vs teacher 716; mean terminal value 0.388 vs 0.373
+00:44:10 [950/1000] wins 735 vs teacher 724; mean terminal value 0.387 vs 0.373
+00:44:20 [960/1000] wins 744 vs teacher 733; mean terminal value 0.388 vs 0.374
+00:44:28 [970/1000] wins 750 vs teacher 739; mean terminal value 0.387 vs 0.373
+00:44:34 [980/1000] wins 756 vs teacher 745; mean terminal value 0.387 vs 0.373
+00:44:41 [990/1000] wins 763 vs teacher 750; mean terminal value 0.386 vs 0.371
+00:44:52 [1000/1000] wins 771 vs teacher 757; mean terminal value 0.385 vs 0.370
+00:44:52 
+00:44:52 Summary
+00:44:52 -------
+00:44:52 teacher:        {"child_min_visits": 50, "chunk": 500, "early_stop": true, "forced_simulations": 500, "leaf": "guided_rollout", "max_actions": 512, "oracle": false, "particles": 8, "random_move": false, "random_window": 24, "simulations": 20000}
+00:44:52                         guided_rollout   teacher
+00:44:52 won                                771       757   of 1000
+00:44:52 terminal value                   0.385     0.370   mean
+00:44:52 rows:           100,453
+00:44:52 seconds/fight:  7.8
+00:44:52 wall time:      13.1 min
+00:44:52 summary:        /home/sborowsk/project/sts_combat_rl/runs/schema=combat_v3/date=2026-09-26/id=ab-teacher-dev/out/summary.json
+run: done (exit 0) /home/sborowsk/project/sts_combat_rl/runs/schema=combat_v3/date=2026-09-26/id=ab-teacher-dev
