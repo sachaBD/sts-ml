@@ -1,8 +1,8 @@
-"""Bootstrap value trainer: deterministic single-threaded CPU by default, optionally on a CUDA GPU (device)."""
+"""Value trainer (apps/value_train). Deterministic with threads = 1 on the CPU; optionally on a CUDA GPU."""
 
 from __future__ import annotations
 
-import argparse
+import dataclasses
 import hashlib
 import json
 import os
@@ -17,11 +17,70 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 
-from sts_combat_rl.models.deep_sets import DeepSetsValue, build_model
+from sts_combat_rl.models.deep_sets import DeepSetsValue, DeepSetsValueV2, build_model
 
 from ..run import run_dir
 from ..schemas import combat_v3
 from .data import RowLoader, Rows, assign_aux_targets, assign_targets, split_rows, training_rows
+
+
+LABELS = ("blend", "shift", "root", "terminal")  # see data.assign_targets
+
+
+@dataclasses.dataclass(frozen=True)
+class TrainConfig:
+    """Every training setting, all explicit. The None-able ones are features that are off when None, and
+    are required exactly when they apply (checked in __post_init__)."""
+    data: str                        # SQL over sts_combat_rl.query selecting combat_v3 rows
+    oracle: bool                     # allow oracle (perfect-foresight) rows
+    model: dict[str, Any]            # architecture dict for models.build_model (with "kind")
+    output: Path                     # checkpoint path; its .json and training_history.json go next to it
+    epochs: int
+    batch_size: int
+    lr: float
+    weight_decay: float
+    seed: int
+    label: str                       # LABELS
+    blend: float | None              # weight on terminal_value; label blend / shift only
+    lr_schedule: str                 # constant, or cosine (per-step, lr -> 0)
+    keep: str                        # last: checkpoint of the last epoch; best: of the best validation MSE
+    threads: int                     # torch intra-op CPU threads (> 1 may be slightly nondeterministic)
+    device: str                      # cpu or cuda[:N]
+    aux_won_weight: float            # > 0 needs a model with aux heads
+    aux_hp_weight: float
+    initial_checkpoint: Path | None  # start from these weights (fresh optimizer)
+    split: str | None                # with initial_checkpoint: pinned (its train/validation runs) or fresh
+    validation_fraction: float | None  # of run seeds; unless split = pinned
+    corrections: str | None          # SQL selecting DAgger rows (target root_value); needs split = pinned
+    correction_weight: float | None  # with corrections: share of the loss on correction rows
+
+    def __post_init__(self) -> None:
+        types = {"str": str, "bool": bool, "int": int, "float": (int, float), "Path": Path, "dict[str, Any]": dict}
+        for field in dataclasses.fields(self):
+            value, kind = getattr(self, field.name), field.type.removesuffix(" | None")
+            if value is None and field.type.endswith(" | None"):
+                continue
+            if not isinstance(value, types[kind]) or (isinstance(value, bool) and kind != "bool"):
+                raise TypeError(f"{field.name} must be {kind}, got {value!r}")
+        for name, allowed in (("label", LABELS), ("lr_schedule", ("constant", "cosine")), ("keep", ("last", "best")),
+                              ("split", (None, "pinned", "fresh"))):
+            if getattr(self, name) not in allowed:
+                raise ValueError(f"{name} {getattr(self, name)!r} is not one of {allowed}")
+        if "kind" not in self.model:
+            raise ValueError("model needs a kind")
+
+        def exactly_when(name: str, applies: bool, when: str) -> None:
+            if applies != (getattr(self, name) is not None):
+                raise ValueError(f"{name} is required {when}, and only then")
+
+        exactly_when("blend", self.label in ("blend", "shift"), "with label blend / shift")
+        exactly_when("split", self.initial_checkpoint is not None, "with initial_checkpoint")
+        exactly_when("validation_fraction", self.split != "pinned", "unless split = pinned")
+        exactly_when("correction_weight", self.corrections is not None, "with corrections")
+        if self.corrections is not None and self.split != "pinned":
+            raise ValueError("corrections need an initial checkpoint with split = 'pinned'")
+        if self.correction_weight is not None and not 0 <= self.correction_weight <= 1:
+            raise ValueError(f"correction_weight {self.correction_weight} outside [0, 1]")
 
 
 def atomic_save(value: Any, path: Path) -> None:
@@ -48,9 +107,7 @@ def atomic_json(value: Any, path: Path) -> None:
 
 
 def resolve_device(name: str) -> torch.device:
-    """'cpu', 'cuda' (or 'cuda:N'), or 'auto' (cuda if available)."""
-    if name == "auto":
-        name = "cuda" if torch.cuda.is_available() else "cpu"
+    """'cpu' or 'cuda' (or 'cuda:N')."""
     device = torch.device(name)
     if device.type == "cuda" and not torch.cuda.is_available():
         raise RuntimeError(f"device {name!r} requested but CUDA is unavailable (torch {torch.__version__})")
@@ -97,8 +154,6 @@ def aux_losses(outputs: dict[str, torch.Tensor], aux: dict[str, torch.Tensor]) -
 
 def evaluate_aux(model: DeepSetsValue, loader: RowLoader) -> dict[str, float]:
     """Auxiliary validation metrics over masked rows in loader order."""
-    if not hasattr(model, "forward_all"):
-        return {}
     model.eval()
     device = next(model.parameters()).device
     won_logits, hp_pred, won_targets, hp_targets, masks, hp_masks = [], [], [], [], [], []
@@ -108,8 +163,6 @@ def evaluate_aux(model: DeepSetsValue, loader: RowLoader) -> dict[str, float]:
             batch.pop("target", None)
             aux = {key: value.cpu() for key, value in pop_aux(batch).items()}
             outputs = model.forward_all(**to_device(batch, device))
-            if "won_logit" not in outputs or "hp" not in outputs:
-                return {}
             won_logits.append(outputs["won_logit"].cpu())
             hp_pred.append(outputs["hp"].cpu())
             won_targets.append(aux["aux_won"])
@@ -174,7 +227,7 @@ def load_corrections(sql, reference) -> Rows:
     """DAgger rows (apps/dagger) with target root_value (the teacher's estimate; never the actor's outcome).
     Uses the completed fights' parts even if the run itself didn't finish (each part is one whole fight).
     Every row must be a reference training episode / run seed."""
-    rows = training_rows(sql, corrective=True)
+    rows = training_rows(sql, corrective=True, oracle=False)
     inside = (np.isin(rows["episode_id"], reference["train_episode_ids"])
               & np.isin(rows["run_seed"], np.array(reference["train_run_seeds"], dtype=np.uint64)))
     if outside := np.unique(rows["episode_id"][~inside]).tolist():
@@ -183,31 +236,26 @@ def load_corrections(sql, reference) -> Rows:
     return rows
 
 
-def run(args: argparse.Namespace) -> dict[str, Any]:
-    torch.set_num_threads(getattr(args, "threads", 1))  # intra-op CPU threads; 1 = deterministic default
+def run(args: TrainConfig) -> dict[str, Any]:
+    torch.set_num_threads(args.threads)
     torch.set_num_interop_threads(1)
-    device = resolve_device(getattr(args, "device", "cpu"))
+    device = resolve_device(args.device)
     if device.type == "cuda":
         print(f"device: {device} ({torch.cuda.get_device_name(device)})", flush=True)
     random.seed(args.seed)
     np.random.seed(args.seed)
     torch.manual_seed(args.seed)
-    # [model] architecture dict (models.build_model); none: v1 of args.width, as before
-    architecture = getattr(args, "model", None) or {"width": args.width}
-    rows = training_rows(args.data, oracle=getattr(args, "oracle", False))
+    architecture = args.model
+    rows = training_rows(args.data, corrective=False, oracle=args.oracle)
     assign_targets(rows, args.label, args.blend)
     assign_aux_targets(rows)
-    corrections_sql = getattr(args, "corrections", None)
-    initial = getattr(args, "initial_checkpoint", None)
-    weight = getattr(args, "correction_weight", 0.5)
-    split_mode = getattr(args, "split", "pinned")
-    if split_mode not in ("pinned", "fresh"):
-        raise ValueError(f"split {split_mode!r} is not 'pinned' or 'fresh'")
-    pinned = bool(initial) and split_mode == "pinned"
+    corrections_sql = args.corrections
+    initial = args.initial_checkpoint
+    weight = args.correction_weight
+    split_mode = args.split
+    pinned = split_mode == "pinned"
     reference = None
     corrections = None
-    if corrections_sql and not pinned:
-        raise ValueError("corrections need an initial checkpoint with split = 'pinned'")
     if initial:
         reference = json.loads(Path(initial).with_suffix(".json").read_text())
         with torch.random.fork_rng(devices=[]):  # resolved config only; leaves the seeded RNG untouched
@@ -235,8 +283,6 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     source_runs = sorted(set(rows["run_id"][kept]))
     bootstrap_train = train
     if corrections_sql:
-        if not 0 <= weight <= 1:
-            raise ValueError(f"correction_weight {weight} outside [0, 1]")
         corrections = load_corrections(corrections_sql, reference)
         # Per-row weights: the mean weighted loss over all training rows is
         # (1-w) * mean bootstrap loss + w * mean correction loss, whatever the row counts.
@@ -250,14 +296,14 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         rows = Rows.concat([rows, corrections])  # corrections are rows offset.. of the combined table
         corrections = np.arange(offset, len(rows))
         train = np.concatenate([train, corrections])
-    aux_won_weight = float(getattr(args, "aux_won_weight", 0.0))
-    aux_hp_weight = float(getattr(args, "aux_hp_weight", 0.0))
+    aux_won_weight = args.aux_won_weight
+    aux_hp_weight = args.aux_hp_weight
     use_aux = aux_won_weight > 0 or aux_hp_weight > 0
     train_loader = RowLoader(rows, train, args.batch_size, shuffle=True, weight=True, aux=use_aux,
                              generator=torch.Generator().manual_seed(args.seed))
     valid_loader = RowLoader(rows, valid, args.batch_size, aux=use_aux)
     model = build_model(architecture)
-    if use_aux and not (hasattr(model, "forward_all") and model.config.get("aux_heads", False)):
+    if use_aux and not (isinstance(model, DeepSetsValueV2) and model.aux_heads):
         raise ValueError("aux_won_weight/aux_hp_weight require a model with aux_heads=true (for example deep_sets_v2)")
     initial_sha = None
     if initial:
@@ -270,12 +316,8 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     optimizer = torch.optim.AdamW(
         model.parameters(), lr=args.lr, weight_decay=args.weight_decay
     )
-    lr_schedule = getattr(args, "lr_schedule", "constant")
-    keep = getattr(args, "keep", "last")
-    if lr_schedule not in ("constant", "cosine"):
-        raise ValueError(f"lr_schedule {lr_schedule!r} is not 'constant' or 'cosine'")
-    if keep not in ("last", "best"):
-        raise ValueError(f"keep {keep!r} is not 'last' or 'best'")
+    lr_schedule = args.lr_schedule
+    keep = args.keep
     # cosine: per-step decay from lr to 0 over all epochs
     scheduler = (torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.epochs * len(train_loader))
                  if lr_schedule == "cosine" else None)
@@ -303,7 +345,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
                 "lr": args.lr,
                 "weight_decay": args.weight_decay,
             },
-            "training_config": vars(args),
+            "training_config": dataclasses.asdict(args),
             "encoding_version": 3,
             "data_schema": combat_v3.NAME,
             "row_counts": row_counts,
@@ -403,8 +445,6 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             optimizer.zero_grad()
             if use_aux:
                 outputs = model.forward_all(**batch)
-                if "won_logit" not in outputs or "hp" not in outputs:
-                    raise ValueError("auxiliary losses require model.forward_all() to return won_logit and hp")
                 prediction = outputs["value"]
                 aux_won_loss, aux_hp_loss = aux_losses(outputs, aux)
             else:
@@ -492,48 +532,3 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             print(f"  not saved: valid_mse {valid_mse:.6f} >= best {best_mse:.6f} (keep = best)", flush=True)
     return checkpoint
 
-
-def main() -> None:
-    parser = argparse.ArgumentParser(
-        description="Deep Sets bootstrap value trainer (CPU single-threaded by default; --device cuda for GPU)"
-    )
-    parser.add_argument("data", help="SQL over sts_combat_rl.query, e.g. \"select * from combat_v3 where id = 'act1-a20'\"")
-    parser.add_argument("--output", type=Path, default=Path("value_checkpoint.pt"))
-    parser.add_argument("--epochs", type=int, default=20)
-    parser.add_argument("--batch-size", type=int, default=128)
-    parser.add_argument("--lr", type=float, default=0.001)
-    parser.add_argument("--weight-decay", type=float, default=0.0001)
-    parser.add_argument("--width", type=int, default=64)
-    parser.add_argument("--model-json", dest="model", type=json.loads,
-                        help='architecture dict for models.build_model, e.g. \'{"kind": "deep_sets_v2"}\' '
-                             "(default: v1 of --width)")
-    parser.add_argument("--seed", type=int, default=0)
-    parser.add_argument("--validation-fraction", type=float, default=0.2)
-    parser.add_argument(
-        "--label",
-        choices=["blend", "shift", "root", "terminal"],
-        default="blend",
-        help="training target (see data.assign_targets)",
-    )
-    parser.add_argument("--blend", type=float, default=0.5, help="weight on terminal_value for --label blend / shift")
-    parser.add_argument("--corrections", help="SQL selecting DAgger rows (target root_value)")
-    parser.add_argument("--oracle", action="store_true", help="allow oracle (perfect-foresight) rows in the data")
-    parser.add_argument("--initial-checkpoint", type=Path, help="start from these weights (fresh optimizer)")
-    parser.add_argument("--split", choices=["pinned", "fresh"], default="pinned",
-                        help="with --initial-checkpoint: pin to its train/validation episodes (dropping other rows), "
-                             "or split the queried rows afresh (episode_split)")
-    parser.add_argument("--correction-weight", type=float, default=0.5)
-    parser.add_argument("--lr-schedule", choices=["constant", "cosine"], default="constant")
-    parser.add_argument("--keep", choices=["last", "best"], default="last",
-                        help="checkpoint of the last epoch or of the best validation MSE")
-    parser.add_argument("--threads", type=int, default=1, help="torch CPU threads")
-    parser.add_argument("--device", default="cpu", help="cpu, cuda[:N], or auto (cuda if available)")
-    parser.add_argument("--aux-won-weight", type=float, default=0.0,
-                        help="weight for masked BCE loss on the won auxiliary head")
-    parser.add_argument("--aux-hp-weight", type=float, default=0.0,
-                        help="weight for masked MSE loss on final_hp / starting_max_hp auxiliary head")
-    run(parser.parse_args())
-
-
-if __name__ == "__main__":
-    main()

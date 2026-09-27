@@ -14,20 +14,24 @@ where source_episode_id is null
   and (id in ('act1-a20', 'act1-a20-1', 'act1-a20-2', 'act1-a20-5', 'act1-a20-6', 'act1-a20-7')
        or (id = 'act1-a20-8' and run_seed % 10 >= 4))
 """
+oracle = false
+
+[model]
+kind = "deep_sets_v1"
+width = 64
 
 [train]
 epochs = 12
 batch_size = 128
 lr = 0.001
 weight_decay = 0.0001
-width = 64
 seed = 0
 validation_fraction = 0.1
 label = "blend"
 blend = 0.5
 lr_schedule = "cosine"
 keep = "best"
-
-[export]
-native_weights = true
-path = "value_weights.bin"
+threads = 1
+device = "cpu"
+aux_won_weight = 0.0
+aux_hp_weight = 0.0

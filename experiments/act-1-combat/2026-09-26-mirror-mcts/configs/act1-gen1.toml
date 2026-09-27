@@ -9,6 +9,11 @@ query = """
 select * from combat_v3
 where id = 'act1-selfplay-gen1' and row_kind = 'decision'
 """
+oracle = false
+
+[model]
+kind = "deep_sets_v1"
+width = 64
 
 [train]
 initial_checkpoint = "value_net_v1/2026-09-26/act1-gen0"
@@ -17,13 +22,12 @@ epochs = 10
 batch_size = 128
 lr = 0.0001
 weight_decay = 0.0001
-width = 64
 seed = 0
 validation_fraction = 0.1
 label = "terminal"
 lr_schedule = "cosine"
 keep = "best"
-
-[export]
-native_weights = true
-path = "value_weights.bin"
+threads = 1
+device = "cpu"
+aux_won_weight = 0.0
+aux_hp_weight = 0.0

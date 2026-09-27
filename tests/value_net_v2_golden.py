@@ -56,7 +56,6 @@ def refresh_states(count: int = 48) -> None:
 def golden(out: Path) -> None:
     states = json.loads(STATES.read_text())
     batch = collate_states(states)
-    batch.pop("target")
     out.mkdir(parents=True, exist_ok=True)
     for seed, (name, architecture) in enumerate(CONFIGS.items()):
         torch.manual_seed(seed)

@@ -7,21 +7,24 @@ id = "slime-value-5"
 # e.g. ... and category = 'boss', ... and encounter in ('lagavulin', 'three_sentries').
 [data]
 query = "select * from combat_v3 where id in ('act1-a20', 'act1-a20-1', 'act1-a20-2') and encounter = 'slime_boss'"
-# oracle = true  # allow oracle (perfect-foresight) rows; refused by default
+oracle = false
+
+[model]
+kind = "deep_sets_v1"
+width = 64
 
 [train]
 epochs = 7
 batch_size = 128
 lr = 0.001
 weight_decay = 0.0001
-width = 64
 seed = 0
 validation_fraction = 0.2
 label = "blend" # blend, root, or terminal
 blend = 0.5
-# threads = 8  # torch CPU threads (default 1; >1 may be slightly nondeterministic)
-# checkpoint = "value_checkpoint.pt"
-
-[export]
-native_weights = true
-path = "value_weights.bin"
+lr_schedule = "constant"
+keep = "last"
+threads = 1
+device = "cpu"
+aux_won_weight = 0.0
+aux_hp_weight = 0.0

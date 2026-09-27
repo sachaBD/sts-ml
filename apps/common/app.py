@@ -43,6 +43,13 @@ def check_keys(table, allowed, name):
         sys.exit(f"unknown [{name}] keys: {unknown}")
 
 
+def required(table, key, name):
+    """table[key]; exits naming the missing [name].key (settings have no defaults)."""
+    if key not in table:
+        sys.exit(f"missing [{name}].{key}")
+    return table[key]
+
+
 def flag(table, key):
     """An optional true/false setting (default false)."""
     value = table.get(key, False)

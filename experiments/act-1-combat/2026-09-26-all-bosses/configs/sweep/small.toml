@@ -17,6 +17,7 @@ where id = 'act1-all-bosses-a20-scaled-search' and source_episode_id is null and
             where id = 'act1-all-bosses-a20-scaled-search' and source_episode_id is null and run_seed % 10 >= 6))
     where k <= 1300)
 """
+oracle = false
 
 [model]
 kind = "deep_sets_v2"
@@ -38,7 +39,4 @@ aux_won_weight = 0.01
 aux_hp_weight = 0.1
 lr_schedule = "cosine"
 keep = "best"
-
-[export]
-native_weights = true
-path = "value_weights.bin"
+threads = 1

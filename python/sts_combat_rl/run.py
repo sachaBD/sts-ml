@@ -33,8 +33,7 @@ Exit code of the job is returned. Status ends as "done" (exit 0) or "failed".
 
 examples:
   ./apps/bootstrap/run.sh apps/bootstrap/act1.toml [--scratch]
-  PYTHONPATH=python .venv/bin/python -m sts_combat_rl.run value_net_v1 gen1-value \\
-      --input combat_v2/2026-09-23/slime-gen1 -- python -m sts_combat_rl.training.train_value ...
+  ./apps/value_train/run.sh apps/value_train/slime.toml [--scratch]
   PYTHONPATH=python .venv/bin/python -m sts_combat_rl.run episodes_v1 quick-check --scratch -- ...
 
 query with duckdb:

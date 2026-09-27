@@ -23,9 +23,7 @@ BINARY = Path(os.environ.get("VALUE_NET_V2_TEST", ROOT / "build/main/value_net_v
 
 
 def batch(rows):
-    b = collate_states(rows)
-    b.pop("target")
-    return b
+    return collate_states(rows)
 
 
 class BuildModelTests(unittest.TestCase):

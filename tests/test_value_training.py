@@ -45,9 +45,9 @@ class ValueTests(unittest.TestCase):
         self.assertEqual(b["interaction_monsters"].tolist(), [0, 1])
         torch.manual_seed(1)
         m = DeepSetsValue()
-        batch = m(**{k: v for k, v in b.items() if k != "target"})
+        batch = m(**b)
         singles = [
-            m(**{k: v for k, v in collate_states([r]).items() if k != "target"})
+            m(**collate_states([r]))
             for r in rs
         ]
         self.assertTrue(torch.allclose(batch, torch.cat(singles)))
@@ -59,13 +59,14 @@ class ValueTests(unittest.TestCase):
             item["mcts_value"] = -0.75 + i * 0.5
             item["global_numeric"][0] = float(i)
         batch = collate_states(rows)
+        target = torch.tensor([r["mcts_value"] for r in rows])
         model = DeepSetsValue(width=16)
         optimizer = torch.optim.Adam(model.parameters(), lr=0.02)
         initial = (
             (
                 (
-                    model(**{k: v for k, v in batch.items() if k != "target"})
-                    - batch["target"]
+                    model(**batch)
+                    - target
                 )
                 ** 2
             )
@@ -77,8 +78,8 @@ class ValueTests(unittest.TestCase):
             optimizer.zero_grad()
             loss = (
                 (
-                    model(**{k: v for k, v in batch.items() if k != "target"})
-                    - batch["target"]
+                    model(**batch)
+                    - target
                 )
                 ** 2
             ).mean()
@@ -87,8 +88,8 @@ class ValueTests(unittest.TestCase):
         final = (
             (
                 (
-                    model(**{k: v for k, v in batch.items() if k != "target"})
-                    - batch["target"]
+                    model(**batch)
+                    - target
                 )
                 ** 2
             )
@@ -126,8 +127,8 @@ class ValueTests(unittest.TestCase):
         m = DeepSetsValue()
         self.assertTrue(
             torch.allclose(
-                m(**{k: v for k, v in collate_states([r]).items() if k != "target"}),
-                m(**{k: v for k, v in collate_states([q]).items() if k != "target"}),
+                m(**collate_states([r])),
+                m(**collate_states([q])),
             )
         )
 

@@ -9,6 +9,11 @@ id = "slime-value-5-dagger-gen1"
 [data]
 query = "select * from combat_v3 where id in ('act1-a20', 'act1-a20-1', 'act1-a20-2') and encounter = 'slime_boss'"
 corrections = "select * from combat_v3 where id = 'dagger-gen1-slime-v5-001' and encounter = 'slime_boss'"
+oracle = false
+
+[model]
+kind = "deep_sets_v1"
+width = 64
 
 [train]
 initial_checkpoint = "value_net_v1/2026-09-23/slime-value-5"  # weights only; fresh optimizer
@@ -17,12 +22,13 @@ epochs = 7
 batch_size = 128
 lr = 0.0001
 weight_decay = 0.0001
-width = 64
 seed = 0
 label = "blend"  # bootstrap rows only, as slime-value-5
 blend = 0.5
-# threads = 8  # torch CPU threads (default 1; >1 may be slightly nondeterministic)
-
-[export]
-native_weights = true
-path = "value_weights.bin"
+lr_schedule = "constant"
+keep = "last"
+threads = 1
+device = "cpu"
+aux_won_weight = 0.0
+aux_hp_weight = 0.0
+split = "pinned"

@@ -53,7 +53,6 @@ def collate_states(rows: list[dict[str, Any]]) -> dict[str, torch.Tensor]:
         ),
         "input_state": torch.tensor([r["input_state"] for r in rows]),
         "card_selection_task": torch.tensor([r["card_selection_task"] for r in rows]),
-        "target": torch.tensor([r.get("target", 0.0) for r in rows], dtype=torch.float32),
     }
     cards = []
     monsters = []
@@ -177,7 +176,6 @@ class Rows:
 
     def __init__(self, columns: dict[str, np.ndarray]):
         self.columns = columns
-        columns.setdefault("target", np.zeros(len(columns["episode_id"])))
         columns.setdefault("weight", np.ones(len(columns["episode_id"])))
         columns.setdefault("aux_won", np.zeros(len(columns["episode_id"]), dtype=np.float32))
         columns.setdefault("aux_hp", np.zeros(len(columns["episode_id"]), dtype=np.float32))
@@ -248,7 +246,7 @@ class RowLoader(DataLoader):
                          collate_fn=lambda positions: rows.collate(positions, weight, aux))
 
 
-def training_rows(sql: str, corrective: bool = False, oracle: bool = False) -> Rows:
+def training_rows(sql: str, *, corrective: bool, oracle: bool) -> Rows:
     """The combat_v3 rows of `sql` (sts_combat_rl.query) to train on, validated.
 
     DAgger runs (parts tagged collection_method=dagger: teacher-root-only targets, learner outcomes; the blend
@@ -306,7 +304,7 @@ def assign_aux_targets(rows: Rows) -> None:
     rows.columns["aux_hp_mask"] = (mask & rows["won"].astype(bool)).astype(np.float32)
 
 
-def assign_targets(rows: Rows, label: str, blend: float = 0.5) -> None:
+def assign_targets(rows: Rows, label: str, blend: float | None) -> None:
     """Set rows["target"].
 
     root:     teacher search estimate v = root_value

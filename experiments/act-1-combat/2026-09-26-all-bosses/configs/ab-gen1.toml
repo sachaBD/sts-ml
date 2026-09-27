@@ -9,6 +9,7 @@ query = """
 select * from combat_v3
 where id in ('ab-selfplay-gen1-boss', 'ab-selfplay-gen1-rest') and row_kind = 'decision'
 """
+oracle = false
 
 [model]
 kind = "deep_sets_v2"
@@ -31,7 +32,4 @@ aux_won_weight = 0.01
 aux_hp_weight = 0.1
 lr_schedule = "cosine"
 keep = "best"
-
-[export]
-native_weights = true
-path = "value_weights.bin"
+threads = 1
