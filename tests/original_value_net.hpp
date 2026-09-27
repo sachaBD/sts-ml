@@ -1,4 +1,4 @@
-// Verbatim copy of models/value_net.{hpp,cpp} before the search-perf changes (commit ff4e094), renamed
+// Verbatim copy of topology/value_net.{hpp,cpp} before the search-perf changes (commit ff4e094), renamed
 // OriginalValueNet: search_perf_test checks the current ValueNet against it bit for bit.
 #pragma once
 

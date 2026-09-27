@@ -17,7 +17,7 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 
-from sts_combat_rl.models.deep_sets import DeepSetsValue, DeepSetsValueV2, build_model
+from sts_combat_rl.topology import DeepSetsV2, build
 
 from ..run import run_dir
 from ..schemas import combat_v3
@@ -33,7 +33,7 @@ class TrainConfig:
     are required exactly when they apply (checked in __post_init__)."""
     data: str                        # SQL over sts_combat_rl.query selecting combat_v3 rows
     oracle: bool                     # allow oracle (perfect-foresight) rows
-    model: dict[str, Any]            # architecture dict for models.build_model (with "kind")
+    model: dict[str, Any]            # architecture dict for topology.build: kind + every argument
     output: Path                     # checkpoint path; its .json and training_history.json go next to it
     epochs: int
     batch_size: int
@@ -125,7 +125,7 @@ def pop_aux(batch: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
     return {key: batch.pop(key) for key in AUX_KEYS if key in batch}
 
 
-def predict(model: DeepSetsValue, loader: RowLoader) -> tuple[torch.Tensor, torch.Tensor]:
+def predict(model: torch.nn.Module, loader: RowLoader) -> tuple[torch.Tensor, torch.Tensor]:
     """(prediction, target) for the loader's rows, in loader order, on the CPU."""
     model.eval()
     device = next(model.parameters()).device
@@ -152,7 +152,7 @@ def aux_losses(outputs: dict[str, torch.Tensor], aux: dict[str, torch.Tensor]) -
     return won, hp
 
 
-def evaluate_aux(model: DeepSetsValue, loader: RowLoader) -> dict[str, float]:
+def evaluate_aux(model: torch.nn.Module, loader: RowLoader) -> dict[str, float]:
     """Auxiliary validation metrics over masked rows in loader order."""
     model.eval()
     device = next(model.parameters()).device
@@ -192,7 +192,7 @@ def evaluate_aux(model: DeepSetsValue, loader: RowLoader) -> dict[str, float]:
     return metrics
 
 
-def evaluate(model: DeepSetsValue, loader: RowLoader) -> tuple[float, float]:
+def evaluate(model: torch.nn.Module, loader: RowLoader) -> tuple[float, float]:
     prediction, target = predict(model, loader)
     return ((prediction - target) ** 2).mean().item(), (
         prediction - target
@@ -259,7 +259,7 @@ def run(args: TrainConfig) -> dict[str, Any]:
     if initial:
         reference = json.loads(Path(initial).with_suffix(".json").read_text())
         with torch.random.fork_rng(devices=[]):  # resolved config only; leaves the seeded RNG untouched
-            resolved = build_model(architecture).config
+            resolved = build(architecture).config
         if reference["architecture"] != resolved:
             raise ValueError(f"architecture {resolved} != initial checkpoint architecture {reference['architecture']}")
     if pinned:
@@ -302,8 +302,8 @@ def run(args: TrainConfig) -> dict[str, Any]:
     train_loader = RowLoader(rows, train, args.batch_size, shuffle=True, weight=True, aux=use_aux,
                              generator=torch.Generator().manual_seed(args.seed))
     valid_loader = RowLoader(rows, valid, args.batch_size, aux=use_aux)
-    model = build_model(architecture)
-    if use_aux and not (isinstance(model, DeepSetsValueV2) and model.aux_heads):
+    model = build(architecture)
+    if use_aux and not (isinstance(model, DeepSetsV2) and model.aux_heads):
         raise ValueError("aux_won_weight/aux_hp_weight require a model with aux_heads=true (for example deep_sets_v2)")
     initial_sha = None
     if initial:

@@ -5,7 +5,7 @@
 // States: random playouts and search leaves of Slime Boss fights.
 #include "agents/teacher_search.hpp"
 #include "combat/environment.hpp"
-#include "models/value_net.hpp"
+#include "topology/value_net.hpp"
 #include "scenarios/slime_boss.hpp"
 #include "tests/original_value_net.hpp"
 
@@ -120,7 +120,7 @@ Tensors random_weights() {
 void write_weights(const Tensors& tensors, const std::string& path) {
     std::ofstream out(path, std::ios::binary);
     const auto u32 = [&](std::uint32_t x) { out.write(reinterpret_cast<const char*>(&x), sizeof x); };
-    const std::string config = R"({"encoding_version": 3, "architecture": {"width": 64}})";
+    const std::string config = R"({"encoding_version": 3, "architecture": {"kind": "deep_sets_v1", "card_vocab": 512, "monster_vocab": 128, "move_vocab": 512, "width": 64}})";
     out.write("STSVNET1", 8);
     u32(static_cast<std::uint32_t>(config.size()));
     out.write(config.data(), static_cast<std::streamsize>(config.size()));

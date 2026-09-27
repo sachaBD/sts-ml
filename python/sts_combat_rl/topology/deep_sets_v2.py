@@ -1,146 +1,7 @@
-"""Permutation-invariant value network for v3 public-state encodings."""
-
-import inspect
+"""Deep Sets value net v2 (kind "deep_sets_v2") for v3 public-state encodings. Frozen: see topology/README.md."""
 
 import torch
 from torch import nn
-
-
-class DeepSetsValue(nn.Module):
-    def __init__(self, card_vocab=512, monster_vocab=128, move_vocab=512, width=64):
-        super().__init__()
-        self.config = {
-            "card_vocab": card_vocab,
-            "monster_vocab": monster_vocab,
-            "move_vocab": move_vocab,
-            "width": width,
-        }
-        self.input_state = nn.Embedding(64, 4)
-        self.card_selection_task = nn.Embedding(32, 4)
-        self.card_id = nn.Embedding(card_vocab, 8)
-        self.zone = nn.Embedding(5, 4)
-        self.card_type = nn.Embedding(5, 3)
-        self.target_type = nn.Embedding(4, 3)
-        self.card_mlp = nn.Sequential(
-            nn.Linear(32, width), nn.ReLU(), nn.Linear(width, width), nn.ReLU()
-        )
-        self.monster_id = nn.Embedding(monster_vocab, 8)
-        self.move = nn.Embedding(move_vocab, 8)
-        self.monster_mlp = nn.Sequential(
-            nn.Linear(25, width), nn.ReLU(), nn.Linear(width, width), nn.ReLU()
-        )
-        self.interaction_mlp = nn.Sequential(
-            nn.Linear(2 * width + 6, width),
-            nn.ReLU(),
-            nn.Linear(width, width),
-            nn.ReLU(),
-        )
-        self.head = nn.Sequential(
-            nn.Linear(50 + 8 + 6 * width, width),
-            nn.ReLU(),
-            nn.Linear(width, 1),
-            nn.Tanh(),
-        )
-
-    @staticmethod
-    def _sum(tokens, owners, batch_size):
-        result = tokens.new_zeros((batch_size, tokens.shape[-1]))
-        if tokens.numel():
-            result.index_add_(0, owners, tokens)
-        return result
-
-    def forward(
-        self,
-        global_numeric,
-        input_state,
-        card_selection_task,
-        card_ids,
-        card_zones,
-        card_types,
-        target_types,
-        card_numeric,
-        monster_ids,
-        move_ids,
-        monster_numeric,
-        interaction_cards,
-        interaction_monsters,
-        interaction_numeric,
-        card_state_indices=None,
-        monster_state_indices=None,
-        interaction_state_indices=None,
-    ):
-        if global_numeric.dim() == 1:
-            global_numeric = global_numeric.unsqueeze(0)
-            input_state = input_state.reshape(1)
-            card_selection_task = card_selection_task.reshape(1)
-        batch_size = global_numeric.shape[0]
-        device = global_numeric.device
-        if card_state_indices is None:
-            card_state_indices = torch.zeros(
-                len(card_ids), dtype=torch.long, device=device
-            )
-        if monster_state_indices is None:
-            monster_state_indices = torch.zeros(
-                len(monster_ids), dtype=torch.long, device=device
-            )
-        if interaction_state_indices is None:
-            interaction_state_indices = torch.zeros(
-                len(interaction_cards), dtype=torch.long, device=device
-            )
-        card = self.card_mlp(
-            torch.cat(
-                (
-                    self.card_id(card_ids),
-                    self.zone(card_zones),
-                    self.card_type(card_types),
-                    self.target_type(target_types),
-                    card_numeric,
-                ),
-                -1,
-            )
-        )
-        pools = [
-            self._sum(
-                card[card_zones == zone],
-                card_state_indices[card_zones == zone],
-                batch_size,
-            )
-            for zone in range(4)
-        ]
-        monster = self.monster_mlp(
-            torch.cat(
-                (self.monster_id(monster_ids), self.move(move_ids), monster_numeric), -1
-            )
-        )
-        if len(interaction_cards):
-            interaction = self.interaction_mlp(
-                torch.cat(
-                    (
-                        card[interaction_cards],
-                        monster[interaction_monsters],
-                        interaction_numeric,
-                    ),
-                    -1,
-                )
-            )
-        else:
-            interaction = card.new_zeros((0, card.shape[-1]))
-        features = torch.cat(
-            (
-                global_numeric,
-                self.input_state(input_state),
-                self.card_selection_task(card_selection_task),
-                *pools,
-                self._sum(monster, monster_state_indices, batch_size),
-                self._sum(interaction, interaction_state_indices, batch_size),
-            ),
-            -1,
-        )
-        return self.head(features).squeeze(-1)
-
-    def forward_all(self, *args, **kwargs):
-        """{"value": [B]} (v1 has no auxiliary heads); same inputs as forward."""
-        return {"value": self.forward(*args, **kwargs)}
 
 
 class _HeadBlock(nn.Module):
@@ -156,7 +17,7 @@ class _HeadBlock(nn.Module):
         return h + self.fc2(torch.relu(self.fc1(self.norm(h))))
 
 
-class DeepSetsValueV2(nn.Module):
+class DeepSetsV2(nn.Module):
     """Deep Sets value net v2 (architecture kind "deep_sets_v2"): v1's context-free token encoders (wider),
     pooled per zone / monsters / interactions, then a normalised residual head.
 
@@ -168,7 +29,7 @@ class DeepSetsValueV2(nn.Module):
         value = sigmoid|tanh(value_out(h)); won_logit = won_out(h); hp = sigmoid(hp_out(h))   # aux if aux_heads
 
     Pools (and counts): card zones 0-3 (hand, draw, discard, exhaust), monsters, interactions.
-    Parameter names are read by models/value_net.cpp: input_state, card_selection_task, card_id, zone,
+    Parameter names are read by topology/value_net.cpp: input_state, card_selection_task, card_id, zone,
     card_type, target_type, card_mlp.{0,2}, monster_id, move, monster_mlp.{0,2}, interaction_mlp.{0,2},
     head_in_norm, head_in, head_blocks.{i}.{norm,fc1,fc2}, head_out_norm, value_out, won_out, hp_out.
     """
@@ -180,9 +41,8 @@ class DeepSetsValueV2(nn.Module):
     INTERACTION_NUMERIC = 6
     POOLS = 6
 
-    def __init__(self, card_vocab=512, monster_vocab=128, move_vocab=512, width=128, card_id_dim=32,
-                 monster_id_dim=16, move_dim=16, pool_count_features=True, head_input_norm=True, head_width=256,
-                 head_blocks=2, output="sigmoid", aux_heads=True, zero_init_blocks=True):
+    def __init__(self, card_vocab, monster_vocab, move_vocab, width, card_id_dim, monster_id_dim, move_dim,
+                 pool_count_features, head_input_norm, head_width, head_blocks, output, aux_heads, zero_init_blocks):
         super().__init__()
         if output not in ("sigmoid", "tanh"):
             raise ValueError(f"output {output!r} is not 'sigmoid' or 'tanh'")
@@ -236,21 +96,9 @@ class DeepSetsValueV2(nn.Module):
 
     def trunk(self, global_numeric, input_state, card_selection_task, card_ids, card_zones, card_types, target_types,
               card_numeric, monster_ids, move_ids, monster_numeric, interaction_cards, interaction_monsters,
-              interaction_numeric, card_state_indices=None, monster_state_indices=None,
-              interaction_state_indices=None):
+              interaction_numeric, card_state_indices, monster_state_indices, interaction_state_indices):
         """The head's last hidden layer h [B, head_width]."""
-        if global_numeric.dim() == 1:
-            global_numeric = global_numeric.unsqueeze(0)
-            input_state = input_state.reshape(1)
-            card_selection_task = card_selection_task.reshape(1)
         batch_size = global_numeric.shape[0]
-        device = global_numeric.device
-        if card_state_indices is None:
-            card_state_indices = torch.zeros(len(card_ids), dtype=torch.long, device=device)
-        if monster_state_indices is None:
-            monster_state_indices = torch.zeros(len(monster_ids), dtype=torch.long, device=device)
-        if interaction_state_indices is None:
-            interaction_state_indices = torch.zeros(len(interaction_cards), dtype=torch.long, device=device)
         card = self.card_mlp(torch.cat((self.card_id(card_ids), self.zone(card_zones), self.card_type(card_types),
                                         self.target_type(target_types), card_numeric), -1))
         monster = self.monster_mlp(torch.cat((self.monster_id(monster_ids), self.move(move_ids), monster_numeric), -1))
@@ -295,17 +143,3 @@ class DeepSetsValueV2(nn.Module):
             out["won_logit"] = self.won_out(h).squeeze(-1)
             out["hp"] = torch.sigmoid(self.hp_out(h)).squeeze(-1)
         return out
-
-
-def build_model(architecture=None):
-    """The value net for a checkpoint's `architecture` dict: no "kind" (or "deep_sets_v1") -> DeepSetsValue,
-    "deep_sets_v2" -> DeepSetsValueV2 (missing keys take the v2 defaults). model.config is the resolved dict."""
-    architecture = dict(architecture or {})
-    kind = architecture.pop("kind", "deep_sets_v1")
-    classes = {"deep_sets_v1": DeepSetsValue, DeepSetsValueV2.KIND: DeepSetsValueV2}
-    if kind not in classes:
-        raise ValueError(f"unknown value net kind {kind!r}")
-    allowed = set(inspect.signature(classes[kind].__init__).parameters) - {"self"}
-    if unknown := sorted(set(architecture) - allowed):
-        raise ValueError(f"unknown {kind} architecture keys: {unknown}")
-    return classes[kind](**architecture)

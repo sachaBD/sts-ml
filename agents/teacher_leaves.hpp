@@ -5,7 +5,7 @@
 #pragma once
 
 #include "combat/environment.hpp"
-#include "models/value_net.hpp"
+#include "topology/value_net.hpp"
 #include "sim/search/PublicBeliefCombatSearch.h"
 
 #include <cstdint>

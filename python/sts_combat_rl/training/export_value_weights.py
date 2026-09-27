@@ -1,4 +1,4 @@
-"""Write a value checkpoint's weights in the flat binary format read by models/value_net.cpp.
+"""Write a value checkpoint's weights in the flat binary format read by topology/value_net.cpp.
 
 Layout (little endian): b"STSVNET1", u32 config length, config JSON (architecture,
 encoding_version), u32 tensor count, then per tensor: u32 name length, name, u32 ndim,

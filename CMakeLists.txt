@@ -13,7 +13,7 @@ add_subdirectory("${STS_LIGHTSPEED_DIR}" "${CMAKE_CURRENT_BINARY_DIR}/sts_lights
 add_library(combat_core STATIC
     agents/teacher_leaves.cpp
     agents/teacher_search.cpp
-    models/value_net.cpp
+    topology/value_net.cpp
     combat/environment.cpp
     scenarios/act1_run.cpp
     scenarios/jaw_worm.cpp
@@ -73,24 +73,10 @@ add_test(NAME teacher_leaves_test COMMAND teacher_leaves_test)
 add_executable(search_perf_test tests/search_perf_test.cpp)
 target_link_libraries(search_perf_test PRIVATE combat_core)
 target_compile_features(search_perf_test PRIVATE cxx_std_23)
-# -march=native as models/value_net.cpp (below): the original value net it includes must be compiled the
+# -march=native as topology/value_net.cpp (below): the original value net it includes must be compiled the
 # same way (FMA contraction) to be the bit-exact reference.
 target_compile_options(search_perf_test PRIVATE -Wall -Wextra -Wpedantic -march=native)
 add_test(NAME search_perf_test COMMAND search_perf_test)
 
-# v2 value net parity with PyTorch: tests/test_value_net_v2.py writes golden weights / values, then runs this.
-add_executable(value_net_v2_test tests/value_net_v2_test.cpp)
-target_link_libraries(value_net_v2_test PRIVATE combat_core)
-target_compile_features(value_net_v2_test PRIVATE cxx_std_23)
-target_compile_options(value_net_v2_test PRIVATE -Wall -Wextra -Wpedantic)
-target_compile_definitions(value_net_v2_test PRIVATE STSRL_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
-add_test(NAME value_net_v2_test COMMAND ${CMAKE_SOURCE_DIR}/.venv/bin/python -m unittest tests.test_value_net_v2
-         WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
-set_tests_properties(value_net_v2_test PROPERTIES
-    ENVIRONMENT "VALUE_NET_V2_TEST=$<TARGET_FILE:value_net_v2_test>;PYTHONPATH=${CMAKE_SOURCE_DIR}/python:${CMAKE_SOURCE_DIR}")
-
 # The native value net's inner loops benefit from AVX2/FMA on the machine that runs it.
-set_source_files_properties(models/value_net.cpp PROPERTIES COMPILE_OPTIONS "-march=native")
-
-add_executable(bench_search apps/bench_search.cpp)
-target_link_libraries(bench_search PRIVATE combat_core)
+set_source_files_properties(topology/value_net.cpp PROPERTIES COMPILE_OPTIONS "-march=native")

@@ -1,7 +1,9 @@
 import unittest
 
 import torch
-from sts_combat_rl.models.deep_sets import DeepSetsValue
+from sts_combat_rl.topology import build
+
+V1 = {"kind": "deep_sets_v1", "card_vocab": 512, "monster_vocab": 128, "move_vocab": 512}
 from sts_combat_rl.training.data import collate_states, episode_split
 
 
@@ -44,7 +46,7 @@ class ValueTests(unittest.TestCase):
         self.assertEqual(b["interaction_cards"].tolist(), [0, 1])
         self.assertEqual(b["interaction_monsters"].tolist(), [0, 1])
         torch.manual_seed(1)
-        m = DeepSetsValue()
+        m = build({**V1, "width": 64})
         batch = m(**b)
         singles = [
             m(**collate_states([r]))
@@ -60,7 +62,7 @@ class ValueTests(unittest.TestCase):
             item["global_numeric"][0] = float(i)
         batch = collate_states(rows)
         target = torch.tensor([r["mcts_value"] for r in rows])
-        model = DeepSetsValue(width=16)
+        model = build({**V1, "width": 16})
         optimizer = torch.optim.Adam(model.parameters(), lr=0.02)
         initial = (
             (
@@ -124,7 +126,7 @@ class ValueTests(unittest.TestCase):
             }
             for x in r["card_monster_interactions"]
         ]
-        m = DeepSetsValue()
+        m = build({**V1, "width": 64})
         self.assertTrue(
             torch.allclose(
                 m(**collate_states([r])),

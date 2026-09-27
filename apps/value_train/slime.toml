@@ -12,6 +12,9 @@ oracle = false
 [model]
 kind = "deep_sets_v1"
 width = 64
+card_vocab = 512
+monster_vocab = 128
+move_vocab = 512
 
 [train]
 epochs = 7

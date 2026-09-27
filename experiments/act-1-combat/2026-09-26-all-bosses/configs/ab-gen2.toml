@@ -16,6 +16,17 @@ kind = "deep_sets_v2"
 width = 64
 head_width = 128
 head_blocks = 1
+card_vocab = 512
+monster_vocab = 128
+move_vocab = 512
+card_id_dim = 32
+monster_id_dim = 16
+move_dim = 16
+pool_count_features = true
+head_input_norm = true
+output = "sigmoid"
+aux_heads = true
+zero_init_blocks = true
 
 [train]
 initial_checkpoint = "value_net_v1/2026-09-27/ab-gen1"

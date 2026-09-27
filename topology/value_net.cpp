@@ -1,4 +1,4 @@
-#include "models/value_net.hpp"
+#include "topology/value_net.hpp"
 
 #include <algorithm>
 #include <bit>
@@ -183,7 +183,7 @@ ValueNet::ValueNet(const std::string& path) {
     interaction1_ = linear(t, "interaction_mlp.0", 2 * w + 6, w);
     interaction2_ = linear(t, "interaction_mlp.2", w, w);
     const auto& architecture = config.at("architecture");
-    const auto kind = architecture.value("kind", std::string{"deep_sets_v1"});
+    const auto kind = architecture.at("kind").get<std::string>();
     if (kind == "deep_sets_v1") {
         head1_ = linear(t, "head.0", 50 + input_state_.dim + card_selection_task_.dim + 6 * w, w);
         head2_ = linear(t, "head.2", w, 1);

@@ -3,7 +3,7 @@
 
 A thin TOML wrapper around sts_combat_rl.training.train_value for the run launcher (apps/common/launch.sh).
 Every setting is explicit (train_value.TrainConfig): [data] selects the combat_v3 rows (sts_combat_rl.query),
-[model] is the architecture (sts_combat_rl.models.build_model, kind required), [train] the rest. Writes
+[model] is the architecture (sts_combat_rl.topology.build: kind and every argument), [train] the rest. Writes
 value_checkpoint.pt (+ .json), the native C++ weights value_weights.bin, and summary.json for run.json.
 """
 from __future__ import annotations

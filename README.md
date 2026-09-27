@@ -35,8 +35,8 @@ Query run outputs with DuckDB through `sts_combat_rl.query`.
 
 - `combat/` wraps `sts_lightspeed` into an environment (legal actions, steps) and the `combat_v3` state encoding.
 - `agents/` holds the search teacher (`teacher_search`, `teacher_leaves`).
-- `models/` holds the native C++ value net inference (PyTorch parity tested).
+- `topology/` holds the value net topologies (frozen once used; see its README): C++ inference here, PyTorch in `python/sts_combat_rl/topology/`.
 - `scenarios/` builds starting states: the Act 1 run replay plus fixed fights used by tests and benches.
-- `apps/` holds the runnable jobs (C++ worker + Python driver + configs), plus `bench_search`.
-- `python/sts_combat_rl/` holds the model, training, the run launcher and the query layer.
+- `apps/` holds the runnable jobs (C++ worker + Python driver + configs).
+- `python/sts_combat_rl/` holds the topologies, training, the run launcher and the query layer.
 - `experiments/` holds dated experiment write-ups with their configs and analysis scripts.

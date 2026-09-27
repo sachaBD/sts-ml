@@ -1,10 +1,10 @@
 #pragma once
 
-// Native CPU forward pass of the Deep Sets value net (python/sts_combat_rl/models/deep_sets.py)
-// for v3 encodings. Weights come from python/sts_combat_rl/training/export_value_weights.py.
+// Native CPU forward pass of the value net topologies (python/sts_combat_rl/topology/) for v3 encodings.
+// Weights come from python/sts_combat_rl/training/export_value_weights.py.
 // Single-threaded (not thread-safe: it caches card encodings); plain loops.
-// Two architectures (config architecture.kind): v1 (no kind: DeepSetsValue, one hidden head layer, tanh) and
-// "deep_sets_v2" (DeepSetsValueV2: configurable widths and embeddings, log1p pool counts, LayerNorm'd
+// Two kinds (config architecture.kind, required): "deep_sets_v1" (DeepSetsV1, one hidden head layer, tanh) and
+// "deep_sets_v2" (DeepSetsV2: configurable widths and embeddings, log1p pool counts, LayerNorm'd
 // residual head, sigmoid or tanh; its auxiliary won_out / hp_out heads are ignored). The token encoders are
 // the same context-free 2-layer MLPs in both, so the card / monster / interaction caches serve both.
 
