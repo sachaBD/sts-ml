@@ -26,6 +26,10 @@ Primary metric: paired HP-eq/fight vs MCTS (`compare.py`; HP-eq = Δ terminal va
 ## Ground rules
 
 - Run from the repo root: `cd /home/sborowsk/project/sts_combat_rl`. The apps build `build/main` themselves.
+- **Do not commit, stash, reset or revert anything in the working tree.** The deck relies on the owner's uncommitted
+  changes (e.g. `row_weighting = "elite_sqrt_source"` in the trainer). The launcher records the dirty state.
+- Do not edit code. If an app fails for a reason other than the gates below, stop, log the error, and message
+  nn-consultant (it can fix and hand back); do not work around it.
 - **One CPU-heavy app at a time**, except where a stage says to overlap (GPU training + one CPU app).
 - Templates with `{{...}}` must be rendered first; the command prints the rendered path to launch:
   `.venv/bin/python rundecks/elite-v3/render.py configs/NAME.toml [--var best=... --var c_puct=...]`
