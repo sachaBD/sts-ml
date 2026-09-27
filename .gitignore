@@ -3,6 +3,7 @@ gmon.out
 .venv/
 /runs/*
 !/runs/README.md
+!/runs/compact.py
 __pycache__/
 *.py[cod]
 /scratch/

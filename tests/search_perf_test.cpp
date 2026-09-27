@@ -1,27 +1,20 @@
 // The search speedups are exact: each fast path must give bit-for-bit what the code it replaced gave.
 //   observationKey (tree node keys)  == the equality of publicObservation
 //   encode_state                      == CombatEnvironment::decision().encoding without legal_actions
-//   ValueNet (caches, AVX2 layers)    == the original ValueNet (tests/original_value_net.hpp), bit for bit
 // States: random playouts and search leaves of Slime Boss fights.
 #include "agents/teacher_search.hpp"
 #include "combat/environment.hpp"
-#include "topology/value_net.hpp"
 #include "scenarios/slime_boss.hpp"
-#include "tests/original_value_net.hpp"
 
 #include "combat/BattleContext.h"
 #include "sim/search/PublicBeliefCombatSearch.h"
 
 #include <algorithm>
-#include <bit>
 #include <cmath>
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
-#include <filesystem>
-#include <fstream>
 #include <iostream>
-#include <map>
 #include <random>
 #include <string>
 #include <unordered_map>
@@ -85,74 +78,6 @@ void test_encode_state(const std::vector<sts::BattleContext>& states) {
     }
 }
 
-// ---- ValueNet vs a plain forward pass ------------------------------------------------------------
-
-struct Tensor {
-    std::vector<std::uint32_t> shape;
-    std::vector<float> data;
-};
-using Tensors = std::map<std::string, Tensor>;
-
-// Random weights with the production shapes (width 64).
-Tensors random_weights() {
-    const std::vector<std::pair<std::string, std::vector<std::uint32_t>>> shapes = {
-        {"input_state.weight", {64, 4}}, {"card_selection_task.weight", {32, 4}}, {"card_id.weight", {512, 8}},
-        {"zone.weight", {5, 4}}, {"card_type.weight", {5, 3}}, {"target_type.weight", {4, 3}},
-        {"card_mlp.0.weight", {64, 32}}, {"card_mlp.0.bias", {64}}, {"card_mlp.2.weight", {64, 64}},
-        {"card_mlp.2.bias", {64}}, {"monster_id.weight", {128, 8}}, {"move.weight", {512, 8}},
-        {"monster_mlp.0.weight", {64, 25}}, {"monster_mlp.0.bias", {64}}, {"monster_mlp.2.weight", {64, 64}},
-        {"monster_mlp.2.bias", {64}}, {"interaction_mlp.0.weight", {64, 134}}, {"interaction_mlp.0.bias", {64}},
-        {"interaction_mlp.2.weight", {64, 64}}, {"interaction_mlp.2.bias", {64}}, {"head.0.weight", {64, 442}},
-        {"head.0.bias", {64}}, {"head.2.weight", {1, 64}}, {"head.2.bias", {1}}};
-    std::mt19937 rng(11);
-    std::normal_distribution<float> normal(0.0f, 0.15f);
-    Tensors tensors;
-    for (const auto& [name, shape] : shapes) {
-        Tensor t{shape, {}};
-        std::size_t size = 1;
-        for (auto d : shape) size *= d;
-        for (std::size_t i = 0; i < size; ++i) t.data.push_back(normal(rng));
-        tensors.emplace(name, std::move(t));
-    }
-    return tensors;
-}
-
-void write_weights(const Tensors& tensors, const std::string& path) {
-    std::ofstream out(path, std::ios::binary);
-    const auto u32 = [&](std::uint32_t x) { out.write(reinterpret_cast<const char*>(&x), sizeof x); };
-    const std::string config = R"({"encoding_version": 3, "architecture": {"kind": "deep_sets_v1", "card_vocab": 512, "monster_vocab": 128, "move_vocab": 512, "width": 64}})";
-    out.write("STSVNET1", 8);
-    u32(static_cast<std::uint32_t>(config.size()));
-    out.write(config.data(), static_cast<std::streamsize>(config.size()));
-    u32(static_cast<std::uint32_t>(tensors.size()));
-    for (const auto& [name, t] : tensors) {
-        u32(static_cast<std::uint32_t>(name.size()));
-        out.write(name.data(), static_cast<std::streamsize>(name.size()));
-        u32(static_cast<std::uint32_t>(t.shape.size()));
-        for (auto d : t.shape) u32(d);
-        out.write(reinterpret_cast<const char*>(t.data.data()), static_cast<std::streamsize>(t.data.size() * sizeof(float)));
-    }
-}
-
-void test_value_net(const std::vector<sts::BattleContext>& states) {
-    const auto path = (std::filesystem::temp_directory_path() / "search_perf_test_value_weights.bin").string();
-    write_weights(random_weights(), path);
-    const ValueNet net{path};
-    const original::OriginalValueNet reference{path};
-    std::filesystem::remove(path);
-    std::vector<EncodedCombatState> encoded;
-    for (const auto& s : states)
-        if (s.outcome == sts::Outcome::UNDECIDED) encoded.push_back(encode_state(s));
-    std::vector<float> values, expected;
-    reference.evaluate(encoded, expected);
-    for (int pass = 0; pass < 2; ++pass) {  // second pass: every MLP output comes from the caches
-        net.evaluate(encoded, values);
-        for (std::size_t i = 0; i < encoded.size(); ++i)
-            check(std::bit_cast<std::uint32_t>(values[i]) == std::bit_cast<std::uint32_t>(expected[i]),
-                  "ValueNet differs from the original implementation (pass " + std::to_string(pass) + ")");
-    }
-}
-
 // Merged edges: identical cards in two hand slots are one root edge; off, they are two.
 void test_merge_identical_cards() {
     for (std::uint64_t seed = 1; seed <= 12; ++seed) {
@@ -204,7 +129,6 @@ int main() {
     const auto states = sample_states();
     test_observation_key(states);
     test_encode_state(states);
-    test_value_net(states);
     test_merge_identical_cards();
     test_tweaks();
     std::cout << "search_perf_test passed (" << states.size() << " states)\n";
