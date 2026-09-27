@@ -1,4 +1,4 @@
-// One DAgger fight (slop_docs/apps/dagger.md): a stored combat_v3 bootstrap fight is rebuilt
+// One DAgger fight: a stored combat_v3 bootstrap fight is rebuilt
 // (apps/common/fight_replay.hpp), then the frozen value-net learner plays it while the guided-rollout teacher
 // labels every reached decision (teacher::play_learner_fight).
 //   dagger_worker REQUEST.json OUTPUT_DIR WEIGHTS     (apps/common/worker.hpp; WEIGHTS: the learner)

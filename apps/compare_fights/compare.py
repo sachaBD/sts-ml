@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Paired comparison of two sets of combat_v3 fights on the candidate's fights. Spec: slop_docs/apps/compare_fights.md.
+"""Paired comparison of two sets of combat_v3 fights on the candidate's fights.
 
 [run] baseline / candidate: queries (sts_combat_rl.query); oracle: whether oracle rows are allowed in either (required).
 """

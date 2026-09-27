@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Replay a value net's validation fights with a teacher leaf strategy; write them as combat_v3 parquet.
 
-Spec: slop_docs/apps/value_play.md. The value run's combat_v3 inputs are the data runs; each replayed
+The value run's combat_v3 inputs are the data runs; each replayed
 fight must start in the same state as the stored one.
 """
 import json

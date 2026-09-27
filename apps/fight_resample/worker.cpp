@@ -1,7 +1,7 @@
 // Resamples one stored fight of a combat_v3 bootstrap run: the act 1 run is replayed up to that fight
 // (apps/common/fight_replay.hpp), then the teacher plays it once per sample from the same deck, relics and
 // potions, but with the sample's starting HP and a fresh fight: every combat RNG is seeded from the
-// sample's episode_id (draw order, monster HP and AI, ...). Spec: slop_docs/apps/fight_resample.md.
+// sample's episode_id (draw order, monster HP and AI, ...).
 //   fight_resample_worker REQUEST.json OUTPUT_DIR [WEIGHTS]     (apps/common/worker.hpp)
 //   WEIGHTS: the value net, for the value_net / hybrid leaves.
 //   REQUEST.json: {run_seed, ascension, fight_index, actions: [[chosen_action...] per earlier fight],

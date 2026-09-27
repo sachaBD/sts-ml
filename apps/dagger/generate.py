@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""DAgger collection (slop_docs/apps/dagger.md): a frozen value-net learner replays eligible training fights
+"""DAgger collection: a frozen value-net learner replays eligible training fights
 while the guided-rollout teacher labels every reached decision; completed fights -> combat_v3 parquet.
 
 Does not train. Parquet metadata: schema=combat_v3, collection_method=dagger, training_target=teacher_root_only.

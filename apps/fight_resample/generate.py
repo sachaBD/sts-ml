@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Resample stored fights of combat_v3 bootstrap runs: same deck, relics and potions, new starting HP and fight RNG.
 
-Spec: slop_docs/apps/fight_resample.md. [run] query selects the fights (sts_combat_rl.query); they must come from
+[run] query selects the fights (sts_combat_rl.query); they must come from
 bootstrap runs, whose earlier fights rebuild each one. One worker call per source fight plays all its samples; its rows go to
 out/part-<source_episode_id>.parquet.
 """
