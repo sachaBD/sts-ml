@@ -30,6 +30,7 @@ Run a job in a new run directory:
 The job gets its output dir as {out} in the command, or as $RUN_OUT (run dir: $RUN_DIR).
 If the job writes out/summary.json, it is merged into run.json as "summary".
 Exit code of the job is returned. Status ends as "done" (exit 0) or "failed".
+When the job exits, the parquet parts directly in out/ are compacted (sts_combat_rl/compact.py) unless --no-compact.
 
 examples:
   ./apps/bootstrap/run.sh apps/bootstrap/act1.toml [--scratch]
@@ -107,6 +108,21 @@ def write_json(path: Path, data: dict) -> None:
     tmp.replace(path)
 
 
+def compact_out(out: Path) -> None:
+    """Compact the job's parquet parts in out/ (only that dir; healthy files are skipped). Status is still
+    "running" meanwhile. A failure keeps the originals and doesn't fail the run."""
+    if not any(out.glob("*.parquet")):
+        return
+    try:
+        from .compact import compact
+        start = dt.datetime.now()
+        if done := compact(out):
+            seconds = (dt.datetime.now() - start).total_seconds()
+            print(f"run: compacted {done[0]} -> {done[1]} parquet files, {done[2]} rows ({seconds:.0f}s)", file=sys.stderr)
+    except Exception as e:  # noqa: BLE001 - compaction is best effort; rerun runs/compact.py on out/
+        print(f"run: warning: compaction failed, parts left as written: {e!r}", file=sys.stderr)
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="python -m sts_combat_rl.run", description=HELP, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("schema", help="what the run produces, e.g. combat_v3, value_net_v1, episodes_v1 (runs/README.md)")
@@ -116,7 +132,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--overwrite", action="store_true", help="delete an existing run with this id before starting")
     parser.add_argument("--live", action="store_true", help="also print job output to the terminal while retaining logs")
     parser.add_argument("--note", default="", help="free-text note stored in run.json")
-    parser.usage = "%(prog)s SCHEMA ID [--input RUN_ID|PATH ...] [--scratch] [--overwrite] [--note TEXT] -- COMMAND..."
+    parser.add_argument("--no-compact", action="store_true", help="leave out/*.parquet as the job wrote them")
+    parser.usage = "%(prog)s SCHEMA ID [--input RUN_ID|PATH ...] [--scratch] [--overwrite] [--no-compact] [--note TEXT] -- COMMAND..."
     argv = sys.argv[1:] if argv is None else argv
     split = argv.index("--") if "--" in argv else len(argv)
     args, cmd = parser.parse_args(argv[:split]), argv[split + 1:]
@@ -199,6 +216,8 @@ def main(argv: list[str] | None = None) -> int:
             for thread in relays:
                 thread.join()
 
+    if not args.no_compact:
+        compact_out(out)
     summary = out / "summary.json"
     if summary.exists():
         try:

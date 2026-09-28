@@ -59,6 +59,9 @@ Git state, command, timings, host, and inputs are recorded by the launcher, so j
 
 ## Compacting parquet
 
+The launcher does this automatically when a job exits (done or failed), on that run's `out/` only, before it sets
+`status`; `--no-compact` skips it. By hand, e.g. for runs launched before this or with `--no-compact`:
+
 ```bash
 .venv/bin/python runs/compact.py runs/            # everything
 .venv/bin/python runs/compact.py runs/schema=combat_v2/date=2026-09-23/id=slime-bootstrap-1/out
@@ -66,8 +69,9 @@ Git state, command, timings, host, and inputs are recorded by the launcher, so j
 
 Merges the small `.parquet` files in each directory into ~128MB `compact-*.parquet` files with ~128k-row row groups
 and deletes the originals. Also rewrites files whose row groups are tiny (e.g. one per fight): thousands of small row
-groups make huge footers that duckdb parses on every query. Directories are never mixed. Crash safe: if it dies, just rerun it. Don't run it on a run that is
-still writing.
+groups make huge footers that duckdb parses on every query. Files that are already fine are skipped, so rerunning is
+cheap. Directories are never mixed. Crash safe: if it dies, just rerun it. Don't run it on a run that is still
+writing. Code: `python/sts_combat_rl/compact.py` (`runs/compact.py` is a wrapper).
 
 ## run.json
 
