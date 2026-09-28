@@ -64,8 +64,9 @@ Git state, command, timings, host, and inputs are recorded by the launcher, so j
 .venv/bin/python runs/compact.py runs/schema=combat_v2/date=2026-09-23/id=slime-bootstrap-1/out
 ```
 
-Merges the small `.parquet` files in each directory into ~128MB `compact-*.parquet` files and deletes the
-originals. Directories are never mixed. Crash safe: if it dies, just rerun it. Don't run it on a run that is
+Merges the small `.parquet` files in each directory into ~128MB `compact-*.parquet` files with ~128k-row row groups
+and deletes the originals. Also rewrites files whose row groups are tiny (e.g. one per fight): thousands of small row
+groups make huge footers that duckdb parses on every query. Directories are never mixed. Crash safe: if it dies, just rerun it. Don't run it on a run that is
 still writing.
 
 ## run.json
