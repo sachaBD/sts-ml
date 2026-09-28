@@ -1,0 +1,119 @@
+{
+  "baseline": "elite-v3-v-mcts",
+  "candidates": {
+    "elite-v3-v-t1-value": {
+      "gremlin_nob": {
+        "fights": 142,
+        "hp_eq": 0.08450705190779458,
+        "lo": -1.521126682195865,
+        "hi": 1.7183098963028947,
+        "wins_baseline": 134,
+        "wins_candidate": 133
+      },
+      "lagavulin": {
+        "fights": 137,
+        "hp_eq": -2.2408756287428586,
+        "lo": -4.751824530143372,
+        "hi": 0.13138711186003513,
+        "wins_baseline": 125,
+        "wins_candidate": 121
+      },
+      "three_sentries": {
+        "fights": 142,
+        "hp_eq": -2.2394365701876895,
+        "lo": -4.992957846117272,
+        "hi": 0.38732389434122705,
+        "wins_baseline": 117,
+        "wins_candidate": 111
+      },
+      "all": {
+        "fights": 421,
+        "hp_eq": -1.456056894853959,
+        "lo": -2.7798736067434144,
+        "hi": -0.10977212096746844,
+        "wins_baseline": 376,
+        "wins_candidate": 365
+      },
+      "unpaired": {
+        "baseline_only": 0,
+        "candidate_only": 0
+      }
+    },
+    "elite-v3-v-t1-policy": {
+      "gremlin_nob": {
+        "fights": 142,
+        "hp_eq": 1.0281691826145414,
+        "lo": 0.021127138423248076,
+        "hi": 2.183098658289708,
+        "wins_baseline": 134,
+        "wins_candidate": 135
+      },
+      "lagavulin": {
+        "fights": 137,
+        "hp_eq": 0.3211679491248444,
+        "lo": -2.0293796211209174,
+        "hi": 2.693430788738884,
+        "wins_baseline": 125,
+        "wins_candidate": 124
+      },
+      "three_sentries": {
+        "fights": 142,
+        "hp_eq": -0.5281688272953033,
+        "lo": -2.7304962070275707,
+        "hi": 1.6433567577204504,
+        "wins_baseline": 117,
+        "wins_candidate": 114
+      },
+      "all": {
+        "fights": 421,
+        "hp_eq": 0.27315928618868285,
+        "lo": -0.8456390875167309,
+        "hi": 1.419209910128371,
+        "wins_baseline": 376,
+        "wins_candidate": 373
+      },
+      "unpaired": {
+        "baseline_only": 0,
+        "candidate_only": 0
+      }
+    },
+    "elite-v3-v-t2-policy": {
+      "gremlin_nob": {
+        "fights": 142,
+        "hp_eq": 1.500000226455675,
+        "lo": 0.03521142299221435,
+        "hi": 3.077465117901144,
+        "wins_baseline": 134,
+        "wins_candidate": 136
+      },
+      "lagavulin": {
+        "fights": 137,
+        "hp_eq": -0.014598395050007061,
+        "lo": -2.445437996932407,
+        "hi": 2.4016427047115583,
+        "wins_baseline": 125,
+        "wins_candidate": 124
+      },
+      "three_sentries": {
+        "fights": 142,
+        "hp_eq": 0.9436622618789404,
+        "lo": -1.267605327227166,
+        "hi": 3.1458590474264096,
+        "wins_baseline": 117,
+        "wins_candidate": 118
+      },
+      "all": {
+        "fights": 421,
+        "hp_eq": 0.8194776561084666,
+        "lo": -0.3947738849874234,
+        "hi": 2.071090282911161,
+        "wins_baseline": 376,
+        "wins_candidate": 378
+      },
+      "unpaired": {
+        "baseline_only": 0,
+        "candidate_only": 0
+      }
+    }
+  }
+}

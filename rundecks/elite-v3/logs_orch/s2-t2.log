@@ -1,0 +1,376 @@
+run: /home/sborowsk/project/sts_combat_rl/runs/schema=value_net_v1/date=2026-09-27/id=elite-v3-t2
+log: /home/sborowsk/project/sts_combat_rl/runs/schema=value_net_v1/date=2026-09-27/id=elite-v3-t2/logs/stdout.log (stderr: /home/sborowsk/project/sts_combat_rl/runs/schema=value_net_v1/date=2026-09-27/id=elite-v3-t2/logs/stderr.log)
+
+Value training
+==============
+config:     /home/sborowsk/project/sts_combat_rl/rundecks/elite-v3/configs/s2-t2.toml
+output:     /home/sborowsk/project/sts_combat_rl/runs/schema=value_net_v1/date=2026-09-27/id=elite-v3-t2/out
+checkpoint: /home/sborowsk/project/sts_combat_rl/runs/schema=value_net_v1/date=2026-09-27/id=elite-v3-t2/out/value_checkpoint.pt
+
+Inputs
+------
+data:        select * from combat_v3
+where id = 'elite-v3-teacher' and category = 'elite' and row_kind in ('decision', 'child')
+  and v4_encoding_version = 4
+
+
+Model
+-----
+kind:                deep_sets_v3
+card_vocab:          512
+monster_vocab:       128
+move_vocab:          512
+potion_vocab:        64
+relic_vocab:         192
+width:               96
+card_id_dim:         32
+monster_id_dim:      16
+move_dim:            16
+potion_id_dim:       16
+relic_id_dim:        16
+id_dropout:          0.1
+pool_count_features: True
+head_input_norm:     True
+head_width:          192
+head_blocks:         2
+zero_init_blocks:    True
+score_hp_offset:     35.0
+score_potion_hp:     4.0
+score_max_hp_offset: 55.0
+policy_width:        128
+
+Config
+------
+epochs:              10
+batch_size:          512
+lr:                  0.0005
+weight_decay:        0.01
+seed:                0
+label:               shift
+blend:               0.5
+lr_schedule:         cosine
+keep:                best
+threads:             4
+device:              cuda
+aux_won_weight:      0.1
+aux_hp_weight:       0.1
+split:               None
+validation_fraction: 0.1
+correction_weight:   None
+row_weighting:       elite_sqrt_source
+aux_keep_weight:     0.1
+policy_weight:       0.25
+device: cuda (NVIDIA GeForce RTX 3060)
+label shift: clipped 5989 of 377175 targets to [0, 1]
+elite training loss shares: {'gremlin_nob': 0.33333333333333337, 'lagavulin': 0.3333333333333333, 'three_sentries': 0.33333333333333337}
+
+Dataset
+-------
+rows: train=338,648  valid=38,527
+runs: train=3,408  valid=379
+fights: train=4,406  valid=478
+encounter: {'gremlin_nob': 72660, 'lagavulin': 125268, 'three_sentries': 179247}
+category: {'elite': 377175}
+target: label=shift  blend=0.5
+aux: won_weight=0.1  hp_weight=0.1  masked_rows=24.5%  hp_masked_rows=22.0%
+
+Training
+--------
+Each epoch prints batch progress, then validation metrics.
+epoch  time    train_mse  train_mae  valid_mse  valid_mae  baseline   teacher
+-----  ------  ---------  ---------  ---------  ---------  ---------  ---------
+  epoch   1/10  [#.......................]    33/662   loss=0.338333
+  epoch   1/10  [##......................]    66/662   loss=0.323887
+  epoch   1/10  [####....................]    99/662   loss=0.336340
+  epoch   1/10  [#####...................]   132/662   loss=0.284181
+  epoch   1/10  [######..................]   165/662   loss=0.305241
+  epoch   1/10  [#######.................]   198/662   loss=0.265038
+  epoch   1/10  [########................]   231/662   loss=0.280923
+  epoch   1/10  [##########..............]   264/662   loss=0.311779
+  epoch   1/10  [###########.............]   297/662   loss=0.283251
+  epoch   1/10  [############............]   330/662   loss=0.268682
+  epoch   1/10  [#############...........]   363/662   loss=0.235919
+  epoch   1/10  [##############..........]   396/662   loss=0.265371
+  epoch   1/10  [################........]   429/662   loss=0.283499
+  epoch   1/10  [#################.......]   462/662   loss=0.281228
+  epoch   1/10  [##################......]   495/662   loss=0.290093
+  epoch   1/10  [###################.....]   528/662   loss=0.288632
+  epoch   1/10  [####################....]   561/662   loss=0.288898
+  epoch   1/10  [######################..]   594/662   loss=0.285215
+  epoch   1/10  [#######################.]   627/662   loss=0.271700
+  epoch   1/10  [########################]   660/662   loss=0.274986
+  epoch   1/10  [########################]   662/662   loss=0.272581
+  v3: train_aux_keep_mse=0.11008 train_policy_ce=0.98889 policy_validation_ce=0.96152 policy_validation_top1=0.68136 policy_validation_states=9437.00000 aux_keep_validation_mse=0.09509
+  summary epoch=1/10 time=25.4s train_mse=0.007347 train_mae=0.065652 valid_mse=0.009198 valid_mae=0.072351 baseline_mse=0.039065 teacher_mse=0.006851 value_loss=0.013648 aux_won_bce=0.171363 aux_hp_mse=0.034528 lr_end=4.88e-04
+  validation by encounter             rows       mse  baseline   teacher
+  elite/gremlin_nob                   7824   0.01112   0.03936   0.00784
+  elite/lagavulin                    10794   0.00817   0.03560   0.00768
+  elite/three_sentries               19909   0.00900   0.04074   0.00601
+  saved /home/sborowsk/project/sts_combat_rl/runs/schema=value_net_v1/date=2026-09-27/id=elite-v3-t2/out/value_checkpoint.pt (epoch 1)
+  epoch   2/10  [#.......................]    33/662   loss=0.267068
+  epoch   2/10  [##......................]    66/662   loss=0.249813
+  epoch   2/10  [####....................]    99/662   loss=0.231441
+  epoch   2/10  [#####...................]   132/662   loss=0.267400
+  epoch   2/10  [######..................]   165/662   loss=0.257993
+  epoch   2/10  [#######.................]   198/662   loss=0.302528
+  epoch   2/10  [########................]   231/662   loss=0.266102
+  epoch   2/10  [##########..............]   264/662   loss=0.245147
+  epoch   2/10  [###########.............]   297/662   loss=0.290692
+  epoch   2/10  [############............]   330/662   loss=0.250786
+  epoch   2/10  [#############...........]   363/662   loss=0.272679
+  epoch   2/10  [##############..........]   396/662   loss=0.235959
+  epoch   2/10  [################........]   429/662   loss=0.244422
+  epoch   2/10  [#################.......]   462/662   loss=0.273797
+  epoch   2/10  [##################......]   495/662   loss=0.252032
+  epoch   2/10  [###################.....]   528/662   loss=0.248484
+  epoch   2/10  [####################....]   561/662   loss=0.248197
+  epoch   2/10  [######################..]   594/662   loss=0.243509
+  epoch   2/10  [#######################.]   627/662   loss=0.240089
+  epoch   2/10  [########################]   660/662   loss=0.239394
+  epoch   2/10  [########################]   662/662   loss=0.223951
+  v3: train_aux_keep_mse=0.06862 train_policy_ce=0.95488 policy_validation_ce=0.95250 policy_validation_top1=0.69821 policy_validation_states=9437.00000 aux_keep_validation_mse=0.11715
+  summary epoch=2/10 time=24.4s train_mse=0.006758 train_mae=0.062252 valid_mse=0.008967 valid_mae=0.070518 baseline_mse=0.039065 teacher_mse=0.006851 value_loss=0.006910 aux_won_bce=0.086574 aux_hp_mse=0.024574 lr_end=4.52e-04
+  validation by encounter             rows       mse  baseline   teacher
+  elite/gremlin_nob                   7824   0.01096   0.03936   0.00784
+  elite/lagavulin                    10794   0.00832   0.03560   0.00768
+  elite/three_sentries               19909   0.00854   0.04074   0.00601
+  saved /home/sborowsk/project/sts_combat_rl/runs/schema=value_net_v1/date=2026-09-27/id=elite-v3-t2/out/value_checkpoint.pt (epoch 2)
+  epoch   3/10  [#.......................]    33/662   loss=0.255349
+  epoch   3/10  [##......................]    66/662   loss=0.232843
+  epoch   3/10  [####....................]    99/662   loss=0.299666
+  epoch   3/10  [#####...................]   132/662   loss=0.269403
+  epoch   3/10  [######..................]   165/662   loss=0.258554
+  epoch   3/10  [#######.................]   198/662   loss=0.241005
+  epoch   3/10  [########................]   231/662   loss=0.262157
+  epoch   3/10  [##########..............]   264/662   loss=0.255643
+  epoch   3/10  [###########.............]   297/662   loss=0.250144
+  epoch   3/10  [############............]   330/662   loss=0.247514
+  epoch   3/10  [#############...........]   363/662   loss=0.227656
+  epoch   3/10  [##############..........]   396/662   loss=0.269088
+  epoch   3/10  [################........]   429/662   loss=0.236232
+  epoch   3/10  [#################.......]   462/662   loss=0.232466
+  epoch   3/10  [##################......]   495/662   loss=0.257287
+  epoch   3/10  [###################.....]   528/662   loss=0.255971
+  epoch   3/10  [####################....]   561/662   loss=0.232383
+  epoch   3/10  [######################..]   594/662   loss=0.255790
+  epoch   3/10  [#######################.]   627/662   loss=0.251904
+  epoch   3/10  [########################]   660/662   loss=0.269850
+  epoch   3/10  [########################]   662/662   loss=0.232729
+  v3: train_aux_keep_mse=0.04607 train_policy_ce=0.94440 policy_validation_ce=0.94519 policy_validation_top1=0.70541 policy_validation_states=9437.00000 aux_keep_validation_mse=0.13163
+  summary epoch=3/10 time=24.4s train_mse=0.005425 train_mae=0.054470 valid_mse=0.008033 valid_mae=0.065069 baseline_mse=0.039065 teacher_mse=0.006851 value_loss=0.006118 aux_won_bce=0.056951 aux_hp_mse=0.023476 lr_end=3.97e-04
+  validation by encounter             rows       mse  baseline   teacher
+  elite/gremlin_nob                   7824   0.01044   0.03936   0.00784
+  elite/lagavulin                    10794   0.00800   0.03560   0.00768
+  elite/three_sentries               19909   0.00711   0.04074   0.00601
+  saved /home/sborowsk/project/sts_combat_rl/runs/schema=value_net_v1/date=2026-09-27/id=elite-v3-t2/out/value_checkpoint.pt (epoch 3)
+  epoch   4/10  [#.......................]    33/662   loss=0.228575
+  epoch   4/10  [##......................]    66/662   loss=0.244393
+  epoch   4/10  [####....................]    99/662   loss=0.246099
+  epoch   4/10  [#####...................]   132/662   loss=0.240677
+  epoch   4/10  [######..................]   165/662   loss=0.257837
+  epoch   4/10  [#######.................]   198/662   loss=0.263347
+  epoch   4/10  [########................]   231/662   loss=0.260838
+  epoch   4/10  [##########..............]   264/662   loss=0.246850
+  epoch   4/10  [###########.............]   297/662   loss=0.253078
+  epoch   4/10  [############............]   330/662   loss=0.260061
+  epoch   4/10  [#############...........]   363/662   loss=0.253660
+  epoch   4/10  [##############..........]   396/662   loss=0.223205
+  epoch   4/10  [################........]   429/662   loss=0.244616
+  epoch   4/10  [#################.......]   462/662   loss=0.211455
+  epoch   4/10  [##################......]   495/662   loss=0.246329
+  epoch   4/10  [###################.....]   528/662   loss=0.254920
+  epoch   4/10  [####################....]   561/662   loss=0.248086
+  epoch   4/10  [######################..]   594/662   loss=0.256593
+  epoch   4/10  [#######################.]   627/662   loss=0.261913
+  epoch   4/10  [########################]   660/662   loss=0.222438
+  epoch   4/10  [########################]   662/662   loss=0.228121
+  v3: train_aux_keep_mse=0.02813 train_policy_ce=0.93675 policy_validation_ce=0.94251 policy_validation_top1=0.70669 policy_validation_states=9437.00000 aux_keep_validation_mse=0.14350
+  summary epoch=4/10 time=24.5s train_mse=0.005033 train_mae=0.051727 valid_mse=0.007856 valid_mae=0.063724 baseline_mse=0.039065 teacher_mse=0.006851 value_loss=0.005448 aux_won_bce=0.037148 aux_hp_mse=0.022248 lr_end=3.27e-04
+  validation by encounter             rows       mse  baseline   teacher
+  elite/gremlin_nob                   7824   0.01004   0.03936   0.00784
+  elite/lagavulin                    10794   0.00776   0.03560   0.00768
+  elite/three_sentries               19909   0.00705   0.04074   0.00601
+  saved /home/sborowsk/project/sts_combat_rl/runs/schema=value_net_v1/date=2026-09-27/id=elite-v3-t2/out/value_checkpoint.pt (epoch 4)
+  epoch   5/10  [#.......................]    33/662   loss=0.255214
+  epoch   5/10  [##......................]    66/662   loss=0.230347
+  epoch   5/10  [####....................]    99/662   loss=0.230582
+  epoch   5/10  [#####...................]   132/662   loss=0.252290
+  epoch   5/10  [######..................]   165/662   loss=0.215150
+  epoch   5/10  [#######.................]   198/662   loss=0.250577
+  epoch   5/10  [########................]   231/662   loss=0.255676
+  epoch   5/10  [##########..............]   264/662   loss=0.232371
+  epoch   5/10  [###########.............]   297/662   loss=0.234414
+  epoch   5/10  [############............]   330/662   loss=0.255221
+  epoch   5/10  [#############...........]   363/662   loss=0.230597
+  epoch   5/10  [##############..........]   396/662   loss=0.233635
+  epoch   5/10  [################........]   429/662   loss=0.236677
+  epoch   5/10  [#################.......]   462/662   loss=0.235307
+  epoch   5/10  [##################......]   495/662   loss=0.245864
+  epoch   5/10  [###################.....]   528/662   loss=0.241172
+  epoch   5/10  [####################....]   561/662   loss=0.269794
+  epoch   5/10  [######################..]   594/662   loss=0.243013
+  epoch   5/10  [#######################.]   627/662   loss=0.230271
+  epoch   5/10  [########################]   660/662   loss=0.245550
+  epoch   5/10  [########################]   662/662   loss=0.257070
+  v3: train_aux_keep_mse=0.01797 train_policy_ce=0.93030 policy_validation_ce=0.94034 policy_validation_top1=0.70796 policy_validation_states=9437.00000 aux_keep_validation_mse=0.17305
+  summary epoch=5/10 time=26.1s train_mse=0.004736 train_mae=0.049670 valid_mse=0.007894 valid_mae=0.062768 baseline_mse=0.039065 teacher_mse=0.006851 value_loss=0.005070 aux_won_bce=0.023023 aux_hp_mse=0.021338 lr_end=2.50e-04
+  validation by encounter             rows       mse  baseline   teacher
+  elite/gremlin_nob                   7824   0.01180   0.03936   0.00784
+  elite/lagavulin                    10794   0.00742   0.03560   0.00768
+  elite/three_sentries               19909   0.00661   0.04074   0.00601
+  not saved: valid_mse 0.007894 >= best 0.007856 (keep = best)
+  epoch   6/10  [#.......................]    33/662   loss=0.247965
+  epoch   6/10  [##......................]    66/662   loss=0.260343
+  epoch   6/10  [####....................]    99/662   loss=0.256232
+  epoch   6/10  [#####...................]   132/662   loss=0.231271
+  epoch   6/10  [######..................]   165/662   loss=0.231965
+  epoch   6/10  [#######.................]   198/662   loss=0.260543
+  epoch   6/10  [########................]   231/662   loss=0.257512
+  epoch   6/10  [##########..............]   264/662   loss=0.259896
+  epoch   6/10  [###########.............]   297/662   loss=0.228927
+  epoch   6/10  [############............]   330/662   loss=0.246443
+  epoch   6/10  [#############...........]   363/662   loss=0.242997
+  epoch   6/10  [##############..........]   396/662   loss=0.244176
+  epoch   6/10  [################........]   429/662   loss=0.245369
+  epoch   6/10  [#################.......]   462/662   loss=0.237734
+  epoch   6/10  [##################......]   495/662   loss=0.212079
+  epoch   6/10  [###################.....]   528/662   loss=0.252934
+  epoch   6/10  [####################....]   561/662   loss=0.245246
+  epoch   6/10  [######################..]   594/662   loss=0.258176
+  epoch   6/10  [#######################.]   627/662   loss=0.238016
+  epoch   6/10  [########################]   660/662   loss=0.224370
+  epoch   6/10  [########################]   662/662   loss=0.236629
+  v3: train_aux_keep_mse=0.01132 train_policy_ce=0.92334 policy_validation_ce=0.93904 policy_validation_top1=0.70934 policy_validation_states=9437.00000 aux_keep_validation_mse=0.17125
+  summary epoch=6/10 time=24.5s train_mse=0.003969 train_mae=0.045491 valid_mse=0.007155 valid_mae=0.059764 baseline_mse=0.039065 teacher_mse=0.006851 value_loss=0.004778 aux_won_bce=0.014561 aux_hp_mse=0.020571 lr_end=1.73e-04
+  validation by encounter             rows       mse  baseline   teacher
+  elite/gremlin_nob                   7824   0.00906   0.03936   0.00784
+  elite/lagavulin                    10794   0.00653   0.03560   0.00768
+  elite/three_sentries               19909   0.00675   0.04074   0.00601
+  saved /home/sborowsk/project/sts_combat_rl/runs/schema=value_net_v1/date=2026-09-27/id=elite-v3-t2/out/value_checkpoint.pt (epoch 6)
+  epoch   7/10  [#.......................]    33/662   loss=0.235854
+  epoch   7/10  [##......................]    66/662   loss=0.216680
+  epoch   7/10  [####....................]    99/662   loss=0.232506
+  epoch   7/10  [#####...................]   132/662   loss=0.247128
+  epoch   7/10  [######..................]   165/662   loss=0.235621
+  epoch   7/10  [#######.................]   198/662   loss=0.231173
+  epoch   7/10  [########................]   231/662   loss=0.237253
+  epoch   7/10  [##########..............]   264/662   loss=0.242963
+  epoch   7/10  [###########.............]   297/662   loss=0.227316
+  epoch   7/10  [############............]   330/662   loss=0.246736
+  epoch   7/10  [#############...........]   363/662   loss=0.222533
+  epoch   7/10  [##############..........]   396/662   loss=0.224162
+  epoch   7/10  [################........]   429/662   loss=0.194714
+  epoch   7/10  [#################.......]   462/662   loss=0.232014
+  epoch   7/10  [##################......]   495/662   loss=0.238034
+  epoch   7/10  [###################.....]   528/662   loss=0.213139
+  epoch   7/10  [####################....]   561/662   loss=0.225641
+  epoch   7/10  [######################..]   594/662   loss=0.256625
+  epoch   7/10  [#######################.]   627/662   loss=0.255163
+  epoch   7/10  [########################]   660/662   loss=0.263939
+  epoch   7/10  [########################]   662/662   loss=0.211767
+  v3: train_aux_keep_mse=0.00667 train_policy_ce=0.91656 policy_validation_ce=0.93608 policy_validation_top1=0.71389 policy_validation_states=9437.00000 aux_keep_validation_mse=0.15467
+  summary epoch=7/10 time=25.1s train_mse=0.004151 train_mae=0.046652 valid_mse=0.007273 valid_mae=0.059843 baseline_mse=0.039065 teacher_mse=0.006851 value_loss=0.004514 aux_won_bce=0.008492 aux_hp_mse=0.019845 lr_end=1.03e-04
+  validation by encounter             rows       mse  baseline   teacher
+  elite/gremlin_nob                   7824   0.00938   0.03936   0.00784
+  elite/lagavulin                    10794   0.00674   0.03560   0.00768
+  elite/three_sentries               19909   0.00673   0.04074   0.00601
+  not saved: valid_mse 0.007273 >= best 0.007155 (keep = best)
+  epoch   8/10  [#.......................]    33/662   loss=0.226883
+  epoch   8/10  [##......................]    66/662   loss=0.214298
+  epoch   8/10  [####....................]    99/662   loss=0.245401
+  epoch   8/10  [#####...................]   132/662   loss=0.237084
+  epoch   8/10  [######..................]   165/662   loss=0.227242
+  epoch   8/10  [#######.................]   198/662   loss=0.239858
+  epoch   8/10  [########................]   231/662   loss=0.252603
+  epoch   8/10  [##########..............]   264/662   loss=0.250216
+  epoch   8/10  [###########.............]   297/662   loss=0.239398
+  epoch   8/10  [############............]   330/662   loss=0.266415
+  epoch   8/10  [#############...........]   363/662   loss=0.234095
+  epoch   8/10  [##############..........]   396/662   loss=0.237081
+  epoch   8/10  [################........]   429/662   loss=0.217436
+  epoch   8/10  [#################.......]   462/662   loss=0.224227
+  epoch   8/10  [##################......]   495/662   loss=0.223853
+  epoch   8/10  [###################.....]   528/662   loss=0.225360
+  epoch   8/10  [####################....]   561/662   loss=0.247007
+  epoch   8/10  [######################..]   594/662   loss=0.240255
+  epoch   8/10  [#######################.]   627/662   loss=0.227897
+  epoch   8/10  [########################]   660/662   loss=0.220979
+  epoch   8/10  [########################]   662/662   loss=0.205265
+  v3: train_aux_keep_mse=0.00446 train_policy_ce=0.91058 policy_validation_ce=0.93644 policy_validation_top1=0.71071 policy_validation_states=9437.00000 aux_keep_validation_mse=0.16178
+  summary epoch=8/10 time=25.0s train_mse=0.004132 train_mae=0.045983 valid_mse=0.007461 valid_mae=0.060092 baseline_mse=0.039065 teacher_mse=0.006851 value_loss=0.004336 aux_won_bce=0.005122 aux_hp_mse=0.019281 lr_end=4.77e-05
+  validation by encounter             rows       mse  baseline   teacher
+  elite/gremlin_nob                   7824   0.00961   0.03936   0.00784
+  elite/lagavulin                    10794   0.00695   0.03560   0.00768
+  elite/three_sentries               19909   0.00689   0.04074   0.00601
+  not saved: valid_mse 0.007461 >= best 0.007155 (keep = best)
+  epoch   9/10  [#.......................]    33/662   loss=0.269618
+  epoch   9/10  [##......................]    66/662   loss=0.218098
+  epoch   9/10  [####....................]    99/662   loss=0.239754
+  epoch   9/10  [#####...................]   132/662   loss=0.221309
+  epoch   9/10  [######..................]   165/662   loss=0.224881
+  epoch   9/10  [#######.................]   198/662   loss=0.235978
+  epoch   9/10  [########................]   231/662   loss=0.249438
+  epoch   9/10  [##########..............]   264/662   loss=0.203483
+  epoch   9/10  [###########.............]   297/662   loss=0.226835
+  epoch   9/10  [############............]   330/662   loss=0.215228
+  epoch   9/10  [#############...........]   363/662   loss=0.242711
+  epoch   9/10  [##############..........]   396/662   loss=0.235018
+  epoch   9/10  [################........]   429/662   loss=0.244392
+  epoch   9/10  [#################.......]   462/662   loss=0.242003
+  epoch   9/10  [##################......]   495/662   loss=0.253652
+  epoch   9/10  [###################.....]   528/662   loss=0.234187
+  epoch   9/10  [####################....]   561/662   loss=0.223736
+  epoch   9/10  [######################..]   594/662   loss=0.238469
+  epoch   9/10  [#######################.]   627/662   loss=0.249850
+  epoch   9/10  [########################]   660/662   loss=0.232879
+  epoch   9/10  [########################]   662/662   loss=0.215838
+  v3: train_aux_keep_mse=0.00406 train_policy_ce=0.90599 policy_validation_ce=0.93629 policy_validation_top1=0.71029 policy_validation_states=9437.00000 aux_keep_validation_mse=0.16339
+  summary epoch=9/10 time=25.4s train_mse=0.003909 train_mae=0.044615 valid_mse=0.007233 valid_mae=0.058882 baseline_mse=0.039065 teacher_mse=0.006851 value_loss=0.004221 aux_won_bce=0.004299 aux_hp_mse=0.018963 lr_end=1.22e-05
+  validation by encounter             rows       mse  baseline   teacher
+  elite/gremlin_nob                   7824   0.00940   0.03936   0.00784
+  elite/lagavulin                    10794   0.00665   0.03560   0.00768
+  elite/three_sentries               19909   0.00670   0.04074   0.00601
+  not saved: valid_mse 0.007233 >= best 0.007155 (keep = best)
+  epoch  10/10  [#.......................]    33/662   loss=0.236036
+  epoch  10/10  [##......................]    66/662   loss=0.229605
+  epoch  10/10  [####....................]    99/662   loss=0.258935
+  epoch  10/10  [#####...................]   132/662   loss=0.261932
+  epoch  10/10  [######..................]   165/662   loss=0.250168
+  epoch  10/10  [#######.................]   198/662   loss=0.223804
+  epoch  10/10  [########................]   231/662   loss=0.226872
+  epoch  10/10  [##########..............]   264/662   loss=0.220419
+  epoch  10/10  [###########.............]   297/662   loss=0.236437
+  epoch  10/10  [############............]   330/662   loss=0.214407
+  epoch  10/10  [#############...........]   363/662   loss=0.239226
+  epoch  10/10  [##############..........]   396/662   loss=0.237333
+  epoch  10/10  [################........]   429/662   loss=0.246377
+  epoch  10/10  [#################.......]   462/662   loss=0.218758
+  epoch  10/10  [##################......]   495/662   loss=0.210737
+  epoch  10/10  [###################.....]   528/662   loss=0.214815
+  epoch  10/10  [####################....]   561/662   loss=0.241105
+  epoch  10/10  [######################..]   594/662   loss=0.206527
+  epoch  10/10  [#######################.]   627/662   loss=0.253087
+  epoch  10/10  [########################]   660/662   loss=0.253779
+  epoch  10/10  [########################]   662/662   loss=0.228892
+  v3: train_aux_keep_mse=0.00327 train_policy_ce=0.90382 policy_validation_ce=0.93646 policy_validation_top1=0.70987 policy_validation_states=9437.00000 aux_keep_validation_mse=0.16440
+  summary epoch=10/10 time=23.5s train_mse=0.003862 train_mae=0.044342 valid_mse=0.007205 valid_mae=0.058802 baseline_mse=0.039065 teacher_mse=0.006851 value_loss=0.004159 aux_won_bce=0.003985 aux_hp_mse=0.018860 lr_end=0.00e+00
+  validation by encounter             rows       mse  baseline   teacher
+  elite/gremlin_nob                   7824   0.00926   0.03936   0.00784
+  elite/lagavulin                    10794   0.00669   0.03560   0.00768
+  elite/three_sentries               19909   0.00668   0.04074   0.00601
+  not saved: valid_mse 0.007205 >= best 0.007155 (keep = best)
+
+Export
+------
+native weights: /home/sborowsk/project/sts_combat_rl/runs/schema=value_net_v1/date=2026-09-27/id=elite-v3-t2/out/value_weights.bin
+
+Outputs
+-------
+checkpoint:      /home/sborowsk/project/sts_combat_rl/runs/schema=value_net_v1/date=2026-09-27/id=elite-v3-t2/out/value_checkpoint.pt
+checkpoint json: /home/sborowsk/project/sts_combat_rl/runs/schema=value_net_v1/date=2026-09-27/id=elite-v3-t2/out/value_checkpoint.json
+native weights:  /home/sborowsk/project/sts_combat_rl/runs/schema=value_net_v1/date=2026-09-27/id=elite-v3-t2/out/value_weights.bin
+summary:         /home/sborowsk/project/sts_combat_rl/runs/schema=value_net_v1/date=2026-09-27/id=elite-v3-t2/out/summary.json
+
+Done
+validation_mse: 0.007154860999435186
+run: done (exit 0) /home/sborowsk/project/sts_combat_rl/runs/schema=value_net_v1/date=2026-09-27/id=elite-v3-t2

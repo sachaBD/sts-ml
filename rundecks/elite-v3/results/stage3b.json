@@ -1,0 +1,81 @@
+{
+  "baseline": "elite-v3-v-mcts",
+  "candidates": {
+    "elite-v3-v-elite-v3-t2-c05": {
+      "gremlin_nob": {
+        "fights": 142,
+        "hp_eq": 1.4084508903849293,
+        "lo": -0.07746467729899245,
+        "hi": 3.0352115232759798,
+        "wins_baseline": 134,
+        "wins_candidate": 135
+      },
+      "lagavulin": {
+        "fights": 137,
+        "hp_eq": 0.6569346528853813,
+        "lo": -1.518247795170241,
+        "hi": 2.8540150399081896,
+        "wins_baseline": 125,
+        "wins_candidate": 127
+      },
+      "three_sentries": {
+        "fights": 142,
+        "hp_eq": 0.3873241577349918,
+        "lo": -1.8510895818884963,
+        "hi": 2.6620895512414693,
+        "wins_baseline": 117,
+        "wins_candidate": 117
+      },
+      "all": {
+        "fights": 421,
+        "hp_eq": 0.8194776823713208,
+        "lo": -0.36854439836012926,
+        "hi": 2.0264206147431403,
+        "wins_baseline": 376,
+        "wins_candidate": 379
+      },
+      "unpaired": {
+        "baseline_only": 0,
+        "candidate_only": 0
+      }
+    },
+    "elite-v3-v-elite-v3-t2-c2": {
+      "gremlin_nob": {
+        "fights": 142,
+        "hp_eq": 0.9295776818000095,
+        "lo": -0.5774646968174149,
+        "hi": 2.570422857307212,
+        "wins_baseline": 134,
+        "wins_candidate": 135
+      },
+      "lagavulin": {
+        "fights": 137,
+        "hp_eq": -0.5036495560712188,
+        "lo": -2.7153284952860246,
+        "hi": 1.686131497864088,
+        "wins_baseline": 125,
+        "wins_candidate": 124
+      },
+      "three_sentries": {
+        "fights": 142,
+        "hp_eq": -0.48591537269907936,
+        "lo": -2.8311333556780176,
+        "hi": 1.8098592294878522,
+        "wins_baseline": 117,
+        "wins_candidate": 113
+      },
+      "all": {
+        "fights": 421,
+        "hp_eq": -0.014251642017636333,
+        "lo": -1.2044117560504846,
+        "hi": 1.162364040299618,
+        "wins_baseline": 376,
+        "wins_candidate": 372
+      },
+      "unpaired": {
+        "baseline_only": 0,
+        "candidate_only": 0
+      }
+    }
+  }
+}

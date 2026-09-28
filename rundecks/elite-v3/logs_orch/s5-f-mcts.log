@@ -1,0 +1,262 @@
+run: /home/sborowsk/project/sts_combat_rl/runs/schema=combat_v3/date=2026-09-28/id=elite-v3-f-mcts
+log: /home/sborowsk/project/sts_combat_rl/runs/schema=combat_v3/date=2026-09-28/id=elite-v3-f-mcts/logs/stdout.log (stderr: /home/sborowsk/project/sts_combat_rl/runs/schema=combat_v3/date=2026-09-28/id=elite-v3-f-mcts/logs/stderr.log)
+03:08:44 oracle: off (teacher searches sampled beliefs, fair play)
+03:08:44 
+03:08:44 Value play
+03:08:44 ==========
+03:08:44 config:    /home/sborowsk/project/sts_combat_rl/rundecks/elite-v3/configs/s5-f-mcts.toml
+03:08:44 output:    /home/sborowsk/project/sts_combat_rl/runs/schema=combat_v3/date=2026-09-28/id=elite-v3-f-mcts/out
+03:08:44 value run: value_net_v1/2026-09-27/elite-terminal-v1
+03:08:44 weights:   None
+03:08:44 data runs: combat_v3/2026-09-26/act1-all-bosses-a20-scaled-search
+03:08:44 teacher:   {"leaf": "guided_rollout", "simulations": 20000, "oracle": false, "random_move": false, "particles": 8}
+03:08:44 fights:    1500 from query "select * from combat_v3\nwhere id = 'act1-all-bosses-a20-scaled-search' and source_episode_id is null and category = 'elite' and run_seed % 10 in (2,3)\n  and episode_id in (\n    select source_episode_id from read_csv_auto('experiments/act-1-combat/2026-09-28-elite-specialist/final_fights.csv'))\n"
+03:08:44 workers:   11
+03:08:44 worker:    /home/sborowsk/project/sts_combat_rl/runs/schema=combat_v3/date=2026-09-28/id=elite-v3-f-mcts/out/value_play_worker (sha256 a47da578daa80c5a4986fb7b2698a5e9f069df62e648c7e701cb3708fbde0952)
+03:08:44 
+03:08:44 Each line: the guided_rollout teacher's replay | the stored teacher's result for the same fight
+03:08:44 
+03:08:47 episode 47504780840306 skipped: replay diverged from the stored fight: episode 47504780840306: replayed start differs from the stored fight on ['starting_hp', 'global_numeric']
+03:08:50 episode 47504780843304 skipped: replay diverged from the stored fight: episode 47504780843304: replayed start differs from the stored fight on ['starting_hp', 'global_numeric']
+03:08:53 [10/1500] wins 9 vs teacher 9; mean terminal value 0.434 vs 0.426
+03:08:53 episode 47504780853304 skipped: replay diverged from the stored fight: ctions": [[0, 1, 0, 0, 0, 0, 0, 0, 3, 0, 2, 1, 0, 0], [0, 1, 1, 0, 0, 1, 1, 0, 2, 2], [0, 0, 2, 2, 1, 4, 0, 0], [1, 4, 1, 4, 1, 0, 1, 1, 2, 2, 2, 6, 3, 5]], "teacher": {"leaf": "guided_rollout", "simulations": 20000, "oracle": false, "r: value_play_worker: stored actions don't fit the replayed fight
+03:08:54 episode 47504780851303 skipped: replay diverged from the stored fight: episode 47504780851303: replayed start differs from the stored fight on ['starting_hp', 'global_numeric']
+03:08:57 [20/1500] wins 18 vs teacher 18; mean terminal value 0.460 vs 0.460
+03:09:03 [30/1500] wins 28 vs teacher 28; mean terminal value 0.487 vs 0.479
+03:09:07 [40/1500] wins 38 vs teacher 37; mean terminal value 0.493 vs 0.468
+03:09:10 episode 47504780880203 skipped: replay diverged from the stored fight: ctions": [[0, 1, 0, 0, 1, 2, 0, 1, 1, 0, 0, 1], [1, 2, 0, 0, 1, 1, 0, 3, 1, 0, 0, 0, 3, 1], [4, 4, 2, 0, 4, 2, 0, 1, 0, 0, 1, 1]], "teacher": {"leaf": "guided_rollout", "simulations": 20000, "oracle": false, "random_move": false, "parti: value_play_worker: stored actions don't fit the replayed fight
+03:09:12 [50/1500] wins 47 vs teacher 45; mean terminal value 0.479 vs 0.452
+03:09:15 [60/1500] wins 55 vs teacher 51; mean terminal value 0.461 vs 0.427
+03:09:17 episode 47504780903202 skipped: replay diverged from the stored fight: t {"run_seed": 475047809032, "ascension": 20, "fight_index": 2, "actions": [[1, 1, 1, 0, 2, 2, 0, 0, 2, 2], [4]], "teacher": {"leaf": "guided_rollout", "simulations": 20000, "oracle": false, "random_move": false, "particles": 8}}: value_play_worker: replayed fight didn't end after its stored actions
+03:09:17 episode 47504780904205 skipped: replay diverged from the stored fight: ctions": [[1, 3, 4, 0, 0, 1, 1, 1, 0, 2, 2, 0, 0, 0, 1, 1, 0, 1, 1], [0, 1, 0, 1, 2, 1, 1, 2, 1], [2, 1, 1, 4, 5, 1, 2, 1, 1, 3, 1], [2, 1, 1, 2, 1], [0, 2, 0, 2, 1, 0, 2, 1]], "teacher": {"leaf": "guided_rollout", "simulations": 20000,: value_play_worker: stored actions don't fit the replayed fight
+03:09:19 [70/1500] wins 63 vs teacher 59; mean terminal value 0.457 vs 0.427
+03:09:19 episode 47504780909303 skipped: replay diverged from the stored fight: episode 47504780909303: replayed start differs from the stored fight on ['starting_hp', 'global_numeric', 'cards']
+03:09:21 episode 47504780917304 skipped: replay diverged from the stored fight: : [[1, 0, 1, 0, 0, 1, 0, 0, 0, 0, 0, 2, 0], [0, 3, 1, 1, 0, 0, 0, 1, 0, 5, 0], [4], [2, 0, 0, 2, 1, 1, 1, 0, 1]], "teacher": {"leaf": "guided_rollout", "simulations": 20000, "oracle": false, "random_move": false, "particles": 8}}: value_play_worker: replayed fight didn't end after its stored actions
+03:09:21 episode 47504780919204 skipped: replay diverged from the stored fight: : [[0, 1, 0, 0, 4, 4, 0, 0, 1], [5], [0, 0, 0, 0, 0, 1, 1, 1, 2, 1], [1, 2, 0, 0, 0, 1, 0, 1, 0, 1, 0, 1, 1, 3, 1, 0, 1, 1, 1, 1, 0, 3, 0, 1, 1]], "teacher": {"leaf": "guided_rollout", "simulations": 20000, "oracle": false, "rand: value_play_worker: replayed fight didn't end after its stored actions
+03:09:21 episode 47504780919206 skipped: replay diverged from the stored fight: : [[0, 1, 0, 0, 4, 4, 0, 0, 1], [5], [0, 0, 0, 0, 0, 1, 1, 1, 2, 1], [1, 2, 0, 0, 0, 1, 0, 1, 0, 1, 0, 1, 1, 3, 1, 0, 1, 1, 1, 1, 0, 3, 0, 1, 1], [1, 2, 0, 0, 0, 0, 0, 0, 1, 0, 1, 0, 0, 0, 2], [3, 0, 0, 4, 8, 1, 2, 0, 4, 0, 1, 3,: value_play_worker: replayed fight didn't end after its stored actions
+03:09:22 [80/1500] wins 72 vs teacher 67; mean terminal value 0.452 vs 0.422
+03:09:27 episode 47504780927203 skipped: replay diverged from the stored fight: 2, "ascension": 20, "fight_index": 3, "actions": [[0, 0, 0, 0, 1, 1, 0, 1, 0], [0, 2, 0, 0, 3, 1, 0, 0, 0], [4]], "teacher": {"leaf": "guided_rollout", "simulations": 20000, "oracle": false, "random_move": false, "particles": 8}}: value_play_worker: replayed fight didn't end after its stored actions
+03:09:29 [90/1500] wins 81 vs teacher 76; mean terminal value 0.453 vs 0.425
+03:09:31 episode 47504780936207 skipped: replay diverged from the stored fight: : [[0, 1, 1, 0, 0, 0, 0, 1, 1], [1, 0, 1, 0, 0, 1, 1, 1, 0, 0], [5], [2, 1, 0, 2, 0, 1, 0, 0, 0], [1, 2, 0, 0, 1], [1, 0, 0, 0, 0, 0, 0, 1], [0, 1, 0, 0, 2, 0, 2, 2, 1, 0, 2]], "teacher": {"leaf": "guided_rollout", "simulations":: value_play_worker: replayed fight didn't end after its stored actions
+03:09:34 [100/1500] wins 91 vs teacher 86; mean terminal value 0.458 vs 0.430
+03:09:36 [110/1500] wins 100 vs teacher 95; mean terminal value 0.459 vs 0.433
+03:09:41 [120/1500] wins 110 vs teacher 105; mean terminal value 0.463 vs 0.440
+03:09:47 episode 47504780961304 skipped: replay diverged from the stored fight: ctions": [[0, 0, 0, 1, 1, 1, 0, 0, 1, 2, 0, 0, 1, 3], [0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 1, 3], [4, 2, 5, 0, 1, 0, 1, 1, 1, 0, 1, 0, 1, 0], [14]], "teacher": {"leaf": "guided_rollout", "simulations": 20000, "oracle": false, ": value_play_worker: stored actions don't fit the replayed fight
+03:09:47 episode 47504780961306 skipped: replay diverged from the stored fight: ctions": [[0, 0, 0, 1, 1, 1, 0, 0, 1, 2, 0, 0, 1, 3], [0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 1, 3], [4, 2, 5, 0, 1, 0, 1, 1, 1, 0, 1, 0, 1, 0], [14], [0, 1, 0, 0, 1, 1, 2, 0, 1, 0, 2, 0, 1, 1, 1, 0, 1, 2], [0, 0, 0, 2, 2, 0, 1, 1: value_play_worker: stored actions don't fit the replayed fight
+03:09:48 [130/1500] wins 119 vs teacher 114; mean terminal value 0.465 vs 0.443
+03:09:49 episode 47504780965204 skipped: replay diverged from the stored fight: ctions": [[1, 0, 0, 0, 1, 2, 1, 0, 1, 2, 2, 3, 1, 1, 1], [2, 2, 0, 2, 0, 0, 0, 1, 2, 0, 0, 2, 2, 1], [0, 2, 1, 3, 0, 2, 2, 0, 1, 0, 0, 0, 3, 0, 2, 2, 1, 3], [6, 0, 5, 2, 2, 0, 0, 1, 0, 5, 0, 3, 0, 0, 0, 0, 3, 2, 0, 0, 2, 0, 0, 4, 4, 0, : value_play_worker: stored actions don't fit the replayed fight
+03:09:51 episode 47504780967205 skipped: replay diverged from the stored fight: ctions": [[1, 1, 2, 0, 4, 1, 0, 0, 0, 2, 2, 0, 0, 1, 1, 0, 0, 0, 1], [0, 0, 0, 1, 2, 0, 0, 0, 2, 0, 0, 3, 3], [1, 1, 1, 1, 1, 2, 3, 2, 3, 0, 0, 1, 0, 0, 0, 1, 1, 0, 3, 3], [0, 4, 2, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 1], [0, 0, 0, 0, 0: value_play_worker: stored actions don't fit the replayed fight
+03:09:53 [140/1500] wins 128 vs teacher 122; mean terminal value 0.465 vs 0.439
+03:09:53 episode 47504780957205 skipped: replay diverged from the stored fight: episode 47504780957205: replayed start differs from the stored fight on ['starting_hp', 'global_numeric']
+03:09:58 [150/1500] wins 137 vs teacher 131; mean terminal value 0.463 vs 0.438
+03:09:59 episode 47504780985303 skipped: replay diverged from the stored fight: ctions": [[4, 0, 2, 0, 2, 2, 0, 0, 0, 1, 0, 2], [0, 0, 1, 0, 0, 1, 0, 0, 1], [0, 0, 0, 1, 0, 0, 1, 0, 2, 0, 1, 0, 1, 1, 1]], "teacher": {"leaf": "guided_rollout", "simulations": 20000, "oracle": false, "random_move": false, "particles":: value_play_worker: stored actions don't fit the replayed fight
+03:10:00 episode 47504780990205 skipped: replay diverged from the stored fight: ctions": [[2, 0, 1, 0, 0, 0, 0, 1, 1, 1], [0, 1, 1, 0, 4, 3, 0, 0, 1, 1, 1, 0, 0, 0, 0, 0, 1, 0, 1, 0, 1], [1, 0, 1, 4, 2, 0, 1, 1, 1], [6, 6, 0, 0, 0, 0, 0, 3, 3, 0, 5, 1, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1], [1, 0, 0, 0, 0, 0, 1, 1, 0: value_play_worker: stored actions don't fit the replayed fight
+03:10:02 [160/1500] wins 146 vs teacher 140; mean terminal value 0.467 vs 0.444
+03:10:07 [170/1500] wins 156 vs teacher 150; mean terminal value 0.467 vs 0.446
+03:10:10 episode 47504781004306 skipped: replay diverged from the stored fight: : [[0, 0, 0, 0, 0, 0, 0, 1, 1], [1, 0, 0, 0, 1, 0, 0, 4, 0], [0, 2, 1, 0, 0, 1, 0, 1, 0, 0, 1, 0], [6, 0, 0, 1, 1, 2, 0, 0, 2, 3, 2, 0], [0, 2, 2, 0, 1, 0, 0, 0, 2, 0, 0], [3]], "teacher": {"leaf": "guided_rollout", "simulations": value_play_worker: replayed fight didn't end after its stored actions
+03:10:10 episode 47504781005303 skipped: replay diverged from the stored fight: index": 3, "actions": [[2, 0, 0, 0, 1, 0, 0, 2, 2, 1, 0, 0, 1, 1, 0, 1, 1], [1, 1, 2, 1, 0, 0, 0, 0, 0, 0], [7]], "teacher": {"leaf": "guided_rollout", "simulations": 20000, "oracle": false, "random_move": false, "particles": 8}}: value_play_worker: replayed fight didn't end after its stored actions
+03:10:11 [180/1500] wins 164 vs teacher 157; mean terminal value 0.464 vs 0.442
+03:10:16 [190/1500] wins 174 vs teacher 167; mean terminal value 0.466 vs 0.445
+03:10:20 episode 47504781015304 skipped: replay diverged from the stored fight: episode 47504781015304: replayed start differs from the stored fight on ['starting_hp', 'global_numeric']
+03:10:21 [200/1500] wins 184 vs teacher 177; mean terminal value 0.467 vs 0.446
+03:10:22 episode 47504781022303 skipped: replay diverged from the stored fight: index": 3, "actions": [[4, 4, 0, 0, 1, 1, 0, 0, 2, 2, 0, 0, 0, 0, 0, 0, 0], [3], [1, 0, 0, 0, 0, 0, 0, 2, 2, 0]], "teacher": {"leaf": "guided_rollout", "simulations": 20000, "oracle": false, "random_move": false, "particles": 8}}: value_play_worker: replayed fight didn't end after its stored actions
+03:10:25 [210/1500] wins 192 vs teacher 185; mean terminal value 0.464 vs 0.445
+03:10:27 episode 47504781032304 skipped: replay diverged from the stored fight: ctions": [[1, 1, 1, 0, 0, 1, 0, 0, 1, 1], [2, 0, 1, 0, 0, 2, 2, 0, 0, 2, 2, 0, 0, 0, 0], [1, 0, 1, 0, 1, 1, 2, 1, 1, 0, 0, 0, 0, 0], [1, 0, 1, 1, 0, 0, 2, 2, 0, 1]], "teacher": {"leaf": "guided_rollout", "simulations": 20000, "oracle": : value_play_worker: stored actions don't fit the replayed fight
+03:10:29 [220/1500] wins 201 vs teacher 194; mean terminal value 0.464 vs 0.445
+03:10:34 [230/1500] wins 211 vs teacher 204; mean terminal value 0.467 vs 0.450
+03:10:37 episode 47504781054204 skipped: replay diverged from the stored fight: ctions": [[2, 0, 2, 0, 0, 0, 0, 0, 1], [2, 0, 0, 0, 1, 0, 0, 1, 2, 2, 0, 1, 1], [4, 0, 0, 1, 0, 3, 2, 0, 0, 2, 0], [1, 4, 1, 0, 0, 3, 0, 0, 0, 3, 2, 2]], "teacher": {"leaf": "guided_rollout", "simulations": 20000, "oracle": false, "rand: value_play_worker: stored actions don't fit the replayed fight
+03:10:37 episode 47504781055205 skipped: replay diverged from the stored fight: ctions": [[1, 1, 0, 1, 0, 0, 0, 0, 1, 1], [0, 0, 0, 1, 1, 2, 3, 2, 0, 1, 1, 1], [2], [0, 5, 0, 2, 0], [1, 0, 1, 1, 3, 3, 0, 2, 0]], "teacher": {"leaf": "guided_rollout", "simulations": 20000, "oracle": false, "random_move": false, "part: value_play_worker: stored actions don't fit the replayed fight
+03:10:37 episode 47504781051205 skipped: replay diverged from the stored fight: episode 47504781051205: replayed start differs from the stored fight on ['starting_hp', 'global_numeric']
+03:10:38 episode 47504781056304 skipped: replay diverged from the stored fight: episode 47504781056304: replayed start differs from the stored fight on ['starting_hp', 'global_numeric']
+03:10:39 [240/1500] wins 219 vs teacher 211; mean terminal value 0.463 vs 0.445
+03:10:41 [250/1500] wins 227 vs teacher 219; mean terminal value 0.459 vs 0.443
+03:10:44 [260/1500] wins 237 vs teacher 228; mean terminal value 0.461 vs 0.444
+03:10:44 episode 47504781078206 skipped: replay diverged from the stored fight: : [[6, 3, 1, 0, 1, 0, 1, 0, 1, 1, 0, 0, 0, 1, 1], [2, 0, 0, 0, 1, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 2], [0, 3, 2, 0, 1, 1, 0, 0, 0, 2, 2], [0, 2, 1, 1, 0, 1, 0, 4, 1, 1, 0, 3, 0, 1, 0, 1, 2, 2, 3, 0, 0, 0, 0, 1, 0], [5, 4, 1, 0, 2: value_play_worker: replayed fight didn't end after its stored actions
+03:10:44 episode 47504781079304 skipped: replay diverged from the stored fight: : [[0, 1, 0, 0, 0, 0, 0, 1, 2, 1], [1, 4], [3, 2, 0, 0, 1, 2, 0, 0, 1, 2], [1, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0]], "teacher": {"leaf": "guided_rollout", "simulations": 20000, "oracle": false, "random_move": false, "particles": 8}}: value_play_worker: replayed fight didn't end after its stored actions
+03:10:49 [270/1500] wins 246 vs teacher 238; mean terminal value 0.462 vs 0.445
+03:10:53 [280/1500] wins 256 vs teacher 248; mean terminal value 0.465 vs 0.447
+03:10:58 [290/1500] wins 266 vs teacher 258; mean terminal value 0.466 vs 0.449
+03:11:01 [300/1500] wins 276 vs teacher 268; mean terminal value 0.469 vs 0.452
+03:11:01 episode 47504781109203 skipped: replay diverged from the stored fight: index": 3, "actions": [[0, 2, 0, 1, 1, 2, 0, 0, 1, 0, 2, 1], [0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 1, 1, 0, 0], [5]], "teacher": {"leaf": "guided_rollout", "simulations": 20000, "oracle": false, "random_move": false, "particles": 8}}: value_play_worker: replayed fight didn't end after its stored actions
+03:11:04 episode 47504781108204 skipped: replay diverged from the stored fight: episode 47504781108204: replayed start differs from the stored fight on ['starting_hp', 'global_numeric']
+03:11:07 [310/1500] wins 285 vs teacher 277; mean terminal value 0.468 vs 0.452
+03:11:10 [320/1500] wins 295 vs teacher 286; mean terminal value 0.469 vs 0.453
+03:11:13 [330/1500] wins 304 vs teacher 295; mean terminal value 0.468 vs 0.452
+03:11:17 [340/1500] wins 313 vs teacher 304; mean terminal value 0.468 vs 0.452
+03:11:21 [350/1500] wins 321 vs teacher 312; mean terminal value 0.466 vs 0.451
+03:11:29 [360/1500] wins 329 vs teacher 320; mean terminal value 0.465 vs 0.450
+03:11:33 [370/1500] wins 336 vs teacher 326; mean terminal value 0.461 vs 0.445
+03:11:39 [380/1500] wins 345 vs teacher 334; mean terminal value 0.460 vs 0.444
+03:11:44 [390/1500] wins 355 vs teacher 344; mean terminal value 0.462 vs 0.446
+03:11:48 [400/1500] wins 365 vs teacher 354; mean terminal value 0.465 vs 0.449
+03:11:50 episode 47504781187306 skipped: replay diverged from the stored fight: : [[1, 1, 0, 0, 0, 1, 0, 1, 1, 0, 0, 0, 1, 1, 0, 0], [4], [0, 2, 0, 1, 1, 0, 1, 0, 1], [1, 3, 3, 0, 0, 0, 0, 0, 0], [3, 2, 1, 0], [5, 0, 0, 0, 2, 3, 0, 1, 0, 1, 1, 0, 1]], "teacher": {"leaf": "guided_rollout", "simulations": 2000: value_play_worker: replayed fight didn't end after its stored actions
+03:11:53 [410/1500] wins 373 vs teacher 362; mean terminal value 0.463 vs 0.447
+03:11:56 episode 47504781200205 skipped: replay diverged from the stored fight: ctions": [[2, 0, 1, 0, 2, 2, 1, 1, 0], [0, 4, 4, 2, 4, 0, 1, 0, 1, 1, 1, 1], [2, 0, 2, 0, 0, 0, 2, 0, 3, 5, 0, 6], [0, 3, 3, 0, 2, 2, 2, 2, 1, 1, 1, 1, 1, 1, 3, 5, 2], [0, 4, 1, 1, 0, 2, 0, 0, 0, 1, 0, 0, 2, 2, 1, 0, 0, 1, 0, 0, 0, 0]],: value_play_worker: stored actions don't fit the replayed fight
+03:11:56 [420/1500] wins 383 vs teacher 370; mean terminal value 0.464 vs 0.446
+03:12:03 [430/1500] wins 393 vs teacher 380; mean terminal value 0.466 vs 0.449
+03:12:09 [440/1500] wins 402 vs teacher 388; mean terminal value 0.467 vs 0.449
+03:12:10 episode 47504781217305 skipped: replay diverged from the stored fight: episode 47504781217305: replayed start differs from the stored fight on ['starting_hp', 'global_numeric']
+03:12:12 [450/1500] wins 412 vs teacher 398; mean terminal value 0.467 vs 0.449
+03:12:14 episode 47504781199204 skipped: replay diverged from the stored fight: episode 47504781199204: replayed start differs from the stored fight on ['starting_hp', 'global_numeric']
+03:12:18 [460/1500] wins 422 vs teacher 408; mean terminal value 0.470 vs 0.451
+03:12:21 [470/1500] wins 432 vs teacher 418; mean terminal value 0.470 vs 0.452
+03:12:23 [480/1500] wins 440 vs teacher 425; mean terminal value 0.469 vs 0.450
+03:12:25 episode 47504781256202 skipped: replay diverged from the stored fight: episode 47504781256202: replayed start differs from the stored fight on ['starting_hp', 'global_numeric']
+03:12:26 episode 47504781249205 skipped: replay diverged from the stored fight: episode 47504781249205: replayed start differs from the stored fight on ['starting_hp', 'global_numeric']
+03:12:27 episode 47504781260203 skipped: replay diverged from the stored fight: 7812602, "ascension": 20, "fight_index": 3, "actions": [[3, 4, 0, 0, 3, 1, 1, 0, 0], [0, 1, 1, 0, 1, 2, 0], [4]], "teacher": {"leaf": "guided_rollout", "simulations": 20000, "oracle": false, "random_move": false, "particles": 8}}: value_play_worker: replayed fight didn't end after its stored actions
+03:12:27 [490/1500] wins 450 vs teacher 435; mean terminal value 0.470 vs 0.451
+03:12:30 [500/1500] wins 460 vs teacher 445; mean terminal value 0.470 vs 0.452
+03:12:36 [510/1500] wins 469 vs teacher 454; mean terminal value 0.470 vs 0.451
+03:12:39 [520/1500] wins 475 vs teacher 461; mean terminal value 0.468 vs 0.450
+03:12:44 [530/1500] wins 485 vs teacher 469; mean terminal value 0.468 vs 0.448
+03:12:49 [540/1500] wins 493 vs teacher 477; mean terminal value 0.466 vs 0.447
+03:12:53 [550/1500] wins 502 vs teacher 486; mean terminal value 0.467 vs 0.447
+03:12:58 [560/1500] wins 512 vs teacher 496; mean terminal value 0.468 vs 0.450
+03:13:03 [570/1500] wins 522 vs teacher 505; mean terminal value 0.469 vs 0.450
+03:13:09 [580/1500] wins 532 vs teacher 514; mean terminal value 0.470 vs 0.451
+03:13:13 [590/1500] wins 542 vs teacher 523; mean terminal value 0.471 vs 0.451
+03:13:19 [600/1500] wins 552 vs teacher 532; mean terminal value 0.472 vs 0.451
+03:13:19 episode 47504781345205 skipped: replay diverged from the stored fight: : [[4, 4, 1, 0, 3, 2, 1, 0, 1], [0, 0, 0, 0, 1, 0, 3, 3, 0, 2], [1, 1, 0, 1, 2, 1, 2, 1, 1, 1, 1, 0, 0, 0, 3, 1, 0, 1, 1, 1, 0, 0, 2, 2, 0, 2, 0, 0], [0, 0, 0, 0, 3, 3, 0, 0, 1, 2, 0, 2, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 1, 1, 0, 0],: value_play_worker: replayed fight didn't end after its stored actions
+03:13:22 [610/1500] wins 561 vs teacher 541; mean terminal value 0.472 vs 0.452
+03:13:29 [620/1500] wins 570 vs teacher 550; mean terminal value 0.471 vs 0.451
+03:13:32 episode 47504781367205 skipped: replay diverged from the stored fight: episode 47504781367205: replayed start differs from the stored fight on ['starting_hp', 'global_numeric']
+03:13:33 episode 47504781361205 skipped: replay diverged from the stored fight: episode 47504781361205: replayed start differs from the stored fight on ['starting_hp', 'global_numeric']
+03:13:34 [630/1500] wins 580 vs teacher 559; mean terminal value 0.471 vs 0.451
+03:13:40 [640/1500] wins 588 vs teacher 567; mean terminal value 0.469 vs 0.449
+03:13:45 [650/1500] wins 596 vs teacher 575; mean terminal value 0.468 vs 0.449
+03:13:50 [660/1500] wins 605 vs teacher 583; mean terminal value 0.468 vs 0.448
+03:13:54 [670/1500] wins 614 vs teacher 591; mean terminal value 0.468 vs 0.447
+03:13:57 [680/1500] wins 624 vs teacher 601; mean terminal value 0.469 vs 0.449
+03:14:01 [690/1500] wins 632 vs teacher 608; mean terminal value 0.468 vs 0.447
+03:14:06 [700/1500] wins 640 vs teacher 616; mean terminal value 0.467 vs 0.446
+03:14:10 [710/1500] wins 647 vs teacher 623; mean terminal value 0.466 vs 0.445
+03:14:11 episode 47504781445304 skipped: replay diverged from the stored fight: ctions": [[2, 1, 2, 0, 4, 3, 1, 0, 2, 3, 0, 0, 0, 0, 1, 0, 0, 1, 0, 0, 0], [0, 1, 0, 0, 0, 0, 0], [7, 0, 1, 0], [0, 1, 0, 1, 1, 0, 0, 0, 0, 0, 0]], "teacher": {"leaf": "guided_rollout", "simulations": 20000, "oracle": false, "random_mov: value_play_worker: stored actions don't fit the replayed fight
+03:14:14 episode 47504781453204 skipped: replay diverged from the stored fight: ctions": [[1, 0, 0, 1, 1, 1, 0, 1, 1, 0, 0, 0], [1, 0, 0, 1, 1, 1, 0, 0, 0], [3, 0, 0, 0, 1, 0, 0, 0, 0], [1, 0, 1, 2, 2, 1, 0, 0, 1, 0, 0, 0]], "teacher": {"leaf": "guided_rollout", "simulations": 20000, "oracle": false, "random_move":: value_play_worker: stored actions don't fit the replayed fight
+03:14:14 [720/1500] wins 656 vs teacher 631; mean terminal value 0.466 vs 0.445
+03:14:18 episode 47504781449306 skipped: replay diverged from the stored fight: episode 47504781449306: replayed start differs from the stored fight on ['starting_hp', 'global_numeric']
+03:14:21 [730/1500] wins 666 vs teacher 641; mean terminal value 0.467 vs 0.446
+03:14:22 episode 47504781463304 skipped: replay diverged from the stored fight: 4, "actions": [[0, 0, 0, 0, 1, 2, 1, 1], [0, 0, 0, 0, 1, 1, 0, 1, 1], [8], [0, 0, 1, 0, 1, 0, 0, 1, 2, 1, 0, 1]], "teacher": {"leaf": "guided_rollout", "simulations": 20000, "oracle": false, "random_move": false, "particles": 8}}: value_play_worker: replayed fight didn't end after its stored actions
+03:14:24 [740/1500] wins 676 vs teacher 651; mean terminal value 0.468 vs 0.447
+03:14:29 [750/1500] wins 684 vs teacher 660; mean terminal value 0.467 vs 0.447
+03:14:34 [760/1500] wins 692 vs teacher 669; mean terminal value 0.466 vs 0.446
+03:14:41 [770/1500] wins 702 vs teacher 679; mean terminal value 0.467 vs 0.447
+03:14:43 episode 47504781492205 skipped: replay diverged from the stored fight: episode 47504781492205: replayed start differs from the stored fight on ['starting_hp', 'global_numeric']
+03:14:45 [780/1500] wins 709 vs teacher 686; mean terminal value 0.466 vs 0.446
+03:14:49 episode 47504781502307 skipped: replay diverged from the stored fight: episode 47504781502307: replayed start differs from the stored fight on ['starting_hp', 'global_numeric']
+03:14:52 [790/1500] wins 719 vs teacher 696; mean terminal value 0.466 vs 0.447
+03:14:55 [800/1500] wins 726 vs teacher 704; mean terminal value 0.465 vs 0.446
+03:15:00 [810/1500] wins 736 vs teacher 713; mean terminal value 0.465 vs 0.446
+03:15:03 episode 47504781539204 skipped: replay diverged from the stored fight: : [[3, 1, 0, 0, 1, 0, 0, 1, 0, 1, 0], [0, 2, 1, 0, 0, 1, 0, 0, 0, 2, 1, 0], [6], [0, 2, 0, 2, 0, 2, 2, 0, 0, 0, 0, 0, 1, 0, 1, 0, 0, 0, 1, 1]], "teacher": {"leaf": "guided_rollout", "simulations": 20000, "oracle": false, "random_: value_play_worker: replayed fight didn't end after its stored actions
+03:15:03 episode 47504781539207 skipped: replay diverged from the stored fight: : [[3, 1, 0, 0, 1, 0, 0, 1, 0, 1, 0], [0, 2, 1, 0, 0, 1, 0, 0, 0, 2, 1, 0], [6], [0, 2, 0, 2, 0, 2, 2, 0, 0, 0, 0, 0, 1, 0, 1, 0, 0, 0, 1, 1], [0, 3, 5, 3, 0, 4, 2, 0, 0, 0, 2, 2, 3, 0, 4, 2, 2, 0, 0, 0, 0, 1, 0, 0, 2, 0, 0, 0, 1: value_play_worker: replayed fight didn't end after its stored actions
+03:15:03 [820/1500] wins 746 vs teacher 723; mean terminal value 0.465 vs 0.446
+03:15:07 [830/1500] wins 755 vs teacher 732; mean terminal value 0.465 vs 0.446
+03:15:12 [840/1500] wins 765 vs teacher 742; mean terminal value 0.465 vs 0.447
+03:15:13 episode 47504781564206 skipped: replay diverged from the stored fight: : [[1, 2, 0, 1, 1, 2, 1, 1], [4, 5], [4, 5, 2, 1, 0, 2, 3, 1, 1, 1, 1, 1, 1, 2, 2], [1, 1, 1, 1, 0, 0, 0, 0, 0], [9], [5, 0, 0, 0, 0, 0, 0, 1, 1, 0, 2, 0]], "teacher": {"leaf": "guided_rollout", "simulations": 20000, "oracle": fa: value_play_worker: replayed fight didn't end after its stored actions
+03:15:16 episode 47504781566203 skipped: replay diverged from the stored fight: , "fight_index": 3, "actions": [[3, 3, 1, 0, 2, 2, 0, 0, 1, 2, 1, 0, 2], [0, 2, 0, 0, 1, 0, 0, 0, 0, 0, 2], [5]], "teacher": {"leaf": "guided_rollout", "simulations": 20000, "oracle": false, "random_move": false, "particles": 8}}: value_play_worker: replayed fight didn't end after its stored actions
+03:15:16 episode 47504781566204 skipped: replay diverged from the stored fight: : [[3, 3, 1, 0, 2, 2, 0, 0, 1, 2, 1, 0, 2], [0, 2, 0, 0, 1, 0, 0, 0, 0, 0, 2], [5], [3, 0, 0, 3, 3, 0, 0, 1, 1, 1, 0, 8, 1, 0, 1, 0, 0, 3, 1, 0, 0, 0, 0, 0, 2, 0]], "teacher": {"leaf": "guided_rollout", "simulations": 20000, "ora: value_play_worker: replayed fight didn't end after its stored actions
+03:15:16 [850/1500] wins 774 vs teacher 752; mean terminal value 0.465 vs 0.447
+03:15:22 [860/1500] wins 783 vs teacher 762; mean terminal value 0.465 vs 0.447
+03:15:28 [870/1500] wins 792 vs teacher 771; mean terminal value 0.465 vs 0.447
+03:15:31 episode 47504781570206 skipped: replay diverged from the stored fight: episode 47504781570206: replayed start differs from the stored fight on ['starting_hp', 'global_numeric']
+03:15:33 [880/1500] wins 801 vs teacher 780; mean terminal value 0.465 vs 0.447
+03:15:33 episode 47504781595203 skipped: replay diverged from the stored fight: ctions": [[0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 1, 1, 0, 0, 1, 1, 1, 0, 0, 0], [4, 2, 2, 0, 2, 0, 0, 1, 2, 2, 0, 0, 0, 0], [0, 2, 1, 4, 3, 1, 2, 0, 1, 1]], "teacher": {"leaf": "guided_rollout", "simulations": 20000, "oracle": false, "random: value_play_worker: stored actions don't fit the replayed fight
+03:15:38 [890/1500] wins 811 vs teacher 790; mean terminal value 0.466 vs 0.448
+03:15:43 [900/1500] wins 821 vs teacher 800; mean terminal value 0.466 vs 0.449
+03:15:46 episode 47504781611203 skipped: replay diverged from the stored fight: ctions": [[6, 0, 0, 1, 3, 2, 0, 0, 0], [0, 0, 3, 0, 0, 2, 2, 0, 1, 1], [2, 2, 0, 2, 2, 2, 3, 1, 0, 2, 2, 2, 0, 0, 2, 2, 2]], "teacher": {"leaf": "guided_rollout", "simulations": 20000, "oracle": false, "random_move": false, "particles":: value_play_worker: stored actions don't fit the replayed fight
+03:15:47 episode 47504781608304 skipped: replay diverged from the stored fight: episode 47504781608304: replayed start differs from the stored fight on ['starting_hp', 'global_numeric']
+03:15:50 episode 47504781608306 skipped: replay diverged from the stored fight: episode 47504781608306: replayed start differs from the stored fight on ['starting_hp', 'global_numeric']
+03:15:50 [910/1500] wins 830 vs teacher 810; mean terminal value 0.466 vs 0.450
+03:15:52 episode 47504781615204 skipped: replay diverged from the stored fight: episode 47504781615204: replayed start differs from the stored fight on ['starting_hp', 'global_numeric']
+03:15:53 episode 47504781583204 skipped: replay diverged from the stored fight: episode 47504781583204: replayed start differs from the stored fight on ['starting_hp', 'global_numeric']
+03:16:00 [920/1500] wins 840 vs teacher 819; mean terminal value 0.467 vs 0.451
+03:16:03 [930/1500] wins 850 vs teacher 828; mean terminal value 0.468 vs 0.452
+03:16:04 episode 47504781635304 skipped: replay diverged from the stored fight: ctions": [[3, 0, 1, 0, 0, 3, 3, 0, 0, 0, 1, 0, 1, 0, 1, 2], [0, 1, 2, 0, 0, 0, 0, 2, 2, 0, 0, 0, 1], [0, 3, 3, 1, 0, 1, 0, 1, 2, 1, 0, 1, 0, 0, 0, 0], [0, 8, 2, 2, 2, 1, 1, 3, 3, 1, 2, 1, 2, 1, 1, 1, 3, 2, 2, 1, 1, 2, 1, 0, 1, 2, 0]], ": value_play_worker: stored actions don't fit the replayed fight
+03:16:06 episode 47504781637304 skipped: replay diverged from the stored fight: episode 47504781637304: replayed start differs from the stored fight on ['starting_hp', 'global_numeric']
+03:16:08 [940/1500] wins 860 vs teacher 838; mean terminal value 0.468 vs 0.452
+03:16:11 episode 47504781647303 skipped: replay diverged from the stored fight: on": 20, "fight_index": 3, "actions": [[0, 1, 1, 0, 0, 1, 0, 0, 0, 0, 0, 0], [1, 6, 2, 0, 1, 0, 1], [3, 0, 1, 0, 1, 0]], "teacher": {"leaf": "guided_rollout", "simulations": 20000, "oracle": false, "random_move": false, "particles": 8}}: value_play_worker: stored actions don't fit the replayed fight
+03:16:12 [950/1500] wins 870 vs teacher 848; mean terminal value 0.468 vs 0.452
+03:16:16 [960/1500] wins 880 vs teacher 858; mean terminal value 0.468 vs 0.453
+03:16:17 episode 47504781658305 skipped: replay diverged from the stored fight: : [[0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0], [2, 3, 0, 1, 0, 1, 0, 1, 0, 0, 0, 0, 1, 2, 0, 0, 3, 3, 0, 2], [0, 6, 0, 0, 0, 0, 0, 4, 0, 1, 0], [1, 4, 3, 1, 1, 1, 1, 0, 1, 0, 2, 0, 1, 0], [1, 4, 0, 1, 1, 0, 0, 2, 1, 1, 1, 0, 0, 1, 1]], "t: value_play_worker: replayed fight didn't end after its stored actions
+03:16:19 episode 47504781664303 skipped: replay diverged from the stored fight: episode 47504781664303: replayed start differs from the stored fight on ['starting_hp', 'global_numeric']
+03:16:20 [970/1500] wins 890 vs teacher 868; mean terminal value 0.468 vs 0.453
+03:16:21 episode 47504781668205 skipped: replay diverged from the stored fight: ctions": [[2, 1, 2, 1, 0, 0, 1, 2, 2, 0, 0, 0], [1, 4, 1, 2, 1, 1, 0, 1, 0, 0], [0, 2, 0, 0, 2], [3, 2, 0, 1, 11, 0], [6, 4, 4, 1, 1, 4, 4, 5, 5, 1]], "teacher": {"leaf": "guided_rollout", "simulations": 20000, "oracle": false, "random_: value_play_worker: stored actions don't fit the replayed fight
+03:16:22 episode 47504781671204 skipped: replay diverged from the stored fight: episode 47504781671204: replayed start differs from the stored fight on ['starting_hp', 'global_numeric']
+03:16:23 [980/1500] wins 899 vs teacher 877; mean terminal value 0.468 vs 0.453
+03:16:26 [990/1500] wins 908 vs teacher 885; mean terminal value 0.468 vs 0.452
+03:16:26 episode 47504781682206 skipped: replay diverged from the stored fight: ctions": [[1, 1, 1, 1, 0, 1, 0, 2, 0], [1, 0, 0, 2, 2, 0], [1, 1, 1, 0, 1, 1, 1, 0, 0, 2, 0, 3, 5, 3, 1, 0, 2, 3, 0, 2, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], [6, 0, 2, 4, 3, 1, 0, 2, 2, 0, 0, 2, 1], [0, 0, 1, 7, 0, 0, 3, 1, 1, 0, 6, 0, 3, 0: value_play_worker: stored actions don't fit the replayed fight
+03:16:26 episode 47504781674304 skipped: replay diverged from the stored fight: episode 47504781674304: replayed start differs from the stored fight on ['starting_hp', 'global_numeric']
+03:16:30 [1000/1500] wins 917 vs teacher 894; mean terminal value 0.468 vs 0.452
+03:16:36 [1010/1500] wins 926 vs teacher 899; mean terminal value 0.467 vs 0.450
+03:16:39 episode 47504781707303 skipped: replay diverged from the stored fight: : 3, "actions": [[1, 1, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1], [3], [0, 0, 2, 2, 0, 2, 0, 0, 0, 2, 0, 1, 0, 1]], "teacher": {"leaf": "guided_rollout", "simulations": 20000, "oracle": false, "random_move": false, "particles": 8}}: value_play_worker: replayed fight didn't end after its stored actions
+03:16:40 [1020/1500] wins 936 vs teacher 909; mean terminal value 0.468 vs 0.451
+03:16:45 [1030/1500] wins 944 vs teacher 917; mean terminal value 0.468 vs 0.451
+03:16:49 episode 47504781725304 skipped: replay diverged from the stored fight: scension": 20, "fight_index": 4, "actions": [[0, 1, 0, 0, 1, 1, 1], [4], [2, 0, 1, 0, 2, 1], [4, 3, 2, 0, 0, 1]], "teacher": {"leaf": "guided_rollout", "simulations": 20000, "oracle": false, "random_move": false, "particles": 8}}: value_play_worker: replayed fight didn't end after its stored actions
+03:16:49 [1040/1500] wins 953 vs teacher 926; mean terminal value 0.468 vs 0.451
+03:16:51 episode 47504781734302 skipped: replay diverged from the stored fight: 475047817343, "ascension": 20, "fight_index": 2, "actions": [[2, 0, 1, 0, 2, 2, 1, 0, 0, 1, 1, 0, 2, 2, 1], [9]], "teacher": {"leaf": "guided_rollout", "simulations": 20000, "oracle": false, "random_move": false, "particles": 8}}: value_play_worker: replayed fight didn't end after its stored actions
+03:16:52 [1050/1500] wins 963 vs teacher 936; mean terminal value 0.468 vs 0.451
+03:16:57 [1060/1500] wins 972 vs teacher 945; mean terminal value 0.468 vs 0.452
+03:17:02 [1070/1500] wins 982 vs teacher 955; mean terminal value 0.468 vs 0.451
+03:17:09 [1080/1500] wins 992 vs teacher 962; mean terminal value 0.468 vs 0.451
+03:17:15 [1090/1500] wins 1001 vs teacher 971; mean terminal value 0.468 vs 0.451
+03:17:22 episode 47504781775204 skipped: replay diverged from the stored fight: episode 47504781775204: replayed start differs from the stored fight on ['starting_hp', 'global_numeric']
+03:17:22 [1100/1500] wins 1010 vs teacher 979; mean terminal value 0.468 vs 0.450
+03:17:24 episode 47504781775203 skipped: replay diverged from the stored fight: episode 47504781775203: replayed start differs from the stored fight on ['starting_hp', 'global_numeric']
+03:17:26 [1110/1500] wins 1018 vs teacher 986; mean terminal value 0.467 vs 0.449
+03:17:28 episode 47504781785304 skipped: replay diverged from the stored fight: episode 47504781785304: replayed start differs from the stored fight on ['starting_hp', 'global_numeric']
+03:17:30 [1120/1500] wins 1028 vs teacher 996; mean terminal value 0.467 vs 0.450
+03:17:31 episode 47504781799302 skipped: replay diverged from the stored fight: 3, "ascension": 20, "fight_index": 2, "actions": [[0, 0, 1, 0, 0, 0, 0, 1, 2, 1], [1, 0, 2, 1, 0, 0, 2, 1, 0, 0, 0, 0]], "teacher": {"leaf": "guided_rollout", "simulations": 20000, "oracle": false, "random_move": false, "particles": 8}}: value_play_worker: stored actions don't fit the replayed fight
+03:17:31 episode 47504781799303 skipped: replay diverged from the stored fight: ctions": [[0, 0, 1, 0, 0, 0, 0, 1, 2, 1], [1, 0, 2, 1, 0, 0, 2, 1, 0, 0, 0, 0], [8, 3, 3, 2, 0, 2, 2, 0, 0, 5, 2, 2, 0, 0, 1, 0, 0, 5, 2, 2, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0]], "teacher": {"leaf": "guided_rollout", "simulations": 2: value_play_worker: stored actions don't fit the replayed fight
+03:17:32 [1130/1500] wins 1038 vs teacher 1006; mean terminal value 0.467 vs 0.449
+03:17:38 [1140/1500] wins 1047 vs teacher 1015; mean terminal value 0.467 vs 0.449
+03:17:44 [1150/1500] wins 1056 vs teacher 1024; mean terminal value 0.467 vs 0.449
+03:17:48 [1160/1500] wins 1064 vs teacher 1031; mean terminal value 0.466 vs 0.448
+03:17:53 [1170/1500] wins 1074 vs teacher 1041; mean terminal value 0.466 vs 0.448
+03:17:55 episode 47504781836204 skipped: replay diverged from the stored fight: episode 47504781836204: replayed start differs from the stored fight on ['starting_hp', 'global_numeric']
+03:18:00 [1180/1500] wins 1083 vs teacher 1050; mean terminal value 0.465 vs 0.448
+03:18:02 [1190/1500] wins 1093 vs teacher 1060; mean terminal value 0.465 vs 0.448
+03:18:04 episode 47504781862304 skipped: replay diverged from the stored fight: tions": [[0, 0, 1, 0, 0, 0, 0, 1, 1], [0, 0, 0, 0, 0, 2, 0, 0, 0, 1], [0, 2, 0, 1, 1, 0, 0, 0, 3, 0, 1, 1], [6]], "teacher": {"leaf": "guided_rollout", "simulations": 20000, "oracle": false, "random_move": false, "particles": 8}}: value_play_worker: replayed fight didn't end after its stored actions
+03:18:08 [1200/1500] wins 1103 vs teacher 1070; mean terminal value 0.465 vs 0.448
+03:18:11 episode 47504781874207 skipped: replay diverged from the stored fight: episode 47504781874207: replayed start differs from the stored fight on ['starting_hp', 'global_numeric']
+03:18:11 episode 47504781879308 skipped: replay diverged from the stored fight: ctions": [[1, 1, 0, 0, 0, 0, 0, 1, 0, 3, 0, 0, 1], [0, 2, 1, 1, 1, 2, 1, 0, 0, 0, 1, 0, 0, 0], [0, 4, 1, 3, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 2, 1, 0, 0, 0], [0, 0, 1, 0, 0, 4, 0, 0, 0, 1, 0, 0, 0, 0, 2, 3, 3, 3], [2, 6, 1, 2, 0, 1, 0: value_play_worker: stored actions don't fit the replayed fight
+03:18:11 [1210/1500] wins 1113 vs teacher 1080; mean terminal value 0.466 vs 0.449
+03:18:12 episode 47504781882202 skipped: replay diverged from the stored fight: d": 475047818822, "ascension": 20, "fight_index": 2, "actions": [[1, 1, 0, 0, 0, 2, 0, 0, 0, 0], [1, 0, 1, 2, 0, 3, 0]], "teacher": {"leaf": "guided_rollout", "simulations": 20000, "oracle": false, "random_move": false, "particles": 8}}: value_play_worker: stored actions don't fit the replayed fight
+03:18:12 episode 47504781883203 skipped: replay diverged from the stored fight: n": 20, "fight_index": 3, "actions": [[5, 4, 0, 0, 2, 0, 0, 0, 1], [1, 2, 0, 0, 0, 1, 0, 0, 1, 0, 1, 0, 1], [5]], "teacher": {"leaf": "guided_rollout", "simulations": 20000, "oracle": false, "random_move": false, "particles": 8}}: value_play_worker: replayed fight didn't end after its stored actions
+03:18:14 [1220/1500] wins 1121 vs teacher 1088; mean terminal value 0.465 vs 0.449
+03:18:21 [1230/1500] wins 1130 vs teacher 1097; mean terminal value 0.465 vs 0.448
+03:18:24 [1240/1500] wins 1138 vs teacher 1105; mean terminal value 0.465 vs 0.448
+03:18:27 [1250/1500] wins 1147 vs teacher 1113; mean terminal value 0.465 vs 0.448
+03:18:32 [1260/1500] wins 1155 vs teacher 1121; mean terminal value 0.464 vs 0.448
+03:18:36 [1270/1500] wins 1164 vs teacher 1129; mean terminal value 0.465 vs 0.448
+03:18:39 [1280/1500] wins 1172 vs teacher 1137; mean terminal value 0.464 vs 0.447
+03:18:40 episode 47504781940303 skipped: replay diverged from the stored fight: ctions": [[2, 1, 0, 0, 1, 2, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 1, 1], [0, 0, 1, 2, 0, 1, 1, 0, 1, 0, 1, 1], [4, 2, 2, 0, 0, 0, 0, 0, 0, 1]], "teacher": {"leaf": "guided_rollout", "simulations": 20000, "oracle": false, "random_move": false, : value_play_worker: stored actions don't fit the replayed fight
+03:18:41 [1290/1500] wins 1181 vs teacher 1146; mean terminal value 0.465 vs 0.448
+03:18:45 [1300/1500] wins 1191 vs teacher 1155; mean terminal value 0.465 vs 0.448
+03:18:46 episode 47504781954204 skipped: replay diverged from the stored fight: ctions": [[1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], [2, 0, 0, 3, 3, 0, 0, 0, 0], [1, 1, 0, 1, 0, 0, 0, 0, 1, 1, 1], [1, 1, 1, 5, 4, 2, 1]], "teacher": {"leaf": "guided_rollout", "simulations": 20000, "oracle": false, "random_move": false, ": value_play_worker: stored actions don't fit the replayed fight
+03:18:48 [1310/1500] wins 1201 vs teacher 1165; mean terminal value 0.465 vs 0.448
+03:18:53 [1320/1500] wins 1209 vs teacher 1173; mean terminal value 0.465 vs 0.448
+03:18:54 episode 47504781968303 skipped: replay diverged from the stored fight: ions": [[2, 2, 0, 0, 1, 2, 0, 0, 1, 0, 1, 0, 0, 0, 0, 1, 0], [0, 2, 1, 0, 3, 3, 2, 0, 0, 2, 0, 0, 0, 6, 0], [6]], "teacher": {"leaf": "guided_rollout", "simulations": 20000, "oracle": false, "random_move": false, "particles": 8}}: value_play_worker: replayed fight didn't end after its stored actions
+03:18:54 episode 47504781968304 skipped: replay diverged from the stored fight: : [[2, 2, 0, 0, 1, 2, 0, 0, 1, 0, 1, 0, 0, 0, 0, 1, 0], [0, 2, 1, 0, 3, 3, 2, 0, 0, 2, 0, 0, 0, 6, 0], [6], [1, 1, 0, 4, 0, 0, 0, 3, 0, 0, 1]], "teacher": {"leaf": "guided_rollout", "simulations": 20000, "oracle": false, "random_: value_play_worker: replayed fight didn't end after its stored actions
+03:18:57 [1330/1500] wins 1219 vs teacher 1183; mean terminal value 0.465 vs 0.449
+03:19:00 [1340/1500] wins 1229 vs teacher 1193; mean terminal value 0.466 vs 0.449
+03:19:04 [1350/1500] wins 1238 vs teacher 1201; mean terminal value 0.465 vs 0.449
+03:19:08 episode 47504782009302 skipped: replay diverged from the stored fight: 047820093, "ascension": 20, "fight_index": 2, "actions": [[4, 4, 1, 0, 1, 1, 1, 0, 0, 1, 1, 0, 0, 0, 0, 0], [7]], "teacher": {"leaf": "guided_rollout", "simulations": 20000, "oracle": false, "random_move": false, "particles": 8}}: value_play_worker: replayed fight didn't end after its stored actions
+03:19:08 [1360/1500] wins 1247 vs teacher 1211; mean terminal value 0.465 vs 0.449
+03:19:10 episode 47504782012303 skipped: replay diverged from the stored fight: _index": 3, "actions": [[1, 1, 1, 0, 0, 1, 0, 1, 0, 1, 0, 0], [4, 2, 1, 0, 3, 1], [0, 2, 0, 0, 1, 0, 3, 1, 0, 0, 0, 0]], "teacher": {"leaf": "guided_rollout", "simulations": 20000, "oracle": false, "random_move": false, "particles": 8}}: value_play_worker: stored actions don't fit the replayed fight
+03:19:12 [1370/1500] wins 1256 vs teacher 1219; mean terminal value 0.466 vs 0.449
+03:19:16 [1380/1500] wins 1264 vs teacher 1226; mean terminal value 0.465 vs 0.448
+03:19:22 [1390/1500] wins 1273 vs teacher 1235; mean terminal value 0.465 vs 0.448
+03:19:27 [1400/1500] wins 1281 vs teacher 1243; mean terminal value 0.465 vs 0.448
+03:19:31 [1410/1500] wins 1289 vs teacher 1251; mean terminal value 0.464 vs 0.447
+03:19:31 
+03:19:31 Summary
+03:19:31 -------
+03:19:31 teacher:        {"child_min_visits": 50, "chunk": 500, "early_stop": true, "forced_simulations": 500, "leaf": "guided_rollout", "max_actions": 512, "oracle": false, "particles": 8, "random_move": false, "random_window": 24, "simulations": 20000}
+03:19:31                         guided_rollout   teacher
+03:19:31 won                               1289      1251   of 1410
+03:19:31 terminal value                   0.464     0.447   mean
+03:19:31 rows:           109,129
+03:19:31 seconds/fight:  4.6
+03:19:31 skipped:        90 fights whose replay diverged from the stored fight
+03:19:31 wall time:      10.2 min
+03:19:31 summary:        /home/sborowsk/project/sts_combat_rl/runs/schema=combat_v3/date=2026-09-28/id=elite-v3-f-mcts/out/summary.json
+run: done (exit 0) /home/sborowsk/project/sts_combat_rl/runs/schema=combat_v3/date=2026-09-28/id=elite-v3-f-mcts

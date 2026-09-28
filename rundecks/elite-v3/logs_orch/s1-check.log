@@ -1,0 +1,9 @@
+parts 4884, rows 377,175, decision rows 92,576, fights 4,884
+fights per encounter: {'three_sentries': 1635, 'gremlin_nob': 1632, 'lagavulin': 1617}
+wins 4390 / 4884
+skipped (replay diverged): 216 of 5100 source fights; teacher {'child_min_visits': 50, 'chunk': 500, 'early_stop': True, 'forced_simulations': 500, 'leaf': 'guided_rollout', 'max_actions': 512, 'oracle': False, 'particles': 8, 'random_move': False, 'random_window': 24, 'simulations': 20000}
+legal moves per decision: mean 4.2, max 512; tried moves mean 4.2
+fights starting with >=1 potion: 2730 / 4884
+potions at fight start: {'Swift': 136, 'Energy': 132, 'Speed': 131, 'Fear': 127, 'Blessing of the Forge': 125, 'Strength': 124, 'Block': 123, 'Power': 123, 'Colorless': 121, 'Dexterity': 120, 'Weak': 119, 'Explosive': 116, 'Fire': 114, 'Blood': 109, 'Flex': 109, 'Skill': 107, 'Distilled Chaos': 103, 'Duplication': 98, 'Ancient': 94, 'Attack': 94, 'Essence of Steel': 91, 'Regen': 89, 'Liquid Memories': 87, 'Liquid Bronze': 86, 'Elixir': 78, "Gambler's Brew": 72, 'Fairy': 59, 'Fruit Juice': 54, 'Snecko Oil': 51, 'Entropic Brew': 49, 'Heart of Iron': 44, 'Cultist': 42}
+relic ids at fight start (RelicId): 64 distinct; most common [(86, 4884), (89, 107), (26, 106), (76, 100), (121, 99), (45, 99), (44, 96), (46, 95), (48, 95), (119, 95), (9, 94), (4, 93)]
+GATE PASSED
