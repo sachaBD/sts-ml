@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Fight Outcome</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Kreon:wght@400;600&display=swap">
+<link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="gui.css">
+</head>
+<body>
+<div class="page">
+  <div class="masthead">
+    <h1>Fight Outcome</h1>
+    <p>Ironclad A20, Act 1. Edit a deck, relics, potions and HP, pick a fight, and see the pre-combat outcome model's P(win),
+      HP if won, and take-vs-skip for candidate cards.</p>
+    <p class="caveat">Development model. Band = min–max over 3 training seeds: rough, not calibrated.
+      Elite/boss card effects explain only ~20–35% of real effect variance. Boss P(win) near 0.5 is where the model is least reliable.</p>
+  </div>
+
+  <div class="controls">
+    <label for="preset">Start from <span class="hint">(starter, or held-out real fights)</span></label>
+    <select id="preset"></select>
+  </div>
+
+  <div class="controls">
+    <label for="enc">Fight</label>
+    <select id="enc"></select>
+    <label for="hp">HP</label><input id="hp" type="number" min="1" max="999">
+    <label for="maxhp">Max</label><input id="maxhp" type="number" min="1" max="999">
+    <label for="cap">Potion slots</label><input id="cap" type="number" min="0" max="5">
+  </div>
+
+  <section class="result">
+    <div class="big">
+      <div class="pwin" id="pwin">–</div>
+      <div class="sub" id="band"></div>
+      <div class="sub" id="ev"></div>
+      <div class="sub" id="real"></div>
+    </div>
+    <div>
+      <p class="deck-head">Final HP if won</p>
+      <div class="hist" id="hist"></div>
+    </div>
+  </section>
+
+  <section>
+    <p class="deck-head">Take vs skip <span class="hint">Δ vs the current deck; band = seed min–max of the Δ</span></p>
+    <div class="adder">
+      <input id="candIn" list="cardList" placeholder="add candidate card…">
+      <label class="check"><input type="checkbox" id="candUp"> upgraded</label>
+      <button id="candAdd">Add</button>
+    </div>
+    <table class="tbl" id="cands"></table>
+  </section>
+
+  <section>
+    <p class="deck-head">Relics &amp; potions</p>
+    <div class="relics" id="relics"></div>
+    <div class="adder">
+      <input id="relicIn" list="relicList" placeholder="add relic…"><button id="relicAdd">Add</button>
+      <input id="potIn" list="potList" placeholder="add potion…"><button id="potAdd">Add</button>
+    </div>
+  </section>
+
+  <section>
+    <p class="deck-head">Deck <span id="size"></span> <span class="hint">click a card to remove one · shift-click to toggle upgrade</span></p>
+    <div class="adder">
+      <input id="cardIn" list="cardList" placeholder="add card…">
+      <label class="check"><input type="checkbox" id="cardUp"> upgraded</label>
+      <button id="cardAdd">Add</button>
+    </div>
+    <div class="deck" id="deck"></div>
+  </section>
+
+  <section>
+    <p class="deck-head">This deck against every fight</p>
+    <table class="tbl" id="fights"></table>
+  </section>
+
+  <section>
+    <p class="deck-head">Real vs predicted win rate <span id="calN"></span>
+      <span class="hint">natural MCTS-played fights never used in training (run_seed % 10 ∈ {0, 1, 8}); predicted = 3-seed mean</span></p>
+    <table class="tbl" id="calEnc"></table>
+    <p class="deck-head" style="margin-top:22px">Calibration by predicted P(win) <span class="hint">real win rate in bold</span></p>
+    <table class="tbl" id="calRel"></table>
+  </section>
+
+  <footer>
+    Model: <code>tpair1-co2-w32-h64-l1-d30-lr.001-s{0,1,2}/augmented.pt</code> (see <code>rundecks/topology-sweep/REPORT.md</code>).
+    Card art from <code>../sts_visualiser</code>.
+  </footer>
+</div>
+<datalist id="cardList"></datalist>
+<datalist id="relicList"></datalist>
+<datalist id="potList"></datalist>
+<script src="vis/data/cards.js"></script>
+<script src="model.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
