@@ -24,3 +24,7 @@ node gui/verify_js.js            # model.js vs the Python ensemble (max |dp_win|
 
 `model.js` is a plain-JS port of `combat_outcome_v2` (no WASM, no server); `gui/site/` is fully static and works from a
 subpath. `site/` and `build/` are git-ignored build output.
+
+Live: https://sachabd.github.io/sts-ml/ (Pages serves the `gh-pages` branch of sachaBD/sts-ml). To republish:
+`rm -rf /tmp/pages && cp -r gui/site /tmp/pages && cd /tmp/pages && git init -b gh-pages && git add -A &&
+git commit -m site && git push -f git@github.com:sachaBD/sts-ml.git gh-pages`
