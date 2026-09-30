@@ -91,3 +91,13 @@ add_test(NAME search_priors_test COMMAND search_priors_test)
 
 # The native value net's inner loops benefit from AVX2/FMA on the machine that runs it.
 set_source_files_properties(topology/value_net.cpp PROPERTIES COMPILE_OPTIONS "-march=native")
+
+# Macro simulator (out-of-combat act play with injected fight results): apps/common/macro_sim.hpp.
+add_library(macro_sim STATIC apps/common/macro_sim.cpp)
+target_include_directories(macro_sim PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
+target_link_libraries(macro_sim PUBLIC sts_lightspeed)
+target_compile_features(macro_sim PUBLIC cxx_std_23)
+target_compile_options(macro_sim PRIVATE -Wall -Wextra -Wpedantic)
+add_executable(macro_sim_check apps/macro_sim/check.cpp)
+target_link_libraries(macro_sim_check PRIVATE macro_sim)
+target_compile_options(macro_sim_check PRIVATE -Wall -Wextra -Wpedantic)
