@@ -1,0 +1,42 @@
+.caveat { margin-top: 8px !important; color: var(--crimson) !important; font-size: 12.5px !important; }
+input[type=number], input[list] {
+  font: inherit; font-size: 13.5px; color: var(--text); background: var(--ground);
+  border: 1px solid var(--line); border-radius: 6px; padding: 5px 8px;
+}
+input[type=number] { width: 70px; }
+input[list] { width: 220px; }
+.adder { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 10px 0 14px; }
+.hint { text-transform: none; letter-spacing: 0; font-size: 12px; }
+
+.result {
+  display: grid; grid-template-columns: 220px 1fr; gap: 24px; align-items: end;
+  padding: 16px; background: var(--surface); border: 1px solid var(--line); border-radius: 8px;
+}
+.pwin { font: 600 54px/1 Kreon, Georgia, serif; color: var(--crimson); font-variant-numeric: tabular-nums; }
+.sub { color: var(--muted); font-size: 13px; margin-top: 6px; font-variant-numeric: tabular-nums; }
+.sub b { color: var(--text); }
+.hist { display: flex; align-items: flex-end; gap: 2px; height: 120px; }
+.hist div { flex: 1; background: var(--ember); border-radius: 2px 2px 0 0; position: relative; min-height: 1px; }
+.hist div.cur { background: var(--crimson); }
+.hist span {
+  position: absolute; bottom: -18px; left: 50%; transform: translateX(-50%);
+  font-size: 10px; color: var(--muted);
+}
+.hist { margin-bottom: 20px; }
+
+.tbl { width: 100%; border-collapse: collapse; font-size: 13.5px; font-variant-numeric: tabular-nums; }
+.tbl th { text-align: left; font-weight: 500; color: var(--muted); font-size: 11px; letter-spacing: .08em;
+  text-transform: uppercase; border-bottom: 1px solid var(--line); padding: 4px 8px; }
+.tbl td { padding: 4px 8px; border-bottom: 1px solid var(--line); }
+.tbl tr.sel td { background: var(--ember-wash); }
+.tbl td.pos { color: #3d8a4a; }
+.tbl .neg { color: var(--crimson); }
+.tbl .band { color: var(--muted); font-size: 12px; }
+.tbl button { padding: 1px 7px; font-size: 12px; }
+.tbl .grp { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .08em; }
+
+.deck .card { cursor: pointer; }
+.deck .card:hover { border-color: var(--crimson); }
+.relic { cursor: pointer; }
+.relic:hover { text-decoration: line-through; }
+.relic small { color: var(--muted); font-size: 11px; }
