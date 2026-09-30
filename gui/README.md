@@ -14,3 +14,13 @@ cd gui && ../.venv/bin/python verify.py   # reproduce saved seed-0 p_win through
 - `static/`: page; `style.css` is copied from `../sts_visualiser`.
 
 The band is min–max over the 3 training seeds: rough, not calibrated. Added cards/relics get `misc`/`data` = 0.
+
+## Static site (GitHub Pages)
+
+```
+.venv/bin/python gui/export.py   # -> gui/site/ (~6 MB: page, model.js, data/meta.json, data/weights.json, card art)
+node gui/verify_js.js            # model.js vs the Python ensemble (max |dp_win| ~1e-7)
+```
+
+`model.js` is a plain-JS port of `combat_outcome_v2` (no WASM, no server); `gui/site/` is fully static and works from a
+subpath. `site/` and `build/` are git-ignored build output.
