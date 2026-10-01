@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Fixed train / dev / confirm split of the all-bosses act-1 dataset. Writes results/split_tables.md + dev_fights.csv.
 
-Run: PYTHONPATH=python .venv/bin/python experiments/act-1-combat/2026-09-26-all-bosses/split.py
+Run: PYTHONPATH=. .venv/bin/python experiments/act-1-combat/2026-09-26-all-bosses/split.py
 
 Split by whole runs (run_seed; consecutive seeds, so % 10 buckets are ~1,210 runs each):
   dev = run_seed % 10 in (0, 1), confirm = (2, 3), train = 4..9.
@@ -10,7 +10,7 @@ natural mix); random by hash(episode_id).
 """
 from pathlib import Path
 
-from sts_combat_rl import query
+from runs import query
 
 HERE = Path(__file__).parent
 DATA = "act1-all-bosses-a20-scaled-search"

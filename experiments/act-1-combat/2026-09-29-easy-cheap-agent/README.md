@@ -102,8 +102,8 @@ Full tables with every arm and every encounter: `results/hp_lost_dev.md` and `re
 
 - Runs: `runs/schema=combat_v3/date=2026-09-29/id=easy-cheap-*` (dev), `id=easy-cheap-confirm-*` (fresh),
   `id=easy-retime-*` (timing re-checks).
-- Code change for timing: `agents/teacher_search.{hpp,cpp}` (`search_seconds()`), and `apps/value_play/worker.cpp` and
+- Code change for timing: `agents/combat/search/teacher_search.{hpp,cpp}` (`search_seconds()`), and `apps/value_play/worker.cpp` and
   `play.py` (per-fight `search_seconds` in `summary.json`).
-- Reproduce the report: `PYTHONPATH=python .venv/bin/python
+- Reproduce the report: `PYTHONPATH=. .venv/bin/python
   experiments/act-1-combat/2026-09-29-easy-cheap-agent/report.py`. This needs `matplotlib`, which was pip-installed into
   `.venv` and isn't in requirements.txt.

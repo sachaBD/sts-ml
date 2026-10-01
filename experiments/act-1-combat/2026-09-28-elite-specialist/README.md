@@ -6,8 +6,8 @@
 
 - Baseline fights: `combat_v3/2026-09-26/act1-all-bosses-a20-scaled-search` (teacher, scaled budgets, one random move per fight).
 - Extra fights: `combat_v3/2026-09-27/ab-selfplay-gen1-rest` (gen0 net replays of up to 330 source fights per non-boss encounter, 20k simulations, no random move; elite rows only here).
-- Initial model: `value_net_v1/2026-09-27/ab-gen1` (gen0 trained on baseline buckets 6–9; gen1 fine-tuned on gen0 self-play from bucket 4). No training/selection from buckets 2, 3 or 5 for this checkpoint.
-- [DATA_AUDIT.md](DATA_AUDIT.md): measured elite counts and a rough opening-deck diversity profile; [ROW_AUDIT.md](ROW_AUDIT.md): eligible label counts. Regenerate with `PYTHONPATH=python .venv/bin/python experiments/act-1-combat/2026-09-28-elite-specialist/audit.py` and `.../rows.py` respectively.
+- Initial model: `value_net_v1/2026-09-27/ab-gen1` (gen0 trained on baseline buckets 6–9; gen1 fine-tuned on gen0 self-play from bucket 4). No agents/combat/value/selection from buckets 2, 3 or 5 for this checkpoint.
+- [DATA_AUDIT.md](DATA_AUDIT.md): measured elite counts and a rough opening-deck diversity profile; [ROW_AUDIT.md](ROW_AUDIT.md): eligible label counts. Regenerate with `PYTHONPATH=. .venv/bin/python experiments/act-1-combat/2026-09-28-elite-specialist/audit.py` and `.../rows.py` respectively.
 - Frozen fight-ID lists: `validation_fights.csv` (150 per elite) and `final_fights.csv` (500 per elite). Selected by SHA-256 of source episode ID within each encounter, **without inspecting outcomes**; the rest of the bucket-5 and confirm fights are not part of this planned evaluation.
 
 ## Partition rules (entire runs, never individual rows)

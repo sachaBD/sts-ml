@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Paired comparison of two sets of combat_v3 fights on the candidate's fights.
 
-[run] baseline / candidate: queries (sts_combat_rl.query); oracle: whether oracle rows are allowed in either (required).
+[run] baseline / candidate: queries (runs.query); oracle: whether oracle rows are allowed in either (required).
 """
 import sys
 
@@ -10,7 +10,7 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 from scipy import stats
 from apps.common.app import check_keys, main, required, run_json, write_json
-from sts_combat_rl import query
+from runs import query
 
 NAME = "fight_comparison_v1"
 RESAMPLES, SEED = 10_000, 0

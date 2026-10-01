@@ -59,9 +59,9 @@ Status: **accepted plan, not started.** 2026-09-24 UTC. Results go in `REPORT.md
 | where | change | baseline it differs from |
 |---|---|---|
 | gen0 | epochs 7 → 8 | slime-value-5 (lr 1e-3, batch 128, width 64, blend 0.5) |
-| gen k | starts from gen0's weights, not gen k-1 | `apps/value_train/slime-dagger-gen1.toml` (lr 1e-4, 7 epochs) |
+| gen k | starts from gen0's weights, not gen k-1 | `apps/value_train/config/slime-dagger-gen1.toml` (lr 1e-4, 7 epochs) |
 | gen1 | `correction_weight` tried at 0.25 and 0.5 | same file (0.5) |
-| DAgger | count: all eligible fights (100 before) | `apps/dagger/slime.toml` |
+| DAgger | count: all eligible fights (100 before) | `apps/dagger/config/slime.toml` |
 | eval | `random_move = false` | value_play default |
 
 ## Code change (impl-24)
@@ -69,7 +69,7 @@ Status: **accepted plan, not started.** 2026-09-24 UTC. Results go in `REPORT.md
 - **Problem:** `value_play` and `dagger` reject a value net whose inputs include a value_net_v1 run or DAgger runs. Every gen ≥ 1 model has those, so neither app can evaluate or collect with it.
 - **Fix:** a shared `bootstrap_inputs(run_id)` returns only the plain bootstrap combat_v3 inputs, and both apps use it. There is one path and no fallback.
 - **Needed from step 5, round 2 onwards** (the gen1 evaluation in step 7 is the first use).
-- **Done:** commit 114a6ac. Checked: new tests pass (`PYTHONPATH=python:tests .venv/bin/python -m unittest test_dagger test_value_play test_value_training`). The one error, `test_split_is_deterministic_and_disjoint`, is a stale test: its fixture rows have no `run_seed`, and the split groups by it. The code is fine; it doesn't affect this plan.
+- **Done:** commit 114a6ac. Checked: new tests pass (`PYTHONPATH=.:tests .venv/bin/python -m unittest test_dagger test_value_play test_value_training`). The one error, `test_split_is_deterministic_and_disjoint`, is a stale test: its fixture rows have no `run_seed`, and the split groups by it. The code is fine; it doesn't affect this plan.
 
 ## Guardrails
 

@@ -39,7 +39,7 @@ boss = realistic boss states only (donors from natural boss states); every boss 
 ## Code and configs
 
 - `apps/card_marginals/worker.cpp`: modes `deck` (build + describe) and `fight`. `card_marginals.py`: the driver, which
-  also prints decks with no fights: `PYTHONPATH=python:. .venv/bin/python apps/card_marginals/card_marginals.py CONFIG --decks N`.
+  also prints decks with no fights: `PYTHONPATH=. .venv/bin/python apps/card_marginals/card_marginals.py CONFIG --decks N`.
 - Configs: `easy.toml` (smoke), `easy-pilot.toml`, `hard-elite.toml` (smoke-sized), `boss.toml` (smoke-sized).
   Run: `./apps/card_marginals/run.sh CONFIG [--scratch]` (schema `card_marginals_v1`).
 - CMake target `card_marginals_worker` was added to `CMakeLists.txt`. Nothing is committed; the tree has other

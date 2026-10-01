@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Paired per-encounter comparison: candidate player vs teacher on the same dev fights, in HP-eq.
 
-PYTHONPATH=python .venv/bin/python experiments/act-1-combat/2026-09-26-mirror-mcts/analyze.py \
+PYTHONPATH=. .venv/bin/python experiments/act-1-combat/2026-09-26-mirror-mcts/analyze.py \
     --candidate combat_v3/2026-09-26/act1-gen0-dev \
     --teacher combat_v3/2026-09-26/act1-teacher-dev combat_v3/2026-09-25/slime-v8-rollout-teacher-dev \
     [--value-run value_net_v1/2026-09-26/act1-gen0] [--json OUT] [--md OUT]
@@ -18,7 +18,7 @@ from pathlib import Path
 
 import numpy as np
 
-from sts_combat_rl.query import connect, sql_list
+from runs.query import connect, sql_list
 
 B = 20000
 

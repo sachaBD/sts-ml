@@ -1,6 +1,6 @@
 """Prototype: one stored combat_v3 fight -> IRONCLAD.autosave, resuming at the start of that fight in the game.
 
-  PYTHONPATH=python .venv/bin/python -m apps.export_save.export_save --episode EPISODE_ID [--out PATH] [--root RUNS]
+  PYTHONPATH=. .venv/bin/python -m apps.export_save.export_save --episode EPISODE_ID [--out PATH] [--root RUNS]
 
 The fight is rebuilt from its source run (apps/common/replay.py) by build/<name>/export_save, which also checks
 the save against the simulator's own loader. Copy the file to <Slay the Spire>/saves/IRONCLAD.autosave (back up
@@ -14,8 +14,8 @@ import tempfile
 from pathlib import Path
 
 from apps.common.replay import COLUMNS, replay_requests
-from sts_combat_rl import query
-from sts_combat_rl.run import REPO, RUNS
+from runs import query
+from runs.run import REPO, RUNS
 
 
 def main():

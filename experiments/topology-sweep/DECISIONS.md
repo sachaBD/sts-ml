@@ -2,7 +2,7 @@
 Compute budget: ≤ 8h from 08:00 BST 2026-09-30 (hard stop 16:00); aim ≈ 5h.
 
 ## Block 0 (07:10-08:12)
-- Added: topology specs + frozen registry (topology/combat_outcome/), kind combat_outcome_v2, train_marginals `--topology` / `--arms`
+- Added: topology specs + frozen registry (models/combat_outcome/architectures/), kind combat_outcome_v2, train_marginals `--topology` / `--arms`
   (default behaviour unchanged), eval_marginals.py (checkpoint re-scoring; verified max |Δp| 1e-7 vs training predictions).
 - Smoke (s1 data, 2-4 epochs): v1-w64 and v2-w64 train fine; bigger nets overfit fast at lr .003 on small data -> lr {.003,.001} in grid.
 - Launched 08:05: grid1 (36 runs, 2 parallel) ‖ hs16 generation (8 workers). First legacy spec run reproduces card-outcomes

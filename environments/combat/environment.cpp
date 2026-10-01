@@ -1,0 +1,393 @@
+#include "environments/combat/environment.hpp"
+#include "environments/combat/encoding_v4.hpp"
+
+#include "combat/BattleContext.h"
+#include "constants/CardPools.h"
+#include "sim/search/BattleScumSearcher2.h"
+
+#include <algorithm>
+#include <tuple>
+#include <sstream>
+#include <stdexcept>
+#include <optional>
+#include <utility>
+
+namespace stsrl {
+namespace {
+
+struct CardMeta { CardType type; TargetType target; int damage; int block; int hits; int draws; int effective_block = -1; };
+
+CardType card_type(const sts::CardInstance& card) {
+    switch (sts::getCardType(card.id)) {
+    case sts::CardType::ATTACK: return CardType::attack;
+    case sts::CardType::SKILL: return CardType::skill;
+    case sts::CardType::POWER: return CardType::power;
+    case sts::CardType::STATUS: return CardType::status;
+    case sts::CardType::CURSE: return CardType::curse;
+    default: throw std::runtime_error{"unsupported card type in combat encoding"};
+    }
+}
+
+// The capability boundary is intentional: deck projection must reject cards
+// outside Ironclad, Act-1 colorless, statuses, and curses rather than inventing
+// zero mechanics.  `getBaseDamage` supplies the simulator's canonical values;
+// dynamic attacks below override it at the live state.
+bool supported_card(const sts::CardInstance& card) {
+    const auto color = sts::getCardColor(card.id);
+    if (color == sts::CardColor::RED || color == sts::CardColor::CURSE || card.getType() == sts::CardType::STATUS) return true;
+    using enum sts::CardId;
+    switch (card.id) {
+    case ANGER: case ARMAMENTS: case BARRICADE: case BASH: case BATTLE_TRANCE: case BLUDGEON: case BODY_SLAM:
+    case BRUTALITY: case CARNAGE: case CLEAVE: case CLOTHESLINE: case COMBUST: case CORRUPTION:
+    case DARK_EMBRACE: case DEFEND_RED: case DEMON_FORM: case DISARM: case DROPKICK: case ENTRENCH:
+    case EVOLVE: case EXHUME: case FEEL_NO_PAIN: case FIEND_FIRE: case FIRE_BREATHING: case FLAME_BARRIER:
+    case FLEX: case GHOSTLY_ARMOR: case HEADBUTT: case HEAVY_BLADE: case IMMOLATE: case IMPERVIOUS:
+    case INFERNAL_BLADE: case INFLAME: case IRON_WAVE: case METALLICIZE: case OFFERING: case POMMEL_STRIKE:
+    case POWER_THROUGH: case PUMMEL: case RAGE: case RAMPAGE: case SECOND_WIND: case SHOCKWAVE:
+    case SHRUG_IT_OFF: case SPOT_WEAKNESS: case STRIKE_RED: case SWORD_BOOMERANG: case THUNDERCLAP:
+    case TRUE_GRIT: case UPPERCUT: case WHIRLWIND: case WILD_STRIKE:
+    case BANDAGE_UP: case BLIND: case DARK_SHACKLES: case DEEP_BREATH: case DISCOVERY:
+    case DRAMATIC_ENTRANCE: case ENLIGHTENMENT: case FINESSE: case FLASH_OF_STEEL:
+    case HAND_OF_GREED: case IMPATIENCE: case JACK_OF_ALL_TRADES: case MADNESS:
+    case MASTER_OF_STRATEGY: case METAMORPHOSIS: case MIND_BLAST: case PANACEA:
+    case PANIC_BUTTON: case PURITY: case SECRET_TECHNIQUE: case SECRET_WEAPON:
+    case THE_BOMB: case THINKING_AHEAD: case TRANSMUTATION: case TRIP: case VIOLENCE:
+        return true;
+    default: return std::ranges::find(sts::baseColorlessPool, card.id) != sts::baseColorlessPool.end();
+    }
+}
+
+CardMeta card_meta(const sts::BattleContext& state, const sts::CardInstance& card) {
+    if (!supported_card(card)) throw std::runtime_error{"unsupported card capability: " + std::string{sts::getCardEnumName(card.id)}};
+    const bool up = card.upgraded;
+    CardMeta meta{card_type(card), card.requiresTarget() ? TargetType::one_enemy : TargetType::none,
+                  sts::getBaseDamage(card.id, up), 0, 1, 0};
+    if (meta.damage < 0) meta.damage = 0;
+    using enum sts::CardId;
+    switch (card.id) {
+    case CLEAVE: case IMMOLATE: case REAPER: case THUNDERCLAP: case DRAMATIC_ENTRANCE:
+        meta.target = TargetType::all_enemies; break;
+    case SWORD_BOOMERANG: meta.target = TargetType::random_enemy; meta.damage = 3; meta.hits = up ? 4 : 3; break;
+    case WHIRLWIND: meta.target = TargetType::all_enemies; meta.damage = up ? 8 : 5; meta.hits = std::max(0, state.player.energy); break;
+    case PUMMEL: meta.damage = 2; meta.hits = up ? 5 : 4; break;
+    case TWIN_STRIKE: meta.damage = up ? 7 : 5; meta.hits = 2; break;
+    case FIEND_FIRE: meta.damage = up ? 10 : 7; meta.hits = std::max(0, state.cards.cardsInHand - 1); break;
+    case BODY_SLAM: meta.damage = state.player.block; break;
+    case HEAVY_BLADE: meta.damage = 14 + (up ? 4 : 2) * state.player.getStatus<PS::STRENGTH>(); break;
+    case PERFECTED_STRIKE: meta.damage = 6 + state.cards.strikeCount * (up ? 3 : 2); break;
+    case RAMPAGE: meta.damage = 8 + card.specialData; break;
+    case RITUAL_DAGGER: meta.damage = card.specialData; break;
+    case SEARING_BLOW: { const int n = card.getUpgradeCount(); meta.damage = n * (n + 7) / 2 + 12; break; }
+    case MIND_BLAST: meta.damage = static_cast<int>(state.cards.drawPile.size()); break;
+    case DEFEND_RED: meta.block = up ? 8 : 5; break;
+    case ARMAMENTS: meta.block = 5; break;
+    case IRON_WAVE: meta.block = up ? 7 : 5; meta.effective_block = state.calculateCardBlock(state.calculateCardBlock(meta.block)); break;
+    case FLAME_BARRIER: meta.block = up ? 16 : 12; break;
+    case GHOSTLY_ARMOR: meta.block = up ? 13 : 10; break;
+    case IMPERVIOUS: meta.block = up ? 40 : 30; break;
+    case POWER_THROUGH: meta.block = up ? 20 : 15; break;
+    case SECOND_WIND: meta.block = up ? 7 : 5; break;
+    case SHRUG_IT_OFF: meta.block = up ? 11 : 8; meta.draws = 1; break;
+    case TRUE_GRIT: meta.block = up ? 9 : 7; break;
+    case BATTLE_TRANCE: meta.draws = up ? 4 : 3; break;
+    case DEEP_BREATH: meta.draws = up ? 2 : 1; break;
+    case OFFERING: meta.draws = up ? 5 : 3; break;
+    case POMMEL_STRIKE: meta.draws = up ? 2 : 1; break;
+    case DROPKICK: meta.draws = std::ranges::any_of(state.monsters.arr, [](const auto& monster) { return monster.isAlive() && monster.vulnerable > 0; }) ? 1 : 0; break;
+    case BURNING_PACT: meta.draws = up ? 3 : 2; break;
+    case WARCRY: meta.draws = up ? 2 : 1; break;
+    case MASTER_OF_STRATEGY: meta.draws = up ? 4 : 3; break;
+    case THINKING_AHEAD: meta.draws = 2; break;
+    case IMPATIENCE: meta.draws = up ? 3 : 2; break; // conditional on no attack in hand.
+    case SENTINEL: meta.block = up ? 8 : 5; break;
+    case GOOD_INSTINCTS: meta.block = up ? 9 : 6; break;
+    case PANIC_BUTTON: meta.block = up ? 40 : 30; break;
+    case FLASH_OF_STEEL: meta.draws = 1; break;
+    case FINESSE: meta.block = up ? 4 : 2; meta.draws = 1; break;
+    default: break;
+    }
+    return meta;
+}
+
+CardToken encode_card(const sts::BattleContext& state, const sts::CardInstance& card, CardZone zone, bool playable_now) {
+    const auto meta = card_meta(state, card);
+    return {static_cast<int>(card.id), zone, meta.type, meta.target,
+        {float(card.upgraded), card.cost / 3.f, card.costForTurn / 3.f, meta.damage / 50.f, meta.hits / 10.f,
+         meta.block / 50.f, (meta.effective_block >= 0 ? meta.effective_block : state.calculateCardBlock(meta.block)) / 50.f, meta.draws / 10.f, card.specialData / 10.f,
+         float(card.freeToPlayOnce), float(card.doesExhaust()), float(card.isEthereal()), float(card.retain), float(playable_now)}};
+}
+
+MonsterToken encode_monster(const sts::BattleContext& state, const sts::Monster& monster) {
+    const auto damage = monster.getMoveBaseDamage(state);
+    const int per_hit = monster.calculateDamageToPlayer(state, damage.damage);
+    MonsterToken token{static_cast<int>(monster.id), static_cast<int>(monster.moveHistory[0]),
+        {monster.curHp / 100.f, monster.maxHp ? monster.curHp / float(monster.maxHp) : 0.f, monster.block / 100.f,
+         per_hit * damage.attackCount / 100.f, damage.attackCount / 10.f, monster.strength / 10.f,
+         monster.weak / 10.f, monster.vulnerable / 10.f, float(monster.isTargetable())}};
+    v4::encode_monster(monster, token);
+    return token;
+}
+
+bool card_less(const CardToken& a, const CardToken& b) { return std::tie(a.card_id, a.zone, a.card_type, a.target_type, a.numeric) < std::tie(b.card_id, b.zone, b.card_type, b.target_type, b.numeric); }
+bool monster_less(const MonsterToken& a, const MonsterToken& b) { return std::tie(a.monster_id, a.move_id, a.numeric, a.previous_move_id, a.status) < std::tie(b.monster_id, b.move_id, b.numeric, b.previous_move_id, b.status); }
+
+const sts::CardInstance* selected_card(const sts::BattleContext& state, const sts::search::Action& action,
+                                       CardZone& zone) {
+    if (state.inputState != sts::InputState::CARD_SELECT) {
+        zone = CardZone::hand;
+        return nullptr;
+    }
+    const auto index = action.getSelectIdx();
+    switch (state.cardSelectInfo.cardSelectTask) {
+    case sts::CardSelectTask::CODEX:
+    case sts::CardSelectTask::DISCOVERY:
+        zone = CardZone::offered;
+        return nullptr;
+    case sts::CardSelectTask::HOLOGRAM: case sts::CardSelectTask::LIQUID_MEMORIES_POTION:
+    case sts::CardSelectTask::HEADBUTT: case sts::CardSelectTask::MEDITATE:
+        zone = CardZone::discard; return index >= 0 && index < static_cast<int>(state.cards.discardPile.size()) ? &state.cards.discardPile[index] : nullptr;
+    case sts::CardSelectTask::EXHUME:
+        zone = CardZone::exhaust; return index >= 0 && index < static_cast<int>(state.cards.exhaustPile.size()) ? &state.cards.exhaustPile[index] : nullptr;
+    case sts::CardSelectTask::SECRET_TECHNIQUE: case sts::CardSelectTask::SECRET_WEAPON: case sts::CardSelectTask::SEEK:
+        zone = CardZone::draw; return index >= 0 && index < static_cast<int>(state.cards.drawPile.size()) ? &state.cards.drawPile[index] : nullptr;
+    default:
+        zone = CardZone::hand; return index >= 0 && index < state.cards.cardsInHand ? &state.cards.hand[index] : nullptr;
+    }
+}
+
+// The card x monster interaction numeric of `card` (in hand) played at monster slot `slot`; nullopt when it
+// deals no targeted damage or the monster is not targetable (as encode_state's interaction tokens).
+std::optional<std::array<float, 6>> interaction_numeric(const sts::BattleContext& state, const sts::CardInstance& card,
+                                                        int slot) {
+    const auto meta = card_meta(state, card);
+    if (meta.damage == 0 || meta.target == TargetType::random_enemy) return std::nullopt;
+    const auto& monster = state.monsters.arr[slot];
+    if (!monster.isTargetable()) return std::nullopt;
+    const int per_hit = state.calculateCardDamage(card, slot, meta.damage);
+    const int damage = per_hit * meta.hits;
+    const int hp_damage = std::min(monster.curHp, std::max(0, damage - monster.block));
+    const int remaining = monster.curHp - hp_damage;
+    return std::array<float, 6>{meta.hits / 10.f, damage / 100.f, hp_damage / 100.f, remaining / 100.f,
+                                monster.maxHp ? remaining / float(monster.maxHp) : 0.f,
+                                float(card.canUse(state, slot, false))};
+}
+
+} // namespace
+
+struct CombatEnvironment::Impl {
+    explicit Impl(sts::BattleContext initial_state)
+        : state{std::move(initial_state)}, enumerator{state} {}
+
+    sts::BattleContext state;
+    sts::search::BattleScumSearcher2 enumerator;
+    std::vector<sts::search::Action> current_actions;
+};
+
+CombatEnvironment::CombatEnvironment(sts::BattleContext initial_state)
+    : impl_{std::make_unique<Impl>(std::move(initial_state))} {}
+
+CombatEnvironment::~CombatEnvironment() = default;
+CombatEnvironment::CombatEnvironment(CombatEnvironment&&) noexcept = default;
+CombatEnvironment& CombatEnvironment::operator=(CombatEnvironment&&) noexcept = default;
+
+EncodedCombatState encode_state(const sts::BattleContext& state) {
+    EncodedCombatState encoding;
+    const auto& player = state.player;
+    int incoming = 0;
+    for (const auto& monster : state.monsters.arr) if (monster.id != sts::MonsterId::INVALID && monster.isAlive()) {
+        const auto damage = monster.getMoveBaseDamage(state);
+        incoming += monster.calculateDamageToPlayer(state, damage.damage) * damage.attackCount;
+    }
+    const int select_task = state.inputState == sts::InputState::CARD_SELECT
+        ? static_cast<int>(state.cardSelectInfo.cardSelectTask)
+        : static_cast<int>(sts::CardSelectTask::INVALID);
+    encoding.global = {{state.turn / 20.f, player.curHp / 100.f,
+        player.maxHp ? player.curHp / float(player.maxHp) : 0.f, player.block / 100.f, player.energy / 10.f,
+        player.energyPerTurn / 10.f, player.strength / 10.f, player.dexterity / 10.f,
+        player.getStatusRuntime(PlayerStatus::WEAK) / 10.f, player.getStatusRuntime(PlayerStatus::VULNERABLE) / 10.f,
+        player.getStatusRuntime(PlayerStatus::FRAIL) / 10.f, player.cardsPlayedThisTurn / 20.f,
+        state.cards.cardsInHand / 10.f, state.cards.drawPile.size() / 64.f,
+        state.cards.discardPile.size() / 64.f, state.cards.exhaustPile.size() / 64.f,
+        incoming / 100.f, std::max(0, incoming - player.block) / 100.f,
+        player.getStatusRuntime(PlayerStatus::COMBUST) / 10.f, player.combustHpLoss / 10.f,
+        player.getStatusRuntime(PlayerStatus::FLAME_BARRIER) / 50.f, float(player.hasStatus<PlayerStatus::NO_DRAW>()),
+        player.getStatusRuntime(PlayerStatus::INTANGIBLE) / 10.f, player.getStatusRuntime(PlayerStatus::ARTIFACT) / 10.f,
+        float(player.hasStatus<PlayerStatus::BARRICADE>()), float(player.hasStatus<PlayerStatus::CORRUPTION>()),
+        player.getStatusRuntime(PlayerStatus::BRUTALITY) / 10.f, player.getStatusRuntime(PlayerStatus::DEMON_FORM) / 10.f,
+        player.getStatusRuntime(PlayerStatus::DARK_EMBRACE) / 10.f, player.getStatusRuntime(PlayerStatus::EVOLVE) / 10.f,
+        player.getStatusRuntime(PlayerStatus::FEEL_NO_PAIN) / 10.f, player.getStatusRuntime(PlayerStatus::METALLICIZE) / 10.f,
+        player.getStatusRuntime(PlayerStatus::RAGE) / 10.f, player.getStatusRuntime(PlayerStatus::DOUBLE_TAP) / 10.f,
+        player.getStatusRuntime(PlayerStatus::VIGOR) / 10.f, player.bomb1 / 50.f, player.bomb2 / 50.f, player.bomb3 / 50.f,
+        player.getStatusRuntime(PlayerStatus::NO_BLOCK) / 10.f, player.getStatusRuntime(PlayerStatus::LOSE_STRENGTH) / 10.f,
+        player.getStatusRuntime(PlayerStatus::LOSE_DEXTERITY) / 10.f, player.getStatusRuntime(PlayerStatus::ENERGIZED) / 10.f,
+        player.getStatusRuntime(PlayerStatus::FIRE_BREATHING) / 10.f, player.getStatusRuntime(PlayerStatus::JUGGERNAUT) / 10.f,
+        player.getStatusRuntime(PlayerStatus::RUPTURE) / 10.f, player.getStatusRuntime(PlayerStatus::MAGNETISM) / 10.f,
+        player.getStatusRuntime(PlayerStatus::MAYHEM) / 10.f, player.getStatusRuntime(PlayerStatus::PANACHE) / 10.f,
+        player.panacheCounter / 20.f, player.getStatusRuntime(PlayerStatus::SADISTIC) / 10.f},
+        static_cast<int>(state.inputState), select_task};
+    v4::encode_player(state, encoding.global);
+    encoding.potions = v4::encode_potions(state);
+    encoding.relics = v4::encode_relics(state);
+    struct PendingCard { CardToken token; int hand_index = -1; const sts::CardInstance* card = nullptr; };
+    struct PendingMonster { MonsterToken token; int slot; const sts::Monster* monster; };
+    std::vector<PendingCard> cards;
+    cards.reserve(state.cards.cardsInHand + state.cards.drawPile.size() + state.cards.discardPile.size()
+                  + state.cards.exhaustPile.size());
+    for (int i = 0; i < state.cards.cardsInHand; ++i)
+        cards.push_back({encode_card(state, state.cards.hand[i], CardZone::hand, state.cards.hand[i].canUseOnAnyTarget(state)), i, &state.cards.hand[i]});
+    for (const auto& card : state.cards.drawPile) cards.push_back({encode_card(state, card, CardZone::draw, false), -1, &card});
+    for (const auto& card : state.cards.discardPile) cards.push_back({encode_card(state, card, CardZone::discard, false), -1, &card});
+    for (const auto& card : state.cards.exhaustPile) cards.push_back({encode_card(state, card, CardZone::exhaust, false), -1, &card});
+    std::sort(cards.begin(), cards.end(), [](const auto& a, const auto& b) { return card_less(a.token, b.token); });
+    encoding.cards.reserve(cards.size());
+    for (const auto& card : cards) encoding.cards.push_back(card.token);
+    std::vector<PendingMonster> monsters;
+    for (int slot = 0; slot < static_cast<int>(state.monsters.arr.size()); ++slot) {
+        const auto& monster = state.monsters.arr[slot];
+        if (monster.id != sts::MonsterId::INVALID && monster.isAlive()) monsters.push_back({encode_monster(state, monster), slot, &monster});
+    }
+    std::sort(monsters.begin(), monsters.end(), [](const auto& a, const auto& b) { return monster_less(a.token, b.token); });
+    for (const auto& monster : monsters) encoding.monsters.push_back(monster.token);
+    for (std::size_t ci = 0; ci < cards.size(); ++ci) {
+        const auto& source = cards[ci];
+        if (source.hand_index < 0) continue;  // (before card_meta: only hand cards interact)
+        for (std::size_t mi = 0; mi < monsters.size(); ++mi)
+            if (const auto numeric = interaction_numeric(state, *source.card, monsters[mi].slot))
+                encoding.card_monster_interactions.push_back({std::uint16_t(ci), std::uint8_t(mi), *numeric});
+    }
+    return encoding;
+}
+
+ActionToken encode_action(const sts::BattleContext& state, std::uint32_t action_bits, std::size_t execution_index) {
+    const sts::search::Action action{action_bits};
+    const int select_task = state.inputState == sts::InputState::CARD_SELECT
+        ? static_cast<int>(state.cardSelectInfo.cardSelectTask)
+        : static_cast<int>(sts::CardSelectTask::INVALID);
+    ActionToken token{.kind = static_cast<EncodedActionKind>(action.getActionType()),
+                      .source_card = std::nullopt, .target_monster = std::nullopt, .potion_id = std::nullopt,
+                      .card_selection_task = select_task,
+                      .skips_selection = state.inputState == sts::InputState::CARD_SELECT &&
+                          action.getActionType() == sts::search::ActionType::SINGLE_CARD_SELECT &&
+                          state.cardSelectInfo.cardSelectTask == sts::CardSelectTask::CODEX && action.getSelectIdx() == 3,
+                      .execution_index = execution_index, .potion = std::nullopt, .interaction = std::nullopt,
+                      .discards_potion = action.getActionType() == sts::search::ActionType::POTION
+                                         && action.getTargetIdx() > 5};  // Action::execute: target > 5 discards
+    if (action.getActionType() == sts::search::ActionType::CARD) {
+        const auto source = action.getSourceIdx();
+        if (source >= 0 && source < state.cards.cardsInHand)
+            token.source_card = encode_card(state, state.cards.hand[source], CardZone::hand, true);
+    } else if (action.getActionType() == sts::search::ActionType::POTION) {
+        const auto source = action.getSourceIdx();
+        if (source >= 0 && source < static_cast<int>(state.potions.size()))
+            token.potion_id = static_cast<int>(state.potions[source]);
+    } else if (action.getActionType() == sts::search::ActionType::SINGLE_CARD_SELECT) {
+        const auto task = state.inputState == sts::InputState::CARD_SELECT
+            ? state.cardSelectInfo.cardSelectTask
+            : sts::CardSelectTask::INVALID;
+        const auto selected = action.getSelectIdx();
+        if ((task == sts::CardSelectTask::CODEX || task == sts::CardSelectTask::DISCOVERY) && selected >= 0 && selected < 3) {
+            auto info = state.cardSelectInfo;  // (its accessors are not const)
+            const auto id = task == sts::CardSelectTask::CODEX ? info.codexCards()[selected]
+                                                                : info.discovery_Cards()[selected];
+            token.source_card = CardToken{.card_id = static_cast<int>(id), .zone = CardZone::offered};
+        } else {
+            CardZone zone{};
+            if (const auto* card = selected_card(state, action, zone)) token.source_card = encode_card(state, *card, zone, false);
+        }
+    }
+    const bool requires_target = action.getActionType() == sts::search::ActionType::CARD
+        ? state.cards.hand[action.getSourceIdx()].requiresTarget()
+        : action.getActionType() == sts::search::ActionType::POTION
+            && potionRequiresTarget(state.potions[action.getSourceIdx()]);
+    if (requires_target && action.getTargetIdx() >= 0 && action.getTargetIdx() < static_cast<int>(state.monsters.arr.size()))
+        token.target_monster = encode_monster(state, state.monsters.arr[action.getTargetIdx()]);
+    if (action.getActionType() == sts::search::ActionType::POTION) {  // v4
+        const auto source = action.getSourceIdx();
+        if (source >= 0 && source < static_cast<int>(state.potions.size()))
+            token.potion = v4::encode_potion(state, state.potions[source]);
+    }
+    if (action.getActionType() == sts::search::ActionType::CARD && token.target_monster)  // v4
+        token.interaction = interaction_numeric(state, state.cards.hand[action.getSourceIdx()], action.getTargetIdx());
+    return token;
+}
+
+std::size_t CombatEnvironment::legal_action_count() {
+    sts::search::BattleScumSearcher2::Node node;
+    impl_->enumerator.enumerateActionsForNode(node, impl_->state);
+    impl_->current_actions.clear();
+    for (const auto& edge : node.edges) impl_->current_actions.push_back(edge.action);
+    return impl_->current_actions.size();
+}
+
+Decision CombatEnvironment::decision() {
+    sts::search::BattleScumSearcher2::Node node;
+    impl_->enumerator.enumerateActionsForNode(node, impl_->state);
+
+    impl_->current_actions.clear();
+    impl_->current_actions.reserve(node.edges.size());
+
+    Decision result;
+    result.encoding = encode_state(impl_->state);
+    result.legal_actions.reserve(node.edges.size());
+    result.encoding.legal_actions.reserve(node.edges.size());
+
+    for (auto& edge : node.edges) {
+        const auto index = impl_->current_actions.size();
+        std::ostringstream description;
+        edge.action.printDesc(description, impl_->state);
+        impl_->current_actions.push_back(edge.action);
+        result.legal_actions.push_back({index, std::move(description).str()});
+        result.encoding.legal_actions.push_back(encode_action(impl_->state, edge.action.bits, index));
+    }
+    std::sort(result.encoding.legal_actions.begin(), result.encoding.legal_actions.end(), [](const ActionToken& a, const ActionToken& b) {
+        if (a.kind != b.kind) return a.kind < b.kind;
+        if (a.source_card.has_value() != b.source_card.has_value()) return !a.source_card.has_value();
+        if (a.source_card && *a.source_card != *b.source_card) return card_less(*a.source_card, *b.source_card);
+        if (a.target_monster.has_value() != b.target_monster.has_value()) return !a.target_monster.has_value();
+        if (a.target_monster && *a.target_monster != *b.target_monster) return monster_less(*a.target_monster, *b.target_monster);
+        return std::tie(a.potion_id, a.card_selection_task, a.skips_selection, a.execution_index)
+             < std::tie(b.potion_id, b.card_selection_task, b.skips_selection, b.execution_index);
+    });
+
+    return result;
+}
+
+std::string CombatEnvironment::action_description(const std::size_t action_index) const {
+    if (action_index >= impl_->current_actions.size()) {
+        throw std::out_of_range{"action index is outside the current legal action set"};
+    }
+    std::ostringstream description;
+    impl_->current_actions[action_index].printDesc(description, impl_->state);
+    return description.str();
+}
+
+void CombatEnvironment::step(const std::size_t action_index) {
+    if (done()) {
+        throw std::logic_error{"cannot step a finished combat"};
+    }
+    if (action_index >= impl_->current_actions.size()) {
+        throw std::out_of_range{"action index is outside the current legal action set"};
+    }
+
+    impl_->current_actions[action_index].execute(impl_->state);
+    impl_->current_actions.clear();
+}
+
+bool CombatEnvironment::done() const noexcept {
+    return impl_->state.outcome != sts::Outcome::UNDECIDED;
+}
+
+bool CombatEnvironment::won() const noexcept {
+    return impl_->state.outcome == sts::Outcome::PLAYER_VICTORY;
+}
+
+int CombatEnvironment::player_hp() const noexcept { return impl_->state.player.curHp; }
+int CombatEnvironment::player_max_hp() const noexcept { return impl_->state.player.maxHp; }
+
+const sts::BattleContext& CombatEnvironment::battle() const noexcept { return impl_->state; }
+
+std::uint32_t CombatEnvironment::action_bits(const std::size_t action_index) const {
+    return impl_->current_actions.at(action_index).bits;
+}
+
+}  // namespace stsrl

@@ -4,6 +4,10 @@ gmon.out
 /runs/*
 !/runs/README.md
 !/runs/compact.py
+!/runs/__init__.py
+!/runs/run.py
+!/runs/query.py
+!/runs/test_*.py
 __pycache__/
 *.py[cod]
 /scratch/

@@ -6,11 +6,11 @@ difference between the runs is the search leaf.
 
 | run | config | leaf |
 |---|---|---|
-| A `combat_v3/2026-09-27/act1-eval-mcts-a20` | `apps/bootstrap/act1-eval-mcts.toml` | guided_rollout |
-| B `combat_v3/2026-09-27/act1-eval-ab-gen1-a20` | `apps/bootstrap/act1-eval-ab-gen1.toml` | value_net (`value_net_v1/2026-09-27/ab-gen1`) |
+| A `combat_v3/2026-09-27/act1-eval-mcts-a20` | `apps/bootstrap/config/act1-eval-mcts.toml` | guided_rollout |
+| B `combat_v3/2026-09-27/act1-eval-ab-gen1-a20` | `apps/bootstrap/config/act1-eval-ab-gen1.toml` | value_net (`value_net_v1/2026-09-27/ab-gen1`) |
 
-Reproduce the table: `PYTHONPATH=python .venv/bin/python experiments/act-1-combat/2026-09-27-act1-eval/compare.py`
-Per-seed results: `select * from act1_results where run_id like '%act1-eval-%'` (`sts_combat_rl.query.connect()`).
+Reproduce the table: `PYTHONPATH=. .venv/bin/python experiments/act-1-combat/2026-09-27-act1-eval/compare.py`
+Per-seed results: `select * from act1_results where run_id like '%act1-eval-%'` (`runs.query.connect()`).
 
 ## Result (n = 1,000 paired seeds; ± = 1 standard error)
 

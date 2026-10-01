@@ -1,0 +1,23 @@
+# ./apps/gauntlet/run.sh apps/gauntlet/config/outcome-pilot.toml [--scratch]
+# Paired-option pilot for the pre-combat outcome model (combat_outcome_v1/2026-09-29/act1-eval-mcts-v1): reward
+# states from dev buckets 0-1 of the model's source cohort (never trained on), earlier fights replayed exactly;
+# teacher = the cohort's policy: guided_rollout, 8 particles, elite 5000 / boss 15000 simulations. Every row keeps
+# the pre-init state (`pre`) so apps/combat_transition/score_gauntlet.py scores the same inputs with the model.
+[run]
+id = "outcome-pilot"
+query = "select * from combat_v3 where run_id = 'combat_v3/2026-09-27/act1-eval-mcts-a20' and run_seed % 10 in (0, 1)"
+transition_run = "combat_transition_v1/2026-09-29/act1-eval-mcts-a20-checked"
+rewards = 20
+sample_seed = 0
+samples = 8
+elite_distances = 1
+death_penalty = 30.0
+boss_weight = 0.5
+workers = 10
+leaf = "guided_rollout"
+simulations = 5000        # unused: every gauntlet fight is an elite or a boss (below)
+elite_simulations = 5000
+boss_simulations = 15000
+particles = 8
+oracle = false
+random_move = false

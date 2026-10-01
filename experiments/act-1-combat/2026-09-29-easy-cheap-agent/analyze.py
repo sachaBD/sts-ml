@@ -2,7 +2,7 @@
 """Easy cheap-agent analysis: quality (paired HP-eq vs MCTS 20k) against cost (search seconds per fight) for every
 arm found, plus charts. Works on whatever runs exist so far.
 
-    PYTHONPATH=python .venv/bin/python experiments/act-1-combat/2026-09-29-easy-cheap-agent/analyze.py \
+    PYTHONPATH=. .venv/bin/python experiments/act-1-combat/2026-09-29-easy-cheap-agent/analyze.py \
         [--prefix easy-cheap] [--fights fights.csv] [--out results]
 
 Per fight, an arm's score is its mean HP-eq over the seeds (salts) it was played with. HP-eq = terminal_value x

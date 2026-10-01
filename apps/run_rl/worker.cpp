@@ -1,4 +1,4 @@
-// Real-run RL worker (slop_docs/run-rl/README.md). Long-running; JSON lines on stdin/stdout.
+// Real-run RL worker (docs/research/run-rl/README.md). Long-running; JSON lines on stdin/stdout.
 // Plays real Ironclad act 1 runs: the MCTS teacher (guided-rollout leaves, no recording) plays every fight,
 // SimpleAgent plays everything out of combat EXCEPT card rewards, which are asked of Python.
 //
@@ -36,9 +36,10 @@
 //         carries "lookahead": true inside a sample (Python answers greedily and logs nothing).
 //   path: one option per next map node (only when there are >= 2). After-state = this state with only the remaining
 //         routes that start at that node (macro_sim paths, first_xs); nothing is simulated.
-#include "agents/teacher_search.hpp"
-#include "apps/common/game_state.hpp"
-#include "apps/common/macro_sim.hpp"
+#include "agents/combat/search/teacher_search.hpp"
+#include "environments/overworld/game_state.hpp"
+#include "environments/overworld/decisions.hpp"
+#include "environments/overworld/macro_sim.hpp"
 #include "constants/CharacterClasses.h"
 #include "constants/MonsterEncounters.h"
 #include "constants/Rooms.h"
@@ -71,7 +72,7 @@ std::string lower(std::string s) {
 }
 std::string encounter_name(sts::MonsterEncounter e) { return lower(sts::monsterEncounterEnumNames[static_cast<int>(e)]); }
 
-// As scenarios/act1_run.cpp (budget category of a fight).
+// As environments/overworld/act1_run.cpp (budget category of a fight).
 std::string category(const GameContext& game, sts::MonsterEncounter encounter) {
     namespace pool = sts::MonsterEncounterPool;
     if (game.curRoom == sts::Room::BOSS) return "boss";
@@ -130,123 +131,12 @@ int simple_choice(const GameContext& gc) {
 }
 
 // Deck + HP + relics: two after-states that agree here are the same decision outcome.
-std::string outcome_key(const GameContext& gc) {
-    std::vector<std::pair<int, int>> deck;
-    for (const auto& c : gc.deck.cards) deck.emplace_back(static_cast<int>(c.id), c.getUpgraded());
-    std::sort(deck.begin(), deck.end());
-    Json k = {{"deck", deck}, {"hp", gc.curHp}, {"max_hp", gc.maxHp}};
-    for (const auto& r : gc.relics.relics) k["relics"].push_back({static_cast<int>(r.id), r.data});
-    return k.dump();
-}
-
-struct Option {
-    Json label;
-    std::vector<int> actions;  // GameActions executed in order
-    Json after;
-};
-
-std::vector<Option> rest_options(const GameContext& gc, std::vector<std::string>& keys) {
-    std::vector<Option> out;
-    for (int a : {0, 1, 3}) {
-        if (!sts::search::GameAction(a).isValidAction(gc)) continue;
-        GameContext c = gc;
-        sts::search::GameAction(a).execute(c);
-        if (a != 1) {
-            const auto k = outcome_key(c);
-            if (std::find(keys.begin(), keys.end(), k) != keys.end()) continue;
-            keys.push_back(k);
-            out.push_back({{{"action", a == 0 ? "rest" : "lift"}}, {a}, stsrl::macro_sim::state_json(c)});
-            continue;
-        }
-        if (c.screenState != sts::ScreenState::CARD_SELECT) continue;
-        for (int i = 0; i < static_cast<int>(c.info.toSelectCards.size()); ++i) {
-            GameContext c2 = c;
-            sts::search::GameAction(i).execute(c2);
-            const auto k = outcome_key(c2);
-            if (std::find(keys.begin(), keys.end(), k) != keys.end()) continue;
-            keys.push_back(k);
-            const auto& card = c.info.toSelectCards[i].card;
-            out.push_back({{{"action", "smith"}, {"card", lower(sts::cardEnumStrings[static_cast<int>(card.id)])},
-                            {"upgraded", card.getUpgraded()}}, {1, i}, stsrl::macro_sim::state_json(c2)});
-        }
-    }
-    return out;
-}
-
-// sts::Neow::Bonus / Drawback names (Neow.h order).
-constexpr const char* neow_bonus_names[] = {
-    "three_cards", "one_random_rare_card", "remove_card", "upgrade_card", "transform_card", "random_colorless",
-    "three_small_potions", "random_common_relic", "ten_percent_hp_bonus", "three_enemy_kill", "hundred_gold",
-    "random_colorless_2", "remove_two", "one_rare_relic", "three_rare_cards", "two_fifty_gold",
-    "transform_two_cards", "twenty_percent_hp_bonus", "boss_relic", "invalid"};
-constexpr const char* neow_drawback_names[] = {
-    "invalid", "none", "ten_percent_hp_loss", "no_gold", "curse", "percent_damage", "lose_starter_relic"};
-
-std::string shop_key(const GameContext& gc) {
-    Json k = Json::parse(outcome_key(gc));
-    k["gold"] = gc.gold;
-    for (int i = 0; i < gc.potionCapacity; ++i) k["potions"].push_back(static_cast<int>(gc.potions[static_cast<std::size_t>(i)]));
-    return k.dump();
-}
-
-std::vector<Option> shop_options(const GameContext& gc, std::vector<std::string>& keys) {
-    using RA = sts::search::GameAction::RewardsActionType;
-    const auto& shop = gc.info.shop;
-    std::vector<Option> out;
-    const auto add = [&](Json label, std::vector<int> actions, const GameContext& after_gc, Json after) {
-        const auto k = shop_key(after_gc) + (label.contains("relic") ? label["relic"].dump() : "");
-        if (std::find(keys.begin(), keys.end(), k) != keys.end()) return;
-        keys.push_back(k);
-        out.push_back({std::move(label), std::move(actions), std::move(after)});
-    };
-    add({{"action", "leave"}}, {static_cast<int>(sts::search::GameAction(RA::SKIP).bits)}, gc, stsrl::macro_sim::state_json(gc));
-    for (int i = 0; i < 7; ++i) {
-        const sts::search::GameAction a(RA::CARD, i);
-        if (!a.isValidAction(gc)) continue;
-        GameContext c = gc;
-        a.execute(c);
-        add({{"action", "card"}, {"card", lower(sts::cardEnumStrings[static_cast<int>(shop.cards[i].getId())])},
-             {"upgraded", shop.cards[i].isUpgraded()}, {"price", shop.cardPrice(i)}},
-            {static_cast<int>(a.bits)}, c, stsrl::macro_sim::state_json(c));
-    }
-    for (int i = 0; i < 3; ++i) {
-        const sts::search::GameAction a(RA::POTION, i);
-        if (!a.isValidAction(gc) || gc.potionCount >= gc.potionCapacity) continue;
-        GameContext c = gc;
-        a.execute(c);
-        add({{"action", "potion"}, {"potion", lower(sts::potionEnumNames[static_cast<int>(shop.potions[i])])},
-             {"price", shop.potionPrice(i)}}, {static_cast<int>(a.bits)}, c, stsrl::macro_sim::state_json(c));
-    }
-    for (int i = 0; i < 3; ++i) {
-        const sts::search::GameAction a(RA::RELIC, i);
-        if (!a.isValidAction(gc)) continue;
-        auto after = stsrl::macro_sim::state_json(gc);
-        const auto id = shop.relics[i];
-        after["relics"].push_back({{"relic_id", static_cast<int>(id)}, {"data", 0},
-                                   {"name", lower(sts::relicEnumNames[static_cast<int>(id)])}});
-        after["gold"] = gc.gold - shop.relicPrice(i);
-        GameContext keyed = gc;
-        keyed.gold -= shop.relicPrice(i);
-        add({{"action", "relic"}, {"relic", lower(sts::relicEnumNames[static_cast<int>(id)])}, {"price", shop.relicPrice(i)}},
-            {static_cast<int>(a.bits)}, keyed, std::move(after));
-    }
-    const sts::search::GameAction remove(RA::CARD_REMOVE);
-    if (remove.isValidAction(gc)) {
-        GameContext c = gc;
-        remove.execute(c);
-        if (c.screenState == sts::ScreenState::CARD_SELECT)
-            for (int j = 0; j < static_cast<int>(c.info.toSelectCards.size()); ++j) {
-                GameContext c2 = c;
-                sts::search::GameAction(j).execute(c2);
-                const auto& card = c.info.toSelectCards[j].card;
-                add({{"action", "remove"}, {"card", lower(sts::cardEnumStrings[static_cast<int>(card.id)])},
-                     {"upgraded", card.getUpgraded()}, {"price", shop.removeCost}},
-                    {static_cast<int>(remove.bits), static_cast<int>(sts::search::GameAction(j).bits)}, c2,
-                    stsrl::macro_sim::state_json(c2));
-            }
-    }
-    return out;
-}
+using stsrl::overworld::Option;
+using stsrl::overworld::neow_bonus_names;
+using stsrl::overworld::neow_drawback_names;
+using stsrl::overworld::outcome_key;
+using stsrl::overworld::rest_options;
+using stsrl::overworld::shop_options;
 
 // ------------------------------------------------------------------ fight models
 // A fight model resolves the fight on gc's BATTLE screen and leaves gc after the fight (as exitBattle would).

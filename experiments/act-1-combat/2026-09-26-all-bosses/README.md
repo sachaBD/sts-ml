@@ -57,6 +57,6 @@ by fight (`analyze.py`, HP-eq, as in mirror-mcts). Per-run weights come from the
 
 ```bash
 experiments/act-1-combat/2026-09-26-all-bosses/drive.sh par:ab-gen0+ab-teacher-dev ab-selfplay-gen1 ab-gen1 ab-gen1-dev ab-gen0-dev
-PYTHONPATH=python .venv/bin/python experiments/act-1-combat/2026-09-26-all-bosses/analyze.py \
+PYTHONPATH=. .venv/bin/python experiments/act-1-combat/2026-09-26-all-bosses/analyze.py \
     --candidate combat_v3/<date>/ab-gen1-dev --teacher combat_v3/<date>/ab-teacher-dev --md results/gen1-vs-teacher.md
 ```

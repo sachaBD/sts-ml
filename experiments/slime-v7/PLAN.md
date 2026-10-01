@@ -66,7 +66,7 @@ At an informative setting from Stage A, compare:
 2. Immediate frozen gen0 value evaluation.
 3. Bounded guided rollout followed by frozen gen0 evaluation.
 
-Hybrid support already exists in `agents/teacher_leaves.cpp`. The previous 14-fight hybrid pilot used an older model and is not decisive for gen0. Select one explicit horizon before running; verify what a turn increment means rather than calling it a complete future player turn.
+Hybrid support already exists in `agents/combat/search/teacher_leaves.cpp`. The previous 14-fight hybrid pilot used an older model and is not decisive for gen0. Select one explicit horizon before running; verify what a turn increment means rather than calling it a complete future player turn.
 
 First compare equal simulation caps for diagnosis. Then compare promising candidates at comparable wall-clock cost. Include the original 15k/8 teacher and gen0 references in reporting. Equal simulations are not equal compute.
 

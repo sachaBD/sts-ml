@@ -14,7 +14,6 @@ build:
 
 test: build
 	ctest --test-dir $(BUILD_DIR) --output-on-failure
-	PYTHONPATH=python:. $(VENV) -m unittest discover -s tests
 
 clean:
 	cmake -E remove_directory $(BUILD_DIR)

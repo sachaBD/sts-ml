@@ -10,11 +10,11 @@ legacy topology `co1-w16-h32-d30`? Data growth plateaued for the legacy net at c
   plus the devsupp runs), identical to the card-outcomes supplementary tables, so legacy runs reproduce them.
 - **Training:** augmented arm only (the natural-only reference is known, and the topology does not change the
   natural-data question). Loss, sampling, patience 8, max 60 epochs and 32,768 examples/epoch are all unchanged.
-- **Held-out data:** held-out groups never enter training. `hs16` (below) is dev-only, since natural bucket-8 donors are
-  dropped from training.
+- **Held-out data:** held-out groups never enter agents.combat.value. `hs16` (below) is dev-only, since natural bucket-8 donors are
+  dropped from agents.combat.value.
 
 ## Topologies
-- Specs live in `topology/combat_outcome/*.toml`; see the README there. A spec is frozen once trained (`FROZEN.tsv`,
+- Specs live in `models/combat_outcome/architectures/*.toml`; see the README there. A spec is frozen once trained (`FROZEN.tsv`,
   enforced by `train_marginals.py`).
 - Kinds:
   - `combat_outcome_v1`: the legacy class.
@@ -43,7 +43,7 @@ legacy topology `co1-w16-h32-d30`? Data growth plateaued for the legacy net at c
 R=experiments/topology-sweep
 $R/sweep.sh PREFIX $R/configs/GRID.txt $R/data/through-s3c.txt $R/data/eval-supp.txt 2   # resumable; skips done runs
 experiments/card-outcomes/generate.sh $R/data/hs16.txt $R/configs/hs16-hard-elite.toml $R/configs/hs16-boss.toml
-PYTHONPATH=python:. .venv/bin/python apps/combat_transition/eval_marginals.py \
+PYTHONPATH=. .venv/bin/python apps/combat_transition/eval_marginals.py \
   combat_transition_v1/2026-09-29/act1-eval-mcts-a20-checked --marginals $(cat $R/data/hs16.txt) \
   --checkpoints runs/schema=combat_outcome_v1/date=*/id=tsweep-*/out/augmented.pt --out $R/hs16-eval
 ```

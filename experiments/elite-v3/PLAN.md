@@ -35,7 +35,7 @@ Primary metric: paired HP-eq/fight vs MCTS (`compare.py`; HP-eq = Δ terminal va
   `.venv/bin/python experiments/elite-v3/render.py configs/NAME.toml [--var best=... --var c_puct=...]`
   (it resolves `{{run:value_net_v1/ID}}` to the finished run and refuses unfinished runs).
 - Compare runs with
-  `PYTHONPATH=python .venv/bin/python experiments/elite-v3/compare.py --baseline ID --candidate ID ... --output experiments/elite-v3/results/NAME.md --json experiments/elite-v3/results/NAME.json`
+  `PYTHONPATH=. .venv/bin/python experiments/elite-v3/compare.py --baseline ID --candidate ID ... --output experiments/elite-v3/results/NAME.md --json experiments/elite-v3/results/NAME.json`
   (ids are the `[run] id` values; `mkdir -p experiments/elite-v3/results` once).
 - Never reuse a run id. If a run fails and must be repeated, append `-r2` to its id in the config and log it.
 - Replays of stored fights may diverge from the stored fight on the new simulator; configs set
@@ -47,12 +47,12 @@ Primary metric: paired HP-eq/fight vs MCTS (`compare.py`; HP-eq = Δ terminal va
 
 1. Record `git -C . rev-parse HEAD`, `git -C ../sts_lightspeed rev-parse HEAD`, `nvidia-smi`, `free -g` in LOG.md.
 2. `make build && ctest --test-dir build/main --output-on-failure` and
-   `PYTHONPATH=python:. .venv/bin/python -m unittest discover -s tests`. All must pass (including
-   `tests/test_deep_sets_v3.py`: v3 encoder/loader/model parity and a policy_net search smoke test).
+   `make test`. All must pass (including
+   `agents/combat/value/test_deep_sets_v3.py`: v3 encoder/loader/model parity and a policy_net search smoke test).
    **Gate:** any failure: stop, log, notify nn-consultant.
 3. Smoke: `./apps/fight_resample/run.sh experiments/elite-v3/configs/s0-smoke-resample.toml --scratch`
    (6 fights, 2k simulations, a minute or two), then
-   `PYTHONPATH=python .venv/bin/python experiments/elite-v3/check_data.py scratch/schema=combat_v3/date=*/id=elite-v3-smoke/out --min-fights 1`.
+   `PYTHONPATH=. .venv/bin/python experiments/elite-v3/check_data.py scratch/schema=combat_v3/date=*/id=elite-v3-smoke/out --min-fights 1`.
    **Gate:** GATE PASSED. (If all 6 replays diverged, log it and continue; Stage 1's gate decides.)
 
 ## Stage 1: teacher data (≈95 min, the longest stage)
@@ -63,7 +63,7 @@ Primary metric: paired HP-eq/fight vs MCTS (`compare.py`; HP-eq = Δ terminal va
 (new fight RNG, HP ~ N(stored, 10), random potions), played by the MCTS teacher at 20k/8, no random move. Expect
 ≈1.1 s/fight wall on 11 workers (previous 20k elite runs: 450 fights in 9 min on 10 workers).
 
-Then: `PYTHONPATH=python .venv/bin/python experiments/elite-v3/check_data.py runs/schema=combat_v3/date=*/id=elite-v3-teacher/out --min-fights 3500 --max-skipped 0.35`
+Then: `PYTHONPATH=. .venv/bin/python experiments/elite-v3/check_data.py runs/schema=combat_v3/date=*/id=elite-v3-teacher/out --min-fights 3500 --max-skipped 0.35`
 Save its output in LOG.md (potion / relic coverage matters for the report).
 **Gate G1:** GATE FAILED: stop the deck, notify nn-consultant, write what happened in REPORT.md.
 If it is still running at T0 + 2h15, do not kill it; note it. Stages 4/5 will then be dropped by their gates.

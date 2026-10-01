@@ -3,7 +3,7 @@
 // play(request, net) -> OUTPUT_DIR/result.msgpack; net is the value net from WEIGHTS, or null without it.
 #pragma once
 
-#include "topology/value_net.hpp"
+#include "agents/combat/value/value_net.hpp"
 
 #include <filesystem>
 #include <fstream>

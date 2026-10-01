@@ -10,7 +10,7 @@ import tomllib
 from pathlib import Path
 from types import SimpleNamespace
 
-from sts_combat_rl.run import run_dir
+from runs.run import run_dir
 
 ORACLE_BANNER = ("\n" + "!" * 78 + "\n!!  ORACLE MODE: the teacher searches the TRUE state (perfect RNG / draw-order\n"
                  "!!  foresight). Upper-bound results, not fair play. Rows are tagged oracle = true.\n" + "!" * 78)

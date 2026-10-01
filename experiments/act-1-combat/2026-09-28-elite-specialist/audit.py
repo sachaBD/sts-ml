@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
 """Inventory candidate elite fights and approximate opening-deck diversity. No training or replay.
 
-Run: PYTHONPATH=python .venv/bin/python experiments/act-1-combat/2026-09-28-elite-specialist/audit.py
+Run: PYTHONPATH=. .venv/bin/python experiments/act-1-combat/2026-09-28-elite-specialist/audit.py
 """
 import csv
 import hashlib
 from collections import defaultdict
 from pathlib import Path
 
-from sts_combat_rl.query import connect
+from runs.query import connect
 
 HERE = Path(__file__).parent
 BASE = "combat_v3/2026-09-26/act1-all-bosses-a20-scaled-search"

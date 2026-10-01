@@ -16,8 +16,8 @@ Streamlit, or FastAPI with one HTML page).
     Label it as rough: it is 3 seeds and is not calibrated.
   - Optional comparison: legacy `id=card-outcomes-s3c-model-supp*/out/augmented.pt`.
 - **Loading:** each checkpoint is a dict with `kind`, `args`, `state_dict`, `encounters` (name→id map) and `centers` (HP bin
-  centers). Build the network with `KINDS[kind](**args)` from `apps/combat_transition/train_marginals.py`, which imports the
-  kinds from `python/sts_combat_rl/topology/`. See `apps/combat_transition/eval_marginals.py` for a complete load-and-score
+  centers). Build the network with `KINDS[kind](**args)` from `models/combat_outcome/learn_marginals.py`, which imports the
+  kinds from `agents/combat/value/`. See `apps/combat_transition/eval_marginals.py` for a complete load-and-score
   example.
 - **Encoding:** use `apps/combat_transition/train.batch(rows, encounters, device)`. Each row is `{"encounter": name,
   "pre": {...}}`, where `pre` holds `deck`, `relics`, `potions`, `hp`, `max_hp` and `potion_capacity`. Copy the exact
@@ -39,7 +39,7 @@ Streamlit, or FastAPI with one HTML page).
   - this is a development model;
   - elite/boss card effects explain only about 20–35% of the real effect variance;
   - a boss P(win) near 0.5 is where the model is least reliable.
-- Do not modify training code, run dirs or `topology/`. Put new code in `apps/outcome_ui/` and notes in `experiments/outcome-ui/`.
+- Do not modify training code, run dirs or `agents/combat/value/`. Put new code in `apps/outcome_ui/` and notes in `experiments/outcome-ui/`.
 
 ## Verify
 - Reproduce `p_win` for a few rows of `…/tpair1-co2-w32-h64-l1-d30-lr.001-s0/out/augmented-predictions.jsonl` through the

@@ -3,13 +3,13 @@
 (run_seed % 10 in (0, 1); no v3 net trained on them), chosen by SHA-256 of episode_id, never by outcome.
 Also writes the 200-per-elite subset (first 200 by the same order) used by the scaling stage.
 
-    PYTHONPATH=python .venv/bin/python experiments/elite-bench/make_fights.py
+    PYTHONPATH=. .venv/bin/python experiments/elite-bench/make_fights.py
 """
 import csv
 import hashlib
 from pathlib import Path
 
-from sts_combat_rl.query import connect
+from runs.query import connect
 
 HERE = Path(__file__).parent
 rows = connect().sql("""

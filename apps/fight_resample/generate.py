@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Resample stored fights of combat_v3 bootstrap runs: same deck, relics and potions, new starting HP and fight RNG.
 
-[run] query selects the fights (sts_combat_rl.query); they must come from
+[run] query selects the fights (runs.query); they must come from
 bootstrap runs, whose earlier fights rebuild each one. One worker call per source fight plays all its samples; its rows go to
 out/part-<source_episode_id>.parquet.
 """
@@ -14,9 +14,9 @@ from pathlib import Path
 from apps.common.app import (TEACHER_KEYS, check_keys, exactly_when, main, required, run_json, snapshot,
                              teacher_settings, value_run, write_json)
 from apps.common.replay import check_start, decision_rows, diverged, replay_requests
-from sts_combat_rl import query
+from runs import query
 from apps.common.worker import run_parallel, run_worker, write_part
-from sts_combat_rl.schemas.combat_v3 import NAME
+from environments.combat.schema import NAME
 
 log = logging.getLogger(__name__)
 BUILT = Path("build/main/fight_resample_worker")  # built by apps/common/job.sh

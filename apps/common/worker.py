@@ -10,7 +10,7 @@ from pathlib import Path
 import msgpack
 import pyarrow as pa
 import pyarrow.parquet as pq
-from sts_combat_rl.schemas.combat_v3 import COMBAT_V3
+from environments.combat.schema import COMBAT_V3
 
 
 def run_worker(binary, request, weights=None, timeout=None):

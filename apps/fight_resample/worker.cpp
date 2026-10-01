@@ -1,5 +1,5 @@
 // Resamples one stored fight of a combat_v3 bootstrap run: the act 1 run is replayed up to that fight
-// (apps/common/fight_replay.hpp), then the teacher plays it once per sample from the same deck, relics and
+// (environments/overworld/fight_replay.hpp), then the teacher plays it once per sample from the same deck, relics and
 // potions, but with the sample's starting HP and a fresh fight: every combat RNG is seeded from the
 // sample's episode_id (draw order, monster HP and AI, ...).
 //   fight_resample_worker REQUEST.json OUTPUT_DIR [WEIGHTS]     (apps/common/worker.hpp)
@@ -8,8 +8,8 @@
 //                random_potions, samples: [{episode_id, starting_hp}], teacher: apps/common/teacher_request.hpp}
 //   random_potions: each potion the player holds is replaced by a random potion drop (potion RNG seeded as above).
 // Output: OUTPUT_DIR/result.msgpack = {teacher, rows} (combat_v3 rows of every sample, in sample order).
-#include "agents/teacher_search.hpp"
-#include "apps/common/fight_replay.hpp"
+#include "agents/combat/search/teacher_search.hpp"
+#include "environments/overworld/fight_replay.hpp"
 #include "apps/common/teacher_request.hpp"
 #include "apps/common/worker.hpp"
 #include "game/Game.h"

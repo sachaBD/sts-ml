@@ -59,7 +59,7 @@ several arms on the same validation fights, which flatters its validation score.
 ## Issues found (for the next round)
 
 1. **The potions-kept head overfits.** Its validation MSE is about 70× the training MSE, and it rises during
-   training. Potion outcomes are sparse, so this head needs regularising or a smaller loss weight.
+   agents.combat.value. Potion outcomes are sparse, so this head needs regularising or a smaller loss weight.
 2. **Sentries is still the weak spot.** Priors turned that elite from a large loss into roughly even, but MCTS
    still wins more of those fights. This is where to focus next.
 3. **Self-play run design:** t3's internal validation split overlapped t2's training data, so its training

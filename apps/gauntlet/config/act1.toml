@@ -1,0 +1,21 @@
+# ./apps/gauntlet/run.sh apps/gauntlet/config/act1.toml [--scratch]
+# Gauntlet card-reward evaluation (experiments/act-1-card-selection/approaches/gauntlet) on reward states of the
+# MCTS act 1 evaluation run. Cost per reward state ~ (3 elites x elite_distances + 1 boss) x samples x (offer + 1)
+# fights; at 2000 simulations an elite fight takes ~0.25 s (one measurement), a boss fight longer.
+[run]
+id = "act1-gauntlet-dev"
+# The reward state is the card reward before each sampled fight (fight_index >= 1); bootstrap runs only.
+query = "select * from combat_v3 where run_id = 'combat_v3/2026-09-27/act1-eval-mcts-a20'"
+rewards = 20           # reward states sampled from the query's fights
+sample_seed = 0        # which reward states
+samples = 8            # seeds per gauntlet fight (shared by every option)
+elite_distances = 3    # nearest distinct reachable-elite distances
+death_penalty = 30.0   # score = HP lost (death = all starting HP) + death_penalty if died; lower is better
+boss_weight = 0.5      # option score = (1 - w) * mean elite score + w * mean boss score
+workers = 10
+# combat agent (apps/common/app.py teacher_settings); value_run with leaf value_net / hybrid
+leaf = "guided_rollout"
+simulations = 2000
+particles = 8
+oracle = false
+random_move = false

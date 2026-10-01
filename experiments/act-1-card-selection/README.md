@@ -6,7 +6,7 @@ Planning notes. Nothing here is implemented yet.
 
 Ultimately: maximize Ironclad A20 Heart win probability.
 
-First bounded problem: improve ordinary **card-reward choices** (take one offered card or skip) during Act 1, with a **frozen combat agent** and **fixed controllers for every other decision** (map, rest, shop, events: `SimpleAgent` via `scenarios/act1_run.cpp`).
+First bounded problem: improve ordinary **card-reward choices** (take one offered card or skip) during Act 1, with a **frozen combat agent** and **fixed controllers for every other decision** (map, rest, shop, events: `SimpleAgent` via `environments/overworld/act1_run.cpp`).
 
 Act 1 boss survival is a provisional development objective, not proof of better full-game play: it can favour decks that fail later.
 

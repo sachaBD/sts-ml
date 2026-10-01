@@ -21,9 +21,9 @@ Author: nn-consultant, 2026-09-28. Read with [REPORT.md](REPORT.md) (results) an
 
 | Commit | What |
 |---|---|
-| `209fb90` | Encoding v4 (`combat/encoding_v4.cpp`, Ironclad Act 1 scope with `EXTEND HERE` marks): player statuses from potions/relics, 15 monster statuses + previous move, potion tokens (ID + 18-number effect description), relic tokens (ID + trigger progress). Model kind `deep_sets_v3` (Python `python/sts_combat_rl/topology/deep_sets_v3.py`, C++ `topology/value_net.cpp`): output = the terminal score formula over win / HP-given-win / potions-kept heads. |
-| `6fb12aa` | Policy head (each legal move scored through the trunk's own card/monster/potion encoders; C++ caches the move-only part). `encode_action`. v4 row columns as **nullable columns in `combat_v3`** (incl. `legal_actions` on decision rows), written by `agents/teacher_search.cpp`. Loader `training/data_v4.py` (visit-share policy targets, identical moves merged). v3 losses in `train_value.py` (config keys `aux_keep_weight`, `policy_weight`, required only for `deep_sets_v3`). |
-| `18c3a00`, `f44b3ec` | Leaf `policy_net` (`agents/teacher_leaves.cpp` `run_policy_net_search`): sim-changer's policy-prior mode (PUCT + first-play urgency, expansion at evaluation), objective 1. Values are converted to the search's scale: `v · (55 + maxHP_leaf) / (56 + M0)`. Priors = 0.97·softmax + 0.03·uniform. Teacher settings `c_puct`, `fpu_reduction`, `prior_floor`. Replay option `skip_diverged` in value_play / fight_resample. This rundeck. |
+| `209fb90` | Encoding v4 (`environments/combat/encoding_v4.cpp`, Ironclad Act 1 scope with `EXTEND HERE` marks): player statuses from potions/relics, 15 monster statuses + previous move, potion tokens (ID + 18-number effect description), relic tokens (ID + trigger progress). Model kind `deep_sets_v3` (Python `agents/combat/value/deep_sets_v3.py`, C++ `agents/combat/value/value_net.cpp`): output = the terminal score formula over win / HP-given-win / potions-kept heads. |
+| `6fb12aa` | Policy head (each legal move scored through the trunk's own card/monster/potion encoders; C++ caches the move-only part). `encode_action`. v4 row columns as **nullable columns in `combat_v3`** (incl. `legal_actions` on decision rows), written by `agents/combat/search/teacher_search.cpp`. Loader `agents/combat/value/data_v4.py` (visit-share policy targets, identical moves merged). v3 losses in `train_value.py` (config keys `aux_keep_weight`, `policy_weight`, required only for `deep_sets_v3`). |
+| `18c3a00`, `f44b3ec` | Leaf `policy_net` (`agents/combat/search/teacher_leaves.cpp` `run_policy_net_search`): sim-changer's policy-prior mode (PUCT + first-play urgency, expansion at evaluation), objective 1. Values are converted to the search's scale: `v · (55 + maxHP_leaf) / (56 + M0)`. Priors = 0.97·softmax + 0.03·uniform. Teacher settings `c_puct`, `fpu_reduction`, `prior_floor`. Replay option `skip_diverged` in value_play / fight_resample. This rundeck. |
 
 Simulator changes by sim-changer on the same day (sts_lightspeed `28d1781` … `1eef266`):
 - policy-prior search mode;
@@ -34,9 +34,9 @@ Simulator changes by sim-changer on the same day (sts_lightspeed `28d1781` … `
 **Old runs (before 2026-09-28) were played on the old simulator**, so don't compare against them. About 4–6% of
 stored fights no longer replay identically and are skipped.
 
-Tests: `tests/encoding_v4_test.cpp` (encoder checks; also dumps states / runs a policy_net search for the Python
-tests), `tests/test_deep_sets_v3.py` (C++ rows → parquet → loader → model vs C++ values and policy logits; losses;
-search smoke), `tests/test_policy_net_apps.py`.
+Tests: `environments/combat/encoding_v4_test.cpp` (encoder checks; also dumps states / runs a policy_net search for the Python
+tests), `agents/combat/value/test_deep_sets_v3.py` (C++ rows → parquet → loader → model vs C++ values and policy logits; losses;
+search smoke), `apps/common/test_policy_net_apps.py`.
 
 ## Data and models produced
 
@@ -44,7 +44,7 @@ search smoke), `tests/test_policy_net_apps.py`.
   - `elite-v3-teacher`: 4,884 fights, MCTS teacher, random potions.
   - `elite-v3-selfplay`: 2,335 fights, t2 + policy search.
   - Validation/final plays: `elite-v3-v-*`, `elite-v3-f-*`.
-  - These are the **only** rows usable for v3 training. Older rows lack the v4 columns.
+  - These are the **only** rows usable for v3 agents.combat.value. Older rows lack the v4 columns.
 - **value_net_v1 runs:** `elite-v3-t1` (policy loss weight 0.05), `elite-v3-t2` (0.25, the candidate), `elite-v3-t3`
   (t2 fine-tuned with self-play: no better in play, worse on Sentries).
 - **Fight sets:** training sources are buckets 4,6,7,8,9 of `act1-all-bosses-a20-scaled-search`. The **final fights
@@ -53,7 +53,7 @@ search smoke), `tests/test_policy_net_apps.py`.
 
 ## Known problems / debts
 
-1. **The potions-kept head overfits:** validation MSE is about 70× training, and rises during training. Regularise or
+1. **The potions-kept head overfits:** validation MSE is about 70× training, and rises during agents.combat.value. Regularise or
    down-weight it; potion outcomes are sparse.
 2. **t3's validation split overlapped t2's training data,** so its training metrics are optimistic. Next time, pin the
    split to t2's.
@@ -87,6 +87,6 @@ search smoke), `tests/test_policy_net_apps.py`.
   every key.
 - Play: `./apps/value_play/run.sh <config>`. `leaf = "policy_net"` needs `c_puct`, `fpu_reduction`, `prior_floor`;
   also `skip_diverged = true` for stored fights.
-- Compare: `PYTHONPATH=python .venv/bin/python experiments/elite-v3/compare.py --baseline ID --candidate ID`.
+- Compare: `PYTHONPATH=. .venv/bin/python experiments/elite-v3/compare.py --baseline ID --candidate ID`.
 - Audit data: `experiments/elite-v3/check_data.py OUT_DIR`.
 - Render config templates: `experiments/elite-v3/render.py configs/X.toml --var ...`.

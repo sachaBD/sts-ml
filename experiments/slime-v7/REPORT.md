@@ -58,8 +58,8 @@ Seconds/fight include worker/replay overhead and reflect concurrent execution. D
 ## Recommended next decision
 
 - Stop increasing guided-rollout simulation budgets for now. Keep R00 as the historical reference and R01 as the provisional best search setting.
-- If continuing the planned search investigation, use the 15k / 32 setting for Stage B: frozen gen0 immediate leaves versus one predefined bounded-rollout/gen0 hybrid versus the completed R01 rollout reference. Preserve the original gen0 reference for context. This tests evaluator quality without confounding it with retraining.
-- If prioritizing learning instead, design the single-generation terminal-score-only pilot described in `../../slop_docs/slime/terminal_score_iteration.md`. Stage A motivates looking beyond compute, but does not establish this learning approach as the solution.
+- If continuing the planned search investigation, use the 15k / 32 setting for Stage B: frozen gen0 immediate leaves versus one predefined bounded-rollout/gen0 hybrid versus the completed R01 rollout reference. Preserve the original gen0 reference for context. This tests evaluator quality without confounding it with reagents.combat.value.
+- If prioritizing learning instead, design the single-generation terminal-score-only pilot described in `../../docs/research/slime/terminal_score_iteration.md`. Stage A motivates looking beyond compute, but does not establish this learning approach as the solution.
 - Before calling a selected expert stronger, confirm on fresh fights. The 156-fight development set has already been used for repeated selection.
 
 No further gameplay runs launched as part of this assessment.

@@ -2,7 +2,7 @@
 """Pivotal fight list (after S1-S3): fights where some fair 20k run (MCTS or v3, any salt) lost, and the fight is
 winnable (the oracle won it, or some fair run won it). Written in the bench_fights.csv format.
 
-    PYTHONPATH=python .venv/bin/python experiments/elite-bench/pivotal.py [--prefix bench] [--store runs]
+    PYTHONPATH=. .venv/bin/python experiments/elite-bench/pivotal.py [--prefix bench] [--store runs]
 """
 import argparse
 import csv

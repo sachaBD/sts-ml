@@ -17,7 +17,7 @@ from threading import Event, Lock, Thread, current_thread
 from apps.common.app import (FAIR_PLAY, ORACLE_BANNER, check_keys, exactly_when, main, required, snapshot,
                              value_run, write_json)
 from apps.common.worker import run_parallel, run_worker, write_part
-from sts_combat_rl.schemas.combat_v3 import NAME
+from environments.combat.schema import NAME
 
 log = logging.getLogger(__name__)
 BUILT = Path("build/main/bootstrap_fight_worker")  # built by apps/common/job.sh; each run plays with its own copy in out/
@@ -102,7 +102,7 @@ class Run:
     boss: bool  # reached the act 1 boss fight
     rows: int
     seconds: float
-    teacher: dict  # search settings (agents/teacher_search.cpp)
+    teacher: dict  # search settings (agents/combat/search/teacher_search.cpp)
 
     def __str__(self):
         return f"seed {self.seed}: {self.status} on floor {self.floor}, {self.fights} fights, {self.rows} rows, {self.seconds:.1f}s"

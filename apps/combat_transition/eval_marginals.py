@@ -10,8 +10,8 @@ from pathlib import Path
 
 import torch
 
-from apps.combat_transition.train import batch
-from apps.combat_transition.train_marginals import KINDS, dataset, infer
+from models.combat_outcome.learn import batch
+from models.combat_outcome.learn_marginals import KINDS, dataset, infer
 
 
 def main():

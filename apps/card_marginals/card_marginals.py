@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """card_marginals: paired card-addition fights on synthetic pre-combat states (schema card_marginals_v1).
 
-Supervision for the pre-combat outcome model (slop_docs/card-selection/): the marginal effect of adding one card to a
+Supervision for the pre-combat outcome model (docs/research/card-selection/): the marginal effect of adding one card to a
 fixed deck. Per deck group (apps/card_marginals/worker.cpp builds it with the simulator from its group_seed): the base
 deck ("skip") and the base deck + each of n_candidates candidate cards all play the same fights: every encounter of
 the group x `seeds` fight seeds (the same fight RNG streams for every variant).
@@ -19,7 +19,7 @@ Groups: group_seed = hash(generator_seed, stage, group); bucket = group_seed % 1
 
   ./apps/card_marginals/run.sh CONFIG.toml [--scratch]      the fights -> out/part-<group>.parquet, summary.json
                                                             ([run] groups = 0: until Ctrl+C, finished groups kept)
-  PYTHONPATH=python .venv/bin/python apps/card_marginals/card_marginals.py CONFIG.toml --decks N
+  PYTHONPATH=. .venv/bin/python apps/card_marginals/card_marginals.py CONFIG.toml --decks N
                                                             print N groups' decks (no fights; build/main worker)
 
 Row per fight: group, group_seed, bucket, stage, prior_fights, variant (0 = base), card, source (base / reward /
@@ -42,7 +42,7 @@ import pyarrow.parquet as pq
 from apps.common.app import (TEACHER_KEYS, check_keys, exactly_when, main, required, snapshot, teacher_settings,
                              write_json)
 from apps.common.worker import run_parallel, run_worker
-from sts_combat_rl.run import RUNS
+from runs.run import RUNS
 
 log = logging.getLogger(__name__)
 SCHEMA = "card_marginals_v1"

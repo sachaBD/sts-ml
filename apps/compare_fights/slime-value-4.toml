@@ -1,8 +1,0 @@
-# ./apps/compare_fights/run.sh apps/compare_fights/slime-value-4.toml [--scratch]
-# Value-net teacher (apps/value_play/slime.toml) vs its stored teacher fights.
-[run]
-id = "slime-value-5-vs-teacher"
-# Each side is a query (sts_combat_rl.query); oracle = true allows oracle rows.
-baseline = "select * from combat_v3 where id in ('act1-a20', 'act1-a20-1', 'act1-a20-2')"
-candidate = "select * from combat_v3 where id = 'slime-value-5-play-ignore'"
-oracle = false

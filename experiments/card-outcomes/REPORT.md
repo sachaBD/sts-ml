@@ -16,7 +16,7 @@ Fights generated, with generation minutes in brackets (11 workers). Death counts
 | s3 | +60,000 (3.6) | +84,000 (70.2) | +16,500 (143.3) | 295k | 217 min |
 | s3c (extension) | – | +30,000 (26.7) | +5,400 (47.0) | 331k | 74 min |
 
-\*s2 also includes a dev-only supplementary cohort ("devsupp", natural donor bucket 8, 4 seeds): 12,000 hard/elite and 2,400 boss fights. None of it is used for training.
+\*s2 also includes a dev-only supplementary cohort ("devsupp", natural donor bucket 8, 4 seeds): 12,000 hard/elite and 2,400 boss fights. None of it is used for agents.combat.value.
 
 From s2 on, training data uses 2 seeds per group (more distinct decks rather than repeated seeds) and donor buckets 4–7 only. Each training run took 1–4 minutes on the GPU. All losses were finite. The augmented arm early-stopped at epoch 3–7 in every run (natural-only arm: 7–14). That early stopping suggests the small topology fits quickly.
 
@@ -50,9 +50,9 @@ The per-encounter card-effect MAE vs zero is in each run's `out/report.md`. Acro
 - **Training variance matters.** One seed alone was misleading: s2 with seed 0 looked like the best card-effect model. Three seeds is still a small sample.
 - **Noisy fixed cohort.** The fixed eval cohort has few boss/elite clusters, so boss conclusions rest on the supplementary cohort, which I built and labelled.
 - **Label policy.** Natural labels come from an older policy. The realistic boss states generated here do not settle the earlier mismatch with the low-resource gauntlet.
-- **Code changes:** two opt-in environment overrides in `apps/combat_transition/train_marginals.py`, `CARD_OUTCOME_LR` and `CARD_OUTCOME_SEED`. Defaults are unchanged; runs with default settings reproduced the earlier results exactly.
+- **Code changes:** two opt-in environment overrides in `models/combat_outcome/learn_marginals.py`, `CARD_OUTCOME_LR` and `CARD_OUTCOME_SEED`. Defaults are unchanged; runs with default settings reproduced the earlier results exactly.
 - **lr diagnostic:** a run with learning rate .001 gave no gain.
-- **Split integrity:** generator configs used new seeds and donor buckets 4–7 for training. The deduplication check passed on every training run.
+- **Split integrity:** generator configs used new seeds and donor buckets 4–7 for agents.combat.value. The deduplication check passed on every training run.
 - **Failed launch:** one stage-3c launch failed on a relative-path argument before any work started. That log is kept as `logs/stage3c-gen.failed-path.log`.
 
 ## Artifacts

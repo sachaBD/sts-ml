@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Paired per-encounter comparison: candidate player vs teacher on the same dev fights, in HP-eq.
 
-PYTHONPATH=python .venv/bin/python experiments/act-1-combat/2026-09-26-all-bosses/analyze.py \
+PYTHONPATH=. .venv/bin/python experiments/act-1-combat/2026-09-26-all-bosses/analyze.py \
     --candidate combat_v3/<date>/ab-gen0-dev --teacher combat_v3/<date>/ab-teacher-dev \
     [--label teacher] [--value-run value_net_v1/<date>/ab-gen0] [--json OUT] [--md OUT]
 
@@ -23,7 +23,7 @@ from pathlib import Path
 
 import numpy as np
 
-from sts_combat_rl.query import connect, sql_list
+from runs.query import connect, sql_list
 
 B = 20000
 

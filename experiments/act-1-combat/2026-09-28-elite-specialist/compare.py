@@ -4,7 +4,7 @@ from collections import defaultdict
 from pathlib import Path
 import argparse
 import numpy as np
-from sts_combat_rl.query import connect
+from runs.query import connect
 
 HERE = Path(__file__).parent
 p = argparse.ArgumentParser()

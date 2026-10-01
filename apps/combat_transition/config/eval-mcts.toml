@@ -1,0 +1,6 @@
+# ./apps/combat_transition/run.sh apps/combat_transition/config/eval-mcts.toml [--scratch]
+# Fair guided-rollout MCTS, no random moves, category budgets (easy 500 / hard 2000 / elite, event 5000 / boss 15000).
+[run]
+id = "act1-eval-mcts-a20-checked"
+sources = ["combat_v3/2026-09-27/act1-eval-mcts-a20"]
+workers = 10

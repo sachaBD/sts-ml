@@ -17,7 +17,7 @@ cp -n "$D/data/s1.txt" "$D/data/eval.txt" &&
 "$D/train.sh" card-outcomes-s1-model "$D/data/s1.txt" "$D/data/eval.txt"
 ```
 
-Run the command in the background with an outer log and arrange the Opus completion notification using the supervising harness. The scripts do not start/invoke agents. Opus must set an absolute nine-hour finish time and bound each stage to leave room for training/reporting. Generation is finite; any failed job stops the shell sequence. No jobs are launched by these instructions alone.
+Run the command in the background with an outer log and arrange the Opus completion notification using the supervising harness. The scripts do not start/invoke agents. Opus must set an absolute nine-hour finish time and bound each stage to leave room for agents/combat/value/reporting. Generation is finite; any failed job stops the shell sequence. No jobs are launched by these instructions alone.
 
 ## Later checkpoints (~2 hours, then 2–4 hours generation)
 
@@ -35,7 +35,7 @@ Repeat with cumulative data for stage 3. **Never change `eval.txt`:** it supplie
 ## Existing apps, not another execution framework
 
 - `generate.sh` calls `apps/card_marginals/run.sh` for each config; that app builds/snapshots its worker and uses the standard run launcher. It writes completed run IDs to the requested manifest.
-- `train.sh` invokes `apps/combat_transition/train_marginals.py` via `sts_combat_rl.run`. It trains/evaluates natural-only and augmented models on GPU, fixed topology. Optional fourth argument sets maximum epochs (default 60).
+- `train.sh` invokes `apps/combat_transition/train_marginals.py` via `runs.run`. It trains/evaluates natural-only and augmented models on GPU, fixed topology. Optional fourth argument sets maximum epochs (default 60).
 - Run artifacts/logs remain under `runs/`. Generation wrapper logs are `experiments/card-outcomes/logs/<run-id>.log`.
 - Training output: `natural.pt`, `augmented.pt`, `report.md`, `report.json`, per-fight dev predictions. Reports show category/encounter outcome metrics and paired card-effect MAE versus zero effect.
 - Do not modify/rebuild the teacher between checkpoints without recording the policy change. Each generator run records a worker hash; the app snapshots its executable. Historical natural labels are an older-policy reference. Source/build provenance still matters in this shared dirty working tree.
@@ -54,5 +54,5 @@ No new outcome labels are needed. The adapter uses `won`, `battle_final_hp` (bef
 Grouping/dedup, paired-score handling, real legacy parquet encoding, tiny GPU fit and a two-arm train/evaluate/checkpoint/report smoke. No full research run has been launched. Generator preflight remains user-owned.
 
 ```bash
-PYTHONPATH=python:. .venv/bin/python tests/test_card_outcome_training.py
+PYTHONPATH=. .venv/bin/python models/combat_outcome/test_card_outcome_training.py
 ```

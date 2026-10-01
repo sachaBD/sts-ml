@@ -61,7 +61,7 @@ Run from the repo root, one config at a time. The command is on the first line o
 ./apps/value_train/run.sh experiments/act-1-combat/2026-09-26-mirror-mcts/configs/act1-gen0.toml
 ./apps/value_play/run.sh  experiments/act-1-combat/2026-09-26-mirror-mcts/configs/act1-teacher-dev.toml
 ./apps/value_play/run.sh  experiments/act-1-combat/2026-09-26-mirror-mcts/configs/act1-gen0-dev.toml
-PYTHONPATH=python .venv/bin/python experiments/act-1-combat/2026-09-26-mirror-mcts/analyze.py \
+PYTHONPATH=. .venv/bin/python experiments/act-1-combat/2026-09-26-mirror-mcts/analyze.py \
     --candidate combat_v3/2026-09-26/act1-gen0-dev \
     --teacher combat_v3/2026-09-26/act1-teacher-dev combat_v3/2026-09-25/slime-v8-rollout-teacher-dev
 ```
@@ -72,10 +72,10 @@ gen1 (about 1 hour in total), in order:
 ./apps/fight_resample/run.sh experiments/act-1-combat/2026-09-26-mirror-mcts/configs/act1-selfplay-gen1.toml
 ./apps/value_train/run.sh    experiments/act-1-combat/2026-09-26-mirror-mcts/configs/act1-gen1.toml
 ./apps/value_play/run.sh     experiments/act-1-combat/2026-09-26-mirror-mcts/configs/act1-gen1-dev.toml
-PYTHONPATH=python .venv/bin/python experiments/act-1-combat/2026-09-26-mirror-mcts/analyze.py \
+PYTHONPATH=. .venv/bin/python experiments/act-1-combat/2026-09-26-mirror-mcts/analyze.py \
     --candidate combat_v3/2026-09-26/act1-gen1-dev \
     --teacher combat_v3/2026-09-26/act1-teacher-dev combat_v3/2026-09-25/slime-v8-rollout-teacher-dev
-PYTHONPATH=python .venv/bin/python experiments/act-1-combat/2026-09-26-mirror-mcts/analyze.py \
+PYTHONPATH=. .venv/bin/python experiments/act-1-combat/2026-09-26-mirror-mcts/analyze.py \
     --candidate combat_v3/2026-09-26/act1-gen1-dev --teacher combat_v3/2026-09-26/act1-gen0-dev
 ```
 

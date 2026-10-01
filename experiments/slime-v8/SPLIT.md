@@ -11,7 +11,7 @@ source `run_seed`, so they always fall on their source deck's side.
 | **train** | `id in ('act1-a20', 'act1-a20-1', 'act1-a20-2', 'act1-a20-5', 'act1-a20-6', 'act1-a20-7')` or `(id = 'act1-a20-8' and run_seed % 10 >= 4)` | 781 + 2,958 = 3,739 |
 
 - dev: model/search selection. confirm: untouched until a candidate is chosen. Neither is ever trained on or
-  resampled for training.
+  resampled for agents.combat.value.
 - The v6 156-fight benchmark (gen0's validation fights) falls in **train**: slime-v8 checkpoints may train on it,
   so it is no longer a benchmark for them. gen0 has never seen dev or confirm.
 - Teacher win rate / terminal value by part: dev 71.9% / 0.371, confirm 70.5% / 0.369, train(a20-8) 70.3% / 0.367,

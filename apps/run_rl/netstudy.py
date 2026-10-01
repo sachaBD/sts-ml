@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Offline network screen (slop_docs/run-rl/network-study.md): every variant trains on the SAME fixed runs with
+"""Offline network screen (docs/research/run-rl/network-study.md): every variant trains on the SAME fixed runs with
 Monte Carlo targets (the run's score: a fixed target, unlike TD), split by seed; report held-out BCE / Brier.
 
   netstudy.py --data DIR... --out OUT.jsonl --variants NAME=JSON ... [--seeds 0 1] [--epochs 20]
@@ -15,8 +15,8 @@ from pathlib import Path
 import torch
 import torch.nn.functional as F
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-from common import build_model, encode, nodes, read_runs, score  # noqa: E402
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+from agents.overworld.value.core import build_model, encode, nodes, read_runs, score  # noqa: E402
 
 
 def aux_targets(r):

@@ -16,9 +16,9 @@ from apps.common.app import (FAIR_PLAY, ORACLE_BANNER, TEACHER_KEYS, check_keys,
 from apps.common.replay import COLUMNS, check_start, decision_rows, diverged, replay_requests
 from apps.common.worker import run_parallel, run_worker, write_part
 from apps.value_play.progress import Progress
-from sts_combat_rl import query
-from sts_combat_rl.run import bootstrap_inputs
-from sts_combat_rl.schemas.combat_v3 import NAME as COMBAT_V3_NAME
+from runs import query
+from runs.run import bootstrap_inputs
+from environments.combat.schema import NAME as COMBAT_V3_NAME
 
 log = logging.getLogger(__name__)
 BUILT = Path("build/main/value_play_worker")  # built by apps/common/job.sh; each run plays with its own copy in out/

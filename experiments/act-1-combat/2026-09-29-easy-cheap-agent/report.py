@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """The report's tables and figures: HP lost per easy fight, every arm, from the finished runs.
 
-    PYTHONPATH=python .venv/bin/python experiments/act-1-combat/2026-09-29-easy-cheap-agent/report.py
+    PYTHONPATH=. .venv/bin/python experiments/act-1-combat/2026-09-29-easy-cheap-agent/report.py
 
 Writes results/hp_lost_{dev,confirm}.md and results/fig*.png.
 HP lost = starting HP - final HP (net of Burning Blood's +6), per fight averaged over the arm's search seeds.

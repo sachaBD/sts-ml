@@ -22,7 +22,7 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 from apps.common.app import check_keys, main, required, run_json, snapshot, write_json
 from apps.common.worker import run_parallel, run_worker
-from sts_combat_rl.run import RUNS
+from runs.run import RUNS
 
 log = logging.getLogger(__name__)
 SCHEMA = "combat_transition_v1"

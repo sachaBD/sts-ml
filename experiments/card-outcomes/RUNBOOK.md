@@ -2,7 +2,7 @@
 
 ## Goal
 
-Determine whether richer combat data improves outcome prediction—especially the predicted difference between taking a card and skipping it. Ironclad A20, Act 1. Nine-hour total budget, 11 generation workers, GPU available for training.
+Determine whether richer combat data improves outcome prediction—especially the predicted difference between taking a card and skipping it. Ironclad A20, Act 1. Nine-hour total budget, 11 generation workers, GPU available for agents.combat.value.
 
 **Use `generate.sh` and `train.sh` as described in README.md. Each checkpoint is a separate invocation; there is no automatic seven-hour loop. Arrange Opus completion notifications in the supervising harness.**
 
@@ -21,11 +21,11 @@ Determine whether richer combat data improves outcome prediction—especially th
 | 2 | Generate for approximately **2 more hours**. Retrain on cumulative training data; evaluate on the same held-out cohorts. | Wake Opus to compare progress and decide the final allocation. |
 | 3 | Generate for **2–4 more hours**, adjusted to measured costs and time remaining. Retrain on cumulative training data; evaluate. | Wake Opus to write the morning report. |
 
-Generation times exclude training/evaluation. Reserve enough of the nine-hour budget to finish training and reporting; shorten stage 3 if necessary. Persist completed finite batches throughout. Do not spend the entire first stage on easy fights.
+Generation times exclude agents/combat/value/evaluation. Reserve enough of the nine-hour budget to finish training and reporting; shorten stage 3 if necessary. Persist completed finite batches throughout. Do not spend the entire first stage on easy fights.
 
 ## At each wake-up: Opus checklist
 
-1. **Data:** completed groups/fights by category, deaths, exclusions and policy provenance. Check labels and split integrity; retain category-balanced training.
+1. **Data:** completed groups/fights by category, deaths, exclusions and policy provenance. Check labels and split integrity; retain category-balanced agents.combat.value.
 2. **Training:** finite losses, sensible predictions, completed checkpoints, actual runtime.
 3. **Evaluation:** compare outcome accuracy by category/encounter and paired card-effect error against predicting zero card effect. Compare the augmented model with the natural-only reference and preceding checkpoints.
 4. **Decision:** exercise independent research judgment. Compare easy, hard, elite and boss results and choose the most useful next step—not merely whether to continue the original schedule. Record a short rationale and the next wake-up/artifact location.

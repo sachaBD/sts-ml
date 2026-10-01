@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Launch an app run through sts_combat_rl.run, which owns the run directory (runs/README.md).
+# Launch an app run through runs.run, which owns the run directory (runs/README.md).
 # Each apps/<app>/run.sh is a one-line call to this:
 #   launch.sh SCHEMA SCRIPT [BUILD_DIR TARGET] -- CONFIG.toml [--scratch] [--overwrite]
 # `SCRIPT CONFIG --inputs` prints the run's input run ids (recorded as lineage); the job is
@@ -29,11 +29,11 @@ for arg in "$@"; do
 done
 
 cd "$(dirname "$0")/../.."
-export PYTHONPATH="$PWD/python:$PWD${PYTHONPATH:+:$PYTHONPATH}"
+export PYTHONPATH="$PWD${PYTHONPATH:+:$PYTHONPATH}"
 id=$(.venv/bin/python -c 'import sys, tomllib; print(tomllib.load(open(sys.argv[1], "rb"))["run"]["id"])' "$config")
 inputs=$(.venv/bin/python "$script" "$config" --inputs)
 while IFS= read -r input; do
     if [[ -n $input ]]; then run_args+=(--input "$input"); fi
 done <<< "$inputs"
-exec .venv/bin/python -m sts_combat_rl.run "$schema" "$id" "${run_args[@]}" -- \
+exec .venv/bin/python -m runs.run "$schema" "$id" "${run_args[@]}" -- \
     apps/common/job.sh "${build[@]}" "$script" "$config" --out '{out}'

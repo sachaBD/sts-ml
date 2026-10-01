@@ -15,8 +15,8 @@ from pathlib import Path
 from apps.common.app import check_keys, exactly_when, main, required, sha256, snapshot, value_run, write_json
 from apps.common.replay import COLUMNS, START, check_start, decision_rows, replay_requests
 from apps.common.worker import run_parallel, run_worker, write_part
-from sts_combat_rl.run import bootstrap_inputs
-from sts_combat_rl.schemas.combat_v3 import NAME as COMBAT_V3_NAME
+from runs.run import bootstrap_inputs
+from environments.combat.schema import NAME as COMBAT_V3_NAME
 
 log = logging.getLogger(__name__)
 BUILT = Path("build/main/dagger_worker")  # built by apps/common/job.sh

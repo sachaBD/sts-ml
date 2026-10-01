@@ -24,20 +24,35 @@ Every job is a run with a TOML config, launched through `apps/<app>/run.sh` and 
 for smoke runs.
 
 ```sh
-./apps/bootstrap/run.sh apps/bootstrap/act1.toml        # teacher self-play -> combat_v3
-./apps/value_train/run.sh apps/value_train/slime.toml   # train a value net -> value_net_v1
-./apps/value_play/run.sh apps/value_play/slime.toml     # play fights with a value net
-./apps/gauntlet/run.sh apps/gauntlet/act1.toml         # gauntlet card-reward evaluation
+./apps/bootstrap/run.sh apps/bootstrap/config/act1.toml        # teacher self-play -> combat_v3
+./apps/value_train/run.sh apps/value_train/config/slime.toml   # train a value net -> value_net_v1
+./apps/value_play/run.sh apps/value_play/config/slime.toml     # play fights with a value net
+./apps/gauntlet/run.sh apps/gauntlet/config/act1.toml         # gauntlet card-reward evaluation
 ```
 
-Query run outputs with DuckDB through `sts_combat_rl.query`.
+Query run outputs with DuckDB through `runs.query`.
 
 ## Layout
 
-- `combat/` wraps `sts_lightspeed` into an environment (legal actions, steps) and the `combat_v3` state encoding.
-- `agents/` holds the search teacher (`teacher_search`, `teacher_leaves`).
-- `topology/` holds the value net topologies (frozen once used; see its README): C++ inference here, PyTorch in `python/sts_combat_rl/topology/`.
-- `scenarios/` builds starting states: the Act 1 run replay plus fixed fights used by tests and benches.
-- `apps/` holds the runnable jobs (C++ worker + Python driver + configs).
-- `python/sts_combat_rl/` holds the topologies, training, the run launcher and the query layer.
-- `experiments/` holds dated experiment write-ups with their configs and analysis scripts.
+Code is organized by purpose, not language:
+
+- `environments/combat/`: fight state, legal actions, stepping, encodings/schema, and starting-state scenarios.
+- `environments/overworld/`: persistent game state, legal after-states, replay, and real/injected combat orchestration.
+- `agents/combat/`: search teacher and value/policy models, including their learning and native inference.
+- `agents/overworld/`: learned after-state choices and model-based card-choice search, including agent-owned learning.
+- `models/combat_outcome/`: shared pre-combat predictor used by search, evaluation, and the GUI; not an agent.
+- [`apps/`](apps/INDEX.md): executable workflows, drivers, workers, and `config/` examples.
+- `gui/`: local and published model explorer.
+- `runs/`: launcher/query/compaction source plus durable generated results; `scratch/` holds disposable work.
+- `experiments/`: experiment configs, analysis scripts, plans, and reports.
+- `docs/`: documentation and clearly identified speculative research notes.
+- `build/<name>/`: generated native builds.
+
+**Environments own what can happen; agents own what to choose and how it is learned; apps execute workflows.**
+Tests live beside their owners. `make test` runs native and Python checks through CTest;
+`ctest --test-dir build/main -L python --output-on-failure` selects Python checks only.
+Test registration does not crawl recorded run directories.
+
+Model kinds, checkpoint dictionaries, architecture-spec contents, and native weight formats are unchanged by
+this layout. Historical recorded commands in completed runs are left untouched. The legacy
+`rundecks/run-rl-v4/` remains in place because the preceding cleanup identified it as active.

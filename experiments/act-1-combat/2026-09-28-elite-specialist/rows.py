@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Count eligible terminal-label decision rows (exclude forced-random and earlier baseline rows)."""
 from pathlib import Path
-from sts_combat_rl.query import connect
+from runs.query import connect
 
 HERE = Path(__file__).parent
 base = 'combat_v3/2026-09-26/act1-all-bosses-a20-scaled-search'

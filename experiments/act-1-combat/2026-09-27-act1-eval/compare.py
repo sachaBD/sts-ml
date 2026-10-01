@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
-"""Paired full-act-1 comparison of two apps/bootstrap runs on the same seeds (sts_combat_rl.query act1_results).
+"""Paired full-act-1 comparison of two apps/bootstrap runs on the same seeds (runs.query act1_results).
 
-  PYTHONPATH=python .venv/bin/python experiments/act-1-combat/2026-09-27-act1-eval/compare.py [RUN_A RUN_B]
+  PYTHONPATH=. .venv/bin/python experiments/act-1-combat/2026-09-27-act1-eval/compare.py [RUN_A RUN_B]
 
 Uncertainty: +- is one standard error; for differences, of the per-seed paired difference.
 """
 import sys
 
-from sts_combat_rl.query import connect
+from runs.query import connect
 
 A, B = sys.argv[1:3] if len(sys.argv) == 3 else ("combat_v3/2026-09-27/act1-eval-mcts-a20",
                                                    "combat_v3/2026-09-27/act1-eval-ab-gen1-a20")

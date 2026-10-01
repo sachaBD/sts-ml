@@ -1,6 +1,6 @@
-// One seeded Ironclad act 1 (combat_v3, see python/sts_combat_rl/schemas/combat_v3.py). Runs whose
+// One seeded Ironclad act 1 (combat_v3, see environments/combat/schema.py). Runs whose
 // act 1 boss isn't selected stop at game creation. SimpleAgent plays everything out of combat;
-// the teacher (agents/teacher_search.hpp) plays and records every combat until death or the boss is beaten.
+// the teacher (agents/combat/search/teacher_search.hpp) plays and records every combat until death or the boss is beaten.
 //   bootstrap_fight_worker REQUEST.json OUTPUT_DIR [WEIGHTS]     (apps/common/worker.hpp)
 //   REQUEST.json: {seed, ascension (0..20), oracle, bosses, teacher, simulations, leaf, random_move};
 //   bosses: selected act 1 boss names; teacher: opt-in search tweaks {stop_factor, merge_identical_cards} (may be empty);
@@ -8,10 +8,10 @@
 //   leaf: {kind (guided_rollout | value_net | hybrid), rollout_turns, rollout_steps} (teacher_leaves.hpp Leaf;
 //   net leaves need WEIGHTS); random_move: one random move per fight (teacher_search.hpp play_fight).
 // Output: OUTPUT_DIR/result.msgpack = {seed, boss, status, floor, fights, final_hp, teacher, rows}.
-#include "agents/teacher_search.hpp"
+#include "agents/combat/search/teacher_search.hpp"
 #include "apps/common/worker.hpp"
 #include "constants/CharacterClasses.h"
-#include "scenarios/act1_run.hpp"
+#include "environments/overworld/act1_run.hpp"
 
 #include <cstdint>
 #include <stdexcept>

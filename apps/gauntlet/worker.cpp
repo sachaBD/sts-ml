@@ -1,6 +1,6 @@
 // Gauntlet card-reward evaluation (experiments/act-1-card-selection/approaches/gauntlet). The reward state is an
 // act 1 run replayed through its first `actions.size()` fights (stored chosen actions; SimpleAgent out of combat,
-// apps/common/fight_replay.hpp), then advanced to its card choice (the last card reward group; the potion / relic /
+// environments/overworld/fight_replay.hpp), then advanced to its card choice (the last card reward group; the potion / relic /
 // key rewards SimpleAgent takes first are taken).
 //   gauntlet_worker REQUEST.json OUTPUT_DIR [WEIGHTS]     (apps/common/worker.hpp)
 //   REQUEST.json: {mode, run_seed, ascension, actions: [[chosen_action...] per replayed fight], ...}
@@ -10,13 +10,13 @@
 //     distinct and ascending; boss_picks: the fewest combats before the boss. Each combat = one card pick.
 //   mode "fight" + {encounter, picks, seed, teacher (apps/common/teacher_request.hpp)}
 //     -> {teacher, results: [{option, picked, deck_size, won, start_hp, final_hp, pre, seconds}] per option, skip last}
-//     pre: the persistent state right before BattleContext::init (apps/common/game_state.hpp).
+//     pre: the persistent state right before BattleContext::init (environments/overworld/game_state.hpp).
 //     Per option: take it, make `picks` SimpleAgent picks from fresh monster card rewards (card RNG = seed),
 //     then play `encounter` (elite or boss room; every combat RNG from seed) from the reward state's HP, relics and
 //     potions. Every option shares the seed, so the offers and the fight's RNG streams start identical.
-#include "agents/teacher_search.hpp"
-#include "apps/common/fight_replay.hpp"
-#include "apps/common/game_state.hpp"
+#include "agents/combat/search/teacher_search.hpp"
+#include "environments/overworld/fight_replay.hpp"
+#include "environments/overworld/game_state.hpp"
 #include "apps/common/teacher_request.hpp"
 #include "apps/common/worker.hpp"
 #include "constants/MonsterEncounters.h"

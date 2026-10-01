@@ -2,8 +2,8 @@
 
 Author: elite-bench consultant, intercom `subagent-chat-01a0e977` (01a0e977). Executor: orchestrator-28.
 
-- 21:11Z author: prep done. search_salt tweak added (agents/teacher_leaves.{hpp,cpp}, apps/common/app.py,
-  apps/common/teacher_request.hpp; test tests/teacher_leaves_test.cpp test_search_salt). ctest 6/6, python 52 tests OK.
+- 21:11Z author: prep done. search_salt tweak added (agents/combat/search/teacher_leaves.{hpp,cpp}, apps/common/app.py,
+  apps/common/teacher_request.hpp; test agents/combat/search/teacher_leaves_test.cpp test_search_salt). ctest 6/6, python 52 tests OK.
   Smoke: salt 0 reproduced 11/11 stored elite-v3-v-mcts fights exactly; salt 3 differs on 7/11 (one death→win).
   Rehearsal of every stage type on 12 fights (scratch, prefix bsmoke, experiments/elite-bench/smoke/) passed;
   analyze.py/pivotal.py verified on it. Rates: MCTS 20k 4.6 s/fight/worker, oracle 20k 5.5, v3 20k 8.0.

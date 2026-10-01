@@ -1,5 +1,5 @@
 // Combat transitions of a stored combat_v3 act 1 run (apps/combat_transition/extract.py): the run is replayed from
-// its seed (SimpleAgent out of combat, each fight by its stored chosen actions, apps/common/fight_replay.hpp) and
+// its seed (SimpleAgent out of combat, each fight by its stored chosen actions, environments/overworld/fight_replay.hpp) and
 // every fight's persistent game state is recorded right before BattleContext::init and right after exitBattle
 // (end-of-combat relics such as Burning Blood applied; before the reward screen).
 //   combat_transition_worker REQUEST.json OUTPUT_DIR     (apps/common/worker.hpp)
@@ -8,10 +8,10 @@
 //   start: the replayed decision 0 encoding (global_numeric, cards, monsters) for check_start.
 // The replay stops at the first fight that diverges from its stored outcome (simulator drift): that fight is
 // returned with replay = "diverged" and no states; later fights are not returned.
-#include "apps/common/fight_replay.hpp"
+#include "environments/overworld/fight_replay.hpp"
 #include "apps/common/worker.hpp"
-#include "combat/encoding.hpp"
-#include "apps/common/game_state.hpp"
+#include "environments/combat/encoding.hpp"
+#include "environments/overworld/game_state.hpp"
 
 #include <string>
 #include <vector>

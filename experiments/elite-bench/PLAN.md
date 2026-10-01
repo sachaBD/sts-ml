@@ -24,7 +24,7 @@ Background: `experiments/act-1-combat/2026-09-28-elite-specialist/`, `experiment
 - **Fights:** `bench_fights.csv`, 600 per elite from buckets 0–1 of `act1-all-bosses-a20-scaled-search` (no v3 net
   trained on them), hash-selected (`make_fights.py`). `bench_subset.csv` = the first 200 per elite in the same order.
   About 5% of the replays diverge on the current simulator; all arms skip the same ones (`skip_diverged`).
-- **Seeds:** new teacher setting `search_salt` (agents/teacher_leaves.cpp): 0 = historical seeds, bit-identical
+- **Seeds:** new teacher setting `search_salt` (agents/combat/search/teacher_leaves.cpp): 0 = historical seeds, bit-identical
   (verified on 11 stored fights); other values reseed particles and rollouts. Run ids end in `-s<salt>`.
 - **Arms:** `make_configs.py` writes every config into `configs/` (id = file name). MCTS = guided rollouts;
   v3 = `elite-v3-t2`, leaf policy_net, c_puct 1.0, fpu 0.05, prior floor 0.03; 8 particles; no random move.
@@ -66,9 +66,9 @@ Launch each stage with `experiments/elite-bench/run.sh <ids...>` (ids exactly as
 Stages 5 and 7 need `pivotal_fights.csv` from checkpoint A. The order 5, 7, 4, 6 is deliberate: highest value first.
 
 **Checkpoint A** (after stage 3):
-1. `PYTHONPATH=python .venv/bin/python experiments/elite-bench/pivotal.py`. It prints `fair 20k runs used: 8` and the
+1. `PYTHONPATH=. .venv/bin/python experiments/elite-bench/pivotal.py`. It prints `fair 20k runs used: 8` and the
    pivotal count. Gate: 8 runs used and between 20 and 900 pivotal fights; otherwise stop and message the author.
-2. `PYTHONPATH=python .venv/bin/python experiments/elite-bench/analyze.py --output experiments/elite-bench/results/analysis-A.md`
+2. `PYTHONPATH=. .venv/bin/python experiments/elite-bench/analyze.py --output experiments/elite-bench/results/analysis-A.md`
 3. Message the author (intercom `subagent-chat-01a0e977`, or whoever `LOG.md` names as author): "elite-bench checkpoint A:
    results/analysis-A.md". **Do not wait for a reply**; continue with stage 5.
 
@@ -141,7 +141,7 @@ choice. `confirm_fights.csv` holds the other 1,262 bucket 0–1 elite fights, no
 **Steps** (replace Round 2b step 2, the t5 s2/s3 runs; keep 2b step 1):
 1. After Round 2b step 1: `run.sh bench-confirm-mcts-20k-s0`, then render `templates/bench-confirm-r2t5-20k-s0.toml`
    and `run.sh bench-confirm-r2t5-20k-s0` (~10 + ~20 min).
-2. `PYTHONPATH=python .venv/bin/python experiments/elite-v3/compare.py --baseline bench-confirm-mcts-20k-s0 --candidate bench-confirm-r2t5-20k-s0 --title "elite-bench confirm: t5 vs MCTS (fresh fights, salt 0)" --output experiments/elite-bench/results/confirm.md --json experiments/elite-bench/results/confirm.json`
+2. `PYTHONPATH=. .venv/bin/python experiments/elite-v3/compare.py --baseline bench-confirm-mcts-20k-s0 --candidate bench-confirm-r2t5-20k-s0 --title "elite-bench confirm: t5 vs MCTS (fresh fights, salt 0)" --output experiments/elite-bench/results/confirm.md --json experiments/elite-bench/results/confirm.json`
 3. If time remains before 06:27Z: `bench-r2t5-20k-s2` as in 2b.
 
 If the chain can't be reordered safely, run the confirm right after stage 6 instead of after 2b step 1. Either is fine.

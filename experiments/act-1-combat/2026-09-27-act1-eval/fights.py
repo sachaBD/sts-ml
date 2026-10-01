@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Per-fight breakdown of the two act1-eval runs: deaths and HP loss by fight category, over all fights played and
 over matched fights (identical start in both runs: seed, fight_index, encounter, floor, start HP, max HP).
-  PYTHONPATH=python .venv/bin/python experiments/act-1-combat/2026-09-27-act1-eval/fights.py
+  PYTHONPATH=. .venv/bin/python experiments/act-1-combat/2026-09-27-act1-eval/fights.py
 """
-from sts_combat_rl.query import connect
+from runs.query import connect
 db = connect()
 A, B = "combat_v3/2026-09-27/act1-eval-mcts-a20", "combat_v3/2026-09-27/act1-eval-ab-gen1-a20"
 db.execute(f"""create temp table f as

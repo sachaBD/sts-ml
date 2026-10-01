@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Score a gauntlet_v1 run's fights with a frozen combat_outcome_v1 model and compare options with the real agent.
 
-  PYTHONPATH=python .venv/bin/python apps/combat_transition/score_gauntlet.py GAUNTLET_RUN MODEL_RUN [--out DIR]
+  PYTHONPATH=. .venv/bin/python apps/combat_transition/score_gauntlet.py GAUNTLET_RUN MODEL_RUN [--out DIR]
 
 Every gauntlet row carries the pre-init state (`pre`) of that option's fight, so the model sees exactly the inputs the
 real agent played from (same reward-state HP / relics / potions, same augmentation picks). Per fight the model gives
@@ -23,11 +23,11 @@ from pathlib import Path
 import pyarrow.parquet as pq
 import torch
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "python"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from sts_combat_rl.run import RUNS, SCRATCH  # noqa: E402
-from sts_combat_rl.topology.combat_outcome_v1 import CombatOutcomeV1  # noqa: E402
-from train import batch  # noqa: E402
+from runs.run import RUNS, SCRATCH  # noqa: E402
+from models.combat_outcome.combat_outcome_v1 import CombatOutcomeV1  # noqa: E402
+from models.combat_outcome.learn import batch  # noqa: E402
 
 METRICS = ("win", "final_hp", "score")
 

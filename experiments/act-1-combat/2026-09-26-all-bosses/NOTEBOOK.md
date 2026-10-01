@@ -14,7 +14,7 @@ Owner go-ahead 2026-09-26 ~23:00 UTC, ~8 h compute. Plan table: README.md (to be
 
 ## Log
 
-- 23:0x start `ab-gen0` training.
+- 23:0x start `ab-gen0` agents.combat.value.
 - 22:57 `ab-gen0` (v2 default, lr 1e-3, wd 1e-4, 20 epochs, 34 s/epoch on GPU; 1.20M train / 137k valid rows;
   shift clipped 10.6k targets). **Overfits from epoch 1**: valid MSE 0.00539 → 0.00563 → 0.00571 → 0.00590 → 0.00591
   while train MSE 0.0043 → 0.0019. Killed at epoch 6 to try regularisation instead of burning 20 epochs.

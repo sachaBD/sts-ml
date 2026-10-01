@@ -5,7 +5,7 @@
 // Every setting that applies is required; anything else is an error.
 #pragma once
 
-#include "agents/teacher_leaves.hpp"
+#include "agents/combat/search/teacher_leaves.hpp"
 
 #include <cstdint>
 #include <stdexcept>

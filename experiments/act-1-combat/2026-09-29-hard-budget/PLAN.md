@@ -1,7 +1,7 @@
 # Hard-pool fights: how much HP does each MCTS budget cost? (DRAFT; superseded by README.md: 1,000 fights, 500–10k × 2 seeds, no 20k, ~16 min)
 
 > Follows [../2026-09-29-easy-cheap-agent/](../2026-09-29-easy-cheap-agent/README.md). Replaces the stop-rule design
-> in [slop_docs/combat_headroom/hard/PLAN.md](../../../slop_docs/combat_headroom/hard/PLAN.md) (oracle and X0 dropped).
+> in [docs/research/combat_headroom/hard/PLAN.md](../../../docs/research/combat_headroom/hard/PLAN.md) (oracle and X0 dropped).
 
 **Why:** macro research needs cheap combat. Hard-pool fights (every regular fight after a run's first 3; about 1.6
 per act-1 run) are harder than easy ones: 4–16 HP per fight and 0.3–3.4% deaths at the harness's 2k simulations.

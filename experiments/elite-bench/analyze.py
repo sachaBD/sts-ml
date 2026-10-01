@@ -2,7 +2,7 @@
 """elite-bench analysis: headroom (oracle), A/A noise floor, v3 vs MCTS with per-fight win probabilities, budget
 and particle curves, power. Works on whatever runs exist so far (sections without their runs are skipped).
 
-    PYTHONPATH=python .venv/bin/python experiments/elite-bench/analyze.py [--prefix bench] [--store runs]
+    PYTHONPATH=. .venv/bin/python experiments/elite-bench/analyze.py [--prefix bench] [--store runs]
         [--output experiments/elite-bench/results/analysis.md]
 
 All comparisons are paired on identical fight starts (same stored fight, same game RNG). A fair arm's per-fight

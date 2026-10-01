@@ -1,11 +1,11 @@
-"""Replaying stored fights of combat_v3 bootstrap runs; apps/common/fight_replay.hpp rebuilds them in C++.
+"""Replaying stored fights of combat_v3 bootstrap runs; environments/overworld/fight_replay.hpp rebuilds them in C++.
 
 A fight is rebuilt by replaying its act 1 run from the run seed, with every earlier fight's stored chosen
 actions; the worker request is {run_seed, ascension, fight_index, actions: [[chosen_action...] per earlier fight]}.
 """
 from collections import defaultdict
 
-from sts_combat_rl import query
+from runs import query
 
 # The replayed decision_index 0 row must match the stored one on these columns: it is the same fight.
 START = ("encounter", "floor", "starting_hp", "starting_max_hp", "global_numeric", "cards", "monsters")

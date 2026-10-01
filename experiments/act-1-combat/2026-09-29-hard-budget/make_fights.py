@@ -7,13 +7,13 @@ episode_id (never by outcome) from act1-all-bosses-a20-scaled-search.
 
 easy_number: unused here (rank of the fight among its run's hard fights).
 
-    PYTHONPATH=python .venv/bin/python experiments/act-1-combat/2026-09-29-hard-budget/make_fights.py
+    PYTHONPATH=. .venv/bin/python experiments/act-1-combat/2026-09-29-hard-budget/make_fights.py
 """
 import csv
 import hashlib
 from pathlib import Path
 
-from sts_combat_rl.query import connect
+from runs.query import connect
 
 HERE = Path(__file__).parent
 N = 100

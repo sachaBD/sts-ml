@@ -2,12 +2,12 @@
 // that fight in the real game client. Best effort; unsupported cases throw.
 //   export_save REQUEST.json OUT.autosave
 //   REQUEST.json: the fight replay request (apps/common/replay.py): {run_seed, ascension, fight_index, actions}.
-// The act 1 run is replayed up to the fight (apps/common/fight_replay.hpp); the game right before it is written
+// The act 1 run is replayed up to the fight (environments/overworld/fight_replay.hpp); the game right before it is written
 // as the save the client makes on entering the fight's room (SaveFile.SaveType.ENTER_ROOM). The client accepts
 // plain JSON saves (SaveFileObfuscator.isObfuscated: no '{'), so the file is not obfuscated.
 // Check: the save is loaded back with the simulator's own loader (GameContext::initFromSave) and the resulting
 // fight start must print the same as the replayed one.
-#include "apps/common/fight_replay.hpp"
+#include "environments/overworld/fight_replay.hpp"
 #include "game/SaveFile.h"
 #include "sim/PrintHelpers.h"
 

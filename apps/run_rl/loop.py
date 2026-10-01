@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""The real-run RL loop (slop_docs/run-rl/README.md). Resumable: a step whose output exists is skipped.
+"""The real-run RL loop (docs/research/run-rl/README.md). Resumable: a step whose output exists is skipped.
 
   loop.py --root runs/run_rl/<name> [--iters 20] [--batch 2000] [--eval-seeds 500] [--workers 11]
           [--eps 0.1] [--eps0 0.2] [--lam 0.7] [--progress 0.25] [--hp 0.0] [--window 3]

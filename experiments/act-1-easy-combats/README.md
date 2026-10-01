@@ -92,6 +92,6 @@ Reproduce (from the repo root):
 
 ```bash
 ./experiments/act-1-easy-combats/run_all.sh main-fair1k main-fair10k main-fair100k main-fair100k-p64 main-gen1net20k main-oracle100k
-PYTHONPATH=python .venv/bin/python experiments/act-1-easy-combats/analyze.py easy-main-
-PYTHONPATH=python .venv/bin/python experiments/act-1-easy-combats/analyze.py easy-main- --ref easy-main-fair100k
+PYTHONPATH=. .venv/bin/python experiments/act-1-easy-combats/analyze.py easy-main-
+PYTHONPATH=. .venv/bin/python experiments/act-1-easy-combats/analyze.py easy-main- --ref easy-main-fair100k
 ```

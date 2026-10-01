@@ -2,7 +2,7 @@
 # slime-v8: every TRAIN-split Slime Boss deck (split: experiments/slime-v8/SPLIT.md) played 4 more times by the
 # bootstrap guided-rollout teacher (15k sims / 8 particles, random move on, as bootstrap), new fight RNG + starting HP.
 # Train split = all Slime fights of the 6 older bootstrap runs + act1-a20-8 with run_seed % 10 >= 4 (3,739 decks).
-# dev (run_seed % 10 in (0,1)) and confirm (in (2,3)) decks of act1-a20-8 are excluded here and must never be resampled for training.
+# dev (run_seed % 10 in (0,1)) and confirm (in (2,3)) decks of act1-a20-8 are excluded here and must never be resampled for agents.combat.value.
 [run]
 id = "slime-v8-train-resample-x4"
 query = """

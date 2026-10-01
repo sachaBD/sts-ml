@@ -1,8 +1,8 @@
 # Easy-pool fights: the cheapest agent that is good enough
 
 > Pre-registered 2026-09-29, before any main run. Supersedes the stop-rule framing of
-> [slop_docs/combat_headroom/easy/PLAN.md](../../../slop_docs/combat_headroom/easy/PLAN.md) (oracle and X0 dropped).
-> Measurement rules: [slop_docs/evaluation_methodology.md](../../../slop_docs/evaluation_methodology.md).
+> [docs/research/combat_headroom/easy/PLAN.md](../../../docs/research/combat_headroom/easy/PLAN.md) (oracle and X0 dropped).
+> Measurement rules: [docs/research/evaluation_methodology.md](../../../docs/research/evaluation_methodology.md).
 
 **Why:** macro research (card picking first) needs to play very many fights. A cheap combat agent for the easy pool
 (and, by extension, other fights) speeds that up and frees compute in evaluations. Prior evidence: on floor-1 easy

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Hard-budget study: tables and figures from the finished runs.
 
-    PYTHONPATH=python .venv/bin/python experiments/act-1-combat/2026-09-29-hard-budget/report.py
+    PYTHONPATH=. .venv/bin/python experiments/act-1-combat/2026-09-29-hard-budget/report.py
 
 HP lost = starting HP - final HP, a death counting as all starting HP (after Burning Blood's +6 on a win, so it can be
 negative). Per fight averaged over the arm's search seeds. Pooled = encounters weighted by how often they occur in

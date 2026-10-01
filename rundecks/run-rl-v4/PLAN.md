@@ -10,7 +10,7 @@ with fresh randomness, V scores the outcomes), but V has barely seen the states 
 own they showed no gain yet (+0.2 ± 1.1). v4 = 2 rounds of gen -> train with every decision by V, so V learns those
 states. Question: does v4 beat v3 on fresh seeds?
 
-Background: `slop_docs/run-rl/README.md`, `RUNBOOK.md` (log of everything so far).
+Background: `docs/research/run-rl/README.md`, `RUNBOOK.md` (log of everything so far).
 
 ## Design
 - `apps/run_rl/loop.py`: per round, 2,000 real runs (MCTS fights, 10% random exploration on every decision) ->
@@ -36,7 +36,7 @@ Background: `slop_docs/run-rl/README.md`, `RUNBOOK.md` (log of everything so far
 | 0 preflight | `sha256sum rundecks/run-rl-v4/bin/run_rl_worker` (starts `2d2124d240ed445d`); `nproc`; `free -g`; `nvidia-smi`; nothing else running (`ps -eo args \| grep run_rl`) | 2 min | record in LOG.md |
 | 1 loop | `nohup rundecks/run-rl-v4/loop.sh > /dev/null 2>&1 &` | ~80 min | `runs/schema=run_rl_v1/date=2026-10-01/id=v4-all/logs/stdout.log`; done when `out/curve.tsv` has iters 0 and 1 and the process exits |
 | 2 fresh | `nohup rundecks/run-rl-v4/fresh.sh > /dev/null 2>&1 &` | ~13 min | `.../id=v4-all/logs/fresh.log`; done when `out/fresh-iter001/summary.json` exists |
-| 3 report | `PYTHONPATH=python .venv/bin/python rundecks/run-rl-v4/report.py` | 1 min | writes `rundecks/run-rl-v4/RESULTS.md`, parquet, run.json |
+| 3 report | `PYTHONPATH=. .venv/bin/python rundecks/run-rl-v4/report.py` | 1 min | writes `rundecks/run-rl-v4/RESULTS.md`, parquet, run.json |
 
 Log in LOG.md: start / end of each stage, the `CURVE` lines from stdout.log, the training-batch `clear_rate`s
 (`grep clear_rate .../logs/stdout.log`), and the final RESULTS.md numbers. Then message the author (intercom

@@ -1,0 +1,22 @@
+# ./apps/bootstrap/run.sh apps/bootstrap/config/act1-eval-ab-gen1.toml [--scratch]
+# Full act 1 evaluation: value net ab-gen1 at the search leaves on every fight, no random moves.
+# Paired with act1-eval-mcts.toml: same seeds and settings, only the leaf differs.
+# Per-seed results: select * from act1_results where run_id like '%act1-eval-%'   (runs.query)
+[run]
+id = "act1-eval-ab-gen1-a20"
+workers = 10
+ascension = 20
+bosses = ["slime_boss", "the_guardian", "hexaghost"]
+oracle = false
+first_seed = 600000000000 # unused by any combat_v3 run (so unseen by every value net) as of 2026-09-27
+seeds = 1000
+random_move = false
+leaf = "value_net"
+value_run = "value_net_v1/2026-09-27/ab-gen1"
+
+[run.simulations] # search simulations per decision, by fight category
+easy = 500
+hard = 2000
+elite = 5000
+event = 5000
+boss = 15000

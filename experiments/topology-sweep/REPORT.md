@@ -55,10 +55,10 @@ card-effect learning.
 - **Not tested.** Nothing here tests gameplay.
 
 ## What was built
-- **`topology/combat_outcome/`:** named specs (kind + args) and `FROZEN.tsv`, which `train_marginals.py` appends to and
+- **`models/combat_outcome/architectures/`:** named specs (kind + args) and `FROZEN.tsv`, which `train_marginals.py` appends to and
   enforces. All 8 specs are now frozen, and so is the new kind `combat_outcome_v2`
-  (`python/sts_combat_rl/topology/combat_outcome_v2.py`).
-- **`apps/combat_transition/train_marginals.py`:** new opt-in `--topology`, `--arms` and `CARD_OUTCOME_{LR,SEED,PAIR_W}`
+  (`models/combat_outcome/combat_outcome_v2.py`).
+- **`models/combat_outcome/learn_marginals.py`:** new opt-in `--topology`, `--arms` and `CARD_OUTCOME_{LR,SEED,PAIR_W}`
   settings. The defaults reproduce the earlier runs exactly.
 - **`apps/combat_transition/eval_marginals.py`:** re-scores saved checkpoints on other data. Verified to within 1e-7 of
   the training-time predictions.

@@ -34,7 +34,7 @@ from apps.common.app import (TEACHER_KEYS, check_keys, exactly_when, main, requi
                              teacher_settings, value_run, write_json)
 from apps.common.replay import decision_rows, diverged, replay_requests
 from apps.common.worker import run_parallel, run_worker
-from sts_combat_rl import query
+from runs import query
 
 log = logging.getLogger(__name__)
 SCHEMA = "gauntlet_v1"

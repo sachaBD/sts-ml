@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Audit a v4 data run (fight_resample output) before training on it; exit 1 if a gate fails.
 
-    PYTHONPATH=python .venv/bin/python experiments/elite-v3/check_data.py OUT_DIR [--min-fights N] [--max-skipped F]
+    PYTHONPATH=. .venv/bin/python experiments/elite-v3/check_data.py OUT_DIR [--min-fights N] [--max-skipped F]
 
 OUT_DIR: the run's out/ directory (works for scratch runs, which the query views never read).
 Gates: at least --min-fights fights; at most --max-skipped of the source fights skipped (replay diverged);

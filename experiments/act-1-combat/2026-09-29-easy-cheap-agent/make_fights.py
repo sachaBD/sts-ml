@@ -7,13 +7,13 @@ episode_id (never by outcome) from act1-all-bosses-a20-scaled-search.
 
 easy_number = which easy fight of its run this is (1 = floor 1; 2, 3 = the later easy fights), by floor.
 
-    PYTHONPATH=python .venv/bin/python experiments/act-1-combat/2026-09-29-easy-cheap-agent/make_fights.py
+    PYTHONPATH=. .venv/bin/python experiments/act-1-combat/2026-09-29-easy-cheap-agent/make_fights.py
 """
 import csv
 import hashlib
 from pathlib import Path
 
-from sts_combat_rl.query import connect
+from runs.query import connect
 
 HERE = Path(__file__).parent
 N = 250

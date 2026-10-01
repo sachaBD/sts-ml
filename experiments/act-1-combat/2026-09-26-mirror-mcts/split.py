@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """Fixed train / dev / confirm split for the act-1 general value net. Writes results/split_tables.md + dev_fights.csv.
 
-Run: PYTHONPATH=python .venv/bin/python experiments/act-1-combat/2026-09-26-mirror-mcts/split.py
+Run: PYTHONPATH=. .venv/bin/python experiments/act-1-combat/2026-09-26-mirror-mcts/split.py
 """
 from pathlib import Path
 
-from sts_combat_rl import query
+from runs import query
 
 HERE = Path(__file__).parent
 DEV_CAP = 250  # dev fights per non-boss encounter (boss: all 999, reusing the slime-v8 dev set)

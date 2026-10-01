@@ -1,7 +1,7 @@
 """Pre-combat outcome model: 3-seed ensemble, id<->name tables and natural presets for the GUI.
 
 The encoding is train.batch (the training code path); tables are parsed from the sts_lightspeed headers the generator
-writes ids with (apps/common/game_state.hpp).
+writes ids with (environments/overworld/game_state.hpp).
 """
 import re
 import sys
@@ -10,9 +10,9 @@ from pathlib import Path
 import torch
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path[:0] = [str(ROOT), str(ROOT / "python")]
-from apps.combat_transition.train import batch, load  # noqa: E402
-from apps.combat_transition.train_marginals import KINDS  # noqa: E402
+sys.path.insert(0, str(ROOT))
+from models.combat_outcome.learn import batch, load  # noqa: E402
+from models.combat_outcome.learn_marginals import KINDS  # noqa: E402
 
 RUN = ROOT / "runs/schema=combat_outcome_v1/date=2026-09-30"
 CHECKPOINTS = [RUN / f"id=tpair1-co2-w32-h64-l1-d30-lr.001-s{s}/out/augmented.pt" for s in range(3)]

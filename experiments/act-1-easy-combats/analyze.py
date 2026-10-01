@@ -1,6 +1,6 @@
 """Paired comparison of players (runs) on the same floor-1 easy fights.
 
-  PYTHONPATH=python .venv/bin/python experiments/act-1-easy-combats/analyze.py PREFIX [--ref RUN] [--base RUN]
+  PYTHONPATH=. .venv/bin/python experiments/act-1-easy-combats/analyze.py PREFIX [--ref RUN] [--base RUN]
 
 PREFIX: run id prefix, e.g. easy-main- (all combat_v3 runs whose id starts with it, any date).
 Score per fight in HP-eq: final HP + 4 * potions if won, else -35 (the repo's terminal_value, in HP).
@@ -12,7 +12,7 @@ import argparse
 import math
 import re
 
-from sts_combat_rl import query
+from runs import query
 
 ENCOUNTERS = ("cultist", "jaw_worm", "two_louse", "small_slimes")
 

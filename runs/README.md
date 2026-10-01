@@ -29,8 +29,8 @@ scratch/schema=<schema>/date=<YYYY-MM-DD>/id=<id>/   same layout; smoke / prefli
 ## Starting a run
 
 ```bash
-PYTHONPATH=python .venv/bin/python -m sts_combat_rl.run --help
-./apps/bootstrap/run.sh apps/bootstrap/act1.toml [--scratch]
+PYTHONPATH=. .venv/bin/python -m runs.run --help
+./apps/bootstrap/run.sh apps/bootstrap/config/act1.toml [--scratch]
 ```
 
 The launcher creates the directory, writes `run.json` (`status: running`), sends the job's stdout/stderr to
@@ -71,7 +71,7 @@ Merges the small `.parquet` files in each directory into ~128MB `compact-*.parqu
 and deletes the originals. Also rewrites files whose row groups are tiny (e.g. one per fight): thousands of small row
 groups make huge footers that duckdb parses on every query. Files that are already fine are skipped, so rerunning is
 cheap. Directories are never mixed. Crash safe: if it dies, just rerun it. Don't run it on a run that is still
-writing. Code: `python/sts_combat_rl/compact.py` (`runs/compact.py` is a wrapper).
+writing. Code: `runs/compact.py` (`runs/compact.py` is a wrapper).
 
 ## run.json
 
@@ -88,7 +88,7 @@ writing. Code: `python/sts_combat_rl/compact.py` (`runs/compact.py` is a wrapper
 ## Querying (duckdb)
 
 Apps and training select their combat rows with a SQL query over two views, `combat_v3` (every row plus
-`run_id`, `schema`, `date`, `id`) and `runs` (every run.json): `python/sts_combat_rl/query.py`, e.g.
+`run_id`, `schema`, `date`, `id`) and `runs` (every run.json): `runs/query.py`, e.g.
 `select * from combat_v3 where id like 'act1-a20%' and encounter = 'slime_boss'`. Oracle rows are refused
 unless allowed explicitly (`oracle = true`).
 
@@ -124,11 +124,11 @@ SELECT * FROM read_json('runs/schema=episodes_v1/*/*/out/episodes.jsonl', filena
 |---|---|---|---|
 | `combat_v3` | current | `apps/bootstrap/generate.py`, `apps/value_play/play.py`, `apps/dagger/generate.py` (parquet metadata `collection_method=dagger`, `training_target=teacher_root_only`: teacher labels on learner-played states, see slop_docs/apps/dagger.md; the value trainer refuses these parts), `apps/fight_resample/generate.py` (resampled fights: `source_episode_id` set, see slop_docs/apps/fight_resample.md) | parquet; columns below. value_play: one part per fight, `part-<episode_id>.parquet`. fight_resample: one part per source fight, `part-<source_episode_id>.parquet` |
 | `combat_transition_v1` | current | `apps/combat_transition/extract.py` (replays combat_v3 bootstrap runs from their seed with stored actions; no search) | `part-000.parquet`, one row per stored fight: `pre` / `post` persistent state (hp, max_hp, gold, floor, potion_capacity, deck `[card_id, upgraded, misc, name]`, relics `[relic_id, data, name]`, potions `[potion_id, name]`) right before `BattleContext::init` and right after `exitBattle` (end-of-combat relics applied, before rewards); stored outcome (`won`, `final_hp` = in-battle HP before exitBattle, `potions`), `battle_final_hp`, `battle_potions`, `escaped`, `max_hp_changed`, `any_random`, `oracle`, `teacher` (JSON), `simulations` (budget of the fight's category), `bucket` = run_seed % 10, `replay` = `ok` / `diverged` (`reason`: actions don't fit, fight didn't end, outcome or potion count differs) / `not_replayed` (after a divergence in the same run; no states) |
-| `combat_outcome_v1` | current | `apps/combat_transition/train.py` (input: one `combat_transition_v1` run) | `model.pt` (topology `combat_outcome_v1`: kind, args, state_dict, encounter vocabulary, HP bin centres), `report.md` / `report.json` (baseline vs model on dev buckets 0-1 by category and encounter, run-seed cluster bootstrap of model - baseline), `summary.json`. Split by run_seed % 10: train 4-8, early stop 9, dev 0-1, 2-3 never loaded. Endpoint: in-battle HP before exitBattle, conditional on a win; 5-HP bins 1..100 plus overflow > 100. The 80% interval coverage uses whole bins (true bin between the bins where the CDF first reaches 0.1 and 0.9), so it is at least nominal by construction and inflated |
+| `combat_outcome_v1` | current | `models/combat_outcome/learn.py` (input: one `combat_transition_v1` run) | `model.pt` (topology `combat_outcome_v1`: kind, args, state_dict, encounter vocabulary, HP bin centres), `report.md` / `report.json` (baseline vs model on dev buckets 0-1 by category and encounter, run-seed cluster bootstrap of model - baseline), `summary.json`. Split by run_seed % 10: train 4-8, early stop 9, dev 0-1, 2-3 never loaded. Endpoint: in-battle HP before exitBattle, conditional on a win; 5-HP bins 1..100 plus overflow > 100. The 80% interval coverage uses whole bins (true bin between the bins where the CDF first reaches 0.1 and 0.9), so it is at least nominal by construction and inflated |
 | `fight_comparison_v1` | current | `apps/compare_fights/compare.py` | `report.md`, `summary.json`, `pairs.parquet` (one row per fight, `baseline_*` / `candidate_*`) |
 | `combat_v2` | legacy | `apps/bootstrap/generate.py` before combat_v3 | Slime Boss fights only; `combat_seed` instead of `run_seed`, `episode_id` = seed, legacy `entry_id`/`deck_signature`, no `category`/`fight_index`/`ascension` |
 | `combat_v1` | legacy | `apps/bootstrap/generate.py` before combat_v2 | as `combat_v2`, but `act`/`floor`/`encounter`/`seed` were partition directories |
-| `value_net_v1` | current | `sts_combat_rl.training.train_value` | `value_checkpoint.pt` + `.json` sidecar (+ `value_weights.bin`) |
+| `value_net_v1` | current | `agents.combat.value.train_value` | `value_checkpoint.pt` + `.json` sidecar (+ `value_weights.bin`) |
 | `episodes_v1` | current | eval jobs | `episodes.jsonl`, one JSON object per fight; metrics in `summary.json` |
 | `entry_roots_v1` | legacy | old entry-root bootstrap writer | single part; `mcts_value`, `root_visits`, `replicate`, ... |
 | `mcts_slime_v2` | legacy | `generate_mcts_records` (fixed Slime Boss deck, encoding v2) | single part |
@@ -138,7 +138,7 @@ New schema = new row here.
 
 ### `combat_v3` columns
 
-Name and pyarrow layout: `python/sts_combat_rl/schemas/combat_v3.py` (`NAME`, `COMBAT_V3`); each part also stores `schema=combat_v3`
+Name and pyarrow layout: `environments/combat/schema.py` (`NAME`, `COMBAT_V3`); each part also stores `schema=combat_v3`
 in its parquet metadata. One seeded Ironclad act 1 per run seed: seeds whose act 1 boss isn't Slime Boss are skipped
 at game creation (no file); SimpleAgent plays everything out of combat; the teacher search plays **every combat**
 until the player dies or beats Slime Boss. One row per decision recorded from teacher search, in play order
@@ -171,11 +171,11 @@ and a fresh fight RNG seeded from `episode_id`. Only fights with `source_episode
 | `oracle` | `true`: the teacher searched the true state (one particle with the real RNG and draw order, max backup: the move played is the best-valued one, no early stop; `root_value` / `mean_value` are still means, `[run] oracle = true` in apps/bootstrap or apps/value_play). Perfect foresight, an upper bound, not fair play. NULL in runs older than the column: treat as `false` (`coalesce(oracle, false)`) |
 | `simulations_used` | simulations the search actually ran: 500 for a forced move, fewer than the budget when it stopped early because the top move could no longer be overtaken; 0 on child rows |
 | `won`, `final_hp`, `potions`, `terminal_value` | this fight's outcome, the same on every row of the fight (`potions`: potion count at fight end) |
-| `v4_encoding_version`, `player_numeric`, `max_hp`, `monster_v4`, `potion_tokens`, `relic_tokens` | encoding v4 additions (`combat/encoding_v4.cpp`; read by value net `deep_sets_v3`): `monster_v4` is aligned with `monsters` (previous move, statuses); `potion_tokens` / `relic_tokens` are the held potions / relics (not the outcome column `potions`). NULL in rows written before them |
+| `v4_encoding_version`, `player_numeric`, `max_hp`, `monster_v4`, `potion_tokens`, `relic_tokens` | encoding v4 additions (`environments/combat/encoding_v4.cpp`; read by value net `deep_sets_v3`): `monster_v4` is aligned with `monsters` (previous move, statuses); `potion_tokens` / `relic_tokens` are the held potions / relics (not the outcome column `potions`). NULL in rows written before them |
 | `legal_actions` | decision rows only (NULL on child rows and older rows): every legal move as a policy token `{action, kind, card_selection_task, skips_selection, discards_potion, card, monster, potion, interaction}`; `action` is the index used by `actions` / `chosen_action` |
 
 `terminal_value`: win = (35 + final_hp + 4 × potions) / (55 + max_hp), loss = 0 (sts_ml `scorePrediction`, default weights).
 
-Load training rows with `sts_combat_rl.data.get_training_samples` (python/sts_combat_rl/data/training_samples.py). It refuses oracle rows. Training targets are computed from these columns at training time. They aren't stored. `load_rows` can keep only
+Load training rows with `agents.combat.value.data.training_rows` (data/training_samples.py). It refuses oracle rows. Training targets are computed from these columns at training time. They aren't stored. `load_rows` can keep only
 some `categories` / `encounters`; `episode_split` splits by `run_seed`, so a run's fights stay on one side. Child rows are not on the
 played trajectory, so their fight outcome columns don't apply to them; train them on `root_value`.

@@ -1,4 +1,4 @@
-"""Collate completed Stage A runs; no gameplay or training. Run from repo root."""
+"""Collate completed Stage A runs; no gameplay or agents.combat.value. Run from repo root."""
 import json
 from pathlib import Path
 

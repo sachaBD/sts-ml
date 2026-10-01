@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Config-driven value-network training app.
 
-A thin TOML wrapper around sts_combat_rl.training.train_value for the run launcher (apps/common/launch.sh).
-Every setting is explicit (train_value.TrainConfig): [data] selects the combat_v3 rows (sts_combat_rl.query),
-[model] is the architecture (sts_combat_rl.topology.build: kind and every argument), [train] the rest. Writes
+A thin TOML wrapper around agents.combat.value.train_value for the run launcher (apps/common/launch.sh).
+Every setting is explicit (train_value.TrainConfig): [data] selects the combat_v3 rows (runs.query),
+[model] is the architecture (agents.combat.value.build: kind and every argument), [train] the rest. Writes
 value_checkpoint.pt (+ .json), the native C++ weights value_weights.bin, and summary.json for run.json.
 """
 from __future__ import annotations
@@ -13,9 +13,9 @@ from pathlib import Path
 from typing import Any
 
 from apps.common.app import check_keys, main, required, value_run, write_json
-from sts_combat_rl import query
-from sts_combat_rl.training.export_value_weights import export as export_weights
-from sts_combat_rl.training.train_value import TrainConfig, run as train_value
+from runs import query
+from agents.combat.value.export_value_weights import export as export_weights
+from agents.combat.value.train_value import TrainConfig, run as train_value
 
 TABLES = {"run", "data", "model", "train"}
 DATA_REQUIRED, DATA_OPTIONAL = {"query", "oracle"}, {"corrections"}

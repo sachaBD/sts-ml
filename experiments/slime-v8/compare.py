@@ -14,8 +14,8 @@ from pathlib import Path
 
 import numpy as np
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "python"))
-from sts_combat_rl.query import connect  # noqa: E402
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+from runs.query import connect  # noqa: E402
 
 
 def fights(db, run_id):

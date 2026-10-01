@@ -43,7 +43,7 @@ It is a cheap cut-down of [CARDS](../cards/README.md): real fights instead of a 
 ## Implementation (v1)
 
 ```sh
-./apps/gauntlet/run.sh apps/gauntlet/act1.toml [--scratch]   # schema gauntlet_v1
+./apps/gauntlet/run.sh apps/gauntlet/config/act1.toml [--scratch]   # schema gauntlet_v1
 ```
 
 - **Reward states:** the card reward before a sampled fight of a stored bootstrap run (`[run] query`, `fight_index >= 1`). The run is replayed to that fight (stored combat actions; SimpleAgent outside combat), and the potions, relics and keys SimpleAgent would take first are taken.

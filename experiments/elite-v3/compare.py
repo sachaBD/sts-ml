@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Paired comparison of value_play runs on the same fights: each candidate against one baseline.
 
-    PYTHONPATH=python .venv/bin/python experiments/elite-v3/compare.py --baseline ID --candidate ID [--candidate ID ...]
+    PYTHONPATH=. .venv/bin/python experiments/elite-v3/compare.py --baseline ID --candidate ID [--candidate ID ...]
         [--title TEXT] [--output FILE.md] [--json FILE.json]
 
 Runs are named by id (the combat_v3 view's `id`, unique across dates for this rundeck). Fights are paired on
@@ -20,7 +20,7 @@ from pathlib import Path
 
 import numpy as np
 
-from sts_combat_rl.query import connect
+from runs.query import connect
 
 ELITES = ("gremlin_nob", "lagavulin", "three_sentries")
 

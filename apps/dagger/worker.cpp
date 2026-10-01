@@ -1,5 +1,5 @@
 // One DAgger fight: a stored combat_v3 bootstrap fight is rebuilt
-// (apps/common/fight_replay.hpp), then the frozen value-net learner plays it while the guided-rollout teacher
+// (environments/overworld/fight_replay.hpp), then the frozen value-net learner plays it while the guided-rollout teacher
 // labels every reached decision (teacher::play_learner_fight).
 //   dagger_worker REQUEST.json OUTPUT_DIR WEIGHTS     (apps/common/worker.hpp; WEIGHTS: the learner)
 //   REQUEST.json: {run_seed, ascension, fight_index, actions: [[chosen_action...] per earlier fight], max_decisions,
@@ -8,8 +8,8 @@
 //   status completed: rows = the fight's combat_v3 decision rows; capped (max_decisions) / turn_limit
 //   (max_turns reached): no rows.
 //   start: decision 0's row without outcome columns; diagnostics: per-decision learner/teacher moves and counters.
-#include "agents/teacher_search.hpp"
-#include "apps/common/fight_replay.hpp"
+#include "agents/combat/search/teacher_search.hpp"
+#include "environments/overworld/fight_replay.hpp"
 #include "apps/common/worker.hpp"
 
 #include <stdexcept>
