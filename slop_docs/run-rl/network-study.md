@@ -12,7 +12,7 @@ not network size.
 - New topology kind `run_policy_v2` (`python/sts_combat_rl/topology/run_policy_v2.py`): run_policy_v1 plus options for
   width / depth / dropout, **deck attention** (cards in the deck attend to each other, so synergies like
   Limit Break + Inflame can be represented) and **no map**. Script: `apps/run_rl/netstudy.py`; results
-  `scratch/netstudy/screen{1,2}.jsonl`.
+  `runs/schema=run_rl_v1/date=2026-10-01/id=netstudy/out/screen{1,2,3}.jsonl` (moved from scratch/netstudy).
 
 ## Results (held-out BCE; 2 training seeds where shown)
 | network | params | BCE | reading |

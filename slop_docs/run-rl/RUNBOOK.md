@@ -42,14 +42,14 @@ window 8 (initially v1 iters 11-18 data), decay 0.85, eps 0.1 on every decision,
 - Infra: train.py now keeps encoded batches on the CPU (all-on-GPU overflowed 12 GB under WSL and crawled: 45 min for
   4 epochs; now ~3 min). Lost ~40 min to that. Again killed my own shell with a pgrep pattern: use launch scripts.
 
-**2026-10-01: network screen 1** (`scratch/netstudy/screen1.*`, GPU): run_policy_v2 variants on the fixed v1 data
+**2026-10-01: network screen 1** (now `run_rl_v1/2026-10-01/netstudy`, GPU): run_policy_v2 variants on the fixed v1 data
 (38k runs, 421k train / 76k val nodes, Monte Carlo targets). Val BCE (constant predictor 0.5255), 1 seed:
 v1-size w32/h64 drop .3 **0.4623** (66k params, best epoch 9); wide w64/h256x2 drop .1 0.4698 (epoch 1: overfits);
 wide + deck attention 0.4644; wide no-map 0.4727. Reading: capacity is not the limit on ~38k noisy runs,
 regularisation is; attention helps the wide net; the map input helps. (GPU OOMs fixed: memory cap, split path-score
 layer, embedding_bag path sum; yield.sh pauses the screen while the loop trains.)
 
-**network screen 2** (`scratch/netstudy/screen2.*`): regularised variants, 2 seeds: small, small+attn, small no-map,
+**network screen 2** (`run_rl_v1/2026-10-01/netstudy`): regularised variants, 2 seeds: small, small+attn, small no-map,
 mid drop .5, mid+attn drop .4. Result: all 0.464-0.467 (seed noise ~0.002) except no-map 0.4705. No detectable
 gain from size / attention; data-bound. Report: `network-study.md`.
 
@@ -123,3 +123,23 @@ window 8 (v2 iters 0-5 data first), decay 0.85, eps 0.1, training seeds offset 2
   elite; face-down board), which a copy would reveal: left to SimpleAgent.
 - Cost: ~0-3 s per event decision, except Match and Keep (now excluded; ~70 s).
 - Paired test running: `run_rl_v1/2026-10-01/event-h0-test` (v3 iter3 model, 1,000 fresh seeds 830000000000+).
+- First event test (h = 0, 8 samples, 1,000 paired fresh seeds): events by lookahead 90.4% vs SimpleAgent events
+  89.7%, +0.7 ± 0.9 (no detectable gain; 1,650 event decisions, 62% differ from SimpleAgent, +0.4 s/run).
+  **Flawed:** samples drew relics from the REAL pre-shuffled relic pools (peeking for relic-giving options, e.g. Big
+  Fish's box). Fixed: samples re-shuffle all relic pools. Kept as `event-relicleak/`; rerun running.
+- **User decision: Neow is a floor-0 event, not a bandit** (map + known boss make it state-dependent). The `neow`
+  session stopped (nothing run); bandit wiring removed, `neow.py` / `neow.md` kept as RETIRED record,
+  `slop_docs/neow_handoff.md` (its notes, incl. a proposed per-run Neow table). Neow now uses the event lookahead
+  (follow-ups inside samples by the current policy; floor-0 states are mostly unseen by V: watch for artefacts).
+- Rerun (`event-h0-test/out/cmd2.sh`): events (fixed) and events + Neow vs the same no-event control.
+- Rerun after the fix (same 1,000 seeds, vs the no-event control 89.7%): events 90.5% (+0.8 ± 0.9); events + Neow
+  89.9% (+0.2 ± 1.1). Relic peek was harmless in practice. Neow choices: slot 1 49%, bonus+drawback 21%, small bonus
+  16%, boss relic 15% (V extrapolating on unseen floor-0 states). No gain without retraining -> v4.
+
+**2026-10-01: rundeck run-rl-v4** (`rundecks/run-rl-v4/`, executor orch-10-1): 2 rounds gen -> train -> eval with
+every decision by V (init v3 iter3), then fresh-seed check on the event-h0-test seeds. Result: running.
+
+**2026-10-01: defragment.** README rewritten as the single entry point (method, decisions table, no-peeking rules,
+results, file / run map). Launch scripts copied from scratch/ into their runs' out/ (run.json commands updated);
+network screens moved to `run_rl_v1/2026-10-01/netstudy`; run.json added for event-h0-test; neow handoff moved to
+`slop_docs/run-rl/neow-handoff.md`. Old plans point here.
