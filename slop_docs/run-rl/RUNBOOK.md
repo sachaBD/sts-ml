@@ -84,7 +84,8 @@ window 8 (v2 iters 0-5 data first), decay 0.85, eps 0.1, training seeds offset 2
 - Iter 0: 90.8% (+29.6 ± 2.4), same level as v2 (~90.5%). Shop behaviour after one batch: buys cards 329 / leaves
   116 / removes 110 / potions 95 / relics 2 (SimpleAgent: removes 327, leaves 175, cards 141). **Red flag: removes
   Bash 88 times**: possibly a value artefact with little shop data; watch whether it persists.
-- Iter 1: 91.4%; Bash removals 88 -> 44, Defend 6 -> 17 (correcting with data). Iter 2: 92.0%.
+- Iter 1: 91.4%; Bash removals 88 -> 44, Defend 6 -> 17 (correcting with data). Iter 2: 92.0%. Iter 3: 93.0%
+  (last; eval seeds, so slightly optimistic: fresh-seed level of iter 2 was 91.1%).
 - **Fresh seeds** (`run_rl_v1/2026-10-01/v3-fresh`; the 1,000 seeds of the v2 network test): v3 iter2 91.1% vs v2
   iter5 88.9%, **+2.2 ± 1.1**. Same HP entering the boss (71) and reach rate (97%); spends more gold (36 left vs 49).
   Modest, ~2 SE. v3 also had 3 more training iterations, but v2 was already flat.
