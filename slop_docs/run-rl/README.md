@@ -8,7 +8,19 @@ The surrogate approach (`slop_docs/card-policy-loop/`, `apps/card_search/`) is u
 
 ## What is trained
 One network, V(run state) = expected score from here under the current policy (kind `run_policy_v1`, value head only).
-Card pick = argmax over after-states (deck + card A / B / C, or unchanged for skip). Everything else: SimpleAgent.
+Every decision it makes = argmax of V over that decision's AFTER-STATES:
+- card reward: deck + card A / B / C, or unchanged (skip)
+- rest site: rest / upgrade card X / lift (exact, on a game copy)
+- path: next node x = this state with only the remaining routes through x (no simulation)
+- shop: leave / buy card / potion / relic / remove card X (relic after-state built, not simulated: no peeking)
+Events, Neow, potions in combat, boss relics (n/a in Act 1): SimpleAgent. Combat: MCTS.
+
+## Results so far (details: RUNBOOK.md)
+| policy | Act 1 clear | seeds |
+|---|---|---|
+| SimpleAgent | 59.9-61.2% | 500 eval / 1,000 fresh |
+| V: cards | 74.6% (+14.7 ± 1.6) | 1,000 fresh |
+| V: cards + rest + path | ~89% (+~28) | 1,000 fresh |
 
 ## Reward (score of a finished run, in [0, 1])
 - Act cleared: 1 (optionally `1 - hp + hp * HP_end / maxHP` with `--hp`, default 0).

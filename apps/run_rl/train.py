@@ -131,7 +131,7 @@ def main():
             out = model(to(b, device))
             logit = out[0].gather(1, col[:, None]).squeeze(1)
             loss = (F.binary_cross_entropy_with_logits(logit, y, reduction="none") * w).sum() / w.sum()
-            if len(out) > 1:
+            if getattr(model, "aux_out", None) is not None:  # run_policy_v2 aux head only (v1's extra heads are untrained)
                 al = out[1].gather(1, col[:, None, None].expand(-1, 1, out[1].shape[-1])).squeeze(1)
                 lx = F.binary_cross_entropy_with_logits(al, aux.to(device), reduction="none").mean(1)
                 loss = loss + a.aux_weight * (lx * w).sum() / w.sum()

@@ -74,7 +74,7 @@ def main():
     ap.add_argument("--window", type=int, default=3)
     ap.add_argument("--decay", type=float, default=1.0)
     ap.add_argument("--worker", default="build/main/run_rl_worker", help="copied into ROOT once (first start)")
-    ap.add_argument("--decide", nargs="*", default=[], choices=["rest", "path"], help="policy-made decisions besides cards")
+    ap.add_argument("--decide", nargs="*", default=[], choices=["rest", "path", "shop"], help="policy-made decisions besides cards")
     ap.add_argument("--init", help="start from this model (iter 0 plays it with eps) instead of SimpleAgent + eps0")
     ap.add_argument("--extra-data", nargs="*", default=[], help="older data dirs placed before the loop's own in the window")
     ap.add_argument("--arch", default="{}", help="architecture of a fresh model (no --init)")

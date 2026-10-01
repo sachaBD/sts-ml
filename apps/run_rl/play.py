@@ -126,7 +126,7 @@ def main():
     ap.add_argument("--ckpt")
     ap.add_argument("--eps", type=float, default=0.0)
     ap.add_argument("--sims", default="500,2000,5000,5000,15000")
-    ap.add_argument("--decide", nargs="*", default=[], choices=["rest", "path"],
+    ap.add_argument("--decide", nargs="*", default=[], choices=["rest", "path", "shop"],
                     help="decisions besides card picks made by the policy (else SimpleAgent)")
     ap.add_argument("--worker", default=str(WORKER), help="run_rl_worker binary (loop.py passes its own snapshot)")
     a = ap.parse_args()

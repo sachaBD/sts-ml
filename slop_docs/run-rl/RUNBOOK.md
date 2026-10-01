@@ -37,7 +37,8 @@ window 8 (initially v1 iters 11-18 data), decay 0.85, eps 0.1 on every decision,
 - **Caveat:** this is the Act-1-only objective at work. Skipping elites skips relics, which Act 2+ needs. Fine for the
   current target; revisit (e.g. score at end of Act 1 with a relic / deck-strength term, or play into Act 2) before
   trusting it as a full-run policy.
-- Iter 1: **91.4%, +30.2 ± 2.3**. Iter 2: 91.4%. Iter 3: 88.4%.
+- Iter 1: **91.4%, +30.2 ± 2.3**. Iters 2-5: 91.4, 88.4, 90.8, 91.2. Plateau from iter 1 (window already 8 + decay);
+  stopped after iter 5 to free compute.
 - Infra: train.py now keeps encoded batches on the CPU (all-on-GPU overflowed 12 GB under WSL and crawled: 45 min for
   4 epochs; now ~3 min). Lost ~40 min to that. Again killed my own shell with a pgrep pattern: use launch scripts.
 
@@ -58,3 +59,28 @@ gain from size / attention; data-bound. Report: `network-study.md`.
    2-3 on fresh seeds. Report: `network-study.md`.
 3. More decisions with the same V: rest sites (rest vs upgrade X), then path (next node via remaining routes).
    Shops / events deferred. Search at the pick deferred until the user is back.
+
+**2026-10-01: ablation + real-game network test** (`run_rl_v1/2026-10-01/v2-ablation-archtest`, out/cmd.sh).
+- Ablation, v2 iter5 model, 500 eval seeds (paired): cards + rest + path 91.2%; cards + rest only 84.2% (-7.0 ± 1.9);
+  cards + path only 82.6% (-8.6 ± 1.6); cards only (v1 iter17) 77.6% (-13.6 ± 2.1); SimpleAgent 61.2%.
+  Rest and path each add ~7-9 points and are roughly additive.
+- Network test, 1,000 fresh seeds (810000000000+), cards + rest + path, all trained on the same v2 data (iters 0-5)
+  with the same TD targets: loop model iter5 88.9%; small (v1 size) from scratch 89.4% (+0.5 ± 1.1); mid + aux 88.5%
+  (-0.4 ± 1.2). **Tie**: confirms the offline screen. Fresh-seed level of v2 ≈ 89% (eval seeds 91%: mild optimism).
+
+**2026-10-01: shop decisions** (worker `decide: [..., shop]`): options leave / buy card / buy potion (free slot) /
+buy relic / remove card X, asked after every purchase until leave. Card / potion / removal after-states exact on a
+copy; relic after-states are built (relic added, gold paid) because some relics roll on pickup: no peeking at hidden
+outcomes. Events and Neow stay with SimpleAgent: their outcomes are random, so exact after-states would leak.
+Fidelity: SimpleAgent answering, 12/12 seeds identical to no-decide runs.
+Context (v2 iter5 eval): shop on the chosen path in 33% of runs (SimpleAgent 40%); SimpleAgent always removes
+(usually a Defend), buys cards by a priority list and any affordable relic, never potions.
+
+**2026-10-01: v3 loop** (`run_rl_v1/2026-10-01/v3-shop`, scratch/run_v3.sh): cards + rest + path + shop. Init v2 iter5,
+window 8 (v2 iters 0-5 data first), decay 0.85, eps 0.1, training seeds offset 2e7, same 500 eval seeds.
+- First training crashed (my aux-target code mistook run_policy_v1's untrained extra heads for aux outputs; fixed:
+  aux only when the model has `aux_out`) and nearly OOMed in TD values (chunk 2048 x ~1,250 routes; now 256). ~45 min
+  lost; data intact, resumed.
+- Iter 0: 90.8% (+29.6 ± 2.4), same level as v2 (~90.5%). Shop behaviour after one batch: buys cards 329 / leaves
+  116 / removes 110 / potions 95 / relics 2 (SimpleAgent: removes 327, leaves 175, cards 141). **Red flag: removes
+  Bash 88 times**: possibly a value artefact with little shop data; watch whether it persists.

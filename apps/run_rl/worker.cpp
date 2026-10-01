@@ -15,11 +15,14 @@
 //     {"kind": "pick", "state", "options", "choice", "simple"}           state BEFORE the pick
 //     {"kind": "decide", "decision": rest | path, "options": [label...], "choice", "simple", "after"}
 //
-// Optional request key "decide": ["rest", "path"] (default none = SimpleAgent). Each listed decision is asked of Python
+// Optional request key "decide": ["rest", "path", "shop"] (default none = SimpleAgent). Each listed decision is asked of Python
 // as {"type": "decide", "decision", "state", "options": [label...], "after": [state...], "simple": i}: one AFTER-STATE
 // per option, computed exactly on a copy of the game. Reply {"choice": i}; -1 = let SimpleAgent decide (only sent
 // back when "simple" is -1, i.e. SimpleAgent did something outside the option list).
 //   rest: options rest / smith <card> (one per distinct resulting deck) / lift (Girya). Recall, dig, toke: never offered.
+//   shop: options leave / buy card i / buy potion i (free slot) / buy relic i / remove <card> (one per distinct deck).
+//         Asked again after every purchase until leave. Card / potion / removal after-states are computed on a copy
+//         (deterministic); a relic's is BUILT (relic added, gold paid), since some relics roll on pickup (no peeking).
 //   path: one option per next map node (only when there are >= 2). After-state = this state with only the remaining
 //         routes that start at that node (macro_sim paths, first_xs); nothing is simulated.
 #include "agents/teacher_search.hpp"
@@ -157,6 +160,72 @@ std::vector<Option> rest_options(const GameContext& gc, std::vector<std::string>
     return out;
 }
 
+std::string shop_key(const GameContext& gc) {
+    Json k = Json::parse(outcome_key(gc));
+    k["gold"] = gc.gold;
+    for (int i = 0; i < gc.potionCapacity; ++i) k["potions"].push_back(static_cast<int>(gc.potions[static_cast<std::size_t>(i)]));
+    return k.dump();
+}
+
+std::vector<Option> shop_options(const GameContext& gc, std::vector<std::string>& keys) {
+    using RA = sts::search::GameAction::RewardsActionType;
+    const auto& shop = gc.info.shop;
+    std::vector<Option> out;
+    const auto add = [&](Json label, std::vector<int> actions, const GameContext& after_gc, Json after) {
+        const auto k = shop_key(after_gc) + (label.contains("relic") ? label["relic"].dump() : "");
+        if (std::find(keys.begin(), keys.end(), k) != keys.end()) return;
+        keys.push_back(k);
+        out.push_back({std::move(label), std::move(actions), std::move(after)});
+    };
+    add({{"action", "leave"}}, {static_cast<int>(sts::search::GameAction(RA::SKIP).bits)}, gc, stsrl::macro_sim::state_json(gc));
+    for (int i = 0; i < 7; ++i) {
+        const sts::search::GameAction a(RA::CARD, i);
+        if (!a.isValidAction(gc)) continue;
+        GameContext c = gc;
+        a.execute(c);
+        add({{"action", "card"}, {"card", lower(sts::cardEnumStrings[static_cast<int>(shop.cards[i].getId())])},
+             {"upgraded", shop.cards[i].isUpgraded()}, {"price", shop.cardPrice(i)}},
+            {static_cast<int>(a.bits)}, c, stsrl::macro_sim::state_json(c));
+    }
+    for (int i = 0; i < 3; ++i) {
+        const sts::search::GameAction a(RA::POTION, i);
+        if (!a.isValidAction(gc) || gc.potionCount >= gc.potionCapacity) continue;
+        GameContext c = gc;
+        a.execute(c);
+        add({{"action", "potion"}, {"potion", lower(sts::potionEnumNames[static_cast<int>(shop.potions[i])])},
+             {"price", shop.potionPrice(i)}}, {static_cast<int>(a.bits)}, c, stsrl::macro_sim::state_json(c));
+    }
+    for (int i = 0; i < 3; ++i) {
+        const sts::search::GameAction a(RA::RELIC, i);
+        if (!a.isValidAction(gc)) continue;
+        auto after = stsrl::macro_sim::state_json(gc);
+        const auto id = shop.relics[i];
+        after["relics"].push_back({{"relic_id", static_cast<int>(id)}, {"data", 0},
+                                   {"name", lower(sts::relicEnumNames[static_cast<int>(id)])}});
+        after["gold"] = gc.gold - shop.relicPrice(i);
+        GameContext keyed = gc;
+        keyed.gold -= shop.relicPrice(i);
+        add({{"action", "relic"}, {"relic", lower(sts::relicEnumNames[static_cast<int>(id)])}, {"price", shop.relicPrice(i)}},
+            {static_cast<int>(a.bits)}, keyed, std::move(after));
+    }
+    const sts::search::GameAction remove(RA::CARD_REMOVE);
+    if (remove.isValidAction(gc)) {
+        GameContext c = gc;
+        remove.execute(c);
+        if (c.screenState == sts::ScreenState::CARD_SELECT)
+            for (int j = 0; j < static_cast<int>(c.info.toSelectCards.size()); ++j) {
+                GameContext c2 = c;
+                sts::search::GameAction(j).execute(c2);
+                const auto& card = c.info.toSelectCards[j].card;
+                add({{"action", "remove"}, {"card", lower(sts::cardEnumStrings[static_cast<int>(card.id)])},
+                     {"upgraded", card.getUpgraded()}, {"price", shop.removeCost}},
+                    {static_cast<int>(remove.bits), static_cast<int>(sts::search::GameAction(j).bits)}, c2,
+                    stsrl::macro_sim::state_json(c2));
+            }
+    }
+    return out;
+}
+
 Json ask(const Json& message) {
     std::cout << message.dump() << '\n' << std::flush;
     std::string line;
@@ -176,7 +245,7 @@ Json play_run(const Json& job) {
     std::set<std::string> decide;
     for (const auto& d : job.value("decide", Json::array())) {
         const auto name = d.get<std::string>();
-        if (name != "rest" && name != "path") throw std::invalid_argument{"unknown decision: " + name};
+        if (name != "rest" && name != "path" && name != "shop") throw std::invalid_argument{"unknown decision: " + name};
         decide.insert(name);
     }
     GameContext gc{sts::CharacterClass::IRONCLAD, seed, job.at("ascension").get<int>()};
@@ -204,6 +273,43 @@ Json play_run(const Json& job) {
             }
             const bool rest = gc.screenState == sts::ScreenState::REST_ROOM && decide.count("rest");
             const bool path = gc.screenState == sts::ScreenState::MAP_SCREEN && gc.act == 1 && decide.count("path");
+            const bool shop = gc.screenState == sts::ScreenState::SHOP_ROOM && decide.count("shop");
+            if (shop) {
+                // SimpleAgent's own next action(s) on a copy: one purchase, or removal + its card select.
+                GameContext copy = gc;
+                sts::search::SimpleAgent tmp = agent;
+                tmp.curGameContext = &copy;
+                const auto before = tmp.actionHistory.size();
+                tmp.stepOutOfCombat(copy);
+                if (copy.screenState == sts::ScreenState::CARD_SELECT) tmp.stepOutOfCombat(copy);
+                const std::vector<int> simple_bits(tmp.actionHistory.begin() + static_cast<long>(before), tmp.actionHistory.end());
+                std::vector<std::string> keys;
+                auto options = shop_options(gc, keys);
+                int simple = -1;
+                for (int i = 0; i < static_cast<int>(options.size()); ++i)
+                    if (options[static_cast<std::size_t>(i)].actions == simple_bits) simple = i;
+                if (options.size() == 1) {  // only leave: nothing to decide
+                    agent.stepOutOfCombat(gc);
+                    continue;
+                }
+                Json labels = Json::array(), afters = Json::array();
+                for (const auto& o : options) { labels.push_back(o.label); afters.push_back(o.after); }
+                const auto reply = ask({{"type", "decide"}, {"decision", "shop"}, {"state", stsrl::macro_sim::state_json(gc)},
+                                        {"boss", encounter_name(gc.boss)}, {"options", labels}, {"after", afters},
+                                        {"simple", simple}});
+                const int choice = reply.at("choice").get<int>();
+                if (choice < -1 || choice >= static_cast<int>(options.size())) throw std::invalid_argument{"bad choice"};
+                if (choice >= 0) {
+                    for (int bits : options[static_cast<std::size_t>(choice)].actions) {
+                        sts::search::GameAction{static_cast<std::uint32_t>(bits)}.execute(gc);
+                    }
+                    steps.push_back({{"kind", "decide"}, {"decision", "shop"}, {"options", labels}, {"choice", choice},
+                                     {"simple", simple}, {"after", options[static_cast<std::size_t>(choice)].after}});
+                    continue;
+                }
+                agent.stepOutOfCombat(gc);
+                continue;
+            }
             if (rest || path) {
                 // SimpleAgent's own move, on a copy (the label and the "simple" policy). At the first map screen the
                 // agent plans its whole route: keep that plan so SimpleAgent stays itself when it is followed.

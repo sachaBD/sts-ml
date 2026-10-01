@@ -36,7 +36,19 @@ Training-seed noise is ~±0.002, so everything from 0.462 to 0.467 is a tie.
   correctly". A network could tie here and still pick better. Only real games can show that, and small differences
   (< ~3 points) are below what a 500-seed real test can detect.
 
-## Next (if pursued)
+## Auxiliary targets (screen 3, 3 seeds)
+Extra outputs trained on HP entering the boss, reached boss and floor reached (decisions still use only V):
+small 0.4650 -> small + aux 0.4639; mid (dropout 0.5) + aux 0.4627 (best offline). ~0.002: at the noise level.
+
+## Real-game test (`run_rl_v1/2026-10-01/v2-ablation-archtest`)
+Small and mid + aux trained from scratch on identical data (v2 loop iters 0-5, 12k runs) with identical TD targets,
+then played greedily (cards + rest + path) on 1,000 fresh seeds, with the loop's own model as a third arm:
+loop model 88.9%, small 89.4% (+0.5 ± 1.1 vs loop), mid + aux 88.5% (-0.4 ± 1.2). **No difference.**
+
+**Conclusion:** keep the small network. Network design is not the bottleneck now; the next gains are more likely from
+more decisions (shops, events, Neow, potions), search at the decision, or more / better-targeted data.
+
+## Not pursued (yet)
 - Real-game check of one alternative (small + attention or mid) against the reference on the same data and seeds,
   only if the loop plateaus with spare compute.
 - The more promising lever is more signal per run: e.g. auxiliary targets (HP lost per fight, HP at the boss) that

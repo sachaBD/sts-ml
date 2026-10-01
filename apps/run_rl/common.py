@@ -120,7 +120,7 @@ def node_values(model, run, device="cpu"):
 
 
 @torch.no_grad()
-def all_node_values(model, runs, device="cpu", chunk=2048):
+def all_node_values(model, runs, device="cpu", chunk=256):
     """node_values for many runs at once (batched): list of lists."""
     flat = [(s, o, c, r["boss"]) for r in runs for s, o, c in nodes(r)]
     vals = []
