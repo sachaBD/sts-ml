@@ -58,9 +58,17 @@ bool decided(const PublicBeliefCombatSearch& search, std::int64_t left) {
     return best - second > tweaks().stop_factor * static_cast<double>(left);
 }
 
+// The seed a search derives from `observed`: its public observation, salted by tweaks().search_salt (0 = unsalted).
+std::uint64_t search_seed(const sts::BattleContext& observed) {
+    auto seed = PublicBeliefCombatSearch::publicObservation(observed);
+    if (tweaks().search_salt == 0) return seed;
+    auto salt = tweaks().search_salt;
+    return seed ^ next_seed(salt);
+}
+
 std::vector<sts::BattleContext> root_particles(const sts::BattleContext& observed, bool oracle, int particles) {
     if (particles < 1) throw std::invalid_argument{"particles must be >= 1"};
-    auto stream = PublicBeliefCombatSearch::publicObservation(observed);
+    auto stream = search_seed(observed);
     std::vector<sts::BattleContext> states;
     states.reserve(particles);
     if (oracle) states.push_back(observed);
@@ -89,6 +97,17 @@ bool set_tweak(const std::string& key, const Json& value) {
                                                                     : tweaks().prior_floor) = value.get<double>();
         return true;
     }
+    if (key == "tree_reuse") {
+        if (!value.is_boolean()) throw std::invalid_argument{"tree_reuse must be a bool"};
+        tweaks().tree_reuse = value.get<bool>();
+        return true;
+    }
+    if (key == "search_salt") {
+        if (!value.is_number_unsigned() && !(value.is_number_integer() && value.get<std::int64_t>() >= 0))
+            throw std::invalid_argument{"search_salt must be an integer >= 0"};
+        tweaks().search_salt = value.get<std::uint64_t>();
+        return true;
+    }
     if (key == "stop_factor") {
         if (!value.is_number() || !(value.get<double>() > 0) || value.get<double>() > 1)
             throw std::invalid_argument{"stop_factor must be a number in (0, 1]"};
@@ -99,22 +118,26 @@ bool set_tweak(const std::string& key, const Json& value) {
 }
 
 PublicBeliefCombatSearch make_search(const sts::BattleContext& observed, bool oracle, int particles) {
-    const auto public_seed = PublicBeliefCombatSearch::publicObservation(observed);
-    PublicBeliefCombatSearch search{root_particles(observed, oracle, particles), public_seed, 2,
+    PublicBeliefCombatSearch search{root_particles(observed, oracle, particles), search_seed(observed), 2,
                                     tweaks().merge_identical_cards};
     search.maximumActions = max_actions;
     search.maxBackup = oracle;
     return search;
 }
 
+std::int64_t topped_up(const PublicBeliefCombatSearch& search, std::int64_t simulations) {
+    return std::max(std::max<std::int64_t>(1, simulations / 10), simulations - search.retainedVisits);
+}
+
 std::int64_t run_teacher_search(PublicBeliefCombatSearch& search, std::int64_t simulations,
                                 std::size_t legal_moves, bool early_stop) {
-    if (!early_stop) { search.search(simulations); return simulations; }
-    if (legal_moves == 1) {
+    if (legal_moves == 1 && early_stop) {
         const auto n = std::min(forced_simulations, simulations);
         search.search(n);
         return n;
     }
+    simulations = topped_up(search, simulations);
+    if (!early_stop) { search.search(simulations); return simulations; }
     std::int64_t used = 0;
     while (used < simulations) {
         const auto n = std::min(chunk, simulations - used);
@@ -128,7 +151,7 @@ std::int64_t run_teacher_search(PublicBeliefCombatSearch& search, std::int64_t s
 void rebase_search(PublicBeliefCombatSearch& search, const sts::BattleContext& before, std::uint32_t played_bits,
                    const sts::BattleContext& after, bool oracle, int particles) {
     const auto key = search.actionKey(before, sts::search::Action{played_bits});
-    search.rebase(root_particles(after, oracle, particles), key, PublicBeliefCombatSearch::publicObservation(after));
+    search.rebase(root_particles(after, oracle, particles), key, search_seed(after));
 }
 
 LeafEvaluator value_net_evaluator(const ValueNet& net) {
@@ -144,7 +167,7 @@ std::int64_t run_leaf_search(PublicBeliefCombatSearch& search, const LeafEvaluat
                              std::int64_t simulations, std::size_t legal_moves, int rollout_turns,
                              int rollout_steps) {
     if (rollout_turns < 0 || rollout_steps < 0) throw std::invalid_argument{"negative rollout bound"};
-    const auto budget = legal_moves == 1 ? std::min(forced_simulations, simulations) : simulations;
+    const auto budget = legal_moves == 1 ? std::min(forced_simulations, simulations) : topped_up(search, simulations);
     std::vector<const sts::BattleContext*> leaves;
     std::vector<float> values;
     while (search.simulations < budget) {
@@ -176,7 +199,7 @@ std::int64_t run_policy_net_search(PublicBeliefCombatSearch& search, const Value
         search.enablePolicyPriors(t.c_puct, t.fpu_reduction);
     }
     const double scale = 1.0 / (56.0 + search.objectiveMaxHp());
-    const auto budget = legal_moves == 1 ? std::min(forced_simulations, simulations) : simulations;
+    const auto budget = legal_moves == 1 ? std::min(forced_simulations, simulations) : topped_up(search, simulations);
     std::vector<ActionToken> actions;
     std::vector<float> logits;
     std::vector<double> priors;
@@ -214,11 +237,17 @@ std::int64_t run_value_net_search(PublicBeliefCombatSearch& search, const ValueN
     return run_leaf_search(search, value_net_evaluator(net), simulations, legal_moves, 0, 0);  // immediate
 }
 
+// Matches the root edge's semantic key, not its raw bits: a root edge's action indexes the state of the particle that
+// created the node, and after a rebase (tree reuse) particles.front() is a different particle, so a draw-pile
+// selection (Secret Technique / Weapon, Seek, Omniscience) index would name another card (or none: "public
+// draw-selection action has no semantic match"). Other actions: key = bits (or the merged identity key), as before.
 std::size_t legal_index(const CombatEnvironment& env, std::size_t count, const PublicBeliefCombatSearch& search,
                         sts::search::Action action) {
-    const auto bits = PublicBeliefCombatSearch::mapAction(search.particles.front(), action, env.battle()).bits;
+    const auto& edges = search.root().edges;
+    const auto edge = std::find_if(edges.begin(), edges.end(), [&](const auto& e) { return e.action.bits == action.bits; });
+    if (edge == edges.end()) throw std::runtime_error{"search action is not a root edge"};
     for (std::size_t i = 0; i < count; ++i)
-        if (env.action_bits(i) == bits) return i;
+        if (search.actionKey(env.battle(), sts::search::Action{env.action_bits(i)}) == edge->semanticKey) return i;
     throw std::runtime_error{"search action is not legal in the real battle"};
 }
 
@@ -291,6 +320,8 @@ Json search_settings(const Leaf& leaf, const Budget& budget) {
     }
     if (tweaks().merge_identical_cards) result["merge_identical_cards"] = true;
     if (tweaks().stop_factor != 1.0) result["stop_factor"] = tweaks().stop_factor;
+    if (tweaks().search_salt != 0) result["search_salt"] = tweaks().search_salt;
+    if (tweaks().tree_reuse) result["tree_reuse"] = true;
     return result;
 }
 

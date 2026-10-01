@@ -1,0 +1,22 @@
+### card-outcomes-s3-model  best_epoch nat=7 aug=4
+  natural/boss     fights=  216 Brier 0.2095->0.1618  HP MAE 12.35->11.22
+  natural/easy     fights=  849 Brier 0.0011->0.0011  HP MAE 5.94->3.87
+  natural/elite    fights=  338 Brier 0.0540->0.0378  HP MAE 11.85->9.09
+  natural/hard     fights=  410 Brier 0.0095->0.0103  HP MAE 8.56->5.35
+  synthetic/boss   fights=  630 Brier 0.2668->0.1857  HP MAE 12.96->11.47
+  synthetic/easy   fights= 6400 Brier 0.0040->0.0041  HP MAE 6.57->3.90
+  synthetic/elite  fights=  960 Brier 0.0402->0.0383  HP MAE 10.27->7.90
+  synthetic/hard   fights=  960 Brier 0.0021->0.0020  HP MAE 8.24->5.64
+  card dMSE [natural]: boss: dMSE=+0.020 ± 0.062 (clusters=12, obs=504) | easy: dMSE=-0.001 ± 0.002 (clusters=80, obs=5120) | elite: dMSE=+0.011 ± 0.036 (clusters=14, obs=768) | hard: dMSE=+0.006 ± 0.029 (clusters=14, obs=768)
+  card dMSE [augmented]: boss: dMSE=+2.050 ± 2.370 (clusters=12, obs=504) | easy: dMSE=-0.093 ± 0.045 (clusters=80, obs=5120) | elite: dMSE=-1.253 ± 0.965 (clusters=14, obs=768) | hard: dMSE=-0.700 ± 0.530 (clusters=14, obs=768)
+### card-outcomes-s3-model-supp  best_epoch nat=7 aug=4
+  natural/boss     fights=  216 Brier 0.2095->0.1618  HP MAE 12.35->11.22
+  natural/easy     fights=  849 Brier 0.0011->0.0011  HP MAE 5.94->3.87
+  natural/elite    fights=  338 Brier 0.0540->0.0378  HP MAE 11.85->9.09
+  natural/hard     fights=  410 Brier 0.0095->0.0103  HP MAE 8.56->5.35
+  synthetic/boss   fights= 3030 Brier 0.2565->0.1709  HP MAE 12.19->10.86
+  synthetic/easy   fights= 6400 Brier 0.0040->0.0041  HP MAE 6.57->3.90
+  synthetic/elite  fights= 6960 Brier 0.0531->0.0463  HP MAE 10.98->8.49
+  synthetic/hard   fights= 6960 Brier 0.0023->0.0031  HP MAE 8.88->6.09
+  card dMSE [natural]: boss: dMSE=+0.051 ± 0.027 (clusters=41, obs=2424) | easy: dMSE=-0.001 ± 0.002 (clusters=80, obs=5120) | elite: dMSE=+0.027 ± 0.012 (clusters=60, obs=5568) | hard: dMSE=+0.009 ± 0.012 (clusters=60, obs=5568)
+  card dMSE [augmented]: boss: dMSE=+0.222 ± 0.960 (clusters=41, obs=2424) | easy: dMSE=-0.093 ± 0.045 (clusters=80, obs=5120) | elite: dMSE=-1.609 ± 0.635 (clusters=60, obs=5568) | hard: dMSE=+0.141 ± 0.174 (clusters=60, obs=5568)

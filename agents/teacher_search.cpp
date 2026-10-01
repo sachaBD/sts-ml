@@ -1,5 +1,7 @@
 #include "agents/teacher_search.hpp"
 
+#include <chrono>
+#include <optional>
 #include <random>
 #include <stdexcept>
 #include <utility>
@@ -79,19 +81,30 @@ Json settings(const Leaf& leaf, bool oracle, const Budget& budget) {
     return result;
 }
 
+double& search_seconds() {
+    static double seconds = 0;
+    return seconds;
+}
+
 sts::BattleContext play_fight(sts::BattleContext battle, const Json& fight, std::vector<Json>& rows,
                               const SearchFn& run, bool random_move, bool oracle, int particles, bool reuse) {
+    reuse = reuse || tweaks().tree_reuse;
     CombatEnvironment env{std::move(battle)};
     const int max_hp = env.player_max_hp();
     std::mt19937_64 rng(fight.at("episode_id").get<std::uint64_t>() ^ 0xe9510ULL);
     const int random_at = random_move ? std::uniform_int_distribution<int>{0, random_window - 1}(rng) : -1;
     std::vector<Json> decisions, children;
     int index = 0;
+    using Clock = std::chrono::steady_clock;
+    auto began = Clock::now();
     auto tree = make_search(env.battle(), oracle, particles);
+    search_seconds() += std::chrono::duration<double>(Clock::now() - began).count();
     while (!env.done()) {
         auto state = env.decision();
+        began = Clock::now();
         if (!reuse && index > 0) tree = make_search(env.battle(), oracle, particles);
         auto choice = search_decision(env, state.legal_actions.size(), run, tree);
+        search_seconds() += std::chrono::duration<double>(Clock::now() - began).count();
         const bool random = index == random_at;
         if (random) choice.chosen = std::uniform_int_distribution<std::size_t>{0, state.legal_actions.size() - 1}(rng);
         record_children(children, env, choice, fight, index, oracle);
@@ -115,6 +128,33 @@ sts::BattleContext play_fight(sts::BattleContext battle, const Json& fight, std:
             row.update(outcome);
             rows.push_back(std::move(row));
         }
+    return env.battle();
+}
+
+sts::BattleContext play_fight(sts::BattleContext battle, const SearchFn& run, bool oracle, int particles, bool reuse) {
+    reuse = reuse || tweaks().tree_reuse;
+    CombatEnvironment env{std::move(battle)};
+    using Clock = std::chrono::steady_clock;
+    std::optional<PublicBeliefCombatSearch> tree;
+    while (!env.done()) {
+        const auto legal = env.legal_action_count();
+        std::size_t chosen = 0;
+        if (legal > 1) {
+            const auto began = Clock::now();
+            if (!tree || !reuse) tree.emplace(make_search(env.battle(), oracle, particles));
+            run(*tree, legal);
+            chosen = legal_index(env, legal, *tree, tree->selectedAction());
+            search_seconds() += std::chrono::duration<double>(Clock::now() - began).count();
+        }
+        if (reuse && tree) {
+            const auto before = env.battle();
+            const auto bits = env.action_bits(chosen);
+            env.step(chosen);
+            if (!env.done()) rebase_search(*tree, before, bits, env.battle(), oracle, particles);
+        } else {
+            env.step(chosen);
+        }
+    }
     return env.battle();
 }
 

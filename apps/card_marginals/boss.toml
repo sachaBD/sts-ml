@@ -1,0 +1,30 @@
+# ./apps/card_marginals/run.sh apps/card_marginals/boss.toml [--scratch]
+# Boss card marginals (apps/card_marginals/card_marginals.py). Per group: base deck + n_candidates card additions,
+# each on all 3 act 1 bosses x `seeds` shared fight seeds. Deck counts copied from a natural boss
+# pre-fight state of natural_run (buckets 4-9); contents from the simulator.
+# Cost per group ~ (1 + n_candidates) x 3 x seeds boss fights at ~8-11 s (15k simulations; earlier measurement under
+# 10 workers): 5 x 3 x 8 = 120 fights ~ 20 worker-minutes -> ~30 groups / hour on 10 workers.
+[run]
+id = "boss-smoke"
+stage = "boss"
+groups = 10               # smoke: 10 x 5 variants x 3 bosses x 2 seeds = 300 fights, ~3 min on 10 workers (est. ~6 s per fight)
+generator_seed = 0
+workers = 10
+encounters = ["slime_boss", "the_guardian", "hexaghost"]
+seeds = 2                 # smoke; 8 for real runs
+natural_run = "combat_transition_v1/2026-09-29/act1-eval-mcts-a20-checked"
+natural_buckets = [4, 5, 6, 7, 8, 9]
+# combat agent: the cohort's teacher (fair guided-rollout MCTS, 8 particles), boss 15000 simulations
+leaf = "guided_rollout"
+simulations = 15000       # unused: every fight is a boss fight (boss_simulations)
+boss_simulations = 15000
+particles = 8
+oracle = false
+random_move = false
+tree_reuse = false       # off: matches the easy pilot and the natural cohort (reuse changes the policy; slop_docs/teacher_perf.md)
+
+[generator]
+simple_pick_prob = 0.5   # card picks, removes and upgrades: SimpleAgent's choice, else random (picks: skip_prob)
+skip_prob = 0.1
+uniform_frac = 0.1       # candidate uniform over the Ironclad pool instead of a natural reward roll
+n_candidates = 4

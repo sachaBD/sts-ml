@@ -136,7 +136,7 @@ window 8 (v2 iters 0-5 data first), decay 0.85, eps 0.1, training seeds offset 2
   89.9% (+0.2 ± 1.1). Relic peek was harmless in practice. Neow choices: slot 1 49%, bonus+drawback 21%, small bonus
   16%, boss relic 15% (V extrapolating on unseen floor-0 states). No gain without retraining -> v4.
 
-**2026-10-01: rundeck run-rl-v4** (`rundecks/run-rl-v4/`, executor orch-10-1): 2 rounds gen -> train -> eval with
+**2026-10-01: rundeck run-rl-v4** (`experiments/run-rl-v4/`, executor orch-10-1): 2 rounds gen -> train -> eval with
 every decision by V (init v3 iter3), then fresh-seed check on the event-h0-test seeds. Result: running.
 
 **2026-10-01: defragment.** README rewritten as the single entry point (method, decisions table, no-peeking rules,

@@ -1,0 +1,7 @@
+# Capacity x4, lighter dropout.
+kind = "combat_outcome_v1"
+
+[args]
+width = 64
+hidden = 128
+dropout = 0.1

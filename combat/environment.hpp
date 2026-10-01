@@ -42,6 +42,9 @@ public:
     CombatEnvironment& operator=(const CombatEnvironment&) = delete;
 
     [[nodiscard]] Decision decision();
+    // decision()'s legal actions (same order, same indices for step / action_bits) without the encoding or
+    // descriptions: their count. For players that record nothing.
+    std::size_t legal_action_count();
     [[nodiscard]] std::string action_description(std::size_t action_index) const;
     void step(std::size_t action_index);
     [[nodiscard]] bool done() const noexcept;

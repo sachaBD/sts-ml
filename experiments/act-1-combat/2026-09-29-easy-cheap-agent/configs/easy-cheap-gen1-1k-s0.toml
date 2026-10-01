@@ -1,0 +1,16 @@
+# easy cheap-agent S2: gen1-1k-s0
+[run]
+id = "easy-cheap-gen1-1k-s0"
+input = "value_net_v1/2026-09-26/act1-gen1"  # net arms: the net; mcts arms: leakage guard only
+workers = 11
+leaf = "value_net"
+simulations = 1000
+particles = 8
+random_move = false
+oracle = false
+skip_diverged = true
+query = """
+select * from combat_v3
+where id = 'act1-all-bosses-a20-scaled-search' and source_episode_id is null and category = 'easy'
+  and episode_id in (select source_episode_id from read_csv_auto('experiments/act-1-combat/2026-09-29-easy-cheap-agent/fights.csv'))
+"""

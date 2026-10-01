@@ -10,7 +10,7 @@ from sts_combat_rl import query
 HERE = Path(__file__).parent
 DEV_CAP = 250  # dev fights per non-boss encounter (boss: all 999, reusing the slime-v8 dev set)
 
-# Same rule as rundecks/slime-v8/SPLIT.md, extended from Slime Boss to every act-1 fight of those runs.
+# Same rule as experiments/slime-v8/SPLIT.md, extended from Slime Boss to every act-1 fight of those runs.
 PART = """case when id = 'act1-a20-8' and run_seed % 10 in (0, 1) then 'dev'
                when id = 'act1-a20-8' and run_seed % 10 in (2, 3) then 'confirm'
                else 'train' end"""

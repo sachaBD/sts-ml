@@ -1,0 +1,8 @@
+# co2 w32, 3 residual blocks.
+kind = "combat_outcome_v2"
+
+[args]
+width = 32
+hidden = 64
+depth = 3
+dropout = 0.2

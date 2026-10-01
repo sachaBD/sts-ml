@@ -63,7 +63,8 @@ def exactly_when(table, key, applies, when, name):
 
 
 TEACHER_KEYS = {"leaf", "simulations", "oracle", "random_move", "particles", "rollout_turns", "rollout_steps",
-                "merge_identical_cards", "stop_factor", "c_puct", "fpu_reduction", "prior_floor"}
+                "merge_identical_cards", "stop_factor", "c_puct", "fpu_reduction", "prior_floor", "search_salt",
+                "tree_reuse"}
 POLICY_KEYS = ("c_puct", "fpu_reduction", "prior_floor")  # leaf policy_net: required, and only then
 
 
@@ -71,7 +72,7 @@ def teacher_settings(run):
     """The workers' teacher request (apps/common/teacher_request.hpp) from [run]: leaf (guided_rollout, value_net,
     hybrid or policy_net), simulations, oracle, random_move; particles unless oracle; rollout_turns / rollout_steps
     with leaf hybrid only; c_puct / fpu_reduction / prior_floor with leaf policy_net only; opt-in search tweaks
-    merge_identical_cards / stop_factor. The worker validates the values."""
+    merge_identical_cards / stop_factor / search_salt / tree_reuse. The worker validates the values."""
     teacher = {"leaf": required(run, "leaf", "run", str), "simulations": required(run, "simulations", "run", int),
                "oracle": required(run, "oracle", "run", bool), "random_move": required(run, "random_move", "run", bool)}
     exactly_when(run, "particles", not teacher["oracle"], "unless oracle", "run")

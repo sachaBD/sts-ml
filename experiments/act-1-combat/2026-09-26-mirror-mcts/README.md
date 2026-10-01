@@ -5,7 +5,7 @@ this; they come from replaying the stored runs.
 
 **The player:** the MCTS teacher search, with the random rollouts at its leaves replaced by a value network.
 
-**The recipe** is the one that worked on Slime Boss (`rundecks/slime-v8/REPORT.md`):
+**The recipe** is the one that worked on Slime Boss (`experiments/slime-v8/REPORT.md`):
 1. Train the net to imitate the teacher (gen0). It ends up slightly weaker than the teacher.
 2. Let it play itself and fine-tune on the real fight outcomes (gen1, gen2, ...). On slime this beat the teacher.
 

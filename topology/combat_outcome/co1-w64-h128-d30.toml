@@ -1,0 +1,7 @@
+# Capacity x4 of legacy (v1 class defaults, dropout .3).
+kind = "combat_outcome_v1"
+
+[args]
+width = 64
+hidden = 128
+dropout = 0.3

@@ -91,6 +91,7 @@ def play(episode, request, start, binary, weights, out):
         "starting_hp": first["starting_hp"], **{c: first[c] for c in OUTCOME},
         "turns": pc.max(decisions["turn"]).as_py(), "decisions": decisions.num_rows,
         "simulations": pc.sum(decisions["simulations_used"]).as_py(), "rows": table.num_rows, "seconds": seconds,
+        "search_seconds": result.get("search_seconds"),
         "teacher": {c: start[c] for c in OUTCOME}}
 
 
@@ -157,7 +158,9 @@ def replay(config, config_path, out):
                "mean_terminal_value": mean([f["terminal_value"] for f in done]),
                "teacher_mean_terminal_value": mean([f["teacher"]["terminal_value"] for f in done]),
                "seconds_per_fight": mean([f["seconds"] for f in done]),
-               "skipped_diverged": len(skipped), "skipped": skipped}
+               "skipped_diverged": len(skipped), "skipped": skipped,
+               "per_fight": [{k: f[k] for k in ("episode", "decisions", "simulations", "seconds", "search_seconds")}
+                             for f in done]}
     write_json(out / "summary.json", summary)
     for line in ("", "Summary", "-------", f"teacher:        {json.dumps(teacher)}",
                  f"{'':16}{label:>22}{'teacher':>10}",

@@ -105,7 +105,7 @@ def collate_states(rows: list[dict[str, Any]]) -> dict[str, torch.Tensor]:
 
 # Columnar rows for training: an Arrow stream from the SQL query packed into numpy arrays (a few KB per row,
 # not tens of KB as Python dicts). Same content as the dict rows collate_states takes.
-META = ("run_id", "run_seed", "episode_id", "decision_index", "row_kind", "was_random", "root_value",
+META = ("run_id", "run_seed", "episode_id", "source_episode_id", "decision_index", "row_kind", "was_random", "root_value",
         "terminal_value", "won", "final_hp", "starting_max_hp", "encounter", "category")
 STATE = ("encoding_version", "input_state", "card_selection_task", "global_numeric")
 TOKENS = {  # token group: (categorical fields, numeric width)

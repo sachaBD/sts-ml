@@ -54,6 +54,7 @@ class TrainConfig:
     validation_fraction: float | None  # of run seeds; unless split = pinned
     corrections: str | None          # SQL selecting DAgger rows (target root_value); needs split = pinned
     correction_weight: float | None  # with corrections: share of the loss on correction rows
+    row_weighting: str | None        # optional encounter-balanced sqrt fight-length weighting
     aux_keep_weight: float | None    # deep_sets_v3 only: potions-kept head (won rows holding a potion)
     policy_weight: float | None      # deep_sets_v3 only: policy cross entropy (0 with policy_width 0)
 
@@ -69,6 +70,8 @@ class TrainConfig:
                               ("split", (None, "pinned", "fresh"))):
             if getattr(self, name) not in allowed:
                 raise ValueError(f"{name} {getattr(self, name)!r} is not one of {allowed}")
+        if self.row_weighting not in (None, "elite_sqrt_source"):
+            raise ValueError(f"unknown row_weighting {self.row_weighting!r}")
         if "kind" not in self.model:
             raise ValueError("model needs a kind")
 
@@ -280,6 +283,38 @@ def group_mse(rows: Rows, index: np.ndarray, prediction: torch.Tensor) -> dict[s
     return out
 
 
+def elite_sqrt_source_weights(rows: Rows, train: np.ndarray) -> dict[str, float]:
+    """Each elite gets 1/3 of loss; each source fight gets sqrt(number of decisions) mass.
+
+    When a source is replayed, its original and replay share that mass rather than
+    counting as two different decks. Validation and other experiments are unaffected.
+    """
+    if not np.all(rows['category'][train] == 'elite'):
+        raise ValueError('elite_sqrt_source needs only elite training rows')
+    episode_ids, inverse, lengths = np.unique(rows['episode_id'][train], return_inverse=True, return_counts=True)
+    # Each episode has one source ID, encounter and run ID. No float conversion of large IDs.
+    first = np.unique(inverse, return_index=True)[1]
+    source = rows['source_episode_id'][train][first]
+    source = np.array([int(s) if s is not None and not np.isnan(s) else int(e)
+                       for s, e in zip(source, episode_ids)], dtype=np.int64)
+    encounters = rows['encounter'][train][first]
+    if len(set(zip(rows['run_id'][train], rows['episode_id'][train]))) != len(episode_ids):
+        raise ValueError('episode_id collision across training runs')
+    mass = np.sqrt(lengths.astype(np.float64))
+    for key in np.unique(source):
+        group = source == key
+        if group.sum() > 1:
+            mass[group] = mass[group].mean() / group.sum()
+    weights = mass[inverse] / lengths[inverse]
+    share = {}
+    for encounter in np.unique(encounters):
+        group = rows['encounter'][train] == encounter
+        weights[group] *= (len(train) / len(np.unique(encounters))) / weights[group].sum()
+        share[str(encounter)] = float(weights[group].sum() / len(train))
+    rows.columns['weight'][train] = weights
+    return share
+
+
 def pinned_split(rows: Rows, reference: dict[str, Any]) -> tuple[np.ndarray, np.ndarray, int]:
     """Bootstrap rows on the side the reference checkpoint put them: its train / validation episodes and
     run seeds (as row indices). Rows of other episodes are dropped."""
@@ -345,6 +380,9 @@ def run(args: TrainConfig) -> dict[str, Any]:
         kept = np.arange(len(rows))
     if not len(train) or not len(valid):
         raise ValueError("run split requires at least two run_seeds")
+    if args.row_weighting == 'elite_sqrt_source':
+        share = elite_sqrt_source_weights(rows, train)
+        print(f'elite training loss shares: {share}', flush=True)
     train_ids = np.unique(rows["episode_id"][train]).tolist()
     valid_ids = np.unique(rows["episode_id"][valid]).tolist()
     train_runs = np.unique(rows["run_seed"][train]).tolist()
@@ -571,6 +609,7 @@ def run(args: TrainConfig) -> dict[str, Any]:
             "baseline_validation_mse": baseline_mse,
             "teacher_root_value_validation_mse": teacher_mse,
             "train_value_loss": train_value_loss,
+            "row_weighting": args.row_weighting,
             "train_aux_won_bce": train_aux_won_loss,
             "train_aux_hp_mse": train_aux_hp_loss,
         }

@@ -1,0 +1,21 @@
+# Smoke: salt 3 on 11 stored validation fights (compare with elite-v3-v-mcts; salt 0 must match exactly).
+[run]
+id = "bench-smoke-policy-salt3"
+input = "value_net_v1/2026-09-27/elite-v3-t2"
+workers = 11
+leaf = "policy_net"
+c_puct = 1.0
+fpu_reduction = 0.05
+prior_floor = 0.03
+simulations = 20000
+particles = 8
+random_move = false
+oracle = false
+search_salt = 3
+skip_diverged = true
+query = """
+select * from combat_v3
+where id = 'act1-all-bosses-a20-scaled-search' and source_episode_id is null and category = 'elite' and run_seed % 10 = 5
+  and episode_id in (select episode_id from combat_v3 where id = 'elite-v3-v-mcts' and row_kind = 'decision' and decision_index = 0
+                     order by hash(episode_id) limit 11)
+"""

@@ -179,8 +179,38 @@ void test_exploration() {
 
 }  // namespace
 
+// search_salt: 0 reproduces the unsalted search exactly; another salt reseeds it (different particles and
+// rollouts, so different visit counts); the same salt is deterministic. Invalid values throw.
+void test_search_salt() {
+    const auto root = stsrl::scenarios::jaw_worm(1).battle();
+    stsrl::CombatEnvironment env{root};
+    const auto legal = env.decision().legal_actions.size();
+    const auto run = [&] {
+        auto search = teacher::make_search(root, false, teacher::particles);
+        teacher::run_teacher_search(search, 2000, legal, false);
+        std::vector<std::pair<std::int64_t, double>> edges;
+        for (const auto& e : search.root().edges) edges.emplace_back(e.visits, e.valueSum);
+        return edges;
+    };
+    const auto base = run();
+    check(teacher::set_tweak("search_salt", Json(0)), "search_salt is a tweak");
+    check(run() == base, "salt 0 = unsalted search");
+    teacher::set_tweak("search_salt", Json(7));
+    const auto salted = run();
+    check(salted != base, "salt 7 reseeds the search");
+    check(run() == salted, "same salt, same search");
+    check(throws([] { teacher::set_tweak("search_salt", Json(-1)); }), "negative salt");
+    check(throws([] { teacher::set_tweak("search_salt", Json(1.5)); }), "fractional salt");
+    check(teacher::search_settings(teacher::Leaf{"guided_rollout"}, BUDGET).at("search_salt") == 7,
+          "salt recorded in settings");
+    teacher::set_tweak("search_salt", Json(0));
+    check(!teacher::search_settings(teacher::Leaf{"guided_rollout"}, BUDGET).contains("search_salt"),
+          "salt 0 not recorded");
+}
+
 int main() {
     test_validation();
+    test_search_salt();
     test_settings();
     test_leaf_search();
     test_exploration();

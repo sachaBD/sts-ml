@@ -1,0 +1,8 @@
+# Encounter-conditioned cards, sum+mean pooling, 2 residual blocks.
+kind = "combat_outcome_v2"
+
+[args]
+width = 32
+hidden = 64
+depth = 2
+dropout = 0.2

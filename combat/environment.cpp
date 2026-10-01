@@ -311,6 +311,14 @@ ActionToken encode_action(const sts::BattleContext& state, std::uint32_t action_
     return token;
 }
 
+std::size_t CombatEnvironment::legal_action_count() {
+    sts::search::BattleScumSearcher2::Node node;
+    impl_->enumerator.enumerateActionsForNode(node, impl_->state);
+    impl_->current_actions.clear();
+    for (const auto& edge : node.edges) impl_->current_actions.push_back(edge.action);
+    return impl_->current_actions.size();
+}
+
 Decision CombatEnvironment::decision() {
     sts::search::BattleScumSearcher2::Node node;
     impl_->enumerator.enumerateActionsForNode(node, impl_->state);

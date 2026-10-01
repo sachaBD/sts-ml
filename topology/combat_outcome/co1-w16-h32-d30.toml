@@ -1,0 +1,7 @@
+# Legacy card-outcomes overnight topology (hard-coded before specs existed).
+kind = "combat_outcome_v1"
+
+[args]
+width = 16
+hidden = 32
+dropout = 0.3

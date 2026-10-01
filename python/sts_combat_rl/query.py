@@ -3,6 +3,9 @@
 Views:
   combat_v3  every combat_v3 row, plus run_id, schema, date, id (from its run directory)
   runs       every run.json: run_id, schema, status, inputs, summary (JSON)
+  act1_results  one row per seed of every apps/bootstrap run with per-seed results (summary.json "results"):
+             run_id, seed, boss, status (other_boss / died / act_complete), floor, fights, reached_boss, won_boss,
+             final_hp
   run_rl_results / run_rl_picks  apps/run_rl runs (schema run_rl_v1): one row per real act 1 run / per card reward
 
 A query selects whole rows, e.g.
@@ -32,6 +35,12 @@ def connect(root: Path = RUNS) -> duckdb.DuckDBPyConnection:
         create view runs as
         select * from read_json('{root}/*/*/*/run.json', columns = {{
             run_id: 'VARCHAR', schema: 'VARCHAR', status: 'VARCHAR', inputs: 'VARCHAR[]', summary: 'JSON'}})""")
+    db.execute("""
+        create view act1_results as
+        select run_id, unnest(from_json(json_extract(summary, '$.results'), '[{"seed": "UBIGINT", "boss": "VARCHAR",
+            "status": "VARCHAR", "floor": "INTEGER", "fights": "INTEGER", "reached_boss": "BOOLEAN",
+            "won_boss": "BOOLEAN", "final_hp": "INTEGER"}]'), recursive := true)
+        from runs where schema = 'combat_v3' and json_extract(summary, '$.results') is not null""")
     # run_rl_v1 (apps/run_rl/export.py): one row per real act 1 run / per card reward, plus run_id
     for view, name in (("run_rl_results", "results"), ("run_rl_picks", "picks")):
         if any(root.glob(f"schema=run_rl_v1/*/*/out/{name}.parquet")):

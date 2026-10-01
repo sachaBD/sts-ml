@@ -1,0 +1,16 @@
+# ./apps/value_play/run.sh experiments/act-1-combat/2026-09-27-act1-eval/configs/replay20k-ab-gen1.toml
+# Every elite and boss fight of the MCTS full-act-1 eval run, replayed from its stored start with value_net leaves at
+# 20k simulations (the budget of the 2026-09-26 all-bosses report). Paired with replay20k-mcts.toml.
+[run]
+id = "act1-eval-replay20k-ab-gen1"
+input = "value_net_v1/2026-09-27/ab-gen1" # the net for value_net leaves; also the train-fight guard
+workers = 10
+leaf = "value_net"
+simulations = 20000
+particles = 8
+random_move = false
+oracle = false
+query = """
+select * from combat_v3
+where id = 'act1-eval-mcts-a20' and category in ('elite', 'boss')
+"""

@@ -49,6 +49,13 @@ struct SearchTweaks {
     double c_puct = std::numeric_limits<double>::quiet_NaN();
     double fpu_reduction = std::numeric_limits<double>::quiet_NaN();
     double prior_floor = std::numeric_limits<double>::quiet_NaN();
+    // Mixed into every seed the search derives from the public observation (particle sampling and the search's
+    // own RNG stream). 0 = the historical, unsalted seeds (bit-identical play); another value gives an equally
+    // fair, independently seeded search of the same state (A/A noise floors, per-fight win probabilities).
+    std::uint64_t search_salt = 0;
+    // Tree reuse (play_fight only; the learner fight ignores it): keep the played move's subtree between
+    // decisions (rebase_search), as play_fight's `reuse`. The budget counts the kept visits (see topped_up).
+    bool tree_reuse = false;
 };
 SearchTweaks& tweaks();
 // Applies teacher setting `key` if it is a tweak (merge_identical_cards: bool, stop_factor: number in
@@ -64,8 +71,13 @@ sts::search::PublicBeliefCombatSearch make_search(const sts::BattleContext& obse
 
 // Tree reuse: after `played_bits` was played at `before` (the search's root) and `after` is observed, keep
 // the played move's subtree as the new root (PublicBeliefCombatSearch::rebase) with `after`'s particles
-// (as make_search). The budget still counts only new simulations, so each decision has at least a fresh
-// search's evidence; kept visits only add to it (and can make early stop fire sooner).
+// (as make_search). The kept root visits count toward the next search's budget (topped_up).
+
+// Top-up budget: the new simulations a search with cap `simulations` runs: the cap minus the root visits a
+// rebased tree kept (search.retainedVisits; 0 for a fresh search, which runs the full cap), but at least a
+// tenth of the cap. Forced moves keep min(forced_simulations, simulations). ~0.7x simulations on a boss
+// fight (slop_docs/teacher_perf.md).
+std::int64_t topped_up(const sts::search::PublicBeliefCombatSearch& search, std::int64_t simulations);
 void rebase_search(sts::search::PublicBeliefCombatSearch& search, const sts::BattleContext& before,
                    std::uint32_t played_bits, const sts::BattleContext& after, bool oracle, int particles);
 
@@ -74,6 +86,7 @@ void rebase_search(sts::search::PublicBeliefCombatSearch& search, const sts::Bat
 //   forced: one legal move -> only forced_simulations.
 //   early stop: search in chunks of `chunk`; stop once N_best - N_second > simulations left, so the
 //   most-visited root edge can no longer be caught.
+//   tree reuse: a rebased search runs topped_up(search, simulations) new simulations (a fresh one: all).
 std::int64_t run_teacher_search(sts::search::PublicBeliefCombatSearch& search, std::int64_t simulations,
                                 std::size_t legal_moves, bool early_stop);
 

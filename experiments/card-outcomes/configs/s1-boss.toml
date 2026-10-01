@@ -1,0 +1,23 @@
+# First-stage starting allocation; adjust to completed preflight timings before launch.
+[run]
+id = "card-outcomes-s1-boss"
+stage = "boss"
+groups = 44
+generator_seed = 2026093001
+workers = 11
+encounters = ["slime_boss", "the_guardian", "hexaghost"]
+seeds = 3
+natural_run = "combat_transition_v1/2026-09-29/act1-eval-mcts-a20-checked"
+natural_buckets = [4, 5, 6, 7, 8, 9]
+leaf = "guided_rollout"
+simulations = 15000
+boss_simulations = 15000
+particles = 8
+oracle = false
+random_move = false
+tree_reuse = false
+[generator]
+simple_pick_prob = 0.5
+skip_prob = 0.1
+uniform_frac = 0.1
+n_candidates = 4

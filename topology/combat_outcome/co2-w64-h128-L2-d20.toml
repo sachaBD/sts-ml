@@ -1,0 +1,8 @@
+# As co2-w32 at x2 width.
+kind = "combat_outcome_v2"
+
+[args]
+width = 64
+hidden = 128
+depth = 2
+dropout = 0.2

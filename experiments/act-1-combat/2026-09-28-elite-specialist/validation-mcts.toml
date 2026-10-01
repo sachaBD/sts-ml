@@ -1,0 +1,17 @@
+# Replay the frozen 450 bucket-5 elite fights at 20k with guided-rollout leaves.
+[run]
+id = "elite-v1-validation-mcts"
+input = "value_net_v1/2026-09-27/elite-terminal-v1" # guard only; weights unused
+workers = 10
+leaf = "guided_rollout"
+simulations = 20000
+particles = 8
+random_move = false
+oracle = false
+query = """
+select * from combat_v3
+where run_id = 'combat_v3/2026-09-26/act1-all-bosses-a20-scaled-search'
+  and source_episode_id is null and category = 'elite' and run_seed % 10 = 5
+  and episode_id in (
+    select source_episode_id from read_csv_auto('experiments/act-1-combat/2026-09-28-elite-specialist/validation_fights.csv'))
+"""

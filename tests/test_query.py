@@ -51,6 +51,20 @@ class QueryTests(unittest.TestCase):
         db = query.connect(self.root)
         self.assertEqual(db.sql("select count(*) from runs where status = 'done'").fetchone()[0], 3)
 
+    def test_act1_results_view(self):
+        run = self.root / "schema=combat_v3" / "date=2026-01-01" / "id=boot-a" / "run.json"
+        record = json.loads(run.read_text())
+        record["summary"] = {"results": [
+            {"seed": 1, "boss": "hexaghost", "status": "died", "floor": 6, "fights": 4, "reached_boss": False,
+             "won_boss": False, "final_hp": 0},
+            {"seed": 2, "boss": "slime_boss", "status": "act_complete", "floor": 16, "fights": 9,
+             "reached_boss": True, "won_boss": True, "final_hp": 41}]}
+        run.write_text(json.dumps(record))
+        rows = query.connect(self.root).sql(
+            "select run_id, seed, boss, status, final_hp, won_boss from act1_results order by seed").fetchall()
+        self.assertEqual(rows, [("combat_v3/2026-01-01/boot-a", 1, "hexaghost", "died", 0, False),
+                                ("combat_v3/2026-01-01/boot-a", 2, "slime_boss", "act_complete", 41, True)])
+
     def test_sql_list(self):
         self.assertEqual(query.sql_list(["a", "b'c"]), "('a', 'b''c')")
         self.assertEqual(query.sql_list([1, 2]), "(1, 2)")

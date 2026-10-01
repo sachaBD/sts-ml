@@ -1,0 +1,29 @@
+# ./apps/card_marginals/run.sh apps/card_marginals/easy.toml [--scratch]
+# Easy-pool card marginals (apps/card_marginals/card_marginals.py). Per group: base deck + n_candidates card
+# additions, each on all 4 easy encounters x `seeds` shared fight seeds. Cost per group ~ (1 + n_candidates) x 4 x seeds
+# fights at ~0.07 s (MCTS 500, experiments/act-1-combat/2026-09-29-easy-cheap-agent).
+[run]
+id = "easy-smoke"
+stage = "easy"
+groups = 4
+generator_seed = 0
+workers = 4
+encounters = ["cultist", "jaw_worm", "two_louse", "small_slimes"]
+seeds = 8
+# natural pre-fight HP by prior fights: the MCTS eval cohort, training + early-stop buckets only
+natural_run = "combat_transition_v1/2026-09-29/act1-eval-mcts-a20-checked"
+natural_buckets = [4, 5, 6, 7, 8, 9]
+# combat agent: the cohort's easy-fight teacher (fair guided-rollout MCTS, 500 simulations, 8 particles)
+leaf = "guided_rollout"
+simulations = 500
+particles = 8
+oracle = false
+random_move = false
+tree_reuse = false       # off: matches the easy pilot and the natural cohort (reuse changes the policy; slop_docs/teacher_perf.md)
+
+[generator]
+prior_fights_weights = [0.37, 0.35, 0.28]  # natural easy fights at fight_index 0 / 1 / 2 (3-4, 7%, folded out)
+simple_pick_prob = 0.5   # else a uniformly random offered card, or skip with skip_prob
+skip_prob = 0.1
+uniform_frac = 0.1       # candidate uniform over the Ironclad pool instead of a natural reward roll
+n_candidates = 4

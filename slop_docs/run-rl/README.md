@@ -41,7 +41,7 @@ weakness was optimising inside a biased simulator.)
 | + rest + path (v2) | 88.9% | ~+14 |
 | + shop (v3) | 91.1% | +2.2 ± 1.1 |
 | + events, Neow by lookahead, no retraining | ~90% | +0.2 ± 1.1 (V untrained on those states) |
-| v4: 2 rounds with every decision | pending | `rundecks/run-rl-v4` |
+| v4: 2 rounds with every decision | pending | `experiments/run-rl-v4` |
 
 Findings: rest and path each add ~7-9 points (the policy avoids elites, rests more, reaches the boss with ~71 vs
 54 HP). Network size / attention / auxiliary targets make no measurable difference (data-bound;

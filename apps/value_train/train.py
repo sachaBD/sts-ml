@@ -22,7 +22,7 @@ DATA_REQUIRED, DATA_OPTIONAL = {"query", "oracle"}, {"corrections"}
 TRAIN_REQUIRED = {"epochs", "batch_size", "lr", "weight_decay", "seed", "label", "lr_schedule", "keep", "threads",
                   "device", "aux_won_weight", "aux_hp_weight"}
 # Required exactly when they apply (TrainConfig checks which): absent means off / not applicable.
-TRAIN_OPTIONAL = {"blend", "initial_checkpoint", "split", "validation_fraction", "correction_weight",
+TRAIN_OPTIONAL = {"blend", "initial_checkpoint", "split", "validation_fraction", "correction_weight", "row_weighting",
                   "aux_keep_weight", "policy_weight"}
 SUMMARY_KEYS = ("initial_checkpoint", "initial_checkpoint_sha256", "initialization", "split",
                 "training_kind", "correction_weight", "correction_target", "correction_rows", "correction_query", "correction_source")

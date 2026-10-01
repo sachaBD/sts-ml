@@ -1,0 +1,21 @@
+# elite-bench S5: v3-20k-s4
+[run]
+id = "bench-v3-20k-s4"
+input = "value_net_v1/2026-09-27/elite-v3-t2"  # v3 arms: the net; others: leakage guard only
+workers = 11
+leaf = "policy_net"
+c_puct = 1.0
+fpu_reduction = 0.05
+prior_floor = 0.03
+simulations = 20000
+particles = 8
+random_move = false
+oracle = false
+search_salt = 4
+skip_diverged = true
+query = """
+select * from combat_v3
+where id = 'act1-all-bosses-a20-scaled-search' and source_episode_id is null and category = 'elite'
+  and run_seed % 10 in (0, 1)
+  and episode_id in (select source_episode_id from read_csv_auto('experiments/elite-bench/pivotal_fights.csv'))
+"""

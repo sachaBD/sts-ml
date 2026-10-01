@@ -1,0 +1,49 @@
+# Second elite candidate: retain search targets on off-trajectory children; 50% terminal shift on played rows.
+[run]
+id = "elite-shift-v2"
+
+[data]
+query = """
+select * from combat_v3
+where category = 'elite'
+  and ((run_id = 'combat_v3/2026-09-26/act1-all-bosses-a20-scaled-search'
+          and run_seed % 10 in (4,6,7,8,9) and row_kind in ('decision','child'))
+    or (run_id = 'combat_v3/2026-09-27/ab-selfplay-gen1-rest' and row_kind='decision'))
+"""
+oracle = false
+
+[model]
+kind = "deep_sets_v2"
+width = 64
+head_width = 128
+head_blocks = 1
+card_vocab = 512
+monster_vocab = 128
+move_vocab = 512
+card_id_dim = 32
+monster_id_dim = 16
+move_dim = 16
+pool_count_features = true
+head_input_norm = true
+output = "sigmoid"
+aux_heads = true
+zero_init_blocks = true
+
+[train]
+initial_checkpoint = "value_net_v1/2026-09-27/ab-gen1"
+split = "fresh"
+validation_fraction = 0.1
+row_weighting = "elite_sqrt_source"
+device = "cuda"
+epochs = 5
+batch_size = 1024
+lr = 0.00005
+weight_decay = 0.01
+seed = 0
+label = "shift"
+blend = 0.5
+aux_won_weight = 0.0
+aux_hp_weight = 0.0
+lr_schedule = "cosine"
+keep = "best"
+threads = 1

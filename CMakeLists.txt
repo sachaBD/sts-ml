@@ -6,6 +6,19 @@ set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
+# Link-time optimization for everything below, sts_lightspeed included: its many small out-of-line accessors
+# (CardInstance / Monster getters) get inlined across files. ~1.47x search throughput, identical results
+# (scratch/profile_teacher, 2026-09-29). Opt out with -DCMAKE_INTERPROCEDURAL_OPTIMIZATION=OFF.
+if(NOT DEFINED CMAKE_INTERPROCEDURAL_OPTIMIZATION)
+    include(CheckIPOSupported)
+    check_ipo_supported(RESULT ipo_supported OUTPUT ipo_error)
+    if(ipo_supported)
+        set(CMAKE_INTERPROCEDURAL_OPTIMIZATION ON)
+    else()
+        message(WARNING "LTO not supported, building without it: ${ipo_error}")
+    endif()
+endif()
+
 # Shared simulator repo (also used by sts_ml).
 set(STS_LIGHTSPEED_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../sts_lightspeed" CACHE PATH "sts_lightspeed checkout")
 add_subdirectory("${STS_LIGHTSPEED_DIR}" "${CMAKE_CURRENT_BINARY_DIR}/sts_lightspeed")
@@ -48,6 +61,16 @@ add_executable(dagger_worker apps/dagger/worker.cpp)
 target_link_libraries(dagger_worker PRIVATE combat_core)
 target_compile_features(dagger_worker PRIVATE cxx_std_23)
 target_compile_options(dagger_worker PRIVATE -Wall -Wextra -Wpedantic)
+
+add_executable(gauntlet_worker apps/gauntlet/worker.cpp)
+target_link_libraries(gauntlet_worker PRIVATE combat_core)
+target_compile_features(gauntlet_worker PRIVATE cxx_std_23)
+target_compile_options(gauntlet_worker PRIVATE -Wall -Wextra -Wpedantic)
+
+add_executable(card_marginals_worker apps/card_marginals/worker.cpp)
+target_link_libraries(card_marginals_worker PRIVATE combat_core)
+target_compile_features(card_marginals_worker PRIVATE cxx_std_23)
+target_compile_options(card_marginals_worker PRIVATE -Wall -Wextra -Wpedantic)
 
 add_executable(bench_reuse apps/bench_reuse.cpp)
 target_link_libraries(bench_reuse PRIVATE combat_core)
@@ -92,6 +115,11 @@ add_test(NAME search_priors_test COMMAND search_priors_test)
 # The native value net's inner loops benefit from AVX2/FMA on the machine that runs it.
 set_source_files_properties(topology/value_net.cpp PROPERTIES COMPILE_OPTIONS "-march=native")
 
+add_executable(combat_transition_worker apps/combat_transition/worker.cpp)
+target_link_libraries(combat_transition_worker PRIVATE combat_core)
+target_compile_features(combat_transition_worker PRIVATE cxx_std_23)
+target_compile_options(combat_transition_worker PRIVATE -Wall -Wextra -Wpedantic)
+
 # Macro simulator (out-of-combat act play with injected fight results): apps/common/macro_sim.hpp.
 add_library(macro_sim STATIC apps/common/macro_sim.cpp)
 target_include_directories(macro_sim PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
@@ -101,6 +129,11 @@ target_compile_options(macro_sim PRIVATE -Wall -Wextra -Wpedantic)
 add_executable(macro_sim_check apps/macro_sim/check.cpp)
 target_link_libraries(macro_sim_check PRIVATE macro_sim)
 target_compile_options(macro_sim_check PRIVATE -Wall -Wextra -Wpedantic)
+
+# Card-pick search worker (slop_docs/card-policy-loop): rollouts per card option, fights/picks batched to Python.
+add_executable(card_search_worker apps/card_search/worker.cpp)
+target_link_libraries(card_search_worker PRIVATE macro_sim)
+target_compile_options(card_search_worker PRIVATE -Wall -Wextra -Wpedantic)
 
 # Real-run RL worker (slop_docs/run-rl): real act 1 runs, MCTS fights, card picks asked of Python.
 add_executable(run_rl_worker apps/run_rl/worker.cpp)

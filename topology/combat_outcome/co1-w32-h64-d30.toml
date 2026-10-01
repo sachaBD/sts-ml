@@ -1,0 +1,7 @@
+# Capacity x2 of legacy.
+kind = "combat_outcome_v1"
+
+[args]
+width = 32
+hidden = 64
+dropout = 0.3

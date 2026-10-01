@@ -47,16 +47,29 @@ nlohmann::json outcome_columns(const CombatEnvironment& env, int max_hp);
 // Under oracle, particles is reported as 1 (make_search ignores budget.particles).
 nlohmann::json settings(const Leaf& leaf, bool oracle, const Budget& budget);
 
+// Process-wide wall seconds play_fight has spent choosing moves (make_search + search_decision; not the
+// state encoding or row recording). A cost measure for the search alone; workers are single-threaded.
+double& search_seconds();
+
 // Teacher plays one fight. With `random_move`, one decision in [0, random_window), drawn from
 // mt19937_64(episode_id ^ 0xe9510), plays a uniformly random legal move instead (was_random); without
 // it every move is the search's. `oracle`: search the true state (make_search); every row gets
 // oracle = true/false. `particles`: make_search's belief particles. Appends its decision rows, then its child rows, each = encoding +
 // `fight` columns + search columns + outcome columns. Returns the finished battle.
-// `reuse`: keep the played move's subtree between decisions (rebase_search); decision rows get
-// retained_visits (simulations_used still counts new simulations only).
+// `reuse` (or the tree_reuse tweak): keep the played move's subtree between decisions (rebase_search); its visits
+// count toward the budget (topped_up). Decision rows get retained_visits (simulations_used counts new simulations
+// only).
 sts::BattleContext play_fight(sts::BattleContext battle, const nlohmann::json& fight,
                               std::vector<nlohmann::json>& rows, const SearchFn& search, bool random_move,
                               bool oracle, int particles, bool reuse);
+
+// Teacher plays one fight and records nothing (for callers that keep only the outcome): no rows, no state
+// encoding, and a forced move (one legal move) is played without a search (the recording player searches it
+// only for its root_value label). Without `reuse` every move is the recording player's (no random move):
+// each search is fresh and seeded by its public observation alone. With `reuse`, as play_fight's reuse,
+// minus the forced moves' simulations.
+sts::BattleContext play_fight(sts::BattleContext battle, const SearchFn& search, bool oracle, int particles,
+                              bool reuse);
 
 // A learner plays one fight while a teacher labels it (apps/dagger). At each decision, separate searches
 // of the same pre-action state: `teacher` gives actions / root_value / simulations_used, `learner` picks

@@ -58,8 +58,8 @@ A useful control is outcome-only training on existing teacher trajectories. This
 
 ## Related notes
 
-- `../../rundecks/slime-v6/REPORT.md`: DAgger assessment.
-- `../../rundecks/slime-v7/PLAN.md`: fair-search assessment before committing to expert iteration.
+- `../../experiments/slime-v6/REPORT.md`: DAgger assessment.
+- `../../experiments/slime-v7/PLAN.md`: fair-search assessment before committing to expert iteration.
 - `research_axes.md`: broader research questions.
 
 The guiding idea is **less dependence on teacher judgments**, not necessarily less informative rewards.

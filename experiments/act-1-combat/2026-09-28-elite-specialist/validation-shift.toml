@@ -1,0 +1,17 @@
+# Same 450 fights and 20k settings as validation-mcts.toml and validation-net.toml.
+[run]
+id = "elite-v2-validation-net"
+input = "value_net_v1/2026-09-27/elite-shift-v2"
+workers = 10
+leaf = "value_net"
+simulations = 20000
+particles = 8
+random_move = false
+oracle = false
+query = """
+select * from combat_v3
+where run_id = 'combat_v3/2026-09-26/act1-all-bosses-a20-scaled-search'
+  and source_episode_id is null and category = 'elite' and run_seed % 10 = 5
+  and episode_id in (
+    select source_episode_id from read_csv_auto('experiments/act-1-combat/2026-09-28-elite-specialist/validation_fights.csv'))
+"""

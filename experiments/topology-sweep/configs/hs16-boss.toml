@@ -1,0 +1,23 @@
+# High-seed card-effect dev set (topology-sweep). Natural bucket 8 donors only: dev-only, never trained.
+[run]
+id = "card-outcomes-hs16-boss"
+stage = "boss"
+groups = 30
+generator_seed = 2026093040
+workers = 8
+encounters = ["slime_boss", "the_guardian", "hexaghost"]
+seeds = 16
+natural_run = "combat_transition_v1/2026-09-29/act1-eval-mcts-a20-checked"
+natural_buckets = [8]
+leaf = "guided_rollout"
+simulations = 15000
+boss_simulations = 15000
+particles = 8
+oracle = false
+random_move = false
+tree_reuse = false
+[generator]
+simple_pick_prob = 0.5
+skip_prob = 0.1
+uniform_frac = 0.1
+n_candidates = 4

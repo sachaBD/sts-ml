@@ -1,7 +1,8 @@
 """Boss selection for act 1 bootstrap runs."""
 import unittest
 
-from apps.bootstrap.generate import ACT1_BOSSES, selected_bosses, simulation_budgets, teacher_options
+from apps.bootstrap.generate import (ACT1_BOSSES, inputs, leaf_settings, random_move, selected_bosses,
+                                    simulation_budgets, teacher_options)
 
 
 class BossSelectionTests(unittest.TestCase):
@@ -30,6 +31,26 @@ class BossSelectionTests(unittest.TestCase):
                         {**full, "boss": True}, {**full, "event": 2.5}):
             with self.subTest(budgets=budgets), self.assertRaises(SystemExit):
                 simulation_budgets({"simulations": budgets})
+
+    def test_leaf_settings(self):
+        net = "value_net_v1/2026-01-01/net"
+        self.assertEqual(leaf_settings({}), ({"kind": "guided_rollout"}, None))
+        self.assertEqual(leaf_settings({"leaf": "value_net", "value_run": net}), ({"kind": "value_net"}, net))
+        self.assertEqual(leaf_settings({"leaf": "hybrid", "value_run": net, "rollout_turns": 1, "rollout_steps": 16}),
+                         ({"kind": "hybrid", "rollout_turns": 1, "rollout_steps": 16}, net))
+        for run in ({"leaf": "value_net"}, {"value_run": net}, {"leaf": "unknown", "value_run": net},
+                    {"leaf": "hybrid", "value_run": net}, {"leaf": "value_net", "value_run": net, "rollout_turns": 1},
+                    {"leaf": "hybrid", "value_run": net, "rollout_turns": 0, "rollout_steps": 16}):
+            with self.subTest(run=run), self.assertRaises(SystemExit):
+                leaf_settings(run)
+        self.assertEqual(inputs({"run": {"value_run": net}}), [net])
+        self.assertEqual(inputs({"run": {}}), [])
+
+    def test_random_move(self):
+        self.assertIs(random_move({}), True)
+        self.assertIs(random_move({"random_move": False}), False)
+        with self.assertRaises(SystemExit):
+            random_move({"random_move": 0})
 
     def test_invalid_selection(self):
         for bosses in ([], "slime_boss", ["unknown"], ["slime_boss", "slime_boss"], [1]):

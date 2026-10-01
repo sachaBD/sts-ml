@@ -6,7 +6,8 @@
 //                teacher: apps/common/teacher_request.hpp}
 //   oracle: search the true state (perfect RNG foresight, teacher_leaves.hpp make_search).
 //   Invalid combinations (e.g. hybrid without bounds, guided_rollout with weights) fail.
-// Output: OUTPUT_DIR/result.msgpack = {episode_id, teacher, rows} (combat_v3 rows of that fight);
+// Output: OUTPUT_DIR/result.msgpack = {episode_id, teacher, rows (combat_v3 rows of that fight),
+//         search_seconds (teacher::search_seconds: the fight's move choosing only)};
 // teacher = teacher::settings(leaf, oracle, budget) + random_move.
 #include "agents/teacher_search.hpp"
 #include "apps/common/fight_replay.hpp"
@@ -23,13 +24,15 @@ Json play(const Json& input, const stsrl::ValueNet* net) {
     const auto search = stsrl::teacher::leaf_search(teacher.leaf, net, teacher.budget);  // validates leaf vs net
     std::vector<Json> rows;
     const auto fight = stsrl::replay::to_fight(input, [&](const sts::BattleContext& start, const Json& columns) {
+        stsrl::teacher::search_seconds() = 0;  // this fight's move choosing only
         return stsrl::teacher::play_fight(start, columns, rows, search, teacher.random_move, teacher.oracle,
                                             teacher.budget.particles, false);
     });
     const auto episode = fight.at("episode_id");
     auto settings = stsrl::teacher::settings(teacher.leaf, teacher.oracle, teacher.budget);
     settings["random_move"] = teacher.random_move;
-    return {{"episode_id", episode}, {"teacher", settings}, {"rows", rows}};
+    return {{"episode_id", episode}, {"teacher", settings}, {"rows", rows},
+            {"search_seconds", stsrl::teacher::search_seconds()}};
 }
 
 }  // namespace

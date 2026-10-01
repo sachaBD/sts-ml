@@ -27,6 +27,7 @@ for smoke runs.
 ./apps/bootstrap/run.sh apps/bootstrap/act1.toml        # teacher self-play -> combat_v3
 ./apps/value_train/run.sh apps/value_train/slime.toml   # train a value net -> value_net_v1
 ./apps/value_play/run.sh apps/value_play/slime.toml     # play fights with a value net
+./apps/gauntlet/run.sh apps/gauntlet/act1.toml         # gauntlet card-reward evaluation
 ```
 
 Query run outputs with DuckDB through `sts_combat_rl.query`.

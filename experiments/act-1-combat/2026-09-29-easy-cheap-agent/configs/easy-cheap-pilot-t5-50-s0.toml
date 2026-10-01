@@ -1,0 +1,19 @@
+# easy cheap-agent S2: t5-50-s0
+[run]
+id = "easy-cheap-pilot-t5-50-s0"
+input = "value_net_v1/2026-09-29/bench-r2-t5"  # net arms: the net; mcts arms: leakage guard only
+workers = 11
+leaf = "policy_net"
+c_puct = 1.0
+fpu_reduction = 0.05
+prior_floor = 0.03
+simulations = 50
+particles = 8
+random_move = false
+oracle = false
+skip_diverged = true
+query = """
+select * from combat_v3
+where id = 'act1-all-bosses-a20-scaled-search' and source_episode_id is null and category = 'easy'
+  and episode_id in (select source_episode_id from read_csv_auto('experiments/act-1-combat/2026-09-29-easy-cheap-agent/fights.csv') where encounter in ('jaw_worm','cultist') and easy_number = 3 limit 20)
+"""
