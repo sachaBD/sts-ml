@@ -24,9 +24,7 @@
 //   shop: options leave / buy card i / buy potion i (free slot) / buy relic i / remove <card> (one per distinct deck).
 //         Asked again after every purchase until leave. Card / potion / removal after-states are computed on a copy
 //         (deterministic); a relic's is BUILT (relic added, gold paid), since some relics roll on pickup (no peeking).
-//   neow: the 4 offered Neow options as arms {"index", "bonus", "drawback", "arm" = "<bonus>|<drawback>"}; NO
-//         after-states (outcomes are random: a bandit decides, apps/run_rl/neow.py). simple = 0 (SimpleAgent always
-//         takes the first). Follow-up screens (card reward, card select) are handled as usual afterwards.
+//   neow: a floor-0 event, decided by the event lookahead below (labels add "arm" = "<bonus>|<drawback>").
 //   event: (non-Neow event screens with >= 2 actions) SAMPLED LOOKAHEAD: for each option, `lookahead_samples` copies
 //         of the game with fresh randomness (never the real rolls; same randomness per sample index across options),
 //         option applied, played on with the current policy (greedy; fights by the fight model, MCTS) until
@@ -50,6 +48,7 @@
 #include <algorithm>
 #include <chrono>
 #include <functional>
+#include <random>
 #include <cctype>
 #include <cstdint>
 #include <iostream>
@@ -279,8 +278,8 @@ FightModel mcts_fight_model(const Json& sims) {
 
 // ------------------------------------------------------------------ sampled lookahead
 // A sample = a copy of the game with FRESH randomness (every RNG stream and the seed the game derives per-floor
-// streams from), so it never sees the real game's rolls. Not re-drawn: the pre-generated hallway / elite encounter
-// lists (fine for events at horizon 0; must be re-drawn before searching across fights).
+// streams from) and re-shuffled relic pools, so it never sees the real game's rolls. Not re-drawn: the pre-generated
+// hallway / elite encounter lists (fine for events at horizon 0; must be re-drawn before searching across fights).
 void fresh_randomness(GameContext& gc, std::uint64_t salt) {
     std::uint64_t x = salt;
     const auto next = [&x] {
@@ -295,6 +294,10 @@ void fresh_randomness(GameContext& gc, std::uint64_t salt) {
                       &gc.miscRng, &gc.monsterHpRng, &gc.monsterRng, &gc.neowRng, &gc.potionRng, &gc.relicRng,
                       &gc.shuffleRng, &gc.treasureRng})
         *rng = sts::Random(next());
+    // Relic pools are shuffled once at game start: without this a sample would draw the REAL next relic.
+    std::mt19937_64 shuffle{next()};
+    for (auto* pool : {&gc.commonRelicPool, &gc.uncommonRelicPool, &gc.rareRelicPool, &gc.shopRelicPool, &gc.bossRelicPool})
+        std::shuffle(pool->begin(), pool->end(), shuffle);
 }
 
 std::uint64_t mix(std::uint64_t a, std::uint64_t b) {
@@ -348,7 +351,7 @@ struct Player {
         if (gc.screenState == sts::ScreenState::BATTLE) return fight();
         if (card_decision(gc)) return card_pick();
         if (gc.screenState == sts::ScreenState::EVENT_SCREEN && gc.curEvent == sts::Event::NEOW) {
-            if (ctx.decide.count("neow") && !ctx.sample) return neow();
+            if (ctx.decide.count("neow") && !ctx.sample && event()) return;  // a floor-0 event (sampled lookahead)
         } else if (gc.screenState == sts::ScreenState::EVENT_SCREEN && ctx.decide.count("event")) {
             if (event()) return;
         }
@@ -380,22 +383,6 @@ struct Player {
         log({{"kind", "pick"}, {"state", std::move(state)}, {"options", options}, {"choice", choice}, {"simple", simple}});
     }
 
-    void neow() {
-        Json labels = Json::array();
-        for (int i = 0; i < 4; ++i) {
-            const auto& o = gc.info.neowRewards[static_cast<std::size_t>(i)];
-            const std::string b = neow_bonus_names[static_cast<int>(o.r)], d = neow_drawback_names[static_cast<int>(o.d)];
-            labels.push_back({{"index", i}, {"bonus", b}, {"drawback", d}, {"arm", b + "|" + d}});
-        }
-        const auto reply = ask(ctx, {{"type", "decide"}, {"decision", "neow"}, {"state", stsrl::macro_sim::state_json(gc)},
-                                     {"boss", encounter_name(gc.boss)}, {"options", labels}, {"after", Json::array()},
-                                     {"simple", 0}});
-        const int choice = reply.at("choice").get<int>();
-        if (choice < 0 || choice > 3) throw std::invalid_argument{"bad neow choice"};
-        sts::search::GameAction(choice).execute(gc);
-        log({{"kind", "decide"}, {"decision", "neow"}, {"options", labels}, {"choice", choice}, {"simple", 0}});
-    }
-
     // Returns false when there is nothing to decide (SimpleAgent steps instead).
     bool event() {
         // Events whose setup pre-rolls state the player cannot see (a sample copies it, so lookahead would peek):
@@ -413,7 +400,13 @@ struct Player {
         Json labels = Json::array();
         int simple = -1;
         for (int i = 0; i < static_cast<int>(actions.size()); ++i) {
-            labels.push_back({{"index", i}, {"event", name}, {"action", actions[static_cast<std::size_t>(i)].getIdx1()}});
+            const int idx = actions[static_cast<std::size_t>(i)].getIdx1();
+            labels.push_back({{"index", i}, {"event", name}, {"action", idx}});
+            if (gc.curEvent == sts::Event::NEOW && idx >= 0 && idx < 4) {
+                const auto& o = gc.info.neowRewards[static_cast<std::size_t>(idx)];
+                labels.back()["arm"] = std::string(neow_bonus_names[static_cast<int>(o.r)]) + "|" +
+                                       neow_drawback_names[static_cast<int>(o.d)];
+            }
             if (actions[static_cast<std::size_t>(i)].bits == simple_bits) simple = i;
         }
         int choice;
@@ -445,7 +438,8 @@ struct Player {
         }
         if (choice < 0 || choice >= static_cast<int>(actions.size())) throw std::invalid_argument{"bad event choice"};
         actions[static_cast<std::size_t>(choice)].execute(gc);
-        log({{"kind", "decide"}, {"decision", "event"}, {"options", labels}, {"choice", choice}, {"simple", simple}});
+        log({{"kind", "decide"}, {"decision", gc.floorNum == 0 && name == "neow" ? "neow" : "event"}, {"options", labels},
+             {"choice", choice}, {"simple", simple}});
         return true;
     }
 

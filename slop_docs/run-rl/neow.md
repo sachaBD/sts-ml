@@ -1,4 +1,10 @@
-# Neow: a bandit
+# Neow: a bandit (RETIRED)
+
+> **RETIRED 2026-10-01.** Not pursued. The premise below ("everything else about the moment is fixed") is wrong: the
+> map and the act boss are known at Neow and differ per run, so the choice is contextual and a per-arm bandit
+> ignores that context. Neow will be handled as a regular decision scored by the value network over sampled
+> outcomes (see `slop_docs/neow_handoff.md`). The bandit code (`apps/run_rl/neow.py`) is kept only so the existing
+> wiring runs; kept here for the record.
 
 ## The problem
 At the start of every run Neow offers 4 bonuses; we take one. Everything else about the moment is fixed: same

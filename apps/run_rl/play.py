@@ -21,15 +21,13 @@ import torch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from common import encode, load_model  # noqa: E402
-from neow import NeowPolicy  # noqa: E402
 
 WORKER = Path("build/main/run_rl_worker")
 
 
 class Policy:
-    def __init__(self, kind, ckpt=None, eps=0.0, seed=0, neow=None):
+    def __init__(self, kind, ckpt=None, eps=0.0, seed=0):
         self.kind, self.eps = kind, eps
-        self.neow = NeowPolicy.load(neow, seed=seed)  # bandit state (apps/run_rl/neow.py); explores when eps > 0
         self.rng = random.Random(seed)
         self.model = load_model(ckpt) if kind == "net" else None
         self.lock = threading.Lock()
@@ -83,10 +81,6 @@ class Policy:
         """rest / path: one after-state per option; -1 = defer to SimpleAgent (only when simple is -1)."""
         n = len(msg["options"])
         with self.lock:
-            if msg["decision"] == "neow":
-                if self.kind == "simple":
-                    return msg["simple"], "simple", None
-                return self.neow.choose(msg["options"], explore=self.eps > 0), "neow", None
             if self.kind == "simple" or (self.kind == "random" and msg["simple"] == -1):
                 return msg["simple"], "simple", None
             if (not msg.get("lookahead") and self.rng.random() < self.eps) or self.kind == "random":
@@ -166,16 +160,15 @@ def main():
     ap.add_argument("--sims", default="500,2000,5000,5000,15000")
     ap.add_argument("--decide", nargs="*", default=[], choices=["rest", "path", "shop", "neow", "event"],
                     help="decisions besides card picks made by the policy (else SimpleAgent)")
-    ap.add_argument("--samples", type=int, default=8, help="lookahead samples per event option")
+    ap.add_argument("--samples", type=int, default=8, help="lookahead samples per event / Neow option")
     ap.add_argument("--horizon", type=int, default=0, help="lookahead floors (0 = until the event resolves)")
-    ap.add_argument("--neow", help="Neow bandit state (neow.py JSON); used with --decide neow")
     ap.add_argument("--worker", default=str(WORKER), help="run_rl_worker binary (loop.py passes its own snapshot)")
     a = ap.parse_args()
     torch.set_num_threads(1)
     sims = dict(zip(["easy", "hard", "elite", "event", "boss"], map(int, a.sims.split(","))))
     out_dir = Path(a.out)
     out_dir.mkdir(parents=True, exist_ok=True)
-    policy = Policy(a.policy, a.ckpt, a.eps, seed=a.first_seed, neow=a.neow)
+    policy = Policy(a.policy, a.ckpt, a.eps, seed=a.first_seed)
     # Resume: keep complete lines of an earlier, interrupted invocation and skip their seeds.
     stats = {"runs": 0, "clear": 0, "seconds": 0.0}
     done, kept = set(), []

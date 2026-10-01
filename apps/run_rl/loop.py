@@ -37,7 +37,7 @@ WORKER = None  # the run's own copy of build/main/run_rl_worker (set in main)
 DECIDE = []  # --decide (set in main)
 
 
-def play(out, first, n, workers, policy, ckpt=None, eps=0.0, neow=None):
+def play(out, first, n, workers, policy, ckpt=None, eps=0.0):
     if (out / "summary.json").exists():
         return
     # an incomplete runs.jsonl is resumed by play.py
@@ -45,8 +45,6 @@ def play(out, first, n, workers, policy, ckpt=None, eps=0.0, neow=None):
            "--policy", policy, "--eps", eps, "--worker", WORKER]
     if DECIDE:
         cmd += ["--decide", *DECIDE]
-    if neow and Path(neow).exists():
-        cmd += ["--neow", neow]
     run(cmd + (["--ckpt", ckpt] if ckpt else []))
 
 
@@ -99,21 +97,12 @@ def main():
     for i in range(a.iters):
         it = root / f"iter{i:03d}"
         data = it / "data"
-        prev_neow = root / f"iter{i - 1:03d}" / "neow.json" if i > 0 else None
         if i == 0 and a.init:
-            play(data, TRAIN_SEED + a.seed_offset, a.batch, a.workers, "net", a.init, a.eps, prev_neow)
+            play(data, TRAIN_SEED + a.seed_offset, a.batch, a.workers, "net", a.init, a.eps)
         elif i == 0:
             play(data, TRAIN_SEED + a.seed_offset, a.batch, a.workers, "simple", eps=a.eps0)
         else:
-            play(data, TRAIN_SEED + a.seed_offset + i * 100_000, a.batch, a.workers, "net", prev, a.eps, prev_neow)
-        neow_file = it / "neow.json"
-        if "neow" in DECIDE and not neow_file.exists():  # bandit update on this batch (apps/run_rl/neow.py)
-            sys.path.insert(0, str(HERE))
-            from common import read_runs, score
-            from neow import NeowPolicy
-            bandit = NeowPolicy.load(prev_neow)
-            bandit.update(read_runs([data]), lambda r: score(r, a.progress, a.hp))
-            bandit.save(neow_file)
+            play(data, TRAIN_SEED + a.seed_offset + i * 100_000, a.batch, a.workers, "net", prev, a.eps)
         model = it / "model.pt"
         if not model.exists():
             dirs = [Path(d) for d in a.extra_data] + [root / f"iter{j:03d}" / "data" for j in range(i + 1)]
@@ -121,7 +110,7 @@ def main():
             init = prev or a.init
             run([PY, HERE / "train.py", "--data", *window, "--out", model, *reward, "--decay", a.decay]
                 + (["--init", init] if init else ["--arch", a.arch]))
-        play(it / "eval", EVAL_SEED, a.eval_seeds, a.workers, "net", model, neow=it / "neow.json")
+        play(it / "eval", EVAL_SEED, a.eval_seeds, a.workers, "net", model)
         net, simple, diff, se, n = paired(it / "eval", base)
         line = f"{i}\t{net:.3f}\t{simple:.3f}\t{diff:+.3f}\t{se:.3f}\t{n}"
         curve = root / "curve.tsv"
