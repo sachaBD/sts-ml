@@ -108,3 +108,18 @@ window 8 (v2 iters 0-5 data first), decay 0.85, eps 0.1, training seeds offset 2
 2. Search at the decision (deferred, with the user): rollouts or gauntlet on top of V for close calls.
 3. Remaining decisions: events / Neow need sampled outcomes (no exact after-states without peeking); potions.
 4. Housekeeping: launchers are ad-hoc scripts in scratch/; run.json files are hand-written.
+
+**2026-10-01 (evening): Neow handed off; sampled lookahead built (events).**
+- Neow: interface + stub + `neow.md` (bandit framing); implementation handed to the `neow` session.
+- Worker refactor: one `Player` plays both the real game and lookahead samples; fights go through a pluggable
+  `FightModel` (only `mcts_fight_model` = MCTS plays the whole fight; a combat-model version only needs to return a
+  FightModel). Behaviour unchanged: 24/24 regression seeds identical (SimpleAgent and net policies).
+- Sampled lookahead (`decide: event`, `lookahead_samples` 8, `lookahead_horizon` 0): per option, 8 copies with fresh
+  randomness (same per sample index across options), option applied, played on greedily until back on the map
+  (h = 0) or `h` floors later; Python averages V over the ends (death = its score, clear = 1). Inside samples,
+  nested event steps use one-step after-states. Horizon > 0 = search (not yet used; the pre-generated encounter
+  lists must be re-drawn in samples first, or search would see upcoming fights).
+- No-peeking rule extended: Dead Adventurer and Match and Keep pre-roll hidden state at setup (reward order /
+  elite; face-down board), which a copy would reveal: left to SimpleAgent.
+- Cost: ~0-3 s per event decision, except Match and Keep (now excluded; ~70 s).
+- Paired test running: `run_rl_v1/2026-10-01/event-h0-test` (v3 iter3 model, 1,000 fresh seeds 830000000000+).

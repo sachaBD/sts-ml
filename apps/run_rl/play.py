@@ -29,15 +29,16 @@ WORKER = Path("build/main/run_rl_worker")
 class Policy:
     def __init__(self, kind, ckpt=None, eps=0.0, seed=0, neow=None):
         self.kind, self.eps = kind, eps
-        self.neow = NeowPolicy.load(neow)  # bandit state (apps/run_rl/neow.py); explores when eps > 0
+        self.neow = NeowPolicy.load(neow, seed=seed)  # bandit state (apps/run_rl/neow.py); explores when eps > 0
         self.rng = random.Random(seed)
         self.model = load_model(ckpt) if kind == "net" else None
         self.lock = threading.Lock()
 
     def __call__(self, msg):
         n = len(msg["options"])
+        eps = 0.0 if msg.get("lookahead") else self.eps  # samples play the greedy policy
         with self.lock:
-            if self.rng.random() < self.eps:
+            if self.rng.random() < eps:
                 return self.rng.randrange(n + 1), "explore", None
             if self.kind == "simple":
                 return msg["simple"], "simple", None
@@ -49,6 +50,35 @@ class Policy:
             vals = [v[i].item() for i in range(n)] + [v[-1].item()]
             return max(range(n + 1), key=lambda i: vals[i]), "net", vals
 
+    def evaluate(self, msg, progress=0.25):
+        """Sampled lookahead (events): option value = mean over its samples of V(end state); a death scores
+        progress * floor / 16 and a clear 1 (the run score). Explores with eps like other decisions."""
+        n = len(msg["options"])
+        with self.lock:
+            if self.kind == "simple":
+                return max(msg["simple"], 0), "simple", None
+            if self.kind == "random" or (not msg.get("lookahead") and self.rng.random() < self.eps):
+                return self.rng.randrange(n), "explore", None
+            flat = [(i, e) for i, ends in enumerate(msg["ends"]) for e in ends]
+            states = [e["state"] for _, e in flat if "state" in e]
+            vals = []
+            if states:
+                with torch.no_grad():
+                    b = encode([(st, []) for st in states], [msg["boss"]] * len(states))
+                    vals = torch.sigmoid(self.model(b)[0][:, -1]).tolist()
+            it = iter(vals)
+            sums, counts = [0.0] * n, [0] * n
+            for i, e in flat:
+                if "state" in e:
+                    v = next(it)
+                elif e["terminal"] == "cleared":
+                    v = 1.0
+                else:
+                    v = progress * min(e["floor"], 16) / 16
+                sums[i] += v; counts[i] += 1
+            means = [sums[i] / max(counts[i], 1) for i in range(n)]
+            return max(range(n), key=lambda i: means[i]), "net", means
+
     def decide(self, msg):
         """rest / path: one after-state per option; -1 = defer to SimpleAgent (only when simple is -1)."""
         n = len(msg["options"])
@@ -59,7 +89,7 @@ class Policy:
                 return self.neow.choose(msg["options"], explore=self.eps > 0), "neow", None
             if self.kind == "simple" or (self.kind == "random" and msg["simple"] == -1):
                 return msg["simple"], "simple", None
-            if self.rng.random() < self.eps or self.kind == "random":
+            if (not msg.get("lookahead") and self.rng.random() < self.eps) or self.kind == "random":
                 return self.rng.randrange(n), "explore", None
             with torch.no_grad():
                 b = encode([(a, []) for a in msg["after"]], [msg["boss"]] * n)
@@ -73,7 +103,7 @@ def strip(state):
     return state
 
 
-def worker_loop(worker, seeds, lock, policy, sims, decide, out, stats):
+def worker_loop(worker, seeds, lock, policy, sims, decide, lookahead, out, stats):
     proc = subprocess.Popen([str(worker)], stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True, bufsize=1)
     try:
         while True:
@@ -81,7 +111,8 @@ def worker_loop(worker, seeds, lock, policy, sims, decide, out, stats):
                 seed = next(seeds, None)
             if seed is None:
                 return
-            proc.stdin.write(json.dumps({"seed": seed, "ascension": 20, "simulations": sims, "decide": decide}) + "\n")
+            proc.stdin.write(json.dumps({"seed": seed, "ascension": 20, "simulations": sims, "decide": decide,
+                                         "lookahead_samples": lookahead[0], "lookahead_horizon": lookahead[1]}) + "\n")
             proc.stdin.flush()
             meta = []
             while True:
@@ -91,12 +122,13 @@ def worker_loop(worker, seeds, lock, policy, sims, decide, out, stats):
                 msg = json.loads(line)
                 if msg["type"] == "pick":
                     choice, source, vals = policy(msg)
-                    meta.append({"source": source, "values": vals})
+                    if not msg.get("lookahead"):
+                        meta.append({"source": source, "values": vals})
                     proc.stdin.write(json.dumps({"choice": choice}) + "\n")
                     proc.stdin.flush()
-                elif msg["type"] == "decide":
-                    choice, source, vals = policy.decide(msg)
-                    if choice >= 0:
+                elif msg["type"] in ("decide", "evaluate"):
+                    choice, source, vals = (policy.evaluate if msg["type"] == "evaluate" else policy.decide)(msg)
+                    if choice >= 0 and not msg.get("lookahead"):
                         meta.append({"source": source, "values": vals})
                     proc.stdin.write(json.dumps({"choice": choice}) + "\n")
                     proc.stdin.flush()
@@ -132,8 +164,10 @@ def main():
     ap.add_argument("--ckpt")
     ap.add_argument("--eps", type=float, default=0.0)
     ap.add_argument("--sims", default="500,2000,5000,5000,15000")
-    ap.add_argument("--decide", nargs="*", default=[], choices=["rest", "path", "shop", "neow"],
+    ap.add_argument("--decide", nargs="*", default=[], choices=["rest", "path", "shop", "neow", "event"],
                     help="decisions besides card picks made by the policy (else SimpleAgent)")
+    ap.add_argument("--samples", type=int, default=8, help="lookahead samples per event option")
+    ap.add_argument("--horizon", type=int, default=0, help="lookahead floors (0 = until the event resolves)")
     ap.add_argument("--neow", help="Neow bandit state (neow.py JSON); used with --decide neow")
     ap.add_argument("--worker", default=str(WORKER), help="run_rl_worker binary (loop.py passes its own snapshot)")
     a = ap.parse_args()
@@ -160,7 +194,7 @@ def main():
     lock = threading.Lock()
     t0 = time.monotonic()
     with open(out_dir / "runs.jsonl", "a") as out:
-        threads = [threading.Thread(target=worker_loop, args=(a.worker, seeds, lock, policy, sims, a.decide, out, stats))
+        threads = [threading.Thread(target=worker_loop, args=(a.worker, seeds, lock, policy, sims, a.decide, (a.samples, a.horizon), out, stats))
                    for _ in range(a.workers)]
         for t in threads:
             t.start()
