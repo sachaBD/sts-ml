@@ -13,6 +13,15 @@
 //     {"kind": "start", "state"}                                         before the first floor
 //     {"kind": "fight", "state", "encounter", "category", "won", "hp_before"}   state after exitBattle
 //     {"kind": "pick", "state", "options", "choice", "simple"}           state BEFORE the pick
+//     {"kind": "decide", "decision": rest | path, "options": [label...], "choice", "simple", "after"}
+//
+// Optional request key "decide": ["rest", "path"] (default none = SimpleAgent). Each listed decision is asked of Python
+// as {"type": "decide", "decision", "state", "options": [label...], "after": [state...], "simple": i}: one AFTER-STATE
+// per option, computed exactly on a copy of the game. Reply {"choice": i}; -1 = let SimpleAgent decide (only sent
+// back when "simple" is -1, i.e. SimpleAgent did something outside the option list).
+//   rest: options rest / smith <card> (one per distinct resulting deck) / lift (Girya). Recall, dig, toke: never offered.
+//   path: one option per next map node (only when there are >= 2). After-state = this state with only the remaining
+//         routes that start at that node (macro_sim paths, first_xs); nothing is simulated.
 #include "agents/teacher_search.hpp"
 #include "apps/common/game_state.hpp"
 #include "apps/common/macro_sim.hpp"
@@ -28,6 +37,8 @@
 #include <cstdint>
 #include <iostream>
 #include <map>
+#include <set>
+#include <vector>
 #include <stdexcept>
 #include <string>
 
@@ -102,6 +113,50 @@ int simple_choice(const GameContext& gc) {
     return n;
 }
 
+// Deck + HP + relics: two after-states that agree here are the same decision outcome.
+std::string outcome_key(const GameContext& gc) {
+    std::vector<std::pair<int, int>> deck;
+    for (const auto& c : gc.deck.cards) deck.emplace_back(static_cast<int>(c.id), c.getUpgraded());
+    std::sort(deck.begin(), deck.end());
+    Json k = {{"deck", deck}, {"hp", gc.curHp}, {"max_hp", gc.maxHp}};
+    for (const auto& r : gc.relics.relics) k["relics"].push_back({static_cast<int>(r.id), r.data});
+    return k.dump();
+}
+
+struct Option {
+    Json label;
+    std::vector<int> actions;  // GameActions executed in order
+    Json after;
+};
+
+std::vector<Option> rest_options(const GameContext& gc, std::vector<std::string>& keys) {
+    std::vector<Option> out;
+    for (int a : {0, 1, 3}) {
+        if (!sts::search::GameAction(a).isValidAction(gc)) continue;
+        GameContext c = gc;
+        sts::search::GameAction(a).execute(c);
+        if (a != 1) {
+            const auto k = outcome_key(c);
+            if (std::find(keys.begin(), keys.end(), k) != keys.end()) continue;
+            keys.push_back(k);
+            out.push_back({{{"action", a == 0 ? "rest" : "lift"}}, {a}, stsrl::macro_sim::state_json(c)});
+            continue;
+        }
+        if (c.screenState != sts::ScreenState::CARD_SELECT) continue;
+        for (int i = 0; i < static_cast<int>(c.info.toSelectCards.size()); ++i) {
+            GameContext c2 = c;
+            sts::search::GameAction(i).execute(c2);
+            const auto k = outcome_key(c2);
+            if (std::find(keys.begin(), keys.end(), k) != keys.end()) continue;
+            keys.push_back(k);
+            const auto& card = c.info.toSelectCards[i].card;
+            out.push_back({{{"action", "smith"}, {"card", lower(sts::cardEnumStrings[static_cast<int>(card.id)])},
+                            {"upgraded", card.getUpgraded()}}, {1, i}, stsrl::macro_sim::state_json(c2)});
+        }
+    }
+    return out;
+}
+
 Json ask(const Json& message) {
     std::cout << message.dump() << '\n' << std::flush;
     std::string line;
@@ -118,6 +173,12 @@ Json play_run(const Json& job) {
     const teacher::Leaf leaf{"guided_rollout", 0, 0};
     teacher::validate(leaf, false);
 
+    std::set<std::string> decide;
+    for (const auto& d : job.value("decide", Json::array())) {
+        const auto name = d.get<std::string>();
+        if (name != "rest" && name != "path") throw std::invalid_argument{"unknown decision: " + name};
+        decide.insert(name);
+    }
     GameContext gc{sts::CharacterClass::IRONCLAD, seed, job.at("ascension").get<int>()};
     sts::search::SimpleAgent agent;
     agent.curGameContext = &gc;
@@ -140,6 +201,63 @@ Json play_run(const Json& job) {
                 steps.push_back({{"kind", "pick"}, {"state", std::move(state)}, {"options", options},
                                  {"choice", choice}, {"simple", simple}});
                 continue;
+            }
+            const bool rest = gc.screenState == sts::ScreenState::REST_ROOM && decide.count("rest");
+            const bool path = gc.screenState == sts::ScreenState::MAP_SCREEN && gc.act == 1 && decide.count("path");
+            if (rest || path) {
+                // SimpleAgent's own move, on a copy (the label and the "simple" policy). At the first map screen the
+                // agent plans its whole route: keep that plan so SimpleAgent stays itself when it is followed.
+                GameContext copy = gc;
+                sts::search::SimpleAgent tmp = agent;
+                tmp.curGameContext = &copy;
+                tmp.stepOutOfCombat(copy);
+                for (int k = 0; k < 3 && rest && copy.screenState == sts::ScreenState::CARD_SELECT; ++k) tmp.stepOutOfCombat(copy);
+                if (path && gc.curMapNodeY < 0) {
+                    agent = tmp;
+                    agent.curGameContext = &gc;
+                }
+                std::vector<Option> options;
+                int simple = -1;
+                if (rest) {
+                    std::vector<std::string> keys;
+                    options = rest_options(gc, keys);
+                    const auto k = outcome_key(copy);
+                    for (int i = 0; i < static_cast<int>(keys.size()); ++i)
+                        if (keys[i] == k) simple = i;
+                } else {
+                    const auto actions = sts::search::GameAction::getAllActionsInState(gc);
+                    const auto state = stsrl::macro_sim::state_json(gc);
+                    for (const auto& a : actions) {
+                        const int x = a.getIdx1();
+                        auto after = state;
+                        Json kept = Json::array();
+                        for (const auto& p : state["map"]["paths"])
+                            for (const auto& fx : p["first_xs"])
+                                if (fx.get<int>() == x) { kept.push_back(p); break; }
+                        after["map"]["paths"] = kept;
+                        std::string room = "?";
+                        const int y = gc.curMapNodeY + 1;
+                        if (y < 15) room = std::string(1, sts::getRoomSymbol(gc.map->getNode(x, y).room));
+                        if (copy.curMapNodeX == x) simple = static_cast<int>(options.size());
+                        options.push_back({{{"x", x}, {"room", room}}, {x}, std::move(after)});
+                    }
+                }
+                if (options.size() >= 2 || (rest && !options.empty())) {
+                    Json labels = Json::array(), afters = Json::array();
+                    for (const auto& o : options) { labels.push_back(o.label); afters.push_back(o.after); }
+                    const char* kind = rest ? "rest" : "path";
+                    const auto reply = ask({{"type", "decide"}, {"decision", kind}, {"state", stsrl::macro_sim::state_json(gc)},
+                                            {"boss", encounter_name(gc.boss)}, {"options", labels}, {"after", afters},
+                                            {"simple", simple}});
+                    const int choice = reply.at("choice").get<int>();
+                    if (choice < -1 || choice >= static_cast<int>(options.size())) throw std::invalid_argument{"bad choice"};
+                    if (choice >= 0) {
+                        for (int a : options[static_cast<std::size_t>(choice)].actions) sts::search::GameAction(a).execute(gc);
+                        steps.push_back({{"kind", "decide"}, {"decision", kind}, {"options", labels}, {"choice", choice},
+                                         {"simple", simple}, {"after", options[static_cast<std::size_t>(choice)].after}});
+                        continue;
+                    }
+                }
             }
             agent.stepOutOfCombat(gc);
             continue;

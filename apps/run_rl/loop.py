@@ -34,12 +34,17 @@ def run(cmd):
 WORKER = None  # the run's own copy of build/main/run_rl_worker (set in main)
 
 
+DECIDE = []  # --decide (set in main)
+
+
 def play(out, first, n, workers, policy, ckpt=None, eps=0.0):
     if (out / "summary.json").exists():
         return
     # an incomplete runs.jsonl is resumed by play.py
     cmd = [PY, HERE / "play.py", "--out", out, "--first-seed", first, "--seeds", n, "--workers", workers,
            "--policy", policy, "--eps", eps, "--worker", WORKER]
+    if DECIDE:
+        cmd += ["--decide", *DECIDE]
     run(cmd + (["--ckpt", ckpt] if ckpt else []))
 
 
@@ -69,12 +74,18 @@ def main():
     ap.add_argument("--window", type=int, default=3)
     ap.add_argument("--decay", type=float, default=1.0)
     ap.add_argument("--worker", default="build/main/run_rl_worker", help="copied into ROOT once (first start)")
+    ap.add_argument("--decide", nargs="*", default=[], choices=["rest", "path"], help="policy-made decisions besides cards")
+    ap.add_argument("--init", help="start from this model (iter 0 plays it with eps) instead of SimpleAgent + eps0")
+    ap.add_argument("--extra-data", nargs="*", default=[], help="older data dirs placed before the loop's own in the window")
+    ap.add_argument("--arch", default="{}", help="architecture of a fresh model (no --init)")
+    ap.add_argument("--seed-offset", type=int, default=0, help="added to the training seeds (fresh seeds per loop)")
     a = ap.parse_args()
     root = Path(a.root)
     root.mkdir(parents=True, exist_ok=True)
     with open(root / "config.json", "a") as f:  # appended on every (re)start
         f.write(json.dumps({**vars(a), "started": time.strftime("%Y-%m-%d %H:%M:%S")}) + "\n")
-    global WORKER
+    global WORKER, DECIDE
+    DECIDE = a.decide
     WORKER = root / "run_rl_worker"
     if not WORKER.exists():
         shutil.copy2(a.worker, WORKER)
@@ -86,15 +97,19 @@ def main():
     for i in range(a.iters):
         it = root / f"iter{i:03d}"
         data = it / "data"
-        if i == 0:
-            play(data, TRAIN_SEED, a.batch, a.workers, "simple", eps=a.eps0)
+        if i == 0 and a.init:
+            play(data, TRAIN_SEED + a.seed_offset, a.batch, a.workers, "net", a.init, a.eps)
+        elif i == 0:
+            play(data, TRAIN_SEED + a.seed_offset, a.batch, a.workers, "simple", eps=a.eps0)
         else:
-            play(data, TRAIN_SEED + i * 100_000, a.batch, a.workers, "net", prev, a.eps)
+            play(data, TRAIN_SEED + a.seed_offset + i * 100_000, a.batch, a.workers, "net", prev, a.eps)
         model = it / "model.pt"
         if not model.exists():
-            window = [root / f"iter{j:03d}" / "data" for j in range(max(0, i - a.window + 1), i + 1)]
+            dirs = [Path(d) for d in a.extra_data] + [root / f"iter{j:03d}" / "data" for j in range(i + 1)]
+            window = dirs[-a.window:]
+            init = prev or a.init
             run([PY, HERE / "train.py", "--data", *window, "--out", model, *reward, "--decay", a.decay]
-                + (["--init", prev] if prev else []))
+                + (["--init", init] if init else ["--arch", a.arch]))
         play(it / "eval", EVAL_SEED, a.eval_seeds, a.workers, "net", model)
         net, simple, diff, se, n = paired(it / "eval", base)
         line = f"{i}\t{net:.3f}\t{simple:.3f}\t{diff:+.3f}\t{se:.3f}\t{n}"

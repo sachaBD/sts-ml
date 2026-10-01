@@ -47,6 +47,19 @@ class Policy:
             vals = [v[i].item() for i in range(n)] + [v[-1].item()]
             return max(range(n + 1), key=lambda i: vals[i]), "net", vals
 
+    def decide(self, msg):
+        """rest / path: one after-state per option; -1 = defer to SimpleAgent (only when simple is -1)."""
+        n = len(msg["options"])
+        with self.lock:
+            if self.kind == "simple" or (self.kind == "random" and msg["simple"] == -1):
+                return msg["simple"], "simple", None
+            if self.rng.random() < self.eps or self.kind == "random":
+                return self.rng.randrange(n), "explore", None
+            with torch.no_grad():
+                b = encode([(a, []) for a in msg["after"]], [msg["boss"]] * n)
+                vals = torch.sigmoid(self.model(b)[0][:, -1]).tolist()  # skip column = V(after-state)
+            return max(range(n), key=lambda i: vals[i]), "net", vals
+
 
 def strip(state):
     state = dict(state)
@@ -54,7 +67,7 @@ def strip(state):
     return state
 
 
-def worker_loop(worker, seeds, lock, policy, sims, out, stats):
+def worker_loop(worker, seeds, lock, policy, sims, decide, out, stats):
     proc = subprocess.Popen([str(worker)], stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True, bufsize=1)
     try:
         while True:
@@ -62,7 +75,7 @@ def worker_loop(worker, seeds, lock, policy, sims, out, stats):
                 seed = next(seeds, None)
             if seed is None:
                 return
-            proc.stdin.write(json.dumps({"seed": seed, "ascension": 20, "simulations": sims}) + "\n")
+            proc.stdin.write(json.dumps({"seed": seed, "ascension": 20, "simulations": sims, "decide": decide}) + "\n")
             proc.stdin.flush()
             meta = []
             while True:
@@ -75,15 +88,23 @@ def worker_loop(worker, seeds, lock, policy, sims, out, stats):
                     meta.append({"source": source, "values": vals})
                     proc.stdin.write(json.dumps({"choice": choice}) + "\n")
                     proc.stdin.flush()
+                elif msg["type"] == "decide":
+                    choice, source, vals = policy.decide(msg)
+                    if choice >= 0:
+                        meta.append({"source": source, "values": vals})
+                    proc.stdin.write(json.dumps({"choice": choice}) + "\n")
+                    proc.stdin.flush()
                 elif msg["type"] == "done":
                     break
                 else:
                     raise RuntimeError(f"worker error on seed {seed}: {msg}")
-            picks = [s for s in msg["steps"] if s["kind"] == "pick"]
+            picks = [s for s in msg["steps"] if s["kind"] in ("pick", "decide")]
             for s, m in zip(picks, meta):
                 s.update(m)
             for s in msg["steps"]:
-                s["state"] = strip(s["state"])
+                for key in ("state", "after"):
+                    if key in s:
+                        s[key] = strip(s[key])
             with lock:
                 out.write(json.dumps(msg) + "\n")
                 out.flush()
@@ -105,6 +126,8 @@ def main():
     ap.add_argument("--ckpt")
     ap.add_argument("--eps", type=float, default=0.0)
     ap.add_argument("--sims", default="500,2000,5000,5000,15000")
+    ap.add_argument("--decide", nargs="*", default=[], choices=["rest", "path"],
+                    help="decisions besides card picks made by the policy (else SimpleAgent)")
     ap.add_argument("--worker", default=str(WORKER), help="run_rl_worker binary (loop.py passes its own snapshot)")
     a = ap.parse_args()
     torch.set_num_threads(1)
@@ -130,7 +153,7 @@ def main():
     lock = threading.Lock()
     t0 = time.monotonic()
     with open(out_dir / "runs.jsonl", "a") as out:
-        threads = [threading.Thread(target=worker_loop, args=(a.worker, seeds, lock, policy, sims, out, stats))
+        threads = [threading.Thread(target=worker_loop, args=(a.worker, seeds, lock, policy, sims, a.decide, out, stats))
                    for _ in range(a.workers)]
         for t in threads:
             t.start()

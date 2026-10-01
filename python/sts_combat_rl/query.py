@@ -3,6 +3,7 @@
 Views:
   combat_v3  every combat_v3 row, plus run_id, schema, date, id (from its run directory)
   runs       every run.json: run_id, schema, status, inputs, summary (JSON)
+  run_rl_results / run_rl_picks  apps/run_rl runs (schema run_rl_v1): one row per real act 1 run / per card reward
 
 A query selects whole rows, e.g.
   select * from combat_v3 where id like 'act1-a20%' and encounter = 'slime_boss'
@@ -31,6 +32,14 @@ def connect(root: Path = RUNS) -> duckdb.DuckDBPyConnection:
         create view runs as
         select * from read_json('{root}/*/*/*/run.json', columns = {{
             run_id: 'VARCHAR', schema: 'VARCHAR', status: 'VARCHAR', inputs: 'VARCHAR[]', summary: 'JSON'}})""")
+    # run_rl_v1 (apps/run_rl/export.py): one row per real act 1 run / per card reward, plus run_id
+    for view, name in (("run_rl_results", "results"), ("run_rl_picks", "picks")):
+        if any(root.glob(f"schema=run_rl_v1/*/*/out/{name}.parquet")):
+            db.execute(f"""
+                create view {view} as
+                select *, concat_ws('/', schema, date, id) as run_id
+                from read_parquet('{root}/schema=run_rl_v1/*/*/out/{name}.parquet',
+                                  hive_partitioning = true, hive_types_autocast = false, union_by_name = true)""")
     return db
 
 

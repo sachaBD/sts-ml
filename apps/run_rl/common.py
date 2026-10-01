@@ -5,6 +5,7 @@ A logged run (play.py, one JSON line) = {seed, boss, status, floor, final_hp, st
 Training NODES are the non-terminal steps. Each node has one after-state value:
   start / fight: V(state)                    = the skip column of run_policy_v1 (no offered cards)
   pick:          V(state + chosen option)    = column `choice` (skip = the last column)
+  decide:        V(after-state of the chosen rest / path option) = skip column of that state
 """
 import json
 from pathlib import Path
@@ -13,6 +14,15 @@ import numpy as np
 import torch
 
 from sts_combat_rl.topology.run_policy_v1 import NONE, RunPolicyV1
+from sts_combat_rl.topology.run_policy_v2 import RunPolicyV2
+
+KINDS = {RunPolicyV1.KIND: RunPolicyV1, RunPolicyV2.KIND: RunPolicyV2}
+
+
+def build_model(arch):
+    """arch: {"kind": ..., constructor args...}; kind defaults to run_policy_v1."""
+    arch = dict(arch)
+    return KINDS[arch.pop("kind", RunPolicyV1.KIND)](**arch)
 
 BOSSES = {"slime_boss": 0, "the_guardian": 1, "hexaghost": 2}
 ROOM = {"$": 0, "R": 1, "?": 2, "E": 3, "M": 4, "T": 5}  # sts::Room order; anything else (N) = NONE
@@ -35,7 +45,9 @@ def nodes(run):
     terminal = last["kind"] == "fight" and (not last["won"] or run["status"] == "act_complete")
     out = []
     for s in steps[:-1] if terminal else steps:
-        if s["kind"] == "pick":
+        if s["kind"] == "decide":
+            out.append((s["after"], [], None))
+        elif s["kind"] == "pick":
             c = s["choice"]
             out.append((s["state"], s["options"], c if c < len(s["options"]) else None))
         else:
@@ -140,14 +152,14 @@ def td_targets(values, g, lam):
 # ------------------------------------------------------------------ checkpoints / logs
 def load_model(path, device="cpu"):
     ck = torch.load(path, map_location=device, weights_only=False)
-    model = RunPolicyV1(**ck["args"]).to(device)
+    model = KINDS[ck.get("kind", RunPolicyV1.KIND)](**ck["args"]).to(device)
     model.load_state_dict(ck["state_dict"])
     model.eval()
     return model
 
 
 def save_model(model, path, **meta):
-    torch.save({"kind": RunPolicyV1.KIND, "args": model.args, "state_dict": model.state_dict(), **meta}, path)
+    torch.save({"kind": model.KIND, "args": model.args, "state_dict": model.state_dict(), **meta}, path)
 
 
 def read_runs(paths):
