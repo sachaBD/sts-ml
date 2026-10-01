@@ -46,7 +46,8 @@ def nodes(run):
     out = []
     for s in steps[:-1] if terminal else steps:
         if s["kind"] == "decide":
-            out.append((s["after"], [], None))
+            if "after" in s:  # neow has none (bandit-decided, apps/run_rl/neow.py)
+                out.append((s["after"], [], None))
         elif s["kind"] == "pick":
             c = s["choice"]
             out.append((s["state"], s["options"], c if c < len(s["options"]) else None))

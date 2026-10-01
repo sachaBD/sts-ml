@@ -15,7 +15,7 @@
 //     {"kind": "pick", "state", "options", "choice", "simple"}           state BEFORE the pick
 //     {"kind": "decide", "decision": rest | path, "options": [label...], "choice", "simple", "after"}
 //
-// Optional request key "decide": ["rest", "path", "shop"] (default none = SimpleAgent). Each listed decision is asked of Python
+// Optional request key "decide": ["rest", "path", "shop", "neow"] (default none = SimpleAgent). Each listed decision is asked of Python
 // as {"type": "decide", "decision", "state", "options": [label...], "after": [state...], "simple": i}: one AFTER-STATE
 // per option, computed exactly on a copy of the game. Reply {"choice": i}; -1 = let SimpleAgent decide (only sent
 // back when "simple" is -1, i.e. SimpleAgent did something outside the option list).
@@ -23,6 +23,9 @@
 //   shop: options leave / buy card i / buy potion i (free slot) / buy relic i / remove <card> (one per distinct deck).
 //         Asked again after every purchase until leave. Card / potion / removal after-states are computed on a copy
 //         (deterministic); a relic's is BUILT (relic added, gold paid), since some relics roll on pickup (no peeking).
+//   neow: the 4 offered Neow options as arms {"index", "bonus", "drawback", "arm" = "<bonus>|<drawback>"}; NO
+//         after-states (outcomes are random: a bandit decides, apps/run_rl/neow.py). simple = 0 (SimpleAgent always
+//         takes the first). Follow-up screens (card reward, card select) are handled as usual afterwards.
 //   path: one option per next map node (only when there are >= 2). After-state = this state with only the remaining
 //         routes that start at that node (macro_sim paths, first_xs); nothing is simulated.
 #include "agents/teacher_search.hpp"
@@ -160,6 +163,15 @@ std::vector<Option> rest_options(const GameContext& gc, std::vector<std::string>
     return out;
 }
 
+// sts::Neow::Bonus / Drawback names (Neow.h order).
+constexpr const char* neow_bonus_names[] = {
+    "three_cards", "one_random_rare_card", "remove_card", "upgrade_card", "transform_card", "random_colorless",
+    "three_small_potions", "random_common_relic", "ten_percent_hp_bonus", "three_enemy_kill", "hundred_gold",
+    "random_colorless_2", "remove_two", "one_rare_relic", "three_rare_cards", "two_fifty_gold",
+    "transform_two_cards", "twenty_percent_hp_bonus", "boss_relic", "invalid"};
+constexpr const char* neow_drawback_names[] = {
+    "invalid", "none", "ten_percent_hp_loss", "no_gold", "curse", "percent_damage", "lose_starter_relic"};
+
 std::string shop_key(const GameContext& gc) {
     Json k = Json::parse(outcome_key(gc));
     k["gold"] = gc.gold;
@@ -245,7 +257,7 @@ Json play_run(const Json& job) {
     std::set<std::string> decide;
     for (const auto& d : job.value("decide", Json::array())) {
         const auto name = d.get<std::string>();
-        if (name != "rest" && name != "path" && name != "shop") throw std::invalid_argument{"unknown decision: " + name};
+        if (name != "rest" && name != "path" && name != "shop" && name != "neow") throw std::invalid_argument{"unknown decision: " + name};
         decide.insert(name);
     }
     GameContext gc{sts::CharacterClass::IRONCLAD, seed, job.at("ascension").get<int>()};
@@ -273,6 +285,23 @@ Json play_run(const Json& job) {
             }
             const bool rest = gc.screenState == sts::ScreenState::REST_ROOM && decide.count("rest");
             const bool path = gc.screenState == sts::ScreenState::MAP_SCREEN && gc.act == 1 && decide.count("path");
+            if (gc.screenState == sts::ScreenState::EVENT_SCREEN && gc.curEvent == sts::Event::NEOW && decide.count("neow")) {
+                Json labels = Json::array();
+                for (int i = 0; i < 4; ++i) {
+                    const auto& o = gc.info.neowRewards[static_cast<std::size_t>(i)];
+                    const std::string b = neow_bonus_names[static_cast<int>(o.r)], d = neow_drawback_names[static_cast<int>(o.d)];
+                    labels.push_back({{"index", i}, {"bonus", b}, {"drawback", d}, {"arm", b + "|" + d}});
+                }
+                const auto reply = ask({{"type", "decide"}, {"decision", "neow"}, {"state", stsrl::macro_sim::state_json(gc)},
+                                        {"boss", encounter_name(gc.boss)}, {"options", labels}, {"after", Json::array()},
+                                        {"simple", 0}});
+                const int choice = reply.at("choice").get<int>();
+                if (choice < 0 || choice > 3) throw std::invalid_argument{"bad neow choice"};
+                sts::search::GameAction(choice).execute(gc);
+                steps.push_back({{"kind", "decide"}, {"decision", "neow"}, {"options", labels}, {"choice", choice},
+                                 {"simple", 0}});
+                continue;
+            }
             const bool shop = gc.screenState == sts::ScreenState::SHOP_ROOM && decide.count("shop");
             if (shop) {
                 // SimpleAgent's own next action(s) on a copy: one purchase, or removal + its card select.
