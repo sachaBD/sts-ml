@@ -84,3 +84,26 @@ window 8 (v2 iters 0-5 data first), decay 0.85, eps 0.1, training seeds offset 2
 - Iter 0: 90.8% (+29.6 ± 2.4), same level as v2 (~90.5%). Shop behaviour after one batch: buys cards 329 / leaves
   116 / removes 110 / potions 95 / relics 2 (SimpleAgent: removes 327, leaves 175, cards 141). **Red flag: removes
   Bash 88 times**: possibly a value artefact with little shop data; watch whether it persists.
+- Iter 1: 91.4%; Bash removals 88 -> 44, Defend 6 -> 17 (correcting with data). Iter 2: 92.0%.
+- **Fresh seeds** (`run_rl_v1/2026-10-01/v3-fresh`; the 1,000 seeds of the v2 network test): v3 iter2 91.1% vs v2
+  iter5 88.9%, **+2.2 ± 1.1**. Same HP entering the boss (71) and reach rate (97%); spends more gold (36 left vs 49).
+  Modest, ~2 SE. v3 also had 3 more training iterations, but v2 was already flat.
+- Loop resumed for iter 3, then stopped by `scratch/stop_v3_after_iter3.sh` (session budget), which also exports
+  parquet and writes run.json.
+
+## Where things stand (end of 2026-10-01 session)
+| policy (V decides; SimpleAgent the rest; MCTS fights) | Act 1 clear, fresh seeds |
+|---|---|
+| SimpleAgent | 59.9% (1,000 seeds) |
+| cards | 74.6% |
+| cards + rest + path | 88.9% |
+| cards + rest + path + shop | 91.1% |
+- Network size / attention / aux targets: no measurable effect (`network-study.md`). Data-bound.
+- Biggest caveat: the objective is Act 1 only. The policy avoids elites (fewer relics) and rests a lot; that may hurt
+  Act 2+. Before optimising further, extend the score or the horizon (e.g. play into Act 2, or add a relic / deck term).
+
+## Suggested next steps
+1. Horizon: decide how to stop the Act-1-only objective from trading away Act 2 strength (elites, relics, upgrades).
+2. Search at the decision (deferred, with the user): rollouts or gauntlet on top of V for close calls.
+3. Remaining decisions: events / Neow need sampled outcomes (no exact after-states without peeking); potions.
+4. Housekeeping: launchers are ad-hoc scripts in scratch/; run.json files are hand-written.
