@@ -3,6 +3,11 @@ gmon.out
 .venv/
 /runs/*
 !/runs/README.md
+!/runs/__readme.md
+!/runs/schema=*/
+/runs/schema=*/*
+!/runs/schema=*/schema.py
+!/runs/schema=*/description.md
 !/runs/compact.py
 !/runs/__init__.py
 !/runs/run.py
@@ -35,4 +40,4 @@ __pycache__/
 
 # Runtime workers and model artifacts are generated, including the active
 # run-rl deck while it remains outside experiments.
-/rundecks/**/bin/
+/experiments/**/bin/

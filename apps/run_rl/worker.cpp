@@ -54,6 +54,7 @@
 #include <cstdint>
 #include <iostream>
 #include <map>
+#include <memory>
 #include <set>
 #include <vector>
 #include <stdexcept>
@@ -147,19 +148,28 @@ struct FightRecord {
     int hp_before = 0;
     bool won = true;
 };
-using FightModel = std::function<FightRecord(GameContext&)>;
+using FightModel = std::function<FightRecord(GameContext&, bool, int)>;
 
-FightModel mcts_fight_model(const Json& sims) {
+FightModel mcts_fight_model(const Json& sims, const Json& job, std::vector<Json>& rows) {
     for (const auto* key : {"easy", "hard", "elite", "event", "boss"})
         if (sims.at(key).get<std::int64_t>() < 1) throw std::invalid_argument{"simulations must be positive"};
-    const teacher::Leaf leaf{"guided_rollout", 0, 0};
-    teacher::validate(leaf, false);
-    return [sims, leaf](GameContext& gc) {
+    const teacher::Leaf leaf{job.value("combat_leaf", std::string{"guided_rollout"}), 0, 0};
+    std::shared_ptr<stsrl::ValueNet> net;
+    if (job.contains("combat_weights")) net = std::make_shared<stsrl::ValueNet>(job.at("combat_weights").get<std::string>());
+    teacher::validate(leaf, net != nullptr);
+    const bool record = job.value("record_combat", false);
+    return [sims, leaf, net, record, &rows](GameContext& gc, bool sample, int index) {
         sts::BattleContext battle;
         battle.init(gc);
         FightRecord rec{encounter_name(battle.encounter), category(gc, battle.encounter), battle.player.curHp, true};
-        const auto search = teacher::leaf_search(leaf, nullptr, {sims.at(rec.category).get<std::int64_t>(), teacher::particles});
-        const auto end = teacher::play_fight(battle, search, false, teacher::particles, false);
+        const auto search = teacher::leaf_search(leaf, net.get(), {sims.at(rec.category).get<std::int64_t>(), teacher::particles});
+        const Json fight{{"run_seed", gc.seed}, {"episode_id", static_cast<std::int64_t>(gc.seed) * 100 + index},
+                         {"fight_index", index}, {"act", gc.act}, {"floor", gc.floorNum},
+                         {"encounter", rec.encounter}, {"category", rec.category}, {"ascension", gc.ascension},
+                         {"starting_hp", battle.player.curHp}, {"starting_max_hp", battle.player.maxHp}};
+        const auto end = record && !sample
+            ? teacher::play_fight(battle, fight, rows, search, false, false, teacher::particles, false)
+            : teacher::play_fight(battle, search, false, teacher::particles, false);
         end.exitBattle(gc);
         rec.won = gc.outcome != sts::GameOutcome::PLAYER_LOSS;
         return rec;
@@ -253,7 +263,7 @@ struct Player {
     }
 
     void fight() {
-        const auto rec = ctx.fight(gc);
+        const auto rec = ctx.fight(gc, ctx.sample, fights);
         ++fights;
         boss_beaten = gc.curRoom == sts::Room::BOSS && rec.won;
         log({{"kind", "fight"}, {"state", stsrl::macro_sim::state_json(gc)}, {"encounter", rec.encounter},
@@ -455,7 +465,8 @@ Json play_run(const Json& job) {
             throw std::invalid_argument{"unknown decision: " + name};
         ctx.decide.insert(name);
     }
-    ctx.fight = mcts_fight_model(job.at("simulations"));
+    std::vector<Json> combat_rows;
+    ctx.fight = mcts_fight_model(job.at("simulations"), job, combat_rows);
     ctx.samples = job.value("lookahead_samples", 8);
     ctx.horizon = job.value("lookahead_horizon", 0);
     GameContext gc{sts::CharacterClass::IRONCLAD, seed, job.at("ascension").get<int>()};
@@ -466,7 +477,7 @@ Json play_run(const Json& job) {
     const double seconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
     return {{"type", "done"}, {"seed", seed}, {"boss", encounter_name(gc.boss)},
             {"status", player.boss_beaten ? "act_complete" : "died"}, {"floor", gc.floorNum}, {"fights", player.fights},
-            {"final_hp", gc.curHp}, {"seconds", seconds}, {"steps", steps}};
+            {"final_hp", gc.curHp}, {"seconds", seconds}, {"steps", steps}, {"combat_rows", combat_rows}};
 }
 
 }  // namespace

@@ -5,5 +5,5 @@ set -euo pipefail
 cd "$(dirname "$0")/../.."
 R=runs/schema=run_rl_v1/date=2026-10-01/id=v4-all/out
 PYTHONPATH=. exec .venv/bin/python apps/run_rl/play.py --out $R/fresh-iter001 --first-seed 830000000000 --seeds 1000 \
-  --policy net --ckpt $R/iter001/model.pt --decide rest path shop event neow --worker rundecks/run-rl-v4/bin/run_rl_worker \
+  --policy net --ckpt $R/iter001/model.pt --decide rest path shop event neow --worker experiments/run-rl-v4/bin/run_rl_worker \
   >> runs/schema=run_rl_v1/date=2026-10-01/id=v4-all/logs/fresh.log 2>&1

@@ -1,0 +1,181 @@
+# runs/
+
+Every job is a run: inputs in, outputs out. All results live here, one directory per run.
+
+```
+runs/schema=<schema>/date=<YYYY-MM-DD>/id=<id>/
+  run.json         written by the launcher (never by the job)
+  logs/            stdout.log, stderr.log
+  out/             everything the job produces; optional summary.json
+scratch/schema=<schema>/date=<YYYY-MM-DD>/id=<id>/   same layout; smoke / preflight / probe runs; safe to delete
+```
+
+| level | form | rule |
+|---|---|---|
+| root | `runs/` or `scratch/` | `scratch/` is never queried |
+| schema | `schema=<schema>` | what the run produces. Exactly one per run, declared at launch. A schema with no table is valid (no data) |
+| date | `date=<YYYY-MM-DD>` | UTC start date, set by the launcher |
+| id | `id=<id>` | free text, `a-z0-9_.-`, describes the run. Unique within schema + date |
+| run.json | `run.json` | launcher only |
+| logs | `logs/` | the job's stdout and stderr |
+| out | `out/` | the only place the job writes |
+
+- **run_id** is `<schema>/<date>/<id>`, e.g. `combat_v2/2026-09-22/slime-gen0` → `runs/schema=combat_v2/date=2026-09-22/id=slime-gen0/`.
+  It is what `--input`, `inputs` in `run.json` and notes refer to.
+- Runs are never modified after they finish. New results = new run.
+- A job that produces two schemas is two runs, the second taking the first as `--input`.
+- `schema`, `date` and `id` come from the path; don't also store them as columns.
+
+## Starting a run
+
+```bash
+PYTHONPATH=. .venv/bin/python -m runs.run --help
+./apps/bootstrap/run.sh apps/bootstrap/config/act1.toml [--scratch]
+```
+
+The launcher creates the directory, writes `run.json` (`status: running`), sends the job's stdout/stderr to
+`logs/`, and on exit sets `status` to `done` / `failed` with `exit_code`. `--input` records lineage (run_ids this
+job read from). `--scratch` puts the run under `scratch/`.
+
+## Contract for jobs (writers)
+
+A job only has to:
+
+1. **Write outputs into the out dir it is given**: `{out}` in the command line, or `$RUN_OUT` in the environment
+   (`$RUN_DIR`, `$RUN_ID` are also set). Never write outside it. Don't create the run dir yourself.
+2. **Log to stdout/stderr**: no log files, no pid files.
+3. **Optionally write `out/summary.json`**: any JSON object (config such as teacher / simulations / seeds, plus
+   results such as rows / episodes / wins). The launcher merges it into `run.json` as `summary`.
+
+Git state, command, timings, host, and inputs are recorded by the launcher, so jobs don't need to.
+
+### Tables
+
+- Parquet goes directly in `out/` as `part-<NNN>.parquet` (`combat_v3`: one per seeded run, `NNN` = run seed).
+- No partition directories. Encounter, seed, etc. are ordinary columns; sort or group rows by the column you
+  filter on most so duckdb can skip row groups.
+- Adding a nullable column keeps the schema name (`union_by_name` fills NULLs). Renaming, removing or changing
+  the meaning of a column means a new name (`combat_v3`).
+
+## Compacting parquet
+
+The launcher does this automatically when a job exits (done or failed), on that run's `out/` only, before it sets
+`status`; `--no-compact` skips it. By hand, e.g. for runs launched before this or with `--no-compact`:
+
+```bash
+.venv/bin/python runs/compact.py runs/            # everything
+.venv/bin/python runs/compact.py runs/schema=combat_v2/date=2026-09-23/id=slime-bootstrap-1/out
+```
+
+Merges the small `.parquet` files in each directory into ~128MB `compact-*.parquet` files with ~128k-row row groups
+and deletes the originals. Also rewrites files whose row groups are tiny (e.g. one per fight): thousands of small row
+groups make huge footers that duckdb parses on every query. Files that are already fine are skipped, so rerunning is
+cheap. Directories are never mixed. Crash safe: if it dies, just rerun it. Don't run it on a run that is still
+writing. Code: `runs/compact.py` (`runs/compact.py` is a wrapper).
+
+## run.json
+
+| field | meaning |
+|---|---|
+| `run_id`, `schema`, `scratch`, `note` | identity |
+| `status` | `running` / `done` / `failed` |
+| `started`, `finished`, `exit_code`, `host`, `pid`, `cwd` | execution |
+| `command` | argv of the job (with `{out}` substituted) |
+| `inputs` | run_ids (or absolute paths) this run read from |
+| `git` | `{repo: {rev, dirty}}` for sts_combat_rl, sts_lightspeed, sts_ml |
+| `summary` | contents of `out/summary.json`, or null |
+
+## Querying (duckdb)
+
+Apps and training select their combat rows with a SQL query over two views, `combat_v3` (every row plus
+`run_id`, `schema`, `date`, `id`) and `runs` (every run.json): `runs/query.py`, e.g.
+`select * from combat_v3 where id like 'act1-a20%' and encounter = 'slime_boss'`. Oracle rows are refused
+unless allowed explicitly (`oracle = true`).
+
+A duckdb CLI (v1.5.5, from the `duckdb-cli` pip package) is installed in the venv. Run it from the repo root so
+the `runs/...` globs resolve (no database file; it queries the parquet/json in place):
+
+```bash
+.venv/bin/duckdb                                   # interactive SQL shell
+.venv/bin/duckdb -c "SELECT schema, count(*) FROM read_json('runs/*/*/*/run.json') GROUP BY ALL"
+```
+
+```sql
+-- all combat training data, with schema / date / id columns from the path
+-- (union_by_name: older runs lack newer columns; they read as NULL)
+SELECT * FROM read_parquet('runs/schema=combat_v3/*/*/out/*.parquet', hive_partitioning = true, union_by_name = true);
+
+-- rows per category / encounter
+SELECT category, encounter, count(*) FROM read_parquet('runs/schema=combat_v3/*/*/out/*.parquet') GROUP BY ALL ORDER BY ALL;
+
+-- all runs
+SELECT run_id, schema, status, inputs, summary FROM read_json('runs/*/*/*/run.json');
+
+-- oracle (perfect-foresight teacher) vs normal data; also summary.oracle in run.json
+SELECT coalesce(oracle, false) AS oracle, count(*) FROM read_parquet('runs/schema=combat_v3/*/*/out/*.parquet', union_by_name = true) GROUP BY ALL;
+
+-- all eval episodes, tagged with run
+SELECT * FROM read_json('runs/schema=episodes_v1/*/*/out/episodes.jsonl', filename = true, union_by_name = true);
+```
+
+## Schemas
+
+| schema | status | written by | out/ |
+|---|---|---|---|
+| `combat_v3` | current | `apps/bootstrap/generate.py`, `apps/value_play/play.py`, `apps/dagger/generate.py` (parquet metadata `collection_method=dagger`, `training_target=teacher_root_only`: teacher labels on learner-played states, see slop_docs/apps/dagger.md; the value trainer refuses these parts), `apps/fight_resample/generate.py` (resampled fights: `source_episode_id` set, see slop_docs/apps/fight_resample.md) | parquet; columns below. value_play: one part per fight, `part-<episode_id>.parquet`. fight_resample: one part per source fight, `part-<source_episode_id>.parquet` |
+| `combat_transition_v1` | current | `apps/combat_transition/extract.py` (replays combat_v3 bootstrap runs from their seed with stored actions; no search) | `part-000.parquet`, one row per stored fight: `pre` / `post` persistent state (hp, max_hp, gold, floor, potion_capacity, deck `[card_id, upgraded, misc, name]`, relics `[relic_id, data, name]`, potions `[potion_id, name]`) right before `BattleContext::init` and right after `exitBattle` (end-of-combat relics applied, before rewards); stored outcome (`won`, `final_hp` = in-battle HP before exitBattle, `potions`), `battle_final_hp`, `battle_potions`, `escaped`, `max_hp_changed`, `any_random`, `oracle`, `teacher` (JSON), `simulations` (budget of the fight's category), `bucket` = run_seed % 10, `replay` = `ok` / `diverged` (`reason`: actions don't fit, fight didn't end, outcome or potion count differs) / `not_replayed` (after a divergence in the same run; no states) |
+| `combat_outcome_v1` | current | `models/combat_outcome/learn.py` (input: one `combat_transition_v1` run) | `model.pt` (topology `combat_outcome_v1`: kind, args, state_dict, encounter vocabulary, HP bin centres), `report.md` / `report.json` (baseline vs model on dev buckets 0-1 by category and encounter, run-seed cluster bootstrap of model - baseline), `summary.json`. Split by run_seed % 10: train 4-8, early stop 9, dev 0-1, 2-3 never loaded. Endpoint: in-battle HP before exitBattle, conditional on a win; 5-HP bins 1..100 plus overflow > 100. The 80% interval coverage uses whole bins (true bin between the bins where the CDF first reaches 0.1 and 0.9), so it is at least nominal by construction and inflated |
+| `fight_comparison_v1` | current | `apps/compare_fights/compare.py` | `report.md`, `summary.json`, `pairs.parquet` (one row per fight, `baseline_*` / `candidate_*`) |
+| `combat_v2` | legacy | `apps/bootstrap/generate.py` before combat_v3 | Slime Boss fights only; `combat_seed` instead of `run_seed`, `episode_id` = seed, legacy `entry_id`/`deck_signature`, no `category`/`fight_index`/`ascension` |
+| `combat_v1` | legacy | `apps/bootstrap/generate.py` before combat_v2 | as `combat_v2`, but `act`/`floor`/`encounter`/`seed` were partition directories |
+| `value_net_v1` | current | `agents.combat.value.train_value` | `value_checkpoint.pt` + `.json` sidecar (+ `value_weights.bin`) |
+| `episodes_v1` | current | eval jobs | `episodes.jsonl`, one JSON object per fight; metrics in `summary.json` |
+| `entry_roots_v1` | legacy | old entry-root bootstrap writer | single part; `mcts_value`, `root_visits`, `replicate`, ... |
+| `mcts_slime_v2` | legacy | `generate_mcts_records` (fixed Slime Boss deck, encoding v2) | single part |
+| `mcts_slime_v1` | legacy | `generate_mcts_records` pilot | single part |
+
+New schema = new row here.
+
+### `combat_v3` columns
+
+Name and pyarrow layout: `environments/combat/schema.py` (`NAME`, `COMBAT_V3`); each part also stores `schema=combat_v3`
+in its parquet metadata. One seeded Ironclad act 1 per run seed: seeds whose act 1 boss isn't Slime Boss are skipped
+at game creation (no file); SimpleAgent plays everything out of combat; the teacher search plays **every combat**
+until the player dies or beats Slime Boss. One row per decision recorded from teacher search, in play order
+(`fight_index`, then decision rows, then child rows). Run seeds are below 2^40 (`SEED_LIMIT` in apps/bootstrap), so every
+`episode_id` fits int64.
+
+**Resampled fights** (`apps/fight_resample`, `source_episode_id` not NULL) are not part of a played run: the run was
+replayed to a stored fight's start (same deck, relics, potions), then that fight was played again with a new starting HP
+and a fresh fight RNG seeded from `episode_id`. Only fights with `source_episode_id IS NULL` are replayed as sources.
+
+| Column | Meaning |
+|---|---|
+| `run_seed` | game seed; with the chosen actions, replays the whole run exactly. Groups the fights of one run (a resampled fight keeps its source's `run_seed`, so it stays on the source's side of a `run_seed` split) |
+| `episode_id` | one fight: `run_seed * 100 + fight_index`; resampled: `source_episode_id * 1000 + k`, k = sample number from 0 |
+| `fight_index` | fight number within the run, from 0 (resampled: the source's) |
+| `source_episode_id` | NULL: the fight a run actually played. Set: this fight resamples stored fight `source_episode_id` (apps/fight_resample): replay `run_seed` to `fight_index` with the source run's chosen actions, set HP to `starting_hp`, seed every combat RNG from `episode_id` (and draw random potions if the run's summary says `random_potions`), then replay this fight's `chosen_action`s. NULL in runs older than the column |
+| `act`, `floor` | where the fight is |
+| `encounter` | lightspeed encounter, lowercase: `cultist`, `gremlin_nob`, `lagavulin`, `slime_boss`, ... |
+| `category` | `easy` (act's weak hallway pool: the first 3 hallway fights), `hard` (strong hallway pool), `elite`, `boss`, `event` (fight started from a `?` room event) |
+| `ascension` | ascension level of the run |
+| `starting_hp`, `starting_max_hp` | player HP at fight start (resampled: the sampled HP) |
+| `decision_index` | decision number within the fight, from 0 |
+| `turn` | combat turn |
+| `row_kind`, `parent_action` | `decision`: a position the teacher played from. `child`: the position after a move the teacher tried (≥ 50 visits) but didn't play; `parent_action` is that move, `root_value` is the teacher's mean value for it, and `actions`/`chosen_action` are empty |
+| `encoding_version`, `global_numeric`, `cards`, `monsters`, `card_monster_interactions`, `input_state`, `card_selection_task` | encoded public state |
+| `actions` | every move the search tried: `{action, description, visits, mean_value}` |
+| `chosen_action` | move played |
+| `was_random` | the one random move of the fight (not the teacher's choice); a fight shorter than 24 decisions may have none |
+| `root_value` | search's value estimate for this state |
+| `oracle` | `true`: the teacher searched the true state (one particle with the real RNG and draw order, max backup: the move played is the best-valued one, no early stop; `root_value` / `mean_value` are still means, `[run] oracle = true` in apps/bootstrap or apps/value_play). Perfect foresight, an upper bound, not fair play. NULL in runs older than the column: treat as `false` (`coalesce(oracle, false)`) |
+| `simulations_used` | simulations the search actually ran: 500 for a forced move, fewer than the budget when it stopped early because the top move could no longer be overtaken; 0 on child rows |
+| `won`, `final_hp`, `potions`, `terminal_value` | this fight's outcome, the same on every row of the fight (`potions`: potion count at fight end) |
+| `v4_encoding_version`, `player_numeric`, `max_hp`, `monster_v4`, `potion_tokens`, `relic_tokens` | encoding v4 additions (`environments/combat/encoding_v4.cpp`; read by value net `deep_sets_v3`): `monster_v4` is aligned with `monsters` (previous move, statuses); `potion_tokens` / `relic_tokens` are the held potions / relics (not the outcome column `potions`). NULL in rows written before them |
+| `legal_actions` | decision rows only (NULL on child rows and older rows): every legal move as a policy token `{action, kind, card_selection_task, skips_selection, discards_potion, card, monster, potion, interaction}`; `action` is the index used by `actions` / `chosen_action` |
+
+`terminal_value`: win = (35 + final_hp + 4 × potions) / (55 + max_hp), loss = 0 (sts_ml `scorePrediction`, default weights).
+
+Load training rows with `agents.combat.value.data.training_rows` (data/training_samples.py). It refuses oracle rows. Training targets are computed from these columns at training time. They aren't stored. `load_rows` can keep only
+some `categories` / `encounters`; `episode_split` splits by `run_seed`, so a run's fights stay on one side. Child rows are not on the
+played trajectory, so their fight outcome columns don't apply to them; train them on `root_value`.

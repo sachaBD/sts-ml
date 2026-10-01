@@ -35,11 +35,18 @@ def predict(q):
 
 class Handler(SimpleHTTPRequestHandler):
     def __init__(self, *a, **k):
-        super().__init__(*a, directory=str(HERE / "static"), **k)
+        super().__init__(*a, directory=str(HERE / "web"), **k)
 
     def translate_path(self, path):
         if path.startswith("/vis/"):  # card art + metadata from ../sts_visualiser
             return str(VIS / path[5:].split("?")[0])
+        # Generated browser-model data is also available while developing the source pages.
+        if path.startswith("/data/"):
+            return str(HERE / "site" / path[1:].split("?")[0])
+        if path == "/assets/browser-model.js":
+            return str(HERE / "browser_model.js")
+        if path == "/assets/run-value-model.js":
+            return str(HERE / "run_value_model.js")
         return super().translate_path(path)
 
     def _json(self, obj):

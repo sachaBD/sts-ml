@@ -1,6 +1,7 @@
 // Fight-outcome page: edit a state, POST it to /api/predict, render the results.
 const $ = (id) => document.getElementById(id);
 const ART = window.CARDS || {};
+const ROOT = window.GUI_ROOT || "./";
 let meta, state, cands = [], timer;
 
 const pct = (p) => (100 * p).toFixed(1) + "%";
@@ -19,7 +20,7 @@ function card(c, count) {
   el.dataset.type = info.type;
   const a = document.createElement("div");
   a.className = "art";
-  if (art.art) a.innerHTML = `<img src="vis/${art.art}" alt="" loading="lazy">`;
+  if (art.art) a.innerHTML = `<img src="${ROOT}vis/${art.art}" alt="" loading="lazy">`;
   const cost = c.upgraded ? art.costUp : art.cost;
   if (cost !== null && cost !== undefined) a.insertAdjacentHTML("beforeend", `<div class="cost">${cost}</div>`);
   if (count > 1) a.insertAdjacentHTML("beforeend", `<div class="count">×${count}</div>`);
@@ -106,7 +107,7 @@ async function predict() {
   let out;
   if (window.API) out = await window.API.predict(q);  // static site: model runs in the browser (model.js)
   else {
-    const res = await fetch("api/predict", { method: "POST", body: JSON.stringify(q) });
+    const res = await fetch(ROOT + "api/predict", { method: "POST", body: JSON.stringify(q) });
     if (!res.ok) { $("pwin").textContent = "error"; return; }
     out = await res.json();
   }
@@ -171,7 +172,7 @@ function loadPreset(i) {
 }
 
 // Startup: load tables, fights, presets and calibration, wire up the controls.
-(window.API ? window.API.meta() : fetch("api/meta").then((r) => r.json())).then((m) => {
+(window.API ? window.API.meta() : fetch(ROOT + "api/meta").then((r) => r.json())).then((m) => {
   meta = m;
   meta.cardById = byId(m.cards); meta.relicById = byId(m.relics); meta.potById = byId(m.potions);
   // Ironclad cards first in the picker; duplicates like "Strike" resolve to the red one.

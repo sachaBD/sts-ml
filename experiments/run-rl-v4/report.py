@@ -1,4 +1,4 @@
-"""Stage 3: curve + paired fresh-seed comparison -> rundecks/run-rl-v4/RESULTS.md; parquet export + run.json."""
+"""Stage 3: curve + paired fresh-seed comparison -> experiments/run-rl-v4/RESULTS.md; parquet export + run.json."""
 import json, subprocess, sys
 from pathlib import Path
 R = Path("runs/schema=run_rl_v1/date=2026-10-01/id=v4-all")
@@ -14,13 +14,13 @@ lines = ["# run-rl-v4 results (written by report.py)", "", "## Eval curve (500 e
          "", "```", (R / "out/curve.tsv").read_text().strip(), "```", "", "## Fresh seeds 830000000000+ (paired)", "",
          f"- v4 iter1 (all decisions) vs v3 (SimpleAgent events + Neow): {pair(v4, L(E / 'no-event/runs.jsonl'))}",
          f"- v4 iter1 vs v3 with events + Neow by lookahead: {pair(v4, L(E / 'event-neow/runs.jsonl'))}"]
-Path("rundecks/run-rl-v4/RESULTS.md").write_text("\n".join(lines) + "\n")
+Path("experiments/run-rl-v4/RESULTS.md").write_text("\n".join(lines) + "\n")
 print("\n".join(lines))
 subprocess.run([sys.executable, "apps/run_rl/export.py", str(R / "out"), str(R / "out")], check=True)
 curve = [l.split("\t") for l in (R / "out/curve.tsv").read_text().splitlines()[1:]]
 json.dump({"run_id": "run_rl_v1/2026-10-01/v4-all", "schema": "run_rl_v1", "scratch": False, "status": "done",
-           "note": "Real-run RL loop v4: every decision by V (cards, rest, path, shop; events + Neow by sampled lookahead h=0, 8 samples). Init v3 iter003; 2 iterations. rundecks/run-rl-v4 (hand-written run.json).",
+           "note": "Real-run RL loop v4: every decision by V (cards, rest, path, shop; events + Neow by sampled lookahead h=0, 8 samples). Init v3 iter003; 2 iterations. experiments/run-rl-v4 (hand-written run.json).",
            "inputs": ["run_rl_v1/2026-10-01/v3-shop", "run_rl_v1/2026-10-01/v2-rest-path"],
-           "command": ["bash", "rundecks/run-rl-v4/loop.sh"],
+           "command": ["bash", "experiments/run-rl-v4/loop.sh"],
            "summary": {"curve": [{"iter": int(c[0]), "net_clear": float(c[1]), "diff": float(c[3]), "se": float(c[4])} for c in curve]}},
           open(R / "run.json", "w"), indent=2)

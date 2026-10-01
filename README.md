@@ -54,5 +54,5 @@ Tests live beside their owners. `make test` runs native and Python checks throug
 Test registration does not crawl recorded run directories.
 
 Model kinds, checkpoint dictionaries, architecture-spec contents, and native weight formats are unchanged by
-this layout. Historical recorded commands in completed runs are left untouched. The legacy
-`rundecks/run-rl-v4/` remains in place because the preceding cleanup identified it as active.
+this layout. Historical recorded commands in completed runs are left untouched. The previously active
+run-RL v4 materials live in `experiments/run-rl-v4/`.

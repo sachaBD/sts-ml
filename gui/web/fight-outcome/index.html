@@ -5,12 +5,13 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Fight Outcome</title>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Kreon:wght@400;600&display=swap">
-<link rel="stylesheet" href="style.css">
-<link rel="stylesheet" href="gui.css">
+<link rel="stylesheet" href="../assets/style.css">
+<link rel="stylesheet" href="../assets/gui.css">
 </head>
 <body>
 <div class="page">
   <div class="masthead">
+    <nav class="site-nav" aria-label="Site"><a href="../">STS model reports</a><span aria-current="page">Fight outcome</span></nav>
     <h1>Fight Outcome</h1>
     <p>Ironclad A20, Act 1. Edit a deck, relics, potions and HP, pick a fight, and see the pre-combat outcome model's P(win),
       HP if won, and take-vs-skip for candidate cards.</p>
@@ -94,7 +95,8 @@
 <datalist id="cardList"></datalist>
 <datalist id="relicList"></datalist>
 <datalist id="potList"></datalist>
-<script src="vis/data/cards.js"></script>
+<script>window.GUI_ROOT = "../";</script>
+<script src="../vis/data/cards.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

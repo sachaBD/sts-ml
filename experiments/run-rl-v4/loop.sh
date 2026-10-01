@@ -10,4 +10,4 @@ PYTHONPATH=. exec .venv/bin/python apps/run_rl/loop.py --root $R/out --iters 2 -
   --decide rest path shop event neow --init $V3/iter003/model.pt \
   --extra-data $V2/iter002/data $V2/iter003/data $V2/iter004/data $V2/iter005/data \
                $V3/iter000/data $V3/iter001/data $V3/iter002/data $V3/iter003/data \
-  --seed-offset 40000000 --worker rundecks/run-rl-v4/bin/run_rl_worker >> $R/logs/stdout.log 2>&1
+  --seed-offset 40000000 --worker experiments/run-rl-v4/bin/run_rl_worker >> $R/logs/stdout.log 2>&1

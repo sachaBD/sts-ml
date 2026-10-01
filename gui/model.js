@@ -1,7 +1,8 @@
-// In-browser port of combat_outcome_v2 (python/sts_combat_rl/topology/combat_outcome_v2.py), eval mode.
+// In-browser port of combat_outcome_v2 (models/combat_outcome/combat_outcome_v2.py), eval mode.
 // Exposes window.API = { meta(), predict(q) } with the same shapes as server.py's /api/meta and /api/predict.
 (() => {
-  const b64 = (s) => new Float32Array(Uint8Array.from(atob(s), (c) => c.charCodeAt(0)).buffer);
+  const BrowserModel = typeof window !== "undefined" ? window.BrowserModel : require("./browser_model.js");
+  const { b64, dataRoot, json } = BrowserModel;
 
   // y = W x + b, W stored row-major (out x in) as in torch.
   function linear(p, x) {
@@ -87,7 +88,7 @@
   const API = {
     load, score,
     async meta() {
-      const [m, w] = await Promise.all(["data/meta.json", "data/weights.json"].map((u) => fetch(u).then((r) => r.json())));
+      const [m, w] = await Promise.all(["meta.json", "weights.json"].map(json));
       W = load(w); M = m;
       return m;
     },

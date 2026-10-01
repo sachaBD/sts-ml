@@ -26,6 +26,7 @@ WORKER = Path("build/main/run_rl_worker")
 
 
 from agents.overworld.value.policy import Policy
+from apps.common.worker import write_part
 
 
 def strip(state):
@@ -34,7 +35,7 @@ def strip(state):
     return state
 
 
-def worker_loop(worker, seeds, lock, policy, sims, decide, lookahead, out, stats):
+def worker_loop(worker, seeds, lock, policy, sims, decide, lookahead, out, stats, combat):
     proc = subprocess.Popen([str(worker)], stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True, bufsize=1)
     try:
         while True:
@@ -43,7 +44,8 @@ def worker_loop(worker, seeds, lock, policy, sims, decide, lookahead, out, stats
             if seed is None:
                 return
             proc.stdin.write(json.dumps({"seed": seed, "ascension": 20, "simulations": sims, "decide": decide,
-                                         "lookahead_samples": lookahead[0], "lookahead_horizon": lookahead[1]}) + "\n")
+                                         "lookahead_samples": lookahead[0], "lookahead_horizon": lookahead[1],
+                                         **combat[0]}) + "\n")
             proc.stdin.flush()
             meta = []
             while True:
@@ -67,6 +69,9 @@ def worker_loop(worker, seeds, lock, policy, sims, decide, lookahead, out, stats
                     break
                 else:
                     raise RuntimeError(f"worker error on seed {seed}: {msg}")
+            rows = msg.pop("combat_rows", [])
+            if combat[1] is not None:
+                write_part(combat[1], seed, rows, {"collection_method": "run_rl_selfplay"})
             picks = [s for s in msg["steps"] if s["kind"] in ("pick", "decide")]
             for s, m in zip(picks, meta):
                 s.update(m)
@@ -80,6 +85,9 @@ def worker_loop(worker, seeds, lock, policy, sims, decide, lookahead, out, stats
                 stats["runs"] += 1
                 stats["clear"] += msg["status"] == "act_complete"
                 stats["seconds"] += msg["seconds"]
+    except BaseException as e:
+        with lock:
+            stats.setdefault("errors", []).append(repr(e))
     finally:
         proc.stdin.close()
         proc.wait()
@@ -100,7 +108,18 @@ def main():
     ap.add_argument("--samples", type=int, default=8, help="lookahead samples per event / Neow option")
     ap.add_argument("--horizon", type=int, default=0, help="lookahead floors (0 = until the event resolves)")
     ap.add_argument("--worker", default=str(WORKER), help="run_rl_worker binary (loop.py passes its own snapshot)")
+    ap.add_argument("--combat-leaf", choices=["guided_rollout", "value_net"], default="guided_rollout")
+    ap.add_argument("--combat-weights")
+    ap.add_argument("--combat-out", help="combat_v3 out directory; record real fights, never lookahead samples")
     a = ap.parse_args()
+    if (a.combat_leaf == "value_net") != bool(a.combat_weights):
+        ap.error("value_net requires --combat-weights; rollout must not receive weights")
+    combat_dir = Path(a.combat_out) if a.combat_out else None
+    if combat_dir is not None:
+        combat_dir.mkdir(parents=True, exist_ok=True)
+    combat_job = {"combat_leaf": a.combat_leaf, "record_combat": combat_dir is not None}
+    if a.combat_weights:
+        combat_job["combat_weights"] = a.combat_weights
     torch.set_num_threads(1)
     sims = dict(zip(["easy", "hard", "elite", "event", "boss"], map(int, a.sims.split(","))))
     out_dir = Path(a.out)
@@ -124,7 +143,7 @@ def main():
     lock = threading.Lock()
     t0 = time.monotonic()
     with open(out_dir / "runs.jsonl", "a") as out:
-        threads = [threading.Thread(target=worker_loop, args=(a.worker, seeds, lock, policy, sims, a.decide, (a.samples, a.horizon), out, stats))
+        threads = [threading.Thread(target=worker_loop, args=(a.worker, seeds, lock, policy, sims, a.decide, (a.samples, a.horizon), out, stats, (combat_job, combat_dir)))
                    for _ in range(a.workers)]
         for t in threads:
             t.start()
@@ -136,6 +155,8 @@ def main():
                       f"  {stats['seconds'] / r:.1f} worker-s/run", flush=True)
         for t in threads:
             t.join()
+    if stats.get("errors") or stats["runs"] != a.seeds:
+        raise RuntimeError(f"incomplete play: {stats}")
     summary = {**vars(a), "sims": sims, **stats, "wall_seconds": time.monotonic() - t0,
                "clear_rate": stats["clear"] / max(stats["runs"], 1)}
     (out_dir / "summary.json").write_text(json.dumps(summary, indent=1))

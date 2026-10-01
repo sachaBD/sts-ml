@@ -1,8 +1,10 @@
 """combat_v3 rows by SQL: the one way to load them (DuckDB over the runs/ layout, runs/README.md).
 
 Views:
-  combat_v3  every combat_v3 row, plus run_id, schema, date, id (from its run directory)
-  runs       every run.json: run_id, schema, status, inputs, summary (JSON)
+  combat_v3          every combat_v3 row, plus run_id, schema, date, id (from its run directory)
+  combat_v4_fights   every combat_v4 fights row, when present
+  combat_v4_steps    every combat_v4 steps row, when present
+  runs               every run.json: run_id, schema, status, inputs, summary (JSON)
   act1_results  one row per seed of every apps/bootstrap run with per-seed results (summary.json "results"):
              run_id, seed, boss, status (other_boss / died / act_complete), floor, fights, reached_boss, won_boss,
              final_hp
@@ -15,12 +17,28 @@ fair play; runs/README.md `oracle`) raise unless oracle=True; every caller says 
 """
 from __future__ import annotations
 
+from functools import cache
+from importlib.util import module_from_spec, spec_from_file_location
 from pathlib import Path
+import sys
 from typing import Any
 
 import duckdb
 
 from .run import RUNS
+
+
+@cache
+def _combat_v4_schema():
+    """Load the combat_v4 schema source kept beside its run schema directory."""
+    path = Path(__file__).parent / "schema=combat_v4" / "schema.py"
+    spec = spec_from_file_location("runs.combat_v4_schema", path)
+    if spec is None or spec.loader is None:
+        raise ImportError(f"cannot load combat_v4 schema from {path}")
+    module = module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
 
 
 def connect(root: Path = RUNS) -> duckdb.DuckDBPyConnection:
@@ -49,6 +67,7 @@ def connect(root: Path = RUNS) -> duckdb.DuckDBPyConnection:
                 select *, concat_ws('/', schema, date, id) as run_id
                 from read_parquet('{root}/schema=run_rl_v1/*/*/out/{name}.parquet',
                                   hive_partitioning = true, hive_types_autocast = false, union_by_name = true)""")
+    _combat_v4_schema().register_duckdb_views(db, root)
     return db
 
 

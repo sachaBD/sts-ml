@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Run value network</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Kreon:wght@400;600&display=swap">
+<link rel="stylesheet" href="../assets/style.css">
+<link rel="stylesheet" href="run-value.css">
+</head>
+<body>
+<main class="page run-value">
+  <header class="masthead">
+    <nav class="site-nav" aria-label="Site"><a href="../">STS model reports</a><span aria-current="page">Run value</span></nav>
+    <h1>Run value network</h1>
+    <p>Act 1 A20 · out-of-combat decisions · real-game evaluation</p>
+  </header>
+
+  <section class="hero" aria-labelledby="headline">
+    <div><p class="eyebrow">Current reported result</p><div class="headline" id="headline">91.1%</div><p class="headline-label">Act 1 clear rate</p></div>
+    <div class="hero-note"><b>Cards · rest · path · shop</b><br>Combat remains MCTS-driven.<br><span>v4 all-decision loop: running, not reported.</span></div>
+  </section>
+
+  <section aria-labelledby="results-title"><h2 id="results-title">Results</h2><div class="results" id="results"></div></section>
+
+  <section aria-labelledby="flow-title"><h2 id="flow-title">Decision flow</h2>
+    <p class="flow-intro">Each legal option produces an after-state; the agent takes the option with the highest predicted run value.</p>
+    <div class="flow" aria-label="Decision flow: current state fans out to independently valued options, then argmax selects the next state">
+      <div class="state-box"><b>Current state S</b><span>deck · HP · gold · relics · potions · map</span></div>
+      <i>→</i>
+      <div class="fan">
+        <div><b>V(S | option₁)</b><span>after-state 1</span></div>
+        <div><b>V(S | option₂)</b><span>after-state 2</span></div>
+        <div><b>V(S | option₃)</b><span>after-state 3</span></div>
+        <div><b>V(S | skip)</b><span>after-state n</span></div>
+      </div>
+      <i>→</i>
+      <div class="argmax"><b>argmax</b><span>highest V</span></div>
+      <i>→</i>
+      <div class="chosen"><b>Next state</b><span>apply selected option</span></div>
+    </div>
+  </section>
+
+  <section class="examples" aria-label="Interactive card reward"><article><h2>Card reward</h2><p class="context">Floor 10 · base deck · choose one card to evaluate against skip</p><div class="adder"><input id="candidate" list="card-list" placeholder="add candidate card…"><button id="candidate-add">Add</button></div><div id="cards"></div></article></section>
+
+  <footer>Sources: <code>docs/research/run-rl/README.md</code> and <code>agents/overworld/value/run_policy_v1.py</code>.</footer>
+</main>
+<datalist id="card-list"></datalist>
+<script>window.GUI_ROOT = "../";</script>
+<script src="../assets/browser-model.js"></script>
+<script src="../assets/run-value-model.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
