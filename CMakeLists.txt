@@ -101,3 +101,9 @@ target_compile_options(macro_sim PRIVATE -Wall -Wextra -Wpedantic)
 add_executable(macro_sim_check apps/macro_sim/check.cpp)
 target_link_libraries(macro_sim_check PRIVATE macro_sim)
 target_compile_options(macro_sim_check PRIVATE -Wall -Wextra -Wpedantic)
+
+# Real-run RL worker (slop_docs/run-rl): real act 1 runs, MCTS fights, card picks asked of Python.
+add_executable(run_rl_worker apps/run_rl/worker.cpp)
+target_link_libraries(run_rl_worker PRIVATE combat_core macro_sim)
+target_compile_features(run_rl_worker PRIVATE cxx_std_23)
+target_compile_options(run_rl_worker PRIVATE -Wall -Wextra -Wpedantic)

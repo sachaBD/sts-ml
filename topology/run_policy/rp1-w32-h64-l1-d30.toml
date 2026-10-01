@@ -1,0 +1,8 @@
+# First card-pick policy + run value topology (after-state scoring). Not trained yet -> editable until first training run.
+kind = "run_policy_v1"
+
+[args]
+width = 32
+hidden = 64
+depth = 1
+dropout = 0.3
