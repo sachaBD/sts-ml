@@ -97,3 +97,8 @@
 - act2b-r03-train vs act2-r02-train (600 dev): score +0.002 ± 0.011, act2 +0.2 ± 1.8 pp, act1 +0.5 ± 1.4 pp → kept r02.
   Collection at eps .05/route .15: act2 19.3% (vs ~6% at eps .1/route .25), act1 79.8%.
 - Plateau after 3 promotions. Launched rest-lookahead A/B (act2-dev-r02-restla, 600 dev seeds, 4 samples, sims ×0.25).
+
+## 19:00 — rest-lookahead A/B
+- act2-dev-r02-restla vs act2-dev-act2-r02-train (600 paired dev seeds): act1 +2.83 ± 1.09 pp (88.0 vs 85.2),
+  act2 −0.67 ± 1.18 pp, score +0.007 ± 0.007, floor 27.97 vs 27.6; act-1 boss entry HP 60.3 vs 58.7.
+  Worker time 55.4 vs 21.7 s/run (2.56×). Verdict: directionally right on act 1, not worth the cost as is.

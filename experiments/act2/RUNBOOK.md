@@ -47,3 +47,9 @@
 2026-10-02T17:57:04+00:00 GATE {"candidate": {"n": 600, "score": 0.5952121212121213, "act1": 0.8566666666666667, "act2": 0.22, "floor": 27.71}, "incumbent": {"n": 600, "score": 0.5927979797979799, "act1": 0.8516666666666667, "act2": 0.21833333333333332, "floor": 27.648333333333333}, "score_diff": 0.002414141414141415, "score_se": 0.010648169981092031, "act1_diff": 0.005, "act1_se": 0.014444355264196827, "act2_diff": 0.0016666666666666668, "act2_se": 0.01834850386648401, "floor_diff": 0.06166666666666667, "floor_se": 0.2759952816153531, "name": "round 3", "promoted": false}
 
 2026-10-02T17:57:04Z SRE FINISH act2b-controller exit=0
+
+2026-10-02T17:57:49Z START act2-dev-r02-restla; frozen worker /tmp/act2-restla-worker.WnRLJd/run_rl_worker sha256=8285611047443c98d0b191a6635873b0517fc4bfc79d8dca06768c2d4eb9933b; 600 dev seeds, 10 workers, rest-lookahead 4,0.25; expected 55–65 min.
+
+2026-10-02T18:58:13Z FINISH act2-dev-r02-restla exit=0
+
+2026-10-02T18:58:56+00:00 RESULT restla minus baseline {"candidate": {"n": 600, "score": 0.5997171717171718, "act1": 0.88, "act2": 0.21166666666666667, "floor": 27.971666666666668}, "incumbent": {"n": 600, "score": 0.5927979797979799, "act1": 0.8516666666666667, "act2": 0.21833333333333332, "floor": 27.648333333333333}, "score_diff": 0.00691919191919192, "score_se": 0.00678713796204416, "act1_diff": 0.028333333333333332, "act1_se": 0.010876748330201712, "act2_diff": -0.006666666666666667, "act2_se": 0.01179180050204158, "floor_diff": 0.3233333333333333, "floor_se": 0.16145961705379416, "candidate_worker_s_per_run": 55.43491006559001, "incumbent_worker_s_per_run": 21.684680612180028, "timing_uncertainty": "Aggregate worker time per run; variability not estimated"}; analyze.py output experiments/act2/restla.analysis.log

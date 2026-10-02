@@ -1,6 +1,6 @@
 # Act 2 extension — report (2026-10-02)
 
-Status: both controllers done (selected model: `runs/schema=value_net_v1/date=2026-10-02/id=act2-r02-train/out/model.pt`); rest-lookahead A/B running. Plan: [PLAN.md](PLAN.md) · decisions: [LOG.md](LOG.md) ·
+Status: both controllers done (selected model: `runs/schema=value_net_v1/date=2026-10-02/id=act2-r02-train/out/model.pt`); rest-lookahead A/B done. Plan: [PLAN.md](PLAN.md) · decisions: [LOG.md](LOG.md) ·
 launches: [RUNBOOK.md](RUNBOOK.md) · controller tables: [CONTROLLER.md](CONTROLLER.md) (continuation round only; the main controller's table is in `runs/schema=overworld_v1/date=2026-10-02/id=act2-controller/out/summary.json` and RUNBOOK GATE lines).
 
 ## Headline
@@ -54,8 +54,16 @@ These are seeds that were never used for training or model selection.
    - As a result, HP entering the Act 1 boss fell from 69.2 to 58.7.
 
    An offline check found the value net explains only about 20% of the variance in run outcome (R² ≈ 0.2), so it
-   is too coarse to weigh this choice well. The fix is in progress: a lookahead for the rest decision that plays
-   the next fight out with MCTS on sampled futures (feature off by default; not yet evaluated).
+   is too coarse to weigh this choice well. **Fix tested: rest lookahead.** At each rest site it decides between
+   resting and the value net's choice by playing the next fight out with MCTS on 4 sampled futures, at a quarter of
+   the normal search budget. Result vs the same model without it (600 paired dev seeds):
+   - Act 1 clear: **+2.8 ± 1.1 pp** (88.0% vs 85.2%). HP entering the Act 1 boss rose only from 58.7 to 60.3.
+   - Act 2 clear: −0.7 ± 1.2 pp.
+   - Score: +0.007 ± 0.007, not significant.
+   - Cost: 2.6× worker time (55 vs 22 s/run).
+
+   It helps where intended, but it isn't worth turning on at this cost yet. Cheaper variants: refine only before
+   bosses and elites, or use 2 samples.
 4. **Act 2 bosses are where runs now end.** Selected model, fresh seeds:
 
    | Boss | Death rate | n |
@@ -85,9 +93,11 @@ These are seeds that were never used for training or model selection.
 
 ## Next steps (recommended)
 
-1. **Evaluate the rest lookahead.** Run an A/B on dev seeds; if it helps, extend the lookahead to other
-   high-stakes choices such as boss relics and elite routes.
-2. **Keep iterating rounds.** Each round costs about 2.3 h on 10 workers and has still been improving.
+1. **Use search where the value net is weak.** The rest lookahead works but is expensive. Try cheaper variants,
+   such as refining only before bosses and elites, or 2 samples. A better long-term fix: use the lookahead
+   results as training targets for the value net (distillation), so plain play gets better without the cost.
+2. **Plain extra rounds have stalled** (round 3 was flat). More rounds only pay once something changes: better
+   targets (as above), a combat fix, or a different value architecture with more data.
 3. **Act 2 boss combat:**
    - Test larger boss search budgets.
    - Measure potion use in boss fights.
