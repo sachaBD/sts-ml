@@ -1,5 +1,8 @@
 # Value-net topology assessment (act 1, combat_v3)
 
+For the **selected Act 2 overworld** network and its interactive visual report, see
+[overworld.md](overworld.md). This assessment concerns the separate combat network.
+
 Written 2026-09-26 while reviewing `python/sts_combat_rl/models/deep_sets.py` (v1),
 `models/value_net.cpp`, the trainer, the `act1-gen0` checkpoint metrics, and the new dataset
 `combat_v3/2026-09-26/act1-all-bosses-a20-scaled-search`. These are informed opinions, not results.

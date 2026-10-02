@@ -32,12 +32,14 @@ class Policy:
             if self.kind == "random":
                 return self.rng.randrange(m), "random", None
             with torch.no_grad():
-                b = encode([(msg["state"], msg["options"])], [msg["boss"]])
+                b = encode([(msg["state"], msg["options"])], [msg["boss"]], kind=self.model.KIND)
                 v = torch.sigmoid(self.model(b)[0][0])  # [K+1]; K = max(n, 1), skip last
             vals = [v[i].item() for i in range(n)] + [v[-1].item()]
             return max(range(m), key=lambda i: vals[i]), "net", vals
 
     def terminal(self, e, progress=0.25):
+        if self.target == "heart":
+            return float(e.get("heart_cleared", False))
         if self.target == "act1":
             return 1.0 if e["terminal"] == "cleared" else progress * min(e["floor"], 16) / 16
         if self.target == "floors3":
@@ -62,7 +64,7 @@ class Policy:
             vals = []
             if states:
                 with torch.no_grad():
-                    b = encode([(st, []) for st in states], [msg["boss"]] * len(states))
+                    b = encode([(st, []) for st in states], [msg["boss"]] * len(states), kind=self.model.KIND)
                     vals = torch.sigmoid(self.model(b)[0][:, -1]).tolist()
             it = iter(vals)
             sums, counts = [0.0] * n, [0] * n
@@ -83,6 +85,6 @@ class Policy:
             if (not msg.get("lookahead") and self.rng.random() < self.eps) or self.kind == "random":
                 return self.rng.randrange(n), "explore", None
             with torch.no_grad():
-                b = encode([(a, []) for a in msg["after"]], [msg["boss"]] * n)
+                b = encode([(a, []) for a in msg["after"]], [msg["boss"]] * n, kind=self.model.KIND)
                 vals = torch.sigmoid(self.model(b)[0][:, -1]).tolist()  # skip column = V(after-state)
             return max(range(n), key=lambda i: vals[i]), "net", vals

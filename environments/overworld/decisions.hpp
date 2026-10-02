@@ -21,6 +21,6 @@ struct Option {
     nlohmann::json after;
 };
 std::string outcome_key(const sts::GameContext& gc);
-std::vector<Option> rest_options(const sts::GameContext& gc, std::vector<std::string>& keys);
+std::vector<Option> rest_options(const sts::GameContext& gc, std::vector<std::string>& keys, bool include_recall = false);
 std::vector<Option> shop_options(const sts::GameContext& gc, std::vector<std::string>& keys);
 }  // namespace stsrl::overworld

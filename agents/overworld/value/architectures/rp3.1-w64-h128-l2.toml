@@ -1,0 +1,9 @@
+# New graph topology; pool cards and relics independently. Freeze once trained.
+kind = "run_policy_v3_1"
+
+[args]
+width = 64
+hidden = 128
+depth = 2
+dropout = 0.1
+heads = 4

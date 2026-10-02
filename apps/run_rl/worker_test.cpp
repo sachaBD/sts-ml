@@ -48,6 +48,19 @@ void stopping_and_guard() {
     gc.info.encounter = gc.secondBoss;
     double_boss.fight();
     require(double_boss.done() && double_boss.acts_cleared == 3, "second A20 boss clears act");
+    ctx.max_act = 4;
+    gc.transitionToAct(3);
+    gc.curRoom = sts::Room::BOSS;
+    gc.info.encounter = gc.secondBoss;
+    Player heart_run{gc, {}, ctx, nullptr};
+    heart_run.acts_cleared = 2;
+    heart_run.fight();
+    require(!heart_run.done() && heart_run.acts_cleared == 3, "Act 3 clear is not a Heart clear");
+    gc.transitionToAct(4);
+    gc.curRoom = sts::Room::BOSS;
+    gc.info.encounter = sts::MonsterEncounter::THE_HEART;
+    heart_run.fight();
+    require(heart_run.done() && heart_run.boss_beaten && heart_run.acts_cleared == 4, "Heart is fourth-act clear");
     ctx.max_act = 1;
     gc.act = 1;
     Player q{gc, {}, ctx, nullptr};
@@ -58,6 +71,56 @@ void stopping_and_guard() {
     catch (const std::runtime_error& e) {
         require(std::string{e.what()}.find("screen=") != std::string::npos, "guard must describe screen");
     }
+}
+void heart_key_options() {
+    GameContext gc{sts::CharacterClass::IRONCLAD, 42, 20};
+    gc.screenState = sts::ScreenState::REST_ROOM;
+    gc.regainControlAction = [](GameContext& g) { g.screenState = sts::ScreenState::MAP_SCREEN; };
+    std::vector<std::string> keys;
+    const auto options = rest_options(gc, keys, true);
+    bool recall = false;
+    for (const auto& o : options) if (o.label["action"] == "recall") {
+        recall = true;
+        require(o.after["overworld"]["keys"]["ruby"] == true, "recall after-state includes real ruby key");
+    }
+    require(recall, "Heart rest options offer recall");
+    require(!gc.redKey, "building key after-states must not change live run");
+    auto ctx = context(); ctx.max_act = 4;
+    gc.screenState = sts::ScreenState::REWARDS;
+    gc.info.rewardsContainer.sapphireKey = true;
+    gc.info.rewardsContainer.relicCount = 1;
+    gc.info.rewardsContainer.relics[0] = sts::RelicId::VAJRA;
+    Player p{gc, {}, ctx, nullptr};
+    p.step();
+    require(gc.blueKey, "Heart fallback takes sapphire before competing relic");
+    require(gc.info.rewardsContainer.relicCount == 0, "sapphire really consumes chest relic");
+    require(!gc.hasRelic(sts::RelicId::VAJRA), "sapphire is not a free key plus relic");
+    require(slim_state(gc)["map"].contains("nodes"), "sampled ends retain graph");
+}
+void heart_transition_smoke() {
+    GameContext gc{sts::CharacterClass::IRONCLAD, 42, 20};
+    gc.transitionToAct(3);
+    gc.enterAct3VictoryRoom();
+    require(gc.outcome == sts::GameOutcome::PLAYER_VICTORY && gc.act == 3, "without keys victory must not enter Act 4");
+    gc.outcome = sts::GameOutcome::UNDECIDED;
+    gc.obtainKey(sts::Key::RUBY_KEY); gc.obtainKey(sts::Key::SAPPHIRE_KEY); gc.obtainKey(sts::Key::EMERALD_KEY);
+    gc.enterAct3VictoryRoom();
+    require(gc.act == 4, "real keys unlock Act 4");
+    auto ctx = context(); ctx.max_act = 4;
+    ctx.fight = [](GameContext& g, bool, int) {
+        const auto encounter = encounter_name(g.info.encounter);
+        const auto cat = category(g, g.info.encounter);
+        const auto hp = g.curHp;
+        stsrl::macro_sim::apply_battle_result(g, {true, hp});
+        return FightRecord{encounter, cat, hp, true, "heart-smoke"};
+    };
+    Player p{gc, {}, ctx, nullptr}; p.acts_cleared = 3;
+    int ticks = 0;
+    while (!p.done() && ++ticks < 100) {
+        if (gc.screenState == sts::ScreenState::BATTLE) p.fight();
+        else p.simple_step(); // no neural protocol required for injected-combat smoke
+    }
+    require(p.done() && p.boss_beaten && p.acts_cleared == 4 && p.fights == 2, "Act 4 route completes Spear/Shield then Heart");
 }
 void boss_after_states() {
     GameContext gc{sts::CharacterClass::IRONCLAD, 42, 0};
@@ -167,6 +230,8 @@ void obtain_and_sample_seed() {
 }
 int main() {
     stopping_and_guard();
+    heart_key_options();
+    heart_transition_smoke();
     boss_after_states();
     obtain_and_sample_seed();
     rest_lookahead_protocol();

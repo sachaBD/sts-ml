@@ -15,8 +15,9 @@ import torch
 
 from agents.overworld.value.run_policy_v1 import NONE, RunPolicyV1
 from agents.overworld.value.run_policy_v2 import RunPolicyV2
+from agents.overworld.value.run_policy_v3 import RunPolicyV3, RunPolicyV3Attention
 
-KINDS = {RunPolicyV1.KIND: RunPolicyV1, RunPolicyV2.KIND: RunPolicyV2}
+KINDS = {m.KIND: m for m in (RunPolicyV1, RunPolicyV2, RunPolicyV3, RunPolicyV3Attention)}
 
 
 def build_model(arch):
@@ -26,7 +27,7 @@ def build_model(arch):
 
 BOSSES = {"slime_boss": 0, "the_guardian": 1, "hexaghost": 2,  # the CURRENT act's boss (gc.boss)
           "automaton": 3, "collector": 4, "champ": 5,
-          "awakened_one": 6, "time_eater": 7, "donu_and_deca": 8}
+          "awakened_one": 6, "time_eater": 7, "donu_and_deca": 8, "the_heart": 9}
 ROOM = {"$": 0, "R": 1, "?": 2, "E": 3, "M": 4, "T": 5}  # sts::Room order; anything else (N) = NONE
 
 
@@ -44,6 +45,7 @@ def score(run, progress=0.25, hp=0.0):
 # Act 1 boss is floor 16, act 2 boss floor 33 (floors keep counting across acts). A full act-2 clear = 1.
 FLOOR_W, ACT_BONUS, LAST_FLOOR = 0.4, (0.2, 0.4), 33
 FLOOR_W3, ACT_BONUS3, LAST_FLOOR3 = 0.4, (0.1, 0.2, 0.3), 50
+LAST_FLOOR_HEART = 56 # A20 second Act 3 boss + victory room + four Act 4 rooms
 
 
 def acts_cleared(run):
@@ -63,9 +65,11 @@ def floor_score3(floor, cleared):
 
 
 def run_score(run, target="act1", progress=0.25, hp=0.0):
-    """act1: original clear score; floors/floors3: two-/three-act floor scores."""
+    """act1/floors/floors3: existing progress scores; heart: actual Heart defeat only."""
     if target == "act1":
         return score(run, progress, hp)
+    if target == "heart":
+        return float(run.get("heart_cleared", False))
     scorer = floor_score3 if target == "floors3" else floor_score
     return scorer(run["floor"], acts_cleared(run))
 
@@ -74,7 +78,7 @@ def nodes(run):
     """The run's training nodes: (state, options, column) with column = option index or None for skip."""
     steps = run["steps"]
     last = steps[-1]
-    terminal = last["kind"] == "fight" and (not last["won"] or run["status"] == "act_complete")
+    terminal = last["kind"] == "fight" and (not last["won"] or run["status"] in ("act_complete", "heart_locked"))
     out = []
     for s in steps[:-1] if terminal else steps:
         if s["kind"] == "decide":
@@ -92,7 +96,7 @@ def node_bosses(run):
     """The current act's boss of each node of nodes(run): the step's own "boss" (multi-act runs), else the run's."""
     steps = run["steps"]
     last = steps[-1]
-    terminal = last["kind"] == "fight" and (not last["won"] or run["status"] == "act_complete")
+    terminal = last["kind"] == "fight" and (not last["won"] or run["status"] in ("act_complete", "heart_locked"))
     out = []
     for s in steps[:-1] if terminal else steps:
         if s["kind"] != "decide" or "after" in s:
@@ -101,14 +105,17 @@ def node_bosses(run):
 
 
 # ------------------------------------------------------------------ encoding
-def encode(items, boss_names, device="cpu"):
-    """items: [(state, options)], boss_names: [str] -> run_policy_v1 input dict. Skip column = K (last)."""
+def encode(items, boss_names, device="cpu", kind=None):
+    """items: [(state, options)], boss_names: [str]. Skip column = K (last).
+    kind=run_policy_v3_1/v3_2 adds strict versioned graph observations; default stays legacy-compatible.
+    """
+    graph_kind = kind in (RunPolicyV3.KIND, RunPolicyV3Attention.KIND)
     B = len(items)
     C = max(len(s["deck"]) for s, _ in items)
     R = max(max(len(s["relics"]) for s, _ in items), 1)
     P = max(max(len(s["potions"]) for s, _ in items), 1)
     K = max(max(len(o) for _, o in items), 1)
-    M = max(max(len(s["map"]["paths"]) for s, _ in items), 1)
+    M = 1 if graph_kind else max(max(len(s["map"]["paths"]) for s, _ in items), 1)
     f, i64 = np.float32, np.int64
     card = np.zeros((3, B, C), f); card_mask = np.zeros((B, C), f)
     relic_id = np.zeros((B, R), i64); relic_data = np.zeros((B, R), f); relic_mask = np.zeros((B, R), f)
@@ -134,16 +141,20 @@ def encode(items, boss_names, device="cpu"):
         boss[i] = BOSSES[s.get("boss", name)]  # a state's own boss (multi-act worker) wins over the caller's
         hp, mx = s["hp"], max(s["max_hp"], 1)
         scalars[i] = (hp / 100, mx / 100, hp / mx, s["gold"] / 100, s["floor"] / 17, s["potion_capacity"] / 5)
-        paths = s["map"]["paths"]
+        paths = [] if graph_kind else s["map"]["paths"]
         for j, q in enumerate(paths):
             path_room[i, j] = [ROOM.get(ch, NONE) for ch in q["rooms"]]
         path_mask[i, :max(len(paths), 1)] = 1  # no paths left: one empty path (all NONE) so the max-pool is defined
     t = lambda a: torch.from_numpy(a).to(device)
-    return {"card_id": t(card[0].astype(i64)), "card_up": t(card[1]), "card_misc": t(card[2]), "card_mask": t(card_mask),
+    batch = {"card_id": t(card[0].astype(i64)), "card_up": t(card[1]), "card_misc": t(card[2]), "card_mask": t(card_mask),
             "relic_id": t(relic_id), "relic_data": t(relic_data), "relic_mask": t(relic_mask),
             "potion_id": t(potion_id), "potion_mask": t(potion_mask),
             "opt_id": t(opt[0].astype(i64)), "opt_up": t(opt[1]), "opt_misc": t(opt[2]), "opt_mask": t(opt_mask),
             "boss": t(boss), "scalars": t(scalars), "path_room": t(path_room), "path_mask": t(path_mask)}
+    if graph_kind:
+        from .graph_encoding import encode_graph
+        batch.update(encode_graph(items, device))
+    return batch
 
 
 def columns(options_list, choices, K):
@@ -157,7 +168,9 @@ def node_values(model, run, device="cpu"):
     ns = nodes(run)
     if not ns:
         return []
-    b = encode([(s, o) for s, o, _ in ns], node_bosses(run), device)
+    if model.KIND in (RunPolicyV3.KIND, RunPolicyV3Attention.KIND):
+        return all_node_values(model, [run], device, chunk=64)[0]
+    b = encode([(s, o) for s, o, _ in ns], node_bosses(run), device, kind=model.KIND)
     K = b["opt_id"].shape[1]
     win = model(b)[0]
     col = columns(None, [c for _, _, c in ns], K).to(device)
@@ -167,11 +180,13 @@ def node_values(model, run, device="cpu"):
 @torch.no_grad()
 def all_node_values(model, runs, device="cpu", chunk=256):
     """node_values for many runs at once (batched): list of lists."""
+    if model.KIND in (RunPolicyV3.KIND, RunPolicyV3Attention.KIND):
+        chunk = min(chunk, 64)
     flat = [(s, o, c, b) for r in runs for (s, o, c), b in zip(nodes(r), node_bosses(r))]
     vals = []
     for i in range(0, len(flat), chunk):
         part = flat[i:i + chunk]
-        b = encode([(s, o) for s, o, _, _ in part], [x[3] for x in part], device)
+        b = encode([(s, o) for s, o, _, _ in part], [x[3] for x in part], device, kind=model.KIND)
         K = b["opt_id"].shape[1]
         col = torch.tensor([K if c is None else c for _, _, c, _ in part], device=device)
         vals += torch.sigmoid(model(b)[0].gather(1, col[:, None])).squeeze(1).tolist()

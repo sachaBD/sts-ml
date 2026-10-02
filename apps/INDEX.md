@@ -24,6 +24,7 @@ entry-point reference.
 | `gauntlet` | Evaluate card rewards on downstream elite/boss fights | `gauntlet_v1` |
 | `card_search` | Prototype model-based card-pick search | `search.py` |
 | `run_rl` | Research loop for real-run card-choice RL | `loop.py` |
+| `topology_report` | Offline selected-overworld architecture and interaction visualizations | `python -m apps.topology_report.generate` |
 | `export_save` | Export a stored fight as a Slay the Spire save | `export_save.py` |
 | `common` | Shared launcher, configuration, worker, and replay support | library only |
 

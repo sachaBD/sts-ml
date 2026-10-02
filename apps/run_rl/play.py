@@ -10,7 +10,7 @@ Optional --combat-out records replay-verified combat_v4 facts; --overworld-recor
 
 policy simple: SimpleAgent's pick.  random: uniform over cards + skip.  net: argmax after-state value of --ckpt.
 eps: with probability eps pick uniformly at random instead (exploration). The choice's source is logged.
-Writes DIR/runs.jsonl (one run per line; map nodes dropped) and DIR/summary.json.
+Writes DIR/runs.jsonl (one run per line; versioned graph observations retained) and DIR/summary.json.
 """
 import argparse
 import json
@@ -35,7 +35,10 @@ from apps.run_rl.records import write_combat, write_overworld
 
 def strip(state):
     state = dict(state)
-    state["map"] = {k: v for k, v in state["map"].items() if k != "nodes"}
+    # v3 needs graph connectivity in both training records and inference. Legacy records
+    # may still use the compact path-only representation.
+    if state.get("overworld", {}).get("version") != 1:
+        state["map"] = {k: v for k, v in state["map"].items() if k != "nodes"}
     return state
 
 
@@ -116,11 +119,11 @@ def main():
     ap.add_argument("--ckpt")
     ap.add_argument("--eps", type=float, default=0.0)
     ap.add_argument("--sims", default="500,2000,5000,5000,15000")
-    ap.add_argument("--max-act", type=int, default=1, help="play until this act's boss is beaten (or death)")
+    ap.add_argument("--max-act", type=int, choices=[1, 2, 3, 4], default=1, help="4 = all acts plus Heart, with real key requirements")
     ap.add_argument("--rest-lookahead", help="K,S: decide rest vs the greedy choice by K sampled plays to the next fight "
                     "(fight sims x S); off by default")
     ap.add_argument("--route-p", type=float, default=0.0, help="fraction of runs (by seed) taking uniform random paths")
-    ap.add_argument("--target", choices=["act1", "floors", "floors3"], default="act1", help="scoring of lookahead terminals")
+    ap.add_argument("--target", choices=["act1", "floors", "floors3", "heart"], default="act1", help="heart = actual Heart defeat, not Act 3 clear")
     ap.add_argument("--decide", nargs="*", default=[], choices=["rest", "path", "shop", "neow", "event", "boss_relic"],
                     help="decisions besides card picks made by the policy (else SimpleAgent)")
     ap.add_argument("--samples", type=int, default=8, help="lookahead samples per event / Neow option")

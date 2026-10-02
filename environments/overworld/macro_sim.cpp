@@ -1,6 +1,7 @@
 #include "environments/overworld/macro_sim.hpp"
 
 #include "environments/overworld/game_state.hpp"
+#include "environments/overworld/observation.hpp"
 #include "sim/search/SimpleAgent.h"
 
 #include <algorithm>
@@ -104,6 +105,7 @@ nlohmann::json state_json(const sts::GameContext& gc) {
     j["act"] = gc.act;
     j["boss"] = game_state::lower(sts::monsterEncounterEnumNames[static_cast<int>(gc.boss)]);
     j["map"] = map_json(gc);
+    j["overworld"] = stsrl::overworld::observation_json(gc);
     return j;
 }
 

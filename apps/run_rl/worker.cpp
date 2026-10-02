@@ -3,7 +3,7 @@
 // SimpleAgent plays everything out of combat EXCEPT card rewards, which are asked of Python.
 //
 // Python -> worker, one line per run:
-//   {"seed": S, "ascension": A, "max_act": 1 | 2 | 3, "simulations": {easy, hard, elite, event, boss}}
+//   {"seed": S, "ascension": A, "max_act": 1 | 2 | 3 | 4, "simulations": {easy, hard, elite, event, boss}}
 // worker -> Python, at every card reward (answered by one line {"choice": i}; i = len(options) means skip):
 //   {"type": "pick", "state": macro_sim::state_json, "boss": name, "options": [card...], "simple": i}
 //   simple = SimpleAgent's choice for this reward (the baseline policy).
@@ -20,7 +20,7 @@
 // as {"type": "decide", "decision", "state", "options": [label...], "after": [state...], "simple": i}: one AFTER-STATE
 // per option, computed exactly on a copy of the game. Reply {"choice": i}; -1 = let SimpleAgent decide (only sent
 // back when "simple" is -1, i.e. SimpleAgent did something outside the option list).
-//   rest: options rest / smith <card> (one per distinct resulting deck) / lift (Girya). Recall, dig, toke: never offered.
+//   rest: options rest / smith <card> / lift (Girya); Heart mode also offers recall. Dig/toke: not offered.
 //   shop: options leave / buy card i / buy potion i (free slot) / buy relic i / remove <card> (one per distinct deck).
 //         Asked again after every purchase until leave. Card / potion / removal after-states are computed on a copy
 //         (deterministic); a relic's is BUILT (relic added, gold paid), since some relics roll on pickup (no peeking).
@@ -98,8 +98,7 @@ std::string category(const GameContext& game, sts::MonsterEncounter encounter) {
 }
 
 Json card_json(const sts::Card& c) {
-    return {{"card_id", static_cast<int>(c.id)}, {"upgraded", c.getUpgraded()}, {"misc", c.misc},
-            {"name", lower(sts::cardEnumStrings[static_cast<int>(c.id)])}};
+    return stsrl::game_state::card(c);
 }
 
 // A card-reward decision is pending: SimpleAgent would take potions / relics / keys first (as card_search).
@@ -272,7 +271,7 @@ std::uint64_t mix(std::uint64_t a, std::uint64_t b) {
 
 Json slim_state(const GameContext& gc) {
     auto s = stsrl::macro_sim::state_json(gc);
-    s["map"].erase("nodes");
+    // New graph policies need connectivity even inside hypothetical sampled ends.
     return s;
 }
 
@@ -323,6 +322,20 @@ struct Player {
         if (++ticks > 20000) throw std::runtime_error{screen_error("step limit exceeded")};
         if (bosses.size() < static_cast<std::size_t>(gc.act)) bosses.push_back(encounter_name(gc.boss));
         if (gc.screenState == sts::ScreenState::BATTLE) return fight();
+        // Conservative Heart-mode key fallback. Emerald still requires routing to a burning elite.
+        // Never give keys for free. Sapphire consumes its competing chest relic reward.
+        if (ctx.max_act == 4 && gc.screenState == sts::ScreenState::REWARDS &&
+            gc.info.rewardsContainer.sapphireKey && !gc.blueKey) {
+            sts::search::GameAction(sts::search::GameAction::RewardsActionType::KEY).execute(gc);
+            log({{"kind", "key"}, {"decision", "sapphire"}, {"state", stsrl::macro_sim::state_json(gc)}});
+            return;
+        }
+        if (ctx.max_act == 4 && !ctx.decide.count("rest") && gc.act == 3 && gc.curMapNodeY == 14 &&
+            gc.screenState == sts::ScreenState::REST_ROOM && !gc.redKey) {
+            sts::search::GameAction(2).execute(gc);
+            log({{"kind", "key"}, {"decision", "ruby"}, {"state", stsrl::macro_sim::state_json(gc)}});
+            return;
+        }
         if (card_decision(gc)) return card_pick();
         if (gc.screenState == sts::ScreenState::CARD_SELECT &&
             gc.info.selectScreenType == sts::CardSelectScreenType::OBTAIN) return obtain_pick();
@@ -524,9 +537,12 @@ struct Player {
             p.step();
         }
         if (p.boss_beaten || c.act > ctx.max_act)
-            return {{"terminal", "cleared"}, {"floor", c.floorNum}, {"act", c.act}, {"acts_cleared", p.acts_cleared}};
+            return {{"terminal", "cleared"}, {"floor", c.floorNum}, {"act", c.act}, {"acts_cleared", p.acts_cleared},
+                    {"heart_cleared", ctx.max_act == 4 && p.boss_beaten}};
         if (c.outcome == sts::GameOutcome::PLAYER_LOSS)
             return {{"terminal", "died"}, {"floor", c.floorNum}, {"act", c.act}, {"acts_cleared", p.acts_cleared}};
+        if (c.outcome == sts::GameOutcome::PLAYER_VICTORY)
+            return {{"terminal", "heart_locked"}, {"floor", c.floorNum}, {"acts_cleared", p.acts_cleared}, {"heart_cleared", false}};
         return {{"state", slim_state(c)}};
     }
 
@@ -547,9 +563,12 @@ struct Player {
             p.step();
         }
         if (p.boss_beaten || c.act > ctx.max_act)
-            return {{"terminal", "cleared"}, {"floor", c.floorNum}, {"act", c.act}, {"acts_cleared", p.acts_cleared}};
+            return {{"terminal", "cleared"}, {"floor", c.floorNum}, {"act", c.act}, {"acts_cleared", p.acts_cleared},
+                    {"heart_cleared", ctx.max_act == 4 && p.boss_beaten}};
         if (c.outcome == sts::GameOutcome::PLAYER_LOSS)
             return {{"terminal", "died"}, {"floor", c.floorNum}, {"act", c.act}, {"acts_cleared", p.acts_cleared}};
+        if (c.outcome == sts::GameOutcome::PLAYER_VICTORY)
+            return {{"terminal", "heart_locked"}, {"floor", c.floorNum}, {"acts_cleared", p.acts_cleared}, {"heart_cleared", false}};
         return {{"state", slim_state(c)}};
     }
 
@@ -641,7 +660,7 @@ struct Player {
         int simple = -1;
         if (rest) {
             std::vector<std::string> keys;
-            options = rest_options(gc, keys);
+            options = rest_options(gc, keys, ctx.max_act == 4);
             const auto k = outcome_key(copy);
             for (int i = 0; i < static_cast<int>(keys.size()); ++i)
                 if (keys[static_cast<std::size_t>(i)] == k) simple = i;
@@ -656,6 +675,7 @@ struct Player {
                     for (const auto& fx : p["first_xs"])
                         if (fx.get<int>() == x) { kept.push_back(p); break; }
                 after["map"]["paths"] = kept;
+                after["map"]["next_xs"] = Json::array({x}); // graph after-state commits this first edge
                 std::string room = "?";
                 const int y = gc.curMapNodeY + 1;
                 if (y < 15) room = std::string(1, sts::getRoomSymbol(gc.map->getNode(x, y).room));
@@ -701,7 +721,7 @@ Json play_run(const Json& job) {
     Ctx ctx;
     ctx.seed = seed;
     ctx.max_act = job.value("max_act", 1);
-    if (ctx.max_act < 1 || ctx.max_act > 3) throw std::invalid_argument{"max_act must be 1, 2 or 3"};
+    if (ctx.max_act < 1 || ctx.max_act > 4) throw std::invalid_argument{"max_act must be 1, 2, 3 or 4 (Heart)"};
     for (const auto& d : job.value("decide", Json::array())) {
         const auto name = d.get<std::string>();
         if (name != "rest" && name != "path" && name != "shop" && name != "neow" && name != "event" && name != "boss_relic")
@@ -734,7 +754,9 @@ Json play_run(const Json& job) {
     while (!player.done()) player.step();
     const double seconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
     return {{"type", "done"}, {"run_key", job.value("collection_id", std::string{"legacy"}) + ":" + std::to_string(seed)}, {"seed", seed}, {"boss", encounter_name(gc.boss)},
-            {"status", player.boss_beaten || gc.act > ctx.max_act ? "act_complete" : "died"},
+            {"status", player.boss_beaten || gc.act > ctx.max_act ? "act_complete" :
+                ctx.max_act == 4 && gc.outcome == sts::GameOutcome::PLAYER_VICTORY ? "heart_locked" : "died"},
+            {"heart_cleared", ctx.max_act == 4 && player.boss_beaten},
             {"act", gc.act}, {"acts_cleared", player.acts_cleared}, {"bosses", player.bosses},
             {"floor", gc.floorNum}, {"fights", player.fights},
             {"final_hp", gc.curHp}, {"seconds", seconds}, {"steps", steps}, {"combat_records", combat_records}};

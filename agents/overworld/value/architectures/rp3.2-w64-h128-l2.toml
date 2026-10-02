@@ -1,0 +1,9 @@
+# Identical graph topology + one card/relic/global attention layer. Freeze once trained.
+kind = "run_policy_v3_2"
+
+[args]
+width = 64
+hidden = 128
+depth = 2
+dropout = 0.1
+heads = 4

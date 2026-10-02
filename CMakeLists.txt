@@ -178,3 +178,9 @@ add_executable(battle_snapshot_test environments/combat/battle_snapshot_test.cpp
 target_link_libraries(battle_snapshot_test PRIVATE combat_core)
 target_compile_features(battle_snapshot_test PRIVATE cxx_std_23)
 add_test(NAME battle_snapshot_test COMMAND battle_snapshot_test)
+
+# Public/history-reconstructible input contract for the new overworld graph topology.
+add_executable(overworld_observation_test environments/overworld/observation_test.cpp)
+target_link_libraries(overworld_observation_test PRIVATE macro_sim)
+target_compile_options(overworld_observation_test PRIVATE -Wall -Wextra -Wpedantic)
+add_test(NAME overworld_observation_test COMMAND overworld_observation_test)

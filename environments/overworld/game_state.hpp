@@ -19,11 +19,19 @@ inline std::string lower(std::string s) {
     return s;
 }
 
+inline Json card(const sts::Card& c) {
+    return {{"card_id", static_cast<int>(c.id)}, {"upgraded", c.getUpgraded()}, {"misc", c.misc},
+            {"name", lower(sts::cardEnumStrings[static_cast<int>(c.id)])},
+            {"mechanics", {{"type", static_cast<int>(c.getType())}, {"rarity", static_cast<int>(c.getRarity())},
+                           {"cost", sts::getEnergyCost(c.id, c.upgraded)}, {"base_damage", c.getBaseDamage()},
+                           {"innate", c.isInnate()}, {"ethereal", sts::isCardEthereal(c.id, c.upgraded)},
+                           {"exhaust", sts::doesCardExhaust(c.id, c.upgraded)},
+                           {"self_retain", sts::doesCardSelfRetain(c.id, c.upgraded)}, {"x_cost", sts::isXCost(c.id)}}}};
+}
+
 inline Json state(const sts::GameContext& g) {
     Json deck = Json::array(), relics = Json::array(), potions = Json::array();
-    for (const auto& c : g.deck.cards)
-        deck.push_back({{"card_id", static_cast<int>(c.id)}, {"upgraded", c.getUpgraded()}, {"misc", c.misc},
-                        {"name", lower(sts::cardEnumStrings[static_cast<int>(c.id)])}});
+    for (const auto& c : g.deck.cards) deck.push_back(card(c));
     for (const auto& r : g.relics.relics)
         relics.push_back({{"relic_id", static_cast<int>(r.id)}, {"data", r.data},
                           {"name", lower(sts::relicEnumNames[static_cast<int>(r.id)])}});
