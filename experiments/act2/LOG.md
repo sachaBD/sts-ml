@@ -72,3 +72,12 @@
 - Dev trajectory (act2 clear): r00 10.7% → 13.5% → 16.2% → 21.8%; act1 93.7% → 85.8% → 84.8% → 85.2%.
 - Plan: fresh 800-seed final (selected vs r00) running; then continuation controller (launch2.sh: one more round,
   eps 0.05 / route_p 0.15, window r01–r03, dev evals reused by model name).
+
+## 15:45 — fresh final + diagnosis
+- FRESH (800 seeds 980000000000+, never trained/selected): act2-r02-train vs r00: act2 21.0% vs 10.75%
+  (+10.25 ± 1.69 pp), act1 83.9% vs 91.6% (−7.75 ± 1.47 pp), score +0.048 ± 0.010, floor +1.89 ± 0.28.
+- Act-1 regression diagnosis: HP entering act-1 boss 69.2 → 58.7. Floor-15 campfire: smith 704/776 (initial
+  526/777). Smithing at 0–40% HP: 49 runs, boss win ~45% (vs 94% at 80–100% HP). Value net too coarse on HP vs
+  upgrade. Decision: fix by search (rest lookahead to the next fight, MCTS on sampled futures) rather than a rule;
+  impl-10-2 implementing behind a flag (play.py --rest-lookahead K,S). A/B next.
+- Continuation controller (launch2.sh) started 15:41 by orch.

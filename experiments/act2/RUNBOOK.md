@@ -30,3 +30,12 @@
 2026-10-02T14:41:55+00:00 DONE act2-dev-act2-r02-train
 2026-10-02T14:42:01+00:00 GATE {"candidate": {"n": 600, "score": 0.5927979797979799, "act1": 0.8516666666666667, "act2": 0.21833333333333332, "floor": 27.648333333333333}, "incumbent": {"n": 600, "score": 0.5668989898989899, "act1": 0.8483333333333334, "act2": 0.16166666666666665, "floor": 27.436666666666667}, "score_diff": 0.025898989898989894, "score_se": 0.010633039440392521, "act1_diff": 0.0033333333333333335, "act1_se": 0.015468327391507303, "act2_diff": 0.056666666666666664, "act2_se": 0.017179640515113493, "floor_diff": 0.21166666666666667, "floor_se": 0.3086497346352495, "name": "round 2", "promoted": true}
 2026-10-02T14:42:01+00:00 START act2-fresh-final
+2026-10-02T15:14:08+00:00 DONE act2-fresh-final
+2026-10-02T15:14:10+00:00 START act2-fresh-initial
+2026-10-02T15:40:35+00:00 DONE act2-fresh-initial
+2026-10-02T15:40:44+00:00 FRESH {"candidate": {"n": 800, "score": 0.5869166666666668, "act1": 0.83875, "act2": 0.21, "floor": 27.65125}, "incumbent": {"n": 800, "score": 0.5385075757575758, "act1": 0.91625, "act2": 0.1075, "floor": 25.76125}, "score_diff": 0.048409090909090915, "score_se": 0.00993390455795844, "act1_diff": -0.0775, "act1_se": 0.014650443059932194, "act2_diff": 0.1025, "act2_se": 0.016855186416543145, "floor_diff": 1.89, "floor_se": 0.27961152203381673, "name": "FRESH selected vs initial"}
+
+2026-10-02T15:40:45Z SRE FINISH act2-controller exit=0
+
+2026-10-02T15:41:12Z SRE LAUNCH act2b-controller pid=1245718 via nohup experiments/act2/launch2.sh; expected ~3.3 h; launcher log experiments/act2/controller2.launcher.log
+2026-10-02T15:41:13+00:00 START act2b-r03-collect

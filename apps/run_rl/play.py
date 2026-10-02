@@ -49,7 +49,7 @@ def worker_loop(worker, seeds, lock, policy, sims, decide, lookahead, out, stats
                 return
             proc.stdin.write(json.dumps({"seed": seed, "ascension": 20, "simulations": sims, "decide": decide,
                                          "lookahead_samples": lookahead[0], "lookahead_horizon": lookahead[1],
-                                         "max_act": lookahead[2], **combat[0]}) + "\n")
+                                         "max_act": lookahead[2], **lookahead[3], **combat[0]}) + "\n")
             proc.stdin.flush()
             meta = []
             while True:
@@ -113,6 +113,8 @@ def main():
     ap.add_argument("--eps", type=float, default=0.0)
     ap.add_argument("--sims", default="500,2000,5000,5000,15000")
     ap.add_argument("--max-act", type=int, default=1, help="play until this act's boss is beaten (or death)")
+    ap.add_argument("--rest-lookahead", help="K,S: decide rest vs the greedy choice by K sampled plays to the next fight "
+                    "(fight sims x S); off by default")
     ap.add_argument("--route-p", type=float, default=0.0, help="fraction of runs (by seed) taking uniform random paths")
     ap.add_argument("--target", choices=["act1", "floors", "floors3"], default="act1", help="scoring of lookahead terminals")
     ap.add_argument("--decide", nargs="*", default=[], choices=["rest", "path", "shop", "neow", "event", "boss_relic"],
@@ -139,6 +141,10 @@ def main():
     if a.combat_weights:
         combat_job["combat_weights"] = a.combat_weights
     torch.set_num_threads(1)
+    extra = {}
+    if a.rest_lookahead:
+        k, scale = a.rest_lookahead.split(",")
+        extra["rest_lookahead"] = {"samples": int(k), "sims_scale": float(scale)}
     sims = dict(zip(["easy", "hard", "elite", "event", "boss"], map(int, a.sims.split(","))))
     out_dir = Path(a.out)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -163,7 +169,7 @@ def main():
     lock = threading.Lock()
     t0 = time.monotonic()
     with open(out_dir / "runs.jsonl", "a") as out:
-        threads = [threading.Thread(target=worker_loop, args=(a.worker, seeds, lock, policy, sims, a.decide, (a.samples, a.horizon, a.max_act), out, stats, (combat_job, combat_dir, out_dir if a.overworld_record else None)))
+        threads = [threading.Thread(target=worker_loop, args=(a.worker, seeds, lock, policy, sims, a.decide, (a.samples, a.horizon, a.max_act, extra), out, stats, (combat_job, combat_dir, out_dir if a.overworld_record else None)))
                    for _ in range(a.workers)]
         for t in threads:
             t.start()
