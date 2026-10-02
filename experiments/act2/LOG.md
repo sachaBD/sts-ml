@@ -55,3 +55,13 @@
   act2-r00-train 0.20 (act1 nodes 0.09, act2 0.32); v1 lr 3e-4 0.22; v1 from scratch 0.23 (act1 0.10, act2 0.39).
   v2 val BCE no better (0.6804 vs 0.6775 v1); v2 checkpoint reload is broken (state-dict key mismatch) — not used.
   Outcome noise dominates; the early-stop at epoch 1–2 says data-limited. More data/TD is the lever, not capacity.
+- Exploration cost (r00-collect, 3000 runs): random-route runs (n=750) score 0.418 ± 0.008, act1 70%, act2 4.5%,
+  2.18 elites/run; policy-route runs (n=2250) 0.501 ± 0.004, act1 88%, act2 5.8%, 1.05 elites. Greedy dev play of
+  the same model: act2 10.7%. Per-decision eps 0.1 over ~35 decisions/run is heavy; MC targets inherit that bias
+  (TD λ=0.7 from round 1 partly corrects). Next session: eps ~0.05, route_p ~0.15.
+
+## 12:35 — round 1 gate: real progress
+- act2-r01-train (TD λ=0.7 bootstrapped from act2-r00-train, data r00+r01 collections, 6000 runs) vs act2-r00-train,
+  600 paired dev seeds: **score +0.022 ± 0.011, mean floor +1.11 ± 0.31**, act2 clear 16.2% vs 13.5%
+  (+2.7 ± 1.8 pp), act1 84.8% vs 85.8% (−1.0 ± 1.6 pp). Promoted.
+- Cumulative vs the starting model (same dev seeds, not paired-tested directly): act2 10.7% → 16.2%, act1 93.7% → 84.8%.
