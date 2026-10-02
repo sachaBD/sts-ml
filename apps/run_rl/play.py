@@ -65,9 +65,13 @@ def worker_loop(worker, seeds, lock, policy, sims, decide, lookahead, out, stats
                     proc.stdin.flush()
                 elif msg["type"] in ("decide", "evaluate"):
                     choice, source, vals = (policy.evaluate if msg["type"] == "evaluate" else policy.decide)(msg)
-                    if choice >= 0 and not msg.get("lookahead"):
+                    if msg.get("decision") == "rest_lookahead" and not msg.get("lookahead"):
+                        # refines the pending rest decide just asked: one logged step, so replace its annotation
+                        meta[-1] = {"source": "rest_lookahead", "values": vals, "greedy": meta[-1]}
+                    elif choice >= 0 and not msg.get("lookahead"):
                         meta.append({"source": source, "values": vals})
-                    proc.stdin.write(json.dumps({"choice": choice}) + "\n")
+                    # values: V per option when the net chose greedily (rest lookahead refines only those), else null
+                    proc.stdin.write(json.dumps({"choice": choice, "values": vals if source == "net" else None}) + "\n")
                     proc.stdin.flush()
                 elif msg["type"] == "done":
                     break

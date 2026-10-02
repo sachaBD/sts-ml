@@ -34,6 +34,10 @@
 //         event steps are one-step after-states ("event_inner", exact in that hypothetical world). Not decided (hidden
 //         pre-rolled state a copy would reveal): Dead Adventurer, Match and Keep. Every message
 //         carries "lookahead": true inside a sample (Python answers greedily and logs nothing).
+//   rest_lookahead: optional job {samples: 4, sims_scale: 0.25}. Real rest decides with both kinds available
+//         carry lookahead_pending=true. With non-null option-aligned reply values, compare rest vs the greedy
+//         smith/lift via evaluate/rest_lookahead after fresh-random samples through the next fight and first map.
+//         Pair indices: 0=rest, 1=non-rest; samples use scaled combat budgets (minimum 100), never recurse.
 //   boss_relic: each offered relic + skip, with fresh-randomness after-states and SimpleAgent pickup follow-ups.
 //   OBTAIN card selects (The Library) use pick with skip_allowed=false; ordinary/event REWARDS allow skip.
 //   All asks carry the real seed, including inside lookahead samples. All logged steps carry their act's boss.
@@ -56,8 +60,10 @@
 #include <random>
 #include <cctype>
 #include <cstdint>
+#include <cmath>
 #include <iostream>
 #include <map>
+#include <limits>
 #include <memory>
 #include <set>
 #include <vector>
@@ -273,6 +279,8 @@ Json slim_state(const GameContext& gc) {
 struct Ctx {
     std::set<std::string> decide;
     FightModel fight;
+    FightModel rest_fight;  // scaled fight budgets, used only in rest lookahead samples
+    int rest_samples = 0;   // absent rest_lookahead keeps the protocol and policy unchanged
     bool sample = false;  // inside a lookahead sample: nothing logged, asks are greedy, nested events one-step
     int max_act = 1;
     std::uint64_t seed = 0;  // real seed, also in hypothetical samples
@@ -522,6 +530,62 @@ struct Player {
         return {{"state", slim_state(c)}};
     }
 
+    // Apply a campfire option, then resolve the next fight and its follow-up screens. A boss can
+    // lead through rewards/relic pickup into the next act; stop at that first map, not at a floor cutoff.
+    Json rest_sample(const Option& option, std::uint64_t salt) {
+        GameContext c = gc;
+        stsrl::macro_sim::detach_map(c);
+        fresh_randomness(c, salt);
+        Ctx sub = ctx;
+        sub.sample = true;
+        sub.fight = ctx.rest_fight;
+        Player p{c, agent, sub, nullptr};
+        p.acts_cleared = acts_cleared;
+        for (int bits : option.actions) sts::search::GameAction(bits).execute(c);
+        while (!p.done()) {
+            if (p.fights > 0 && c.screenState == sts::ScreenState::MAP_SCREEN) break;
+            p.step();
+        }
+        if (p.boss_beaten || c.act > ctx.max_act)
+            return {{"terminal", "cleared"}, {"floor", c.floorNum}, {"act", c.act}, {"acts_cleared", p.acts_cleared}};
+        if (c.outcome == sts::GameOutcome::PLAYER_LOSS)
+            return {{"terminal", "died"}, {"floor", c.floorNum}, {"act", c.act}, {"acts_cleared", p.acts_cleared}};
+        return {{"state", slim_state(c)}};
+    }
+
+    int refine_rest(const std::vector<Option>& options, int rest_idx, int choice, const Json& values, Json& trace) {
+        // Exploration/simple replies have null values: do not override their chosen action.
+        if (values.is_null()) return choice;
+        if (!values.is_array() || values.size() != options.size())
+            throw std::invalid_argument{"rest lookahead requires option-aligned values"};
+        int non_rest = choice == rest_idx ? -1 : choice;
+        if (non_rest < 0) {
+            for (int i = 0; i < static_cast<int>(options.size()); ++i) {
+                const auto action = options[i].label.value("action", std::string{});
+                if (action != "smith" && action != "lift") continue;
+                if (non_rest < 0 || values[i].get<double>() > values[non_rest].get<double>()) non_rest = i;
+            }
+        }
+        if (non_rest < 0) return choice;
+        const std::vector<int> pair{rest_idx, non_rest};
+        Json labels = Json::array(), ends = Json::array();
+        const auto nonce = mix(ctx.seed, static_cast<std::uint64_t>(gc.floorNum));
+        for (int idx : pair) {
+            labels.push_back(options[idx].label);
+            Json per = Json::array();
+            for (int k = 0; k < ctx.rest_samples; ++k)
+                per.push_back(rest_sample(options[idx], mix(nonce, static_cast<std::uint64_t>(k))));
+            ends.push_back(std::move(per));
+        }
+        const auto reply = ask(ctx, {{"type", "evaluate"}, {"decision", "rest_lookahead"},
+            {"state", slim_state(gc)}, {"boss", encounter_name(gc.boss)}, {"options", labels},
+            {"ends", ends}, {"simple", choice == rest_idx ? 0 : 1}});
+        const int selected = reply.at("choice").get<int>();
+        if (selected < 0 || selected > 1) throw std::invalid_argument{"bad rest lookahead choice"};
+        trace = {{"options", pair}, {"values", reply.value("values", Json{})}};
+        return pair[selected];
+    }
+
     void shop() {
         // SimpleAgent's own next action(s) on a copy: one purchase, or removal + its card select.
         GameContext copy = gc;
@@ -603,15 +667,30 @@ struct Player {
         Json labels = Json::array(), afters = Json::array();
         for (const auto& o : options) { labels.push_back(o.label); afters.push_back(o.after); }
         const char* kind = rest ? "rest" : "path";
-        const auto reply = ask(ctx, {{"type", "decide"}, {"decision", kind}, {"state", stsrl::macro_sim::state_json(gc)},
-                                     {"boss", encounter_name(gc.boss)}, {"options", labels}, {"after", afters},
-                                     {"simple", simple}});
-        const int choice = reply.at("choice").get<int>();
+        int rest_idx = -1;
+        bool non_rest = false;
+        if (rest && !ctx.sample && ctx.rest_samples > 0) {
+            for (int i = 0; i < static_cast<int>(options.size()); ++i) {
+                const auto action = options[i].label.value("action", std::string{});
+                if (action == "rest") rest_idx = i;
+                if (action == "smith" || action == "lift") non_rest = true;
+            }
+        }
+        Json message = {{"type", "decide"}, {"decision", kind}, {"state", stsrl::macro_sim::state_json(gc)},
+                        {"boss", encounter_name(gc.boss)}, {"options", labels}, {"after", afters}, {"simple", simple}};
+        const bool pending = rest_idx >= 0 && non_rest;
+        if (pending) message["lookahead_pending"] = true;
+        const auto reply = ask(ctx, std::move(message));
+        int choice = reply.at("choice").get<int>();
         if (choice < -1 || choice >= static_cast<int>(options.size())) throw std::invalid_argument{"bad choice"};
         if (choice < 0) return false;
+        Json trace;
+        if (pending) choice = refine_rest(options, rest_idx, choice, reply.value("values", Json{}), trace);
         for (int a : options[static_cast<std::size_t>(choice)].actions) sts::search::GameAction(a).execute(gc);
-        log({{"kind", "decide"}, {"decision", kind}, {"options", labels}, {"choice", choice}, {"simple", simple},
-             {"after", options[static_cast<std::size_t>(choice)].after}});
+        Json step = {{"kind", "decide"}, {"decision", kind}, {"options", labels}, {"choice", choice}, {"simple", simple},
+                     {"after", options[static_cast<std::size_t>(choice)].after}};
+        if (!trace.is_null()) step["lookahead"] = std::move(trace);
+        log(std::move(step));
         return true;
     }
 };
@@ -631,6 +710,21 @@ Json play_run(const Json& job) {
     }
     std::vector<Json> combat_records;
     ctx.fight = mcts_fight_model(job.at("simulations"), job, combat_records);
+    if (job.contains("rest_lookahead")) {
+        const auto& config = job.at("rest_lookahead");
+        ctx.rest_samples = config.value("samples", 4);
+        const double scale = config.value("sims_scale", 0.25);
+        if (ctx.rest_samples < 1 || !std::isfinite(scale) || scale <= 0)
+            throw std::invalid_argument{"rest_lookahead requires positive samples and finite positive sims_scale"};
+        auto sims = job.at("simulations");
+        for (auto& budget : sims.items()) {
+            const double scaled = budget.value().get<std::int64_t>() * scale;
+            if (!std::isfinite(scaled) || scaled >= static_cast<double>(std::numeric_limits<std::int64_t>::max()))
+                throw std::invalid_argument{"rest_lookahead scaled simulations overflow"};
+            budget.value() = std::max<std::int64_t>(100, static_cast<std::int64_t>(scaled));
+        }
+        ctx.rest_fight = mcts_fight_model(sims, job, combat_records);
+    }
     ctx.samples = job.value("lookahead_samples", 8);
     ctx.horizon = job.value("lookahead_horizon", 0);
     GameContext gc{sts::CharacterClass::IRONCLAD, seed, job.at("ascension").get<int>()};

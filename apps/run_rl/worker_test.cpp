@@ -83,6 +83,68 @@ void boss_after_states() {
     }
     require(steps[0].contains("boss") && steps[0].contains("after"), "boss step logged");
 }
+void rest_lookahead_protocol() {
+    GameContext gc{sts::CharacterClass::IRONCLAD, 42, 0};
+    gc.curMapNodeY = 14;
+    gc.curMapNodeX = 0;
+    gc.floorNum = 15;
+    gc.curHp = 20;
+    gc.curRoom = sts::Room::REST;
+    gc.screenState = sts::ScreenState::REST_ROOM;
+    gc.regainControlAction = [](GameContext& g) { g.screenState = sts::ScreenState::MAP_SCREEN; };
+    const auto live_map = stsrl::macro_sim::map_json(gc);
+    auto ctx = context();
+    ctx.decide = {"rest", "boss_relic"};
+    ctx.rest_samples = 2;
+    int sample_fights = 0;
+    ctx.rest_fight = [&sample_fights](GameContext& g, bool sample, int) {
+        require(sample, "scaled fight must run only in samples");
+        ++sample_fights;
+        const int hp = g.curHp;
+        stsrl::macro_sim::apply_battle_result(g, {true, 30, 0, 0, {}});
+        return FightRecord{"test", "boss", hp, true, "test"};
+    };
+    std::vector<std::string> keys;
+    const auto options = rest_options(gc, keys);
+    Json values = Json::array();
+    for (std::size_t i = 0; i < options.size(); ++i) values.push_back(i == 1 ? 0.9 : 0.1);
+    std::string replies = Json{{"choice", 0}, {"values", values}}.dump() + "\n";
+    for (int i = 0; i < 50; ++i) replies += "{\"choice\":0,\"values\":[0.6,0.4]}\n";
+    Json steps = Json::array();
+    Player p{gc, {}, ctx, &steps};
+    Protocol protocol{replies};
+    require(p.rest_or_path(true), "rest decision handled");
+    std::istringstream messages{protocol.output.str()};
+    std::string line;
+    Json evaluate;
+    int pending = 0, sample_boss_choices = 0;
+    while (std::getline(messages, line)) {
+        const auto m = Json::parse(line);
+        require(m["seed"] == 42, "rest samples retain real run seed");
+        pending += m.value("lookahead_pending", false);
+        if (m.value("decision", std::string{}) == "boss_relic") {
+            require(m["lookahead"] == true, "sample boss relic asks must be greedy");
+            ++sample_boss_choices;
+        }
+        if (m.value("decision", std::string{}) == "rest_lookahead") evaluate = m;
+    }
+    require(pending == 1 && sample_fights == 4, "two options times two samples; no recursive refinement");
+    require(sample_boss_choices == 4, "samples resolve boss rewards/relic and cross act");
+    require(evaluate["options"].size() == 2 && evaluate["ends"].size() == 2, "rest evaluate pair shape");
+    require(evaluate["simple"] == 0 && evaluate["lookahead"] == false, "initial rest maps to pair zero");
+    for (const auto& per : evaluate["ends"]) {
+        require(per.size() == 2, "sample count");
+        for (const auto& end : per)
+            require(end["state"]["act"] == 2 && end["state"]["map"]["current"]["y"] == -1,
+                    "stop on first next-act map, before another fight");
+    }
+    require(gc.act == 1 && live_map == stsrl::macro_sim::map_json(gc), "rest branches leave live map unchanged");
+    require(steps[0]["lookahead"]["options"] == Json::array({0, 1}) && steps[0]["choice"] == 0,
+            "log executed original option and sampled values");
+    Json trace;
+    require(p.refine_rest(options, 0, 1, Json{}, trace) == 1 && trace.is_null(),
+            "null values preserve exploration/simple choice without refinement");
+}
 void obtain_and_sample_seed() {
     GameContext gc{sts::CharacterClass::IRONCLAD, 42, 0};
     gc.info.toSelectCards.clear();
@@ -107,5 +169,6 @@ int main() {
     stopping_and_guard();
     boss_after_states();
     obtain_and_sample_seed();
+    rest_lookahead_protocol();
     std::cout << "worker protocol tests passed\n";
 }

@@ -54,7 +54,8 @@ class Policy:
         with self.lock:
             if self.kind == "simple":
                 return max(msg["simple"], 0), "simple", None
-            if self.kind == "random" or (not msg.get("lookahead") and self.rng.random() < self.eps):
+            explore_ok = not msg.get("lookahead") and msg.get("decision") != "rest_lookahead"  # refines a greedy choice
+            if self.kind == "random" or (explore_ok and self.rng.random() < self.eps):
                 return self.rng.randrange(n), "explore", None
             flat = [(i, e) for i, ends in enumerate(msg["ends"]) for e in ends]
             states = [e["state"] for _, e in flat if "state" in e]

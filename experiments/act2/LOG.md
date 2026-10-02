@@ -81,3 +81,12 @@
   upgrade. Decision: fix by search (rest lookahead to the next fight, MCTS on sampled futures) rather than a rule;
   impl-10-2 implementing behind a flag (play.py --rest-lookahead K,S). A/B next.
 - Continuation controller (launch2.sh) started 15:41 by orch.
+
+## 16:00 — rest lookahead implemented (not yet evaluated)
+- Worker `rest_lookahead` {samples, sims_scale} (off by default; off = byte-identical output on 3 seeds). At a greedy
+  net rest decision: compare rest vs the best non-rest option by k sampled plays (common random numbers, fresh
+  randomness, map detached) through the next fight (+ rewards/boss relic) scored by V/terminals. Exploration
+  choices are never refined; Policy.evaluate does not re-explore. play.py --rest-lookahead K,S.
+- Cost (impl, n=5 seeds, SimpleAgent + synthetic V, serial under load): +40 ± 7 s/run (14.5 → 54.9 s), 4–9
+  refinements/run. Too expensive to switch on blind: A/B first (600 dev seeds ≈ 55 min on 10 workers), and consider
+  samples 2 or refining only when the next fight is a boss/elite.
