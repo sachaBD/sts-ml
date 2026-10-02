@@ -17,7 +17,7 @@ import torch
 import torch.nn.functional as F
 
 
-from agents.overworld.value.core import all_node_values, build_model, encode, load_model, node_bosses, nodes, read_runs, save_model, run_score, td_targets, LAST_FLOOR  # noqa: E402
+from agents.overworld.value.core import all_node_values, build_model, encode, load_model, node_bosses, nodes, read_runs, save_model, run_score, td_targets, LAST_FLOOR, LAST_FLOOR3  # noqa: E402
 
 
 def aux_targets(r, last_floor=16):
@@ -36,7 +36,7 @@ def build_examples(runs, weights, init, lam, progress, hp, device, target="act1"
             continue
         g = run_score(run, target, progress, hp)
         targets = [g] * len(ns) if values is None else td_targets(values[k], g, lam)
-        aux = aux_targets(run, 16 if target == "act1" else LAST_FLOOR)
+        aux = aux_targets(run, 16 if target == "act1" else LAST_FLOOR3 if target == "floors3" else LAST_FLOOR)
         ex += [(s, o, c, b, t, run["seed"], weights[k], aux) for (s, o, c), t, b in zip(ns, targets, node_bosses(run))]
     return ex
 
@@ -90,8 +90,8 @@ def main():
     ap.add_argument("--lam", type=float, default=0.7)
     ap.add_argument("--progress", type=float, default=0.25)
     ap.add_argument("--hp", type=float, default=0.0)
-    ap.add_argument("--target", choices=["act1", "floors"], default="act1",
-                    help="act1: Act-1 clear score (--progress/--hp); floors: core.floor_score (full game)")
+    ap.add_argument("--target", choices=["act1", "floors", "floors3"], default="act1",
+                    help="act1: clear score (--progress/--hp); floors: two-act floor score; floors3: three-act floor score")
     ap.add_argument("--epochs", type=int, default=30)
     ap.add_argument("--lr", type=float, default=1e-3)
     ap.add_argument("--seed", type=int, default=0)

@@ -3,7 +3,7 @@
 // SimpleAgent plays everything out of combat EXCEPT card rewards, which are asked of Python.
 //
 // Python -> worker, one line per run:
-//   {"seed": S, "ascension": A, "max_act": 1 | 2, "simulations": {easy, hard, elite, event, boss}}
+//   {"seed": S, "ascension": A, "max_act": 1 | 2 | 3, "simulations": {easy, hard, elite, event, boss}}
 // worker -> Python, at every card reward (answered by one line {"choice": i}; i = len(options) means skip):
 //   {"type": "pick", "state": macro_sim::state_json, "boss": name, "options": [card...], "simple": i}
 //   simple = SimpleAgent's choice for this reward (the baseline policy).
@@ -351,10 +351,12 @@ struct Player {
         const auto boss = encounter_name(gc.boss);
         const int act = gc.act;
         const bool boss_fight = gc.curRoom == sts::Room::BOSS;
+        // Ascension 20 act 3 has two consecutive bosses; the first win is not an act clear.
+        const bool final_boss = !(act == 3 && gc.ascension >= 20 && gc.info.encounter == gc.boss);
         const auto rec = ctx.fight(gc, ctx.sample, fights);
         ++fights;
-        if (boss_fight && rec.won) acts_cleared = std::max(acts_cleared, act);
-        boss_beaten = boss_fight && act == ctx.max_act && rec.won;
+        if (boss_fight && final_boss && rec.won) acts_cleared = std::max(acts_cleared, act);
+        boss_beaten = boss_fight && final_boss && act == ctx.max_act && rec.won;
         log({{"kind", "fight"}, {"boss", boss}, {"state", stsrl::macro_sim::state_json(gc)}, {"encounter", rec.encounter},
              {"category", rec.category}, {"fight_id", rec.fight_id}, {"won", rec.won}, {"hp_before", rec.hp_before}});
     }
@@ -620,7 +622,7 @@ Json play_run(const Json& job) {
     Ctx ctx;
     ctx.seed = seed;
     ctx.max_act = job.value("max_act", 1);
-    if (ctx.max_act < 1 || ctx.max_act > 2) throw std::invalid_argument{"max_act must be 1 or 2"};
+    if (ctx.max_act < 1 || ctx.max_act > 3) throw std::invalid_argument{"max_act must be 1, 2 or 3"};
     for (const auto& d : job.value("decide", Json::array())) {
         const auto name = d.get<std::string>();
         if (name != "rest" && name != "path" && name != "shop" && name != "neow" && name != "event" && name != "boss_relic")

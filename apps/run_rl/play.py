@@ -114,7 +114,7 @@ def main():
     ap.add_argument("--sims", default="500,2000,5000,5000,15000")
     ap.add_argument("--max-act", type=int, default=1, help="play until this act's boss is beaten (or death)")
     ap.add_argument("--route-p", type=float, default=0.0, help="fraction of runs (by seed) taking uniform random paths")
-    ap.add_argument("--target", choices=["act1", "floors"], default="act1", help="scoring of lookahead terminals")
+    ap.add_argument("--target", choices=["act1", "floors", "floors3"], default="act1", help="scoring of lookahead terminals")
     ap.add_argument("--decide", nargs="*", default=[], choices=["rest", "path", "shop", "neow", "event", "boss_relic"],
                     help="decisions besides card picks made by the policy (else SimpleAgent)")
     ap.add_argument("--samples", type=int, default=8, help="lookahead samples per event / Neow option")

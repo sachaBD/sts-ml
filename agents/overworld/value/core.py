@@ -25,7 +25,8 @@ def build_model(arch):
     return KINDS[arch.pop("kind", RunPolicyV1.KIND)](**arch)
 
 BOSSES = {"slime_boss": 0, "the_guardian": 1, "hexaghost": 2,  # the CURRENT act's boss (gc.boss)
-          "automaton": 3, "collector": 4, "champ": 5}
+          "automaton": 3, "collector": 4, "champ": 5,
+          "awakened_one": 6, "time_eater": 7, "donu_and_deca": 8}
 ROOM = {"$": 0, "R": 1, "?": 2, "E": 3, "M": 4, "T": 5}  # sts::Room order; anything else (N) = NONE
 
 
@@ -42,6 +43,7 @@ def score(run, progress=0.25, hp=0.0):
 # Full-game target ("floors"): linear in floor reached + step for each act boss beaten (act 2's bigger).
 # Act 1 boss is floor 16, act 2 boss floor 33 (floors keep counting across acts). A full act-2 clear = 1.
 FLOOR_W, ACT_BONUS, LAST_FLOOR = 0.4, (0.2, 0.4), 33
+FLOOR_W3, ACT_BONUS3, LAST_FLOOR3 = 0.4, (0.1, 0.2, 0.3), 50
 
 
 def acts_cleared(run):
@@ -55,11 +57,17 @@ def floor_score(floor, cleared):
     return FLOOR_W * min(floor, LAST_FLOOR) / LAST_FLOOR + sum(ACT_BONUS[:cleared])
 
 
+def floor_score3(floor, cleared):
+    """Three-act variant; a full Act-3 clear scores 1 (including A20's second boss)."""
+    return FLOOR_W3 * min(floor, LAST_FLOOR3) / LAST_FLOOR3 + sum(ACT_BONUS3[:cleared])
+
+
 def run_score(run, target="act1", progress=0.25, hp=0.0):
-    """target act1: the original Act-1 score (score()); floors: floor_score."""
+    """act1: original clear score; floors/floors3: two-/three-act floor scores."""
     if target == "act1":
         return score(run, progress, hp)
-    return floor_score(run["floor"], acts_cleared(run))
+    scorer = floor_score3 if target == "floors3" else floor_score
+    return scorer(run["floor"], acts_cleared(run))
 
 
 def nodes(run):

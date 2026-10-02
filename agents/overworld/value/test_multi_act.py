@@ -1,5 +1,5 @@
 """Multi-act target, per-node bosses and policy exploration (no model needed)."""
-from agents.overworld.value.core import acts_cleared, floor_score, node_bosses, nodes, run_score
+from agents.overworld.value.core import BOSSES, acts_cleared, floor_score, floor_score3, node_bosses, nodes, run_score
 from agents.overworld.value.policy import Policy
 
 STATE = {"floor": 1, "hp": 50, "max_hp": 80}
@@ -15,6 +15,25 @@ def test_floor_score():
     assert floor_score(16, 0) < floor_score(17, 1)  # beating the act-1 boss is a step
     assert floor_score(33, 1) < floor_score(33, 2)
     assert floor_score(40, 2) == floor_score(33, 2)
+
+
+def test_floors3():
+    assert [BOSSES[b] for b in ("awakened_one", "time_eater", "donu_and_deca")] == [6, 7, 8]
+    assert floor_score3(0, 0) == 0
+    assert abs(floor_score3(50, 3) - 1.0) < 1e-9
+    assert floor_score3(52, 3) == floor_score3(50, 3)  # victory room / A20 second boss
+    assert floor_score3(16, 0) < floor_score3(17, 1)
+    assert floor_score3(33, 1) < floor_score3(34, 2)
+    r = run("died", 40, [], acts_cleared=2)
+    assert run_score(r, "floors3") == floor_score3(40, 2)
+    assert run_score(r, "floors") == floor_score(40, 2) == 1.0  # unchanged old target
+    p = Policy("simple", target="floors3")
+    assert abs(p.terminal({"terminal": "cleared", "floor": 51}) - 1.0) < 1e-9
+    assert p.terminal({"terminal": "died", "floor": 40}) == floor_score3(40, 2)
+    assert p.terminal({"terminal": "died", "floor": 16}) == floor_score3(16, 0)
+    # Explicit completion counts override inference (e.g. first A20 boss is not act clear).
+    assert p.terminal({"terminal": "died", "floor": 51, "acts_cleared": 2}) == floor_score3(51, 2)
+    assert p.terminal({"terminal": "died", "floor": 40, "acts_cleared": 1}) == floor_score3(40, 1)
 
 
 def test_acts_cleared_and_bosses():

@@ -2,13 +2,13 @@
 import random
 import threading
 import torch
-from .core import encode, floor_score, load_model
+from .core import encode, floor_score, floor_score3, load_model
 
 
 class Policy:
     """eps: per-decision uniform exploration (real decisions only; lookahead samples are greedy).
     route_p: fraction of runs (by seed) whose every path decision is uniform random (reaches elites / odd routes).
-    target: how lookahead terminals are scored: act1 (clear 1, death progress * floor / 16) or floors (floor_score)."""
+    target: lookahead scoring: act1 (clear 1, death progress * floor / 16), floors (2 acts), floors3 (3 acts)."""
 
     def __init__(self, kind, ckpt=None, eps=0.0, seed=0, route_p=0.0, target="act1"):
         self.kind, self.eps, self.route_p, self.target, self.seed = kind, eps, route_p, target, seed
@@ -40,6 +40,9 @@ class Policy:
     def terminal(self, e, progress=0.25):
         if self.target == "act1":
             return 1.0 if e["terminal"] == "cleared" else progress * min(e["floor"], 16) / 16
+        if self.target == "floors3":
+            default_cleared = 3 if e["terminal"] == "cleared" else int(e["floor"] > 16) + int(e["floor"] > 33)
+            return floor_score3(e["floor"], e.get("acts_cleared", default_cleared))
         if e["terminal"] == "cleared":
             return floor_score(e["floor"], e.get("acts_cleared", 2))
         return floor_score(e["floor"], e.get("acts_cleared", 1 if e["floor"] > 16 else 0))

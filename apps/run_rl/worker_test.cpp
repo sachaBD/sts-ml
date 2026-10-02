@@ -37,6 +37,17 @@ void stopping_and_guard() {
     gc.transitionToAct(2);
     p.fight();
     require(p.done() && p.acts_cleared == 2, "act 2 boss must stop run");
+    ctx.max_act = 3;
+    gc.ascension = 20;
+    gc.transitionToAct(3);
+    gc.info.encounter = gc.boss;
+    Player double_boss{gc, {}, ctx, nullptr};
+    double_boss.acts_cleared = 2;
+    double_boss.fight();
+    require(!double_boss.done() && double_boss.acts_cleared == 2, "first A20 boss is not act clear");
+    gc.info.encounter = gc.secondBoss;
+    double_boss.fight();
+    require(double_boss.done() && double_boss.acts_cleared == 3, "second A20 boss clears act");
     ctx.max_act = 1;
     gc.act = 1;
     Player q{gc, {}, ctx, nullptr};

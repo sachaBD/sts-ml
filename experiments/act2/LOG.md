@@ -31,3 +31,12 @@
 - Smoke 2 (60 runs, same seeds first 20): mean floor 22.9 (first-20: 22.95 vs 20.5), acts cleared {0:13, 1:41, 2:6}
   (10% act-2 clears, n=60, very noisy), 16.3 worker-s/run. Elites/run now 0–4 (25% 0) vs 54% 0 before.
 - Cost ≈ 16 worker-s/run → 3000-run collection ≈ 80 min on 10 workers; 600-seed eval ≈ 16 min.
+
+## 08:15 — controller launched; act-3 prep
+- 08:07 orch launched experiments/act2/launch.sh (act2-controller): 3000-run collections, 600-seed paired dev gates,
+  800-seed fresh final; init overworld = joint-1001-overworld-r00 (act1 target, run_policy_v1 width 32).
+- impl: apps/run_rl/analyze.py (+test). Act-3 readiness (not used tonight): worker supports max_act 3, A20 double
+  boss handled (first act-3 boss win does not end the run). Smoke at 50 sims, SimpleAgent: no crashes.
+  **Simulator gap (sts_lightspeed, not fixed):** Falling event setup indexes counts[3] by CardType — CURSE/STATUS
+  write out of bounds (A20 Ascender's Bane guarantees a curse); no bottled-card exclusion. Secret Portal advances
+  floor only once (floor-based score understates). Filter Falling before act-3 production runs.
