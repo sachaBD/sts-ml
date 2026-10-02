@@ -13,14 +13,16 @@
   <div class="masthead">
     <nav class="site-nav" aria-label="Site"><a href="../">STS model reports</a><span aria-current="page">Fight outcome</span></nav>
     <h1>Fight Outcome</h1>
-    <p>Ironclad A20, Act 1. Edit a deck, relics, potions and HP, pick a fight, and see the pre-combat outcome model's P(win),
-      HP if won, and take-vs-skip for candidate cards.</p>
+    <p>Ironclad A20, Acts 1 and 2. Edit a deck, relics, potions and HP, pick a fight (including the Act 2 bosses Automaton,
+      Champ and Collector), and see the pre-combat outcome model's P(win), HP if won, and take-vs-skip for candidate cards.</p>
     <p class="caveat">Development model. Band = min–max over 3 training seeds: rough, not calibrated.
-      Elite/boss card effects explain only ~20–35% of real effect variance. Boss P(win) near 0.5 is where the model is least reliable.</p>
+      Card-effect estimates were sharpened with controlled card experiments in Act 1 only;
+      Act 2 card effects come from natural play alone (the agent's own decks), so treat them as rougher.
+      Boss P(win) near 0.5 is where the model is least reliable.</p>
   </div>
 
   <div class="controls">
-    <label for="preset">Start from <span class="hint">(starter, or held-out real fights)</span></label>
+    <label for="preset">Start from <span class="hint">(starter, or held-out real fights of the act 2 agent; Act 2 bosses first)</span></label>
     <select id="preset"></select>
   </div>
 
@@ -81,14 +83,15 @@
 
   <section>
     <p class="deck-head">Real vs predicted win rate <span id="calN"></span>
-      <span class="hint">natural MCTS-played fights never used in training (run_seed % 10 ∈ {0, 1, 8}); predicted = 3-seed mean</span></p>
+      <span class="hint">natural fights from the act 2 experiment runs never used in training (run_seed % 10 ∈ {0, 1, 8}); predicted = 3-seed mean</span></p>
     <table class="tbl" id="calEnc"></table>
     <p class="deck-head" style="margin-top:22px">Calibration by predicted P(win) <span class="hint">real win rate in bold</span></p>
     <table class="tbl" id="calRel"></table>
   </section>
 
   <footer>
-    Model: <code>tpair1-co2-w32-h64-l1-d30-lr.001-s{0,1,2}/augmented.pt</code> (see <code>experiments/topology-sweep/REPORT.md</code>).
+    Model: <code>runs/schema=combat_outcome_v1/date=2026-10-02/id=act2-co2-w32-h64-l1-d30-lr.001-s{0,1,2}/augmented.pt</code>
+    (topology as <code>experiments/topology-sweep/REPORT.md</code>; data: natural fights of <code>experiments/act2</code> + the Act 1 card experiments).
     Card art from <code>../sts_visualiser</code>.
   </footer>
 </div>

@@ -4,7 +4,7 @@ import json
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-from model import GROUPS, Ensemble, calibration, natural_dev, presets, tables
+from model import Ensemble, calibration, encounter_groups, natural_dev, presets, tables
 
 HERE = Path(__file__).resolve().parent
 VIS = HERE.parents[1] / "sts_visualiser"
@@ -13,11 +13,11 @@ VIS = HERE.parents[1] / "sts_visualiser"
 ens = Ensemble()
 t = tables()
 dev = natural_dev()
+groups = encounter_groups(ens.encounters)
 META = dict(
     cards=[c for c in t["cards"] if c["color"] in ("red", "colorless", "curse") or c["type"] == "status"],
     relics=t["relics"], potions=t["potions"], centers=ens.centers,
-    groups={g: [e for e in es if e in ens.encounters] for g, es in GROUPS.items()},
-    presets=presets(dev), calibration=calibration(ens, dev), seeds=len(ens.nets))
+    groups=groups, presets=presets(dev, groups), calibration=calibration(ens, dev, groups), seeds=len(ens.nets))
 
 
 def predict(q):

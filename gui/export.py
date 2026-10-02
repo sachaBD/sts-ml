@@ -14,8 +14,8 @@ from pathlib import Path
 import numpy as np
 import torch
 
-from model import CHECKPOINTS, natural_dev
-from server import HERE, META, VIS, ens
+from model import CHECKPOINTS
+from server import HERE, META, VIS, dev, ens
 
 SITE = HERE / "site"
 RUN_VALUE_CHECKPOINT = HERE.parents[0] / "runs/schema=run_rl_v1/date=2026-10-01/id=v3-shop/out/iter003/model.pt"
@@ -103,7 +103,7 @@ def main():
     (SITE / ".nojekyll").write_text("")
 
     # Parity fixture for verify_js.js: held-out natural states and the Python ensemble's scores.
-    rows = natural_dev()[::10][:300]
+    rows = dev[::50][:300]
     scored = ens.score([dict(encounter=r["encounter"], pre=r["pre"]) for r in rows])
     fixture = [dict(encounter=r["encounter"], pre=r["pre"], p_win=s["p_win"], expected_hp=s["expected_hp"])
                for r, s in zip(rows, scored)]

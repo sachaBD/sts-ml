@@ -187,7 +187,13 @@ function loadPreset(i) {
 
   $("enc").innerHTML = Object.entries(m.groups).map(([g, es]) =>
     `<optgroup label="${g}">${es.map((e) => `<option>${e}</option>`).join("")}</optgroup>`).join("");
-  $("preset").innerHTML = m.presets.map((p, i) => `<option value="${i}">${p.category === "starter" ? p.label : p.category + " · " + p.label}</option>`).join("");
+  // Presets grouped by act and fight type (Act 2 bosses first after the starter deck).
+  const presetGroups = new Map();
+  m.presets.forEach((p, i) => {
+    if (!presetGroups.has(p.category)) presetGroups.set(p.category, []);
+    presetGroups.get(p.category).push(`<option value="${i}">${p.label}</option>`);
+  });
+  $("preset").innerHTML = [...presetGroups].map(([g, os]) => `<optgroup label="${g}">${os.join("")}</optgroup>`).join("");
 
   $("preset").onchange = (e) => loadPreset(Number(e.target.value));
   $("enc").onchange = (e) => { state.encounter = e.target.value; changed(); };

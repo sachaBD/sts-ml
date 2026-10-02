@@ -2,14 +2,14 @@
 import json
 from collections import Counter
 
-from model import CHECKPOINTS, NATURAL, Ensemble, load, tables
+from model import ARM, CHECKPOINTS, Ensemble, natural_dev, tables
 
 t = tables()
 for kind in ("cards", "relics", "potions"):
     print(kind, len(t[kind]))
 
-rows, _ = load(NATURAL)
-key = lambda r: (r["run_seed"], r["encounter"], r["start_hp"] if "start_hp" in r else r["starting_hp"], r["final_hp"])
+rows = natural_dev()
+key = lambda r: (r["run_seed"], r["encounter"], r["start_hp"] if "start_hp" in r else r["pre"]["hp"], r["final_hp"])
 counts = Counter(key(r) for r in rows)
 by = {key(r): r for r in rows if counts[key(r)] == 1}
 # ids in the data must match the header tables
@@ -20,9 +20,9 @@ for r in rows:
     assert all(names[c["card_id"]] == c["name"] for c in r["pre"]["deck"])
     assert all(rel[x["relic_id"]] == x["name"] for x in r["pre"]["relics"])
     assert all(pot[x["potion_id"]] == x["name"] for x in r["pre"]["potions"])
-print("id tables match all", len(rows), "natural rows")
+print("id tables match all", len(rows), "held-out natural rows")
 
-preds = CHECKPOINTS[0].parent / "augmented-predictions.jsonl"
+preds = CHECKPOINTS[0].parent / f"{ARM}-predictions.jsonl"
 saved = [p for p in map(json.loads, preds.open()) if p["domain"] == "natural" and key(p) in by][:200]
 ens = Ensemble(CHECKPOINTS[:1])
 got = ens.score([by[key(p)] for p in saved])
