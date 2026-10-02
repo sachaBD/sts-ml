@@ -92,3 +92,8 @@
   samples 2 or refining only when the next fight is a boss/elite.
 - v2 reload fixed by impl (legacy path-scorer layout migration; all 27 v2 checkpoints under runs/ reload exactly).
   v2 from scratch on r00-collect: R² 0.18–0.19 vs v1 0.22–0.23 → no capacity gain at 3000 runs; v1 stays.
+
+## 17:57 — round 3 (continuation) flat
+- act2b-r03-train vs act2-r02-train (600 dev): score +0.002 ± 0.011, act2 +0.2 ± 1.8 pp, act1 +0.5 ± 1.4 pp → kept r02.
+  Collection at eps .05/route .15: act2 19.3% (vs ~6% at eps .1/route .25), act1 79.8%.
+- Plateau after 3 promotions. Launched rest-lookahead A/B (act2-dev-r02-restla, 600 dev seeds, 4 samples, sims ×0.25).

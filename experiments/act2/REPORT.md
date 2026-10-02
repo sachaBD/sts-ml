@@ -1,7 +1,7 @@
 # Act 2 extension — report (2026-10-02)
 
-Status: main controller done; continuation round (act2b) running. Plan: [PLAN.md](PLAN.md) · decisions: [LOG.md](LOG.md) ·
-launches: [RUNBOOK.md](RUNBOOK.md) · controller tables: [CONTROLLER.md](CONTROLLER.md).
+Status: both controllers done (selected model: `runs/schema=value_net_v1/date=2026-10-02/id=act2-r02-train/out/model.pt`); rest-lookahead A/B running. Plan: [PLAN.md](PLAN.md) · decisions: [LOG.md](LOG.md) ·
+launches: [RUNBOOK.md](RUNBOOK.md) · controller tables: [CONTROLLER.md](CONTROLLER.md) (continuation round only; the main controller's table is in `runs/schema=overworld_v1/date=2026-10-02/id=act2-controller/out/summary.json` and RUNBOOK GATE lines).
 
 ## Headline
 
@@ -43,6 +43,10 @@ These are seeds that were never used for training or model selection.
    paired seeds (+3.25 ± 1.07 pp). Time per run: 11 vs 18 worker-seconds.
 2. **Each round improved Act 2** (600 dev seeds, paired against the previous model). Act 2 clear went
    10.7% → 13.5% → 16.2% → 21.8%. The score gains in rounds 1 and 2 were about 2 SE each.
+   **Round 3 was flat** (ε 0.05, random routes 15%): score +0.002 ± 0.011, Act 2 +0.2 ± 1.8 pp, so it was not
+   promoted. Collection quality did improve: Act 2 clears in the collection rose from about 6% to 19%. The loop
+   has plateaued with this value net and target, so the next gains need a change (search, combat or data), not
+   more of the same rounds.
 3. **The Act 1 loss is mostly the value net misjudging HP versus card upgrades, not a deliberate trade:**
    - At the last campfire before the Act 1 boss, the selected model upgrades a card instead of resting 91% of the
      time; the initial model did so 68% of the time.

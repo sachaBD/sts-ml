@@ -39,3 +39,11 @@
 
 2026-10-02T15:41:12Z SRE LAUNCH act2b-controller pid=1245718 via nohup experiments/act2/launch2.sh; expected ~3.3 h; launcher log experiments/act2/controller2.launcher.log
 2026-10-02T15:41:13+00:00 START act2b-r03-collect
+2026-10-02T17:30:01+00:00 DONE act2b-r03-collect
+2026-10-02T17:30:11+00:00 START act2b-r03-train
+2026-10-02T17:35:01+00:00 DONE act2b-r03-train
+2026-10-02T17:35:03+00:00 START act2-dev-act2b-r03-train
+2026-10-02T17:56:58+00:00 DONE act2-dev-act2b-r03-train
+2026-10-02T17:57:04+00:00 GATE {"candidate": {"n": 600, "score": 0.5952121212121213, "act1": 0.8566666666666667, "act2": 0.22, "floor": 27.71}, "incumbent": {"n": 600, "score": 0.5927979797979799, "act1": 0.8516666666666667, "act2": 0.21833333333333332, "floor": 27.648333333333333}, "score_diff": 0.002414141414141415, "score_se": 0.010648169981092031, "act1_diff": 0.005, "act1_se": 0.014444355264196827, "act2_diff": 0.0016666666666666668, "act2_se": 0.01834850386648401, "floor_diff": 0.06166666666666667, "floor_se": 0.2759952816153531, "name": "round 3", "promoted": false}
+
+2026-10-02T17:57:04Z SRE FINISH act2b-controller exit=0
