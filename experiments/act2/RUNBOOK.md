@@ -7,3 +7,12 @@
 
 2026-10-02T08:06:30Z SRE LAUNCH act2-controller pid=1240767 via nohup experiments/act2/launch.sh; expected ~9 h; launcher log experiments/act2/controller.launcher.log
 2026-10-02T08:06:31+00:00 START act2-r00-collect
+2026-10-02T09:36:33+00:00 DONE act2-r00-collect
+2026-10-02T09:36:43+00:00 START act2-r00-train
+2026-10-02T09:37:57+00:00 DONE act2-r00-train
+2026-10-02T09:37:57+00:00 START act2-dev-joint-1001-overworld-r00
+2026-10-02T09:57:59+00:00 DONE act2-dev-joint-1001-overworld-r00
+2026-10-02T09:58:00+00:00 START act2-dev-act2-r00-train
+2026-10-02T10:22:04+00:00 DONE act2-dev-act2-r00-train
+2026-10-02T10:22:11+00:00 GATE {"candidate": {"n": 600, "score": 0.5447777777777778, "act1": 0.8583333333333333, "act2": 0.135, "floor": 26.326666666666668}, "incumbent": {"n": 600, "score": 0.545979797979798, "act1": 0.9366666666666666, "act2": 0.10666666666666667, "floor": 26.06833333333333}, "score_diff": -0.0012020202020201981, "score_se": 0.010444480282594447, "act1_diff": -0.07833333333333334, "act1_se": 0.015764538769630406, "act2_diff": 0.028333333333333332, "act2_se": 0.01672374755089808, "floor_diff": 0.25833333333333336, "floor_se": 0.32649194531304165, "name": "round 0", "promoted": true}
+2026-10-02T10:22:11+00:00 START act2-r01-collect

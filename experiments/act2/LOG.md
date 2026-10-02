@@ -40,3 +40,18 @@
   **Simulator gap (sts_lightspeed, not fixed):** Falling event setup indexes counts[3] by CardType — CURSE/STATUS
   write out of bounds (A20 Ascender's Bane guarantees a curse); no bottled-card exclusion. Secret Portal advances
   floor only once (floor-based score understates). Filter Falling before act-3 production runs.
+
+## 10:30 — round 0 gate
+- Collection act2-r00-collect: 3000 runs took ~89 min (~18 worker-s/run, exploration runs longer).
+- Dev gate (600 paired seeds, greedy): candidate act2-r00-train (floors target, MC λ=1, init r00) vs r00:
+  score −0.001 ± 0.010; **act 1 clear 85.8% vs 93.7% (−7.8 ± 1.6 pp)**; act 2 clear 13.5% vs 10.7% (+2.8 ± 1.7 pp);
+  mean floor 26.3 vs 26.1. Promoted by the first-round rule (target alignment; not clearly worse on score).
+- Behaviour: candidate fights far more elites (runs with 0 elites 218→123; ≥3 elites 21→68). Deaths shift into
+  act 1 (Hexaghost 18% of 200 boss fights; elites). Under the floors target the trade is score-neutral. It's the
+  opposite of the "short-term power" worry: it buys long-term power (relics) at act-1 risk.
+- Act 2 wall = bosses: death rates Automaton 72–77%, Collector 62–71%, Champ 56–64% (n≈60–90 each), entry HP ~57–62.
+  Also Shelled Parasite+Fungi 20–26%, Slavers 33–42%, Book of Stabbing 30–33%.
+- Offline value-net screen on r00-collect (val = 10% of seeds, MC floors targets): R² of V vs run score:
+  act2-r00-train 0.20 (act1 nodes 0.09, act2 0.32); v1 lr 3e-4 0.22; v1 from scratch 0.23 (act1 0.10, act2 0.39).
+  v2 val BCE no better (0.6804 vs 0.6775 v1); v2 checkpoint reload is broken (state-dict key mismatch) — not used.
+  Outcome noise dominates; the early-stop at epoch 1–2 says data-limited. More data/TD is the lever, not capacity.
