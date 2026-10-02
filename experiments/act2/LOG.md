@@ -90,3 +90,5 @@
 - Cost (impl, n=5 seeds, SimpleAgent + synthetic V, serial under load): +40 ± 7 s/run (14.5 → 54.9 s), 4–9
   refinements/run. Too expensive to switch on blind: A/B first (600 dev seeds ≈ 55 min on 10 workers), and consider
   samples 2 or refining only when the next fight is a boss/elite.
+- v2 reload fixed by impl (legacy path-scorer layout migration; all 27 v2 checkpoints under runs/ reload exactly).
+  v2 from scratch on r00-collect: R² 0.18–0.19 vs v1 0.22–0.23 → no capacity gain at 3000 runs; v1 stays.

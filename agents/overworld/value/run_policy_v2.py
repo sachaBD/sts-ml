@@ -12,6 +12,8 @@ After-state a = deck + offered card a (skip: deck unchanged). With attention the
 tokens [B, K+1, C+1, W] (the option card is one extra token, masked out for skip), flattened to [B*(K+1), C+1, W].
 Output: win_logit [B, K+1] (value: P(clear) / expected score), the only head trained by apps/run_rl.
 """
+from copy import copy
+
 import torch
 from torch import nn
 
@@ -52,6 +54,20 @@ class RunPolicyV2(nn.Module):
                                                   nn.ReLU(), nn.Linear(hidden, hidden)) for _ in range(depth))
         self.win_out = nn.Linear(hidden, 1)
         self.aux_out = nn.Linear(hidden, aux) if aux else None
+
+    def load_state_dict(self, state_dict, strict=True, assign=False):
+        # Older v2 checkpoints store Linear(2W,W) as score_mlp.0. The split scorer is
+        # the same function: concatenate its weight columns, keeping the bias on path only.
+        if self.use_map and "score_mlp.0.weight" in state_dict and "score_path.weight" not in state_dict:
+            state_dict = copy(state_dict)  # retain PyTorch metadata; do not mutate the checkpoint
+            weight = state_dict.pop("score_mlp.0.weight")
+            width = self.score_path.in_features
+            state_dict["score_path.weight"] = weight[:, :width]
+            state_dict["score_ctx.weight"] = weight[:, width:]
+            state_dict["score_path.bias"] = state_dict.pop("score_mlp.0.bias")
+            state_dict["score_out.weight"] = state_dict.pop("score_mlp.2.weight")
+            state_dict["score_out.bias"] = state_dict.pop("score_mlp.2.bias")
+        return super().load_state_dict(state_dict, strict=strict, assign=assign)
 
     def _cards(self, ids, up, misc, ctx):
         n = ids.shape[1]
