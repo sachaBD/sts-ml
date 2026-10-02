@@ -65,3 +65,10 @@
   600 paired dev seeds: **score +0.022 ± 0.011, mean floor +1.11 ± 0.31**, act2 clear 16.2% vs 13.5%
   (+2.7 ± 1.8 pp), act1 84.8% vs 85.8% (−1.0 ± 1.6 pp). Promoted.
 - Cumulative vs the starting model (same dev seeds, not paired-tested directly): act2 10.7% → 16.2%, act1 93.7% → 84.8%.
+
+## 14:45 — round 2 gate
+- act2-r02-train vs act2-r01-train (600 paired dev seeds): score +0.026 ± 0.011, act2 clear 21.8% vs 16.2%
+  (**+5.7 ± 1.7 pp**), act1 85.2% vs 84.8% (+0.3 ± 1.6), floor +0.2 ± 0.3. Promoted.
+- Dev trajectory (act2 clear): r00 10.7% → 13.5% → 16.2% → 21.8%; act1 93.7% → 85.8% → 84.8% → 85.2%.
+- Plan: fresh 800-seed final (selected vs r00) running; then continuation controller (launch2.sh: one more round,
+  eps 0.05 / route_p 0.15, window r01–r03, dev evals reused by model name).

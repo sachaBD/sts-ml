@@ -133,12 +133,16 @@ def main():
     p.add_argument('--eps', type=float, default=0.1)
     p.add_argument('--route-p', type=float, default=0.25)
     p.add_argument('--tag', default='act2')
+    p.add_argument('--prior-data', nargs='*', default=[], help='earlier collection out dirs (continuation controller)')
+    p.add_argument('--fresh-initial', type=Path, help='existing fresh-seed play of --init (skip re-evaluating it)')
+    p.add_argument('--first-round', type=int, default=0, help='round numbering (and collection seeds) start here')
+    p.add_argument('--init-trained', action='store_true', help='--init already uses the floors target (TD from round 0)')
     a = p.parse_args()
     a.out.mkdir(parents=True, exist_ok=True)
     statefile = a.out / 'state.json'
     state = json.loads(statefile.read_text()) if statefile.exists() else {
         'started': time.time(), 'status': 'running', 'initial': str(a.init), 'overworld': str(a.init),
-        'collections': [], 'comparisons': [], 'plays': {}, 'round': 0, 'act2_trained': False}
+        'collections': list(a.prior_data), 'comparisons': [], 'plays': {}, 'round': a.first_round, 'act2_trained': a.init_trained}
     worker = a.out / 'run_rl_worker'
     if not worker.exists():
         shutil.copy2(a.worker, worker)
@@ -166,8 +170,9 @@ def main():
                           '--init', inc, '--data', *data, '--target', 'floors', '--lam', lam, '--decay', '.85',
                           '--epochs', 20], [inc, *data])
             cand = trained / 'model.pt'
-            base = evaluated(f'{t}-dev-{inc.parent.parent.name.removeprefix("id=")}', inc, DEV_SEED, a.eval_seeds)
-            test = evaluated(f'{t}-dev-{t}-r{i:02d}-train', cand, DEV_SEED, a.eval_seeds)
+            # Dev plays are named by model (shared across controllers): a model's dev play is reused, not replayed.
+            base = evaluated(f'act2-dev-{inc.parent.parent.name.removeprefix("id=")}', inc, DEV_SEED, a.eval_seeds)
+            test = evaluated(f'act2-dev-{t}-r{i:02d}-train', cand, DEV_SEED, a.eval_seeds)
             r = paired(test, base); r['name'] = f'round {i}'
             # Broad-progress gate: promote on a positive score difference not contradicted by act-1 clears.
             r['promoted'] = r['score_diff'] > 0.5 * r['score_se'] and r['act1_diff'] > -2 * r['act1_se']
@@ -179,7 +184,7 @@ def main():
             state['round'] += 1; log('GATE ' + json.dumps(r)); persist()
         if state['overworld'] != state['initial']:
             fs = evaluated(f'{t}-fresh-final', Path(state['overworld']), FRESH_SEED, a.fresh_seeds)
-            fi = evaluated(f'{t}-fresh-initial', Path(state['initial']), FRESH_SEED, a.fresh_seeds)
+            fi = a.fresh_initial or evaluated(f'{t}-fresh-initial', Path(state['initial']), FRESH_SEED, a.fresh_seeds)
             r = paired(fs, fi); r['name'] = 'FRESH selected vs initial'; state['comparisons'].append(r)
             log('FRESH ' + json.dumps(r))
         state['status'] = 'done'
