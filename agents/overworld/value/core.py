@@ -24,7 +24,8 @@ def build_model(arch):
     arch = dict(arch)
     return KINDS[arch.pop("kind", RunPolicyV1.KIND)](**arch)
 
-BOSSES = {"slime_boss": 0, "the_guardian": 1, "hexaghost": 2}
+BOSSES = {"slime_boss": 0, "the_guardian": 1, "hexaghost": 2,  # the CURRENT act's boss (gc.boss)
+          "automaton": 3, "collector": 4, "champ": 5}
 ROOM = {"$": 0, "R": 1, "?": 2, "E": 3, "M": 4, "T": 5}  # sts::Room order; anything else (N) = NONE
 
 
@@ -36,6 +37,29 @@ def score(run, progress=0.25, hp=0.0):
         last = run["steps"][-1]["state"]
         return 1.0 - hp + hp * last["hp"] / max(last["max_hp"], 1)
     return progress * min(run["floor"], 16) / 16
+
+
+# Full-game target ("floors"): linear in floor reached + step for each act boss beaten (act 2's bigger).
+# Act 1 boss is floor 16, act 2 boss floor 33 (floors keep counting across acts). A full act-2 clear = 1.
+FLOOR_W, ACT_BONUS, LAST_FLOOR = 0.4, (0.2, 0.4), 33
+
+
+def acts_cleared(run):
+    if "acts_cleared" in run:
+        return run["acts_cleared"]
+    return sum(1 for s in run["steps"] if s["kind"] == "fight" and s.get("category") == "boss" and s["won"])
+
+
+def floor_score(floor, cleared):
+    """Run score in [0, 1] from the floor reached and the number of act bosses beaten."""
+    return FLOOR_W * min(floor, LAST_FLOOR) / LAST_FLOOR + sum(ACT_BONUS[:cleared])
+
+
+def run_score(run, target="act1", progress=0.25, hp=0.0):
+    """target act1: the original Act-1 score (score()); floors: floor_score."""
+    if target == "act1":
+        return score(run, progress, hp)
+    return floor_score(run["floor"], acts_cleared(run))
 
 
 def nodes(run):
@@ -53,6 +77,18 @@ def nodes(run):
             out.append((s["state"], s["options"], c if c < len(s["options"]) else None))
         else:
             out.append((s["state"], [], None))
+    return out
+
+
+def node_bosses(run):
+    """The current act's boss of each node of nodes(run): the step's own "boss" (multi-act runs), else the run's."""
+    steps = run["steps"]
+    last = steps[-1]
+    terminal = last["kind"] == "fight" and (not last["won"] or run["status"] == "act_complete")
+    out = []
+    for s in steps[:-1] if terminal else steps:
+        if s["kind"] != "decide" or "after" in s:
+            out.append(s.get("boss", run["boss"]))
     return out
 
 
@@ -87,7 +123,7 @@ def encode(items, boss_names, device="cpu"):
         if opts:
             opt[:, i, :len(opts)] = np.array([(c["card_id"], c["upgraded"], c["misc"]) for c in opts], f).T
             opt_mask[i, :len(opts)] = 1
-        boss[i] = BOSSES[name]
+        boss[i] = BOSSES[s.get("boss", name)]  # a state's own boss (multi-act worker) wins over the caller's
         hp, mx = s["hp"], max(s["max_hp"], 1)
         scalars[i] = (hp / 100, mx / 100, hp / mx, s["gold"] / 100, s["floor"] / 17, s["potion_capacity"] / 5)
         paths = s["map"]["paths"]
@@ -113,7 +149,7 @@ def node_values(model, run, device="cpu"):
     ns = nodes(run)
     if not ns:
         return []
-    b = encode([(s, o) for s, o, _ in ns], [run["boss"]] * len(ns), device)
+    b = encode([(s, o) for s, o, _ in ns], node_bosses(run), device)
     K = b["opt_id"].shape[1]
     win = model(b)[0]
     col = columns(None, [c for _, _, c in ns], K).to(device)
@@ -123,7 +159,7 @@ def node_values(model, run, device="cpu"):
 @torch.no_grad()
 def all_node_values(model, runs, device="cpu", chunk=256):
     """node_values for many runs at once (batched): list of lists."""
-    flat = [(s, o, c, r["boss"]) for r in runs for s, o, c in nodes(r)]
+    flat = [(s, o, c, b) for r in runs for (s, o, c), b in zip(nodes(r), node_bosses(r))]
     vals = []
     for i in range(0, len(flat), chunk):
         part = flat[i:i + chunk]
@@ -166,6 +202,13 @@ def save_model(model, path, **meta):
 def read_runs(paths):
     runs = []
     for p in paths:
-        for f in sorted(Path(p).glob("**/runs.jsonl")) if Path(p).is_dir() else [Path(p)]:
-            runs += [json.loads(line) for line in open(f)]
+        path = Path(p)
+        canonical = sorted(path.glob("runs-*.parquet")) if path.is_dir() else []
+        if canonical:
+            import pyarrow.parquet as pq
+            for f in canonical:
+                runs += [json.loads(x) for x in pq.ParquetFile(f).read(columns=["record_json"])["record_json"].to_pylist()]
+        else:
+            for f in sorted(path.glob("**/runs.jsonl")) if path.is_dir() else [path]:
+                runs += [json.loads(line) for line in open(f)]
     return runs

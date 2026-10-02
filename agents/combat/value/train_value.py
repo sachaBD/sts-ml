@@ -67,7 +67,7 @@ class TrainConfig:
             if not isinstance(value, types[kind]) or (isinstance(value, bool) and kind != "bool"):
                 raise TypeError(f"{field.name} must be {kind}, got {value!r}")
         for name, allowed in (("label", LABELS), ("lr_schedule", ("constant", "cosine")), ("keep", ("last", "best")),
-                              ("split", (None, "pinned", "fresh"))):
+                              ("split", (None, "pinned", "fresh", "stable"))):
             if getattr(self, name) not in allowed:
                 raise ValueError(f"{name} {getattr(self, name)!r} is not one of {allowed}")
         if self.row_weighting not in (None, "elite_sqrt_source"):
@@ -376,7 +376,13 @@ def run(args: TrainConfig) -> dict[str, Any]:
         kept = np.concatenate([train, valid])
         print(f"pinned split to {initial}: dropped {dropped:,} bootstrap rows outside it", flush=True)
     else:
-        train, valid = split_rows(rows, args.validation_fraction, args.seed)
+        if args.split == "stable":
+            held = [int(r) for r in np.unique(rows["run_seed"])
+                    if random.Random(int(r) ^ args.seed).random() < args.validation_fraction]
+            mask = np.isin(rows["run_seed"], held)
+            train, valid = np.flatnonzero(~mask), np.flatnonzero(mask)
+        else:
+            train, valid = split_rows(rows, args.validation_fraction, args.seed)
         kept = np.arange(len(rows))
     if not len(train) or not len(valid):
         raise ValueError("run split requires at least two run_seeds")
@@ -460,7 +466,7 @@ def run(args: TrainConfig) -> dict[str, Any]:
             },
             "training_config": dataclasses.asdict(args),
             "encoding_version": encoding_version,
-            "data_schema": combat_v3.NAME,
+            "data_schema": "combat_v4" if all(r.startswith("combat_v4/") for r in source_runs) else combat_v3.NAME,
             "row_counts": row_counts,
             "target_name": args.label,
             "target_blend": args.blend,

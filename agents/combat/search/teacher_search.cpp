@@ -87,7 +87,7 @@ double& search_seconds() {
 }
 
 sts::BattleContext play_fight(sts::BattleContext battle, const Json& fight, std::vector<Json>& rows,
-                              const SearchFn& run, bool random_move, bool oracle, int particles, bool reuse) {
+                              const SearchFn& run, bool random_move, bool oracle, int particles, bool reuse, bool child_rows) {
     reuse = reuse || tweaks().tree_reuse;
     CombatEnvironment env{std::move(battle)};
     const int max_hp = env.player_max_hp();
@@ -107,11 +107,11 @@ sts::BattleContext play_fight(sts::BattleContext battle, const Json& fight, std:
         search_seconds() += std::chrono::duration<double>(Clock::now() - began).count();
         const bool random = index == random_at;
         if (random) choice.chosen = std::uniform_int_distribution<std::size_t>{0, state.legal_actions.size() - 1}(rng);
-        record_children(children, env, choice, fight, index, oracle);
+        if (child_rows) record_children(children, env, choice, fight, index, oracle);
         Json row = state_row(state.encoding, true);
         row.update(fight);
         row.update({{"decision_index", index}, {"turn", env.battle().turn}, {"actions", std::move(choice.actions)},
-                    {"chosen_action", choice.chosen}, {"was_random", random}, {"root_value", choice.value},
+                    {"chosen_action", choice.chosen}, {"executed_action_bits", env.action_bits(choice.chosen)}, {"was_random", random}, {"root_value", choice.value},
                     {"row_kind", "decision"}, {"parent_action", -1}, {"simulations_used", choice.used},
                     {"oracle", oracle}});
         if (reuse) row["retained_visits"] = choice.retained;

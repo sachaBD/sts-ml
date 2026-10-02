@@ -49,7 +49,7 @@ MapState map_state(const sts::GameContext& gc);
 // (N none, M monster, ? event, E elite, R rest, $ shop, T treasure).
 nlohmann::json map_json(const sts::GameContext& gc);
 
-// stsrl::game_state::state(gc) plus "map": map_json(gc).
+// stsrl::game_state::state(gc) plus "act", current act's "boss", and "map": map_json(gc).
 nlohmann::json state_json(const sts::GameContext& gc);
 
 // Give gc its own copy of the map (before crossing into another act in a branched copy).

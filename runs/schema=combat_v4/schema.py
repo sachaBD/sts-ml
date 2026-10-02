@@ -66,6 +66,7 @@ PLAYER = struct(
     f("mental_fortress_block", pa.int8()), f("machine_learning", pa.int8()), f("storm", pa.int8()),
 )
 INITIAL_STATE = struct(
+    f("extra_state_json", pa.string(), "Exact scalar bits/maps and derived counters not represented by typed fields; empty queues required"),
     f("seed", pa.uint64(), "Battle seed"), f("floor_num", pa.int32()), f("encounter", pa.int16(), "MonsterEncounter"),
     f("ascension", pa.int8()), f("turn", pa.int32()), f("loop_count", pa.int32()),
     f("energy_wasted", pa.int32()), f("cards_drawn", pa.int32()), f("have_used_discovery_action", pa.bool_()),
@@ -115,6 +116,31 @@ TABLES = {
         "One executed simulator action per combat branch step"),
 }
 
+
+# Outcomes and search are annotations linked to the replay facts, never substituted for them.
+from environments.combat.schema import COMBAT_V3
+TABLES.update({
+    "results": Table("results", "results", pa.schema([
+        f("fight_id", pa.string()), f("run_key", pa.string()), f("run_seed", pa.uint64()),
+        f("fight_index", pa.int32()), f("category", pa.string()), f("encounter", pa.string()),
+        f("status", pa.string(), "completed, capped or unsupported; not inferred losses"),
+        f("won", pa.bool_()), f("battle_final_hp", pa.int32()), f("battle_potions", pa.int32()),
+        f("post_state_json", pa.string(), "Persistent macro state after exitBattle, before rewards"),
+        f("combat_leaf", pa.string()), f("simulations", pa.int64()), f("exploration_enabled", pa.bool_()),
+        f("replay_verified", pa.bool_(), "Replay matched recorded final simulator state"),
+        f("replay_error", pa.string(), "Unsupported initial boundary: result retained but no canonical fight/steps or training cache"),
+        f("rollout_fallback_used", pa.bool_(), "Deterministic 5k guided-rollout rescue for neural combat at turn >=30", nullable=True),
+    ], metadata={b"schema": NAME.encode(), b"table": b"results"}), "Observed combat results and collection context"),
+    "search": Table("search", "search", pa.schema([
+        f("fight_id", pa.string()), f("step_index", pa.int32()),
+        f("root_value", pa.float64()), f("simulations_used", pa.int64()),
+        f("explored", pa.bool_()), f("actions_json", pa.string(), "Search visit/value annotations, not observed outcomes"),
+    ], metadata={b"schema": NAME.encode(), b"table": b"search"}), "Agent search annotations at played boundaries"),
+    "training": Table("training", "training", pa.schema([
+        *COMBAT_V3, f("fight_id", pa.string()),
+    ], metadata={b"schema": NAME.encode(), b"table": b"training", b"derived": b"encoding-cache-v1"}),
+        "Disposable derived legacy-compatible encoding cache; not canonical simulator state"),
+})
 
 def table_glob(root: Path, table: str) -> str:
     return TABLES[table].glob(root)

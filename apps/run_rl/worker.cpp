@@ -1,9 +1,9 @@
 // Real-run RL worker (docs/research/run-rl/README.md). Long-running; JSON lines on stdin/stdout.
-// Plays real Ironclad act 1 runs: the MCTS teacher (guided-rollout leaves, no recording) plays every fight,
+// Plays real Ironclad runs through max_act (default 1): the MCTS teacher (guided-rollout leaves, no recording) plays every fight,
 // SimpleAgent plays everything out of combat EXCEPT card rewards, which are asked of Python.
 //
 // Python -> worker, one line per run:
-//   {"seed": S, "ascension": A, "simulations": {easy, hard, elite, event, boss}}
+//   {"seed": S, "ascension": A, "max_act": 1 | 2, "simulations": {easy, hard, elite, event, boss}}
 // worker -> Python, at every card reward (answered by one line {"choice": i}; i = len(options) means skip):
 //   {"type": "pick", "state": macro_sim::state_json, "boss": name, "options": [card...], "simple": i}
 //   simple = SimpleAgent's choice for this reward (the baseline policy).
@@ -15,7 +15,7 @@
 //     {"kind": "pick", "state", "options", "choice", "simple"}           state BEFORE the pick
 //     {"kind": "decide", "decision": rest | path, "options": [label...], "choice", "simple", "after"}
 //
-// Optional request keys "decide": ["rest", "path", "shop", "neow", "event"], "lookahead_samples" (8),
+// Optional request keys "decide": ["rest", "path", "shop", "neow", "event", "boss_relic"], "lookahead_samples" (8),
 // "lookahead_horizon" (0) (default none = SimpleAgent). Each listed decision is asked of Python
 // as {"type": "decide", "decision", "state", "options": [label...], "after": [state...], "simple": i}: one AFTER-STATE
 // per option, computed exactly on a copy of the game. Reply {"choice": i}; -1 = let SimpleAgent decide (only sent
@@ -34,9 +34,13 @@
 //         event steps are one-step after-states ("event_inner", exact in that hypothetical world). Not decided (hidden
 //         pre-rolled state a copy would reveal): Dead Adventurer, Match and Keep. Every message
 //         carries "lookahead": true inside a sample (Python answers greedily and logs nothing).
+//   boss_relic: each offered relic + skip, with fresh-randomness after-states and SimpleAgent pickup follow-ups.
+//   OBTAIN card selects (The Library) use pick with skip_allowed=false; ordinary/event REWARDS allow skip.
+//   All asks carry the real seed, including inside lookahead samples. All logged steps carry their act's boss.
 //   path: one option per next map node (only when there are >= 2). After-state = this state with only the remaining
 //         routes that start at that node (macro_sim paths, first_xs); nothing is simulated.
 #include "agents/combat/search/teacher_search.hpp"
+#include "environments/combat/battle_snapshot.hpp"
 #include "environments/overworld/game_state.hpp"
 #include "environments/overworld/decisions.hpp"
 #include "environments/overworld/macro_sim.hpp"
@@ -116,6 +120,7 @@ void take(GameContext& gc, int choice) {
 // SimpleAgent's choice at this reward: run its card step on a copy and see which offered card entered the deck.
 int simple_choice(const GameContext& gc) {
     GameContext copy = gc;
+    stsrl::macro_sim::detach_map(copy);
     sts::search::SimpleAgent agent;
     agent.curGameContext = &copy;
     agent.stepCardReward(copy);
@@ -147,10 +152,11 @@ struct FightRecord {
     std::string encounter, category;
     int hp_before = 0;
     bool won = true;
+    std::string fight_id;
 };
 using FightModel = std::function<FightRecord(GameContext&, bool, int)>;
 
-FightModel mcts_fight_model(const Json& sims, const Json& job, std::vector<Json>& rows) {
+FightModel mcts_fight_model(const Json& sims, const Json& job, std::vector<Json>& records) {
     for (const auto* key : {"easy", "hard", "elite", "event", "boss"})
         if (sims.at(key).get<std::int64_t>() < 1) throw std::invalid_argument{"simulations must be positive"};
     const teacher::Leaf leaf{job.value("combat_leaf", std::string{"guided_rollout"}), 0, 0};
@@ -158,19 +164,70 @@ FightModel mcts_fight_model(const Json& sims, const Json& job, std::vector<Json>
     if (job.contains("combat_weights")) net = std::make_shared<stsrl::ValueNet>(job.at("combat_weights").get<std::string>());
     teacher::validate(leaf, net != nullptr);
     const bool record = job.value("record_combat", false);
-    return [sims, leaf, net, record, &rows](GameContext& gc, bool sample, int index) {
+    const bool explore = job.value("combat_explore", false);
+    const std::string collection = job.value("collection_id", std::string{"legacy"});
+    return [sims, leaf, net, record, explore, collection, &records](GameContext& gc, bool sample, int index) {
         sts::BattleContext battle;
         battle.init(gc);
-        FightRecord rec{encounter_name(battle.encounter), category(gc, battle.encounter), battle.player.curHp, true};
-        const auto search = teacher::leaf_search(leaf, net.get(), {sims.at(rec.category).get<std::int64_t>(), teacher::particles});
+        FightRecord rec{encounter_name(battle.encounter), category(gc, battle.encounter), battle.player.curHp, true,
+                        collection + ":" + std::to_string(gc.seed) + ":" + std::to_string(index)};
+        const teacher::Leaf selected = rec.category == "easy" ? teacher::Leaf{"guided_rollout", 0, 0} : leaf;
+        // Act 2+ "weak" hallway pools (Spheric Guardian, Shelled Parasite, Byrds, ...) are not easy: hard budget.
+        const std::string budget = gc.act >= 2 && rec.category == "easy" ? "hard" : rec.category;
+        const auto primary = teacher::leaf_search(selected, selected.kind == "guided_rollout" ? nullptr : net.get(), {sims.at(budget).get<std::int64_t>(), teacher::particles});
+        const auto rescue = teacher::leaf_search({"guided_rollout", 0, 0}, nullptr, {5000, teacher::particles});
+        bool fallback_used = false;
+        const teacher::SearchFn search = [primary, rescue, &fallback_used, selected](auto& tree, std::size_t legal) {
+            // Neural values can overvalue endless defensive play. A deterministic public-state safety valve,
+            // not a timeout relabelled as a loss, preserves real outcomes and bounds wasted search.
+            if (selected.kind != "guided_rollout" && !tree.particles.empty() && tree.particles.front().turn >= 30) {
+                fallback_used = true;
+                return rescue(tree, legal);
+            }
+            return primary(tree, legal);
+        };
         const Json fight{{"run_seed", gc.seed}, {"episode_id", static_cast<std::int64_t>(gc.seed) * 100 + index},
                          {"fight_index", index}, {"act", gc.act}, {"floor", gc.floorNum},
                          {"encounter", rec.encounter}, {"category", rec.category}, {"ascension", gc.ascension},
                          {"starting_hp", battle.player.curHp}, {"starting_max_hp", battle.player.maxHp}};
-        const auto end = record && !sample
-            ? teacher::play_fight(battle, fight, rows, search, false, false, teacher::particles, false)
+        std::vector<Json> rows;
+        const bool collecting = record && !sample;
+        Json initial;
+        std::string replay_error;
+        if (collecting) {
+            try { initial = stsrl::battle_snapshot(battle); }
+            catch (const std::invalid_argument& e) { replay_error = e.what(); }
+        }
+        const auto end = collecting
+            ? teacher::play_fight(battle, fight, rows, search, explore, false, teacher::particles, false, false)
             : teacher::play_fight(battle, search, false, teacher::particles, false);
+        bool replay_verified = false;
+        if (collecting && !initial.is_null()) {
+            stsrl::CombatEnvironment replay{stsrl::battle_restore(initial)};
+            for (const auto& row : rows) {
+                if (row.at("row_kind") != "decision") continue;
+                const auto n = replay.legal_action_count();
+                const auto bits = row.at("executed_action_bits").get<std::uint32_t>();
+                std::size_t chosen = n;
+                for (std::size_t i = 0; i < n; ++i) if (replay.action_bits(i) == bits) { chosen = i; break; }
+                if (chosen == n) throw std::runtime_error{"recorded action not legal during replay"};
+                replay.step(chosen);
+            }
+            replay_verified = replay.done() && stsrl::battle_snapshot(replay.battle()) == stsrl::battle_snapshot(end);
+            if (!replay_verified) throw std::runtime_error{"combat replay final snapshot mismatch"};
+        }
         end.exitBattle(gc);
+        if (collecting) {
+            const auto outcome = rows.front();
+            records.push_back({{"fight_id", rec.fight_id}, {"initial_state", initial}, {"rows", initial.is_null() ? std::vector<Json>{} : rows},
+                {"result", {{"run_key", collection + ":" + std::to_string(gc.seed)}, {"run_seed", gc.seed},
+                    {"fight_index", index}, {"category", rec.category}, {"encounter", rec.encounter},
+                    {"status", "completed"}, {"won", outcome.at("won")},
+                    {"battle_final_hp", outcome.at("final_hp")}, {"battle_potions", outcome.at("potions")},
+                    {"post_state_json", stsrl::macro_sim::state_json(gc).dump()}, {"combat_leaf", selected.kind},
+                    {"simulations", sims.at(budget)}, {"exploration_enabled", explore},
+                    {"replay_verified", replay_verified}, {"replay_error", replay_error}, {"rollout_fallback_used", fallback_used}}}});
+        }
         rec.won = gc.outcome != sts::GameOutcome::PLAYER_LOSS;
         return rec;
     };
@@ -217,6 +274,8 @@ struct Ctx {
     std::set<std::string> decide;
     FightModel fight;
     bool sample = false;  // inside a lookahead sample: nothing logged, asks are greedy, nested events one-step
+    int max_act = 1;
+    std::uint64_t seed = 0;  // real seed, also in hypothetical samples
     int samples = 8;      // lookahead samples per option (event)
     int horizon = 0;      // lookahead floors after the decision; 0 = until back on the map (event resolved)
     std::uint64_t nonce = 0;
@@ -224,6 +283,7 @@ struct Ctx {
 
 Json ask(const Ctx& ctx, Json message) {
     message["lookahead"] = ctx.sample;
+    message["seed"] = ctx.seed;
     std::cout << message.dump() << '\n' << std::flush;
     std::string line;
     if (!std::getline(std::cin, line)) throw std::runtime_error{"stdin closed while waiting for a reply"};
@@ -238,18 +298,28 @@ struct Player {
     Json* steps;  // nullptr in a sample
     int fights = 0, events = 0;
     bool boss_beaten = false;
+    int acts_cleared = 0, ticks = 0;
+    std::vector<std::string> bosses;
 
     Player(GameContext& g, const sts::search::SimpleAgent& a, const Ctx& c, Json* s) : gc{g}, agent{a}, ctx{c}, steps{s} {
         agent.curGameContext = &gc;
+        bosses.push_back(encounter_name(gc.boss));
     }
-    bool done() const { return gc.outcome != sts::GameOutcome::UNDECIDED || gc.act != 1 || boss_beaten; }
+    bool done() const { return gc.outcome != sts::GameOutcome::UNDECIDED || gc.act > ctx.max_act || boss_beaten; }
     void log(Json step) {
+        if (!step.contains("boss")) step["boss"] = encounter_name(gc.boss);
         if (steps) steps->push_back(std::move(step));
     }
 
     void step() {
+        if (++ticks > 20000) throw std::runtime_error{screen_error("step limit exceeded")};
+        if (bosses.size() < static_cast<std::size_t>(gc.act)) bosses.push_back(encounter_name(gc.boss));
         if (gc.screenState == sts::ScreenState::BATTLE) return fight();
         if (card_decision(gc)) return card_pick();
+        if (gc.screenState == sts::ScreenState::CARD_SELECT &&
+            gc.info.selectScreenType == sts::CardSelectScreenType::OBTAIN) return obtain_pick();
+        if (gc.screenState == sts::ScreenState::BOSS_RELIC_REWARDS && ctx.decide.count("boss_relic"))
+            return boss_relic();
         if (gc.screenState == sts::ScreenState::EVENT_SCREEN && gc.curEvent == sts::Event::NEOW) {
             if (ctx.decide.count("neow") && !ctx.sample && event()) return;  // a floor-0 event (sampled lookahead)
         } else if (gc.screenState == sts::ScreenState::EVENT_SCREEN && ctx.decide.count("event")) {
@@ -257,17 +327,36 @@ struct Player {
         }
         if (gc.screenState == sts::ScreenState::SHOP_ROOM && ctx.decide.count("shop")) return shop();
         const bool rest = gc.screenState == sts::ScreenState::REST_ROOM && ctx.decide.count("rest");
-        const bool path = gc.screenState == sts::ScreenState::MAP_SCREEN && gc.act == 1 && ctx.decide.count("path");
+        const bool path = gc.screenState == sts::ScreenState::MAP_SCREEN && ctx.decide.count("path");
         if ((rest || path) && rest_or_path(rest)) return;
+        simple_step();
+    }
+
+    std::string screen_error(const std::string& reason) const {
+        return reason + " (act=" + std::to_string(gc.act) + ", floor=" + std::to_string(gc.floorNum) +
+            ", screen=" + std::to_string(static_cast<int>(gc.screenState)) +
+            ", event=" + lower(sts::eventGameNames[static_cast<int>(gc.curEvent)]) + ")";
+    }
+
+    void simple_step() {
+        if (gc.screenState == sts::ScreenState::CARD_SELECT && gc.info.toSelectCards.empty())
+            throw std::runtime_error{screen_error("empty card selection")};
+        const auto before = agent.actionHistory.size();
         agent.stepOutOfCombat(gc);
+        if (agent.actionHistory.size() == before && !done())
+            throw std::runtime_error{screen_error("SimpleAgent made no progress")};
     }
 
     void fight() {
+        const auto boss = encounter_name(gc.boss);
+        const int act = gc.act;
+        const bool boss_fight = gc.curRoom == sts::Room::BOSS;
         const auto rec = ctx.fight(gc, ctx.sample, fights);
         ++fights;
-        boss_beaten = gc.curRoom == sts::Room::BOSS && rec.won;
-        log({{"kind", "fight"}, {"state", stsrl::macro_sim::state_json(gc)}, {"encounter", rec.encounter},
-             {"category", rec.category}, {"won", rec.won}, {"hp_before", rec.hp_before}});
+        if (boss_fight && rec.won) acts_cleared = std::max(acts_cleared, act);
+        boss_beaten = boss_fight && act == ctx.max_act && rec.won;
+        log({{"kind", "fight"}, {"boss", boss}, {"state", stsrl::macro_sim::state_json(gc)}, {"encounter", rec.encounter},
+             {"category", rec.category}, {"fight_id", rec.fight_id}, {"won", rec.won}, {"hp_before", rec.hp_before}});
     }
 
     void card_pick() {
@@ -283,6 +372,68 @@ struct Player {
         log({{"kind", "pick"}, {"state", std::move(state)}, {"options", options}, {"choice", choice}, {"simple", simple}});
     }
 
+    // OBTAIN (currently The Library) offers cards, not deck operations. No skip action is legal.
+    void obtain_pick() {
+        Json options = Json::array();
+        for (const auto& c : gc.info.toSelectCards) options.push_back(card_json(c.card));
+        if (options.empty()) throw std::runtime_error{screen_error("empty obtain selection")};
+        GameContext copy = gc;
+        stsrl::macro_sim::detach_map(copy);
+        auto tmp = agent;
+        tmp.curGameContext = &copy;
+        const auto before = tmp.actionHistory.size();
+        tmp.stepOutOfCombat(copy);
+        if (tmp.actionHistory.size() == before) throw std::runtime_error{screen_error("no obtain baseline")};
+        const int simple = sts::search::GameAction(tmp.actionHistory[before]).getIdx1();
+        auto state = stsrl::macro_sim::state_json(gc);
+        const int choice = ask(ctx, {{"type", "pick"}, {"state", state}, {"boss", encounter_name(gc.boss)},
+            {"options", options}, {"simple", simple}, {"skip_allowed", false}}).at("choice").get<int>();
+        if (choice < 0 || choice >= static_cast<int>(options.size())) throw std::invalid_argument{"bad obtain choice (skip not legal)"};
+        sts::search::GameAction(choice).execute(gc);
+        log({{"kind", "pick"}, {"state", state}, {"options", options}, {"choice", choice},
+            {"simple", simple}, {"skip_allowed", false}});
+    }
+
+    void boss_relic() {
+        GameContext copy = gc;
+        stsrl::macro_sim::detach_map(copy);
+        auto tmp = agent;
+        tmp.curGameContext = &copy;
+        const auto before = tmp.actionHistory.size();
+        tmp.stepOutOfCombat(copy);
+        const int simple = tmp.actionHistory.size() > before
+            ? sts::search::GameAction(tmp.actionHistory[before]).getIdx1() : -1;
+        Json labels = Json::array(), afters = Json::array();
+        const auto salt = mix(ctx.seed, static_cast<std::uint64_t>(gc.floorNum));
+        for (int i = 0; i < 4; ++i) {
+            labels.push_back({{"index", i}, {"relic", i == 3 ? "skip" :
+                lower(sts::relicEnumNames[static_cast<int>(gc.info.bossRelics[i])])}});
+            GameContext c = gc;
+            stsrl::macro_sim::detach_map(c);
+            fresh_randomness(c, salt);
+            sts::search::GameAction(i).execute(c);
+            Ctx sub = ctx;
+            sub.sample = true;
+            Player p{c, agent, sub, nullptr};
+            // Resolve pickup card selections/rewards, stopping before the first new map action.
+            while (!p.done() && c.screenState != sts::ScreenState::MAP_SCREEN) p.simple_step_guarded();
+            afters.push_back(stsrl::macro_sim::state_json(c));
+        }
+        const int choice = ask(ctx, {{"type", "decide"}, {"decision", "boss_relic"},
+            {"state", stsrl::macro_sim::state_json(gc)}, {"boss", encounter_name(gc.boss)},
+            {"options", labels}, {"after", afters}, {"simple", simple}}).at("choice").get<int>();
+        if (choice < 0 || choice > 3) throw std::invalid_argument{"bad boss relic choice"};
+        const auto boss = encounter_name(gc.boss);
+        sts::search::GameAction(choice).execute(gc);
+        log({{"kind", "decide"}, {"boss", boss}, {"decision", "boss_relic"}, {"options", labels},
+            {"choice", choice}, {"simple", simple}, {"after", afters[choice]}});
+    }
+
+    void simple_step_guarded() {
+        if (++ticks > 20000) throw std::runtime_error{screen_error("pickup step limit exceeded")};
+        simple_step();
+    }
+
     // Returns false when there is nothing to decide (SimpleAgent steps instead).
     bool event() {
         // Events whose setup pre-rolls state the player cannot see (a sample copies it, so lookahead would peek):
@@ -291,6 +442,7 @@ struct Player {
         const auto actions = sts::search::GameAction::getAllActionsInState(gc);
         if (actions.size() < 2) return false;
         GameContext copy = gc;
+        stsrl::macro_sim::detach_map(copy);
         sts::search::SimpleAgent tmp = agent;
         tmp.curGameContext = &copy;
         const auto before = tmp.actionHistory.size();
@@ -315,6 +467,7 @@ struct Player {
             Json afters = Json::array();
             for (const auto& a : actions) {
                 GameContext c = gc;
+                stsrl::macro_sim::detach_map(c);
                 a.execute(c);
                 afters.push_back(slim_state(c));
             }
@@ -348,24 +501,29 @@ struct Player {
     // {"state"} or {"terminal": died | cleared, "floor"}.
     Json lookahead(const sts::search::GameAction& a, std::uint64_t salt) {
         GameContext c = gc;
+        stsrl::macro_sim::detach_map(c);
         fresh_randomness(c, salt);
         Ctx sub = ctx;
         sub.sample = true;
         Player p{c, agent, sub, nullptr};
+        p.acts_cleared = acts_cleared;
         a.execute(c);
         const int stop_floor = gc.floorNum + ctx.horizon;
-        for (int guard = 0; guard < 2000 && !p.done(); ++guard) {
+        while (!p.done()) {
             if (c.screenState == sts::ScreenState::MAP_SCREEN && c.floorNum >= stop_floor) break;
             p.step();
         }
-        if (p.boss_beaten) return {{"terminal", "cleared"}, {"floor", c.floorNum}};
-        if (c.outcome == sts::GameOutcome::PLAYER_LOSS) return {{"terminal", "died"}, {"floor", c.floorNum}};
+        if (p.boss_beaten || c.act > ctx.max_act)
+            return {{"terminal", "cleared"}, {"floor", c.floorNum}, {"act", c.act}, {"acts_cleared", p.acts_cleared}};
+        if (c.outcome == sts::GameOutcome::PLAYER_LOSS)
+            return {{"terminal", "died"}, {"floor", c.floorNum}, {"act", c.act}, {"acts_cleared", p.acts_cleared}};
         return {{"state", slim_state(c)}};
     }
 
     void shop() {
         // SimpleAgent's own next action(s) on a copy: one purchase, or removal + its card select.
         GameContext copy = gc;
+        stsrl::macro_sim::detach_map(copy);
         sts::search::SimpleAgent tmp = agent;
         tmp.curGameContext = &copy;
         const auto before = tmp.actionHistory.size();
@@ -404,6 +562,7 @@ struct Player {
         // SimpleAgent's own move, on a copy (the label and the "simple" policy). At the first map screen the
         // agent plans its whole route: keep that plan so SimpleAgent stays itself when it is followed.
         GameContext copy = gc;
+        stsrl::macro_sim::detach_map(copy);
         sts::search::SimpleAgent tmp = agent;
         tmp.curGameContext = &copy;
         tmp.stepOutOfCombat(copy);
@@ -459,25 +618,30 @@ Json play_run(const Json& job) {
     const auto t0 = std::chrono::steady_clock::now();
     const auto seed = job.at("seed").get<std::uint64_t>();
     Ctx ctx;
+    ctx.seed = seed;
+    ctx.max_act = job.value("max_act", 1);
+    if (ctx.max_act < 1 || ctx.max_act > 2) throw std::invalid_argument{"max_act must be 1 or 2"};
     for (const auto& d : job.value("decide", Json::array())) {
         const auto name = d.get<std::string>();
-        if (name != "rest" && name != "path" && name != "shop" && name != "neow" && name != "event")
+        if (name != "rest" && name != "path" && name != "shop" && name != "neow" && name != "event" && name != "boss_relic")
             throw std::invalid_argument{"unknown decision: " + name};
         ctx.decide.insert(name);
     }
-    std::vector<Json> combat_rows;
-    ctx.fight = mcts_fight_model(job.at("simulations"), job, combat_rows);
+    std::vector<Json> combat_records;
+    ctx.fight = mcts_fight_model(job.at("simulations"), job, combat_records);
     ctx.samples = job.value("lookahead_samples", 8);
     ctx.horizon = job.value("lookahead_horizon", 0);
     GameContext gc{sts::CharacterClass::IRONCLAD, seed, job.at("ascension").get<int>()};
     Json steps = Json::array();
-    steps.push_back({{"kind", "start"}, {"state", stsrl::macro_sim::state_json(gc)}});
+    steps.push_back({{"kind", "start"}, {"boss", encounter_name(gc.boss)}, {"state", stsrl::macro_sim::state_json(gc)}});
     Player player{gc, sts::search::SimpleAgent{}, ctx, &steps};
     while (!player.done()) player.step();
     const double seconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
-    return {{"type", "done"}, {"seed", seed}, {"boss", encounter_name(gc.boss)},
-            {"status", player.boss_beaten ? "act_complete" : "died"}, {"floor", gc.floorNum}, {"fights", player.fights},
-            {"final_hp", gc.curHp}, {"seconds", seconds}, {"steps", steps}, {"combat_rows", combat_rows}};
+    return {{"type", "done"}, {"run_key", job.value("collection_id", std::string{"legacy"}) + ":" + std::to_string(seed)}, {"seed", seed}, {"boss", encounter_name(gc.boss)},
+            {"status", player.boss_beaten || gc.act > ctx.max_act ? "act_complete" : "died"},
+            {"act", gc.act}, {"acts_cleared", player.acts_cleared}, {"bosses", player.bosses},
+            {"floor", gc.floorNum}, {"fights", player.fights},
+            {"final_hp", gc.curHp}, {"seconds", seconds}, {"steps", steps}, {"combat_records", combat_records}};
 }
 
 }  // namespace

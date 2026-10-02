@@ -29,6 +29,7 @@ add_library(combat_core STATIC
     agents/combat/value/value_net.cpp
     environments/combat/environment.cpp
     environments/combat/encoding_v4.cpp
+    environments/combat/battle_snapshot.cpp
     environments/overworld/act1_run.cpp
     environments/combat/scenarios/jaw_worm.cpp
     environments/combat/scenarios/slime_boss.cpp)
@@ -149,6 +150,12 @@ target_link_libraries(run_rl_worker PRIVATE combat_core macro_sim)
 target_compile_features(run_rl_worker PRIVATE cxx_std_23)
 target_compile_options(run_rl_worker PRIVATE -Wall -Wextra -Wpedantic)
 
+add_executable(run_rl_worker_test apps/run_rl/worker_test.cpp)
+target_link_libraries(run_rl_worker_test PRIVATE combat_core macro_sim)
+target_compile_features(run_rl_worker_test PRIVATE cxx_std_23)
+target_compile_options(run_rl_worker_test PRIVATE -Wall -Wextra -Wpedantic)
+add_test(NAME run_rl_worker_test COMMAND run_rl_worker_test)
+
 # Colocated Python tests share CTest with native checks. Never recurse through
 # runs/schema=*/ output trees: only runs/test_*.py is source-level test code.
 set(STSRL_PYTHON "${CMAKE_CURRENT_SOURCE_DIR}/.venv/bin/python3" CACHE FILEPATH "Python interpreter for tests")
@@ -166,3 +173,8 @@ foreach(test_file IN LISTS python_test_files)
         ENVIRONMENT "PYTHONPATH=${CMAKE_CURRENT_SOURCE_DIR};STSRL_BUILD_DIR=${python_test_build_dir}"
         LABELS "python")
 endforeach()
+
+add_executable(battle_snapshot_test environments/combat/battle_snapshot_test.cpp)
+target_link_libraries(battle_snapshot_test PRIVATE combat_core)
+target_compile_features(battle_snapshot_test PRIVATE cxx_std_23)
+add_test(NAME battle_snapshot_test COMMAND battle_snapshot_test)

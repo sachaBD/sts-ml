@@ -61,7 +61,7 @@ double& search_seconds();
 // only).
 sts::BattleContext play_fight(sts::BattleContext battle, const nlohmann::json& fight,
                               std::vector<nlohmann::json>& rows, const SearchFn& search, bool random_move,
-                              bool oracle, int particles, bool reuse);
+                              bool oracle, int particles, bool reuse, bool child_rows = true);
 
 // Teacher plays one fight and records nothing (for callers that keep only the outcome): no rows, no state
 // encoding, and a forced move (one legal move) is played without a search (the recording player searches it

@@ -68,6 +68,8 @@ def connect(root: Path = RUNS) -> duckdb.DuckDBPyConnection:
                 from read_parquet('{root}/schema=run_rl_v1/*/*/out/{name}.parquet',
                                   hive_partitioning = true, hive_types_autocast = false, union_by_name = true)""")
     _combat_v4_schema().register_duckdb_views(db, root)
+    from apps.run_rl.records import contract
+    contract("overworld_v1").register_duckdb_views(db, root)
     return db
 
 

@@ -273,7 +273,8 @@ def training_rows(sql: str, *, corrective: bool, oracle: bool, v4: bool = False)
     del parts
     for run_id in sorted(set(columns["run_id"])):
         dagger = {(pq.read_schema(part).metadata or {}).get(b"collection_method") == b"dagger"
-                  for part in run_parquet(run_id)}
+                  for part in run_parquet(run_id)
+                  if not run_id.startswith("combat_v4/") or part.name.startswith("training-")}
         if dagger != {corrective}:
             raise ValueError(f"{run_id}: " + ("not a DAgger run; corrections come only from DAgger runs" if corrective
                                               else "DAgger rows; use them as corrections, not ordinary data"))

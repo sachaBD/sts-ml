@@ -101,6 +101,8 @@ nlohmann::json map_json(const sts::GameContext& gc) {
 
 nlohmann::json state_json(const sts::GameContext& gc) {
     auto j = game_state::state(gc);
+    j["act"] = gc.act;
+    j["boss"] = game_state::lower(sts::monsterEncounterEnumNames[static_cast<int>(gc.boss)]);
     j["map"] = map_json(gc);
     return j;
 }

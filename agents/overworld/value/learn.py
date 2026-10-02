@@ -17,27 +17,27 @@ import torch
 import torch.nn.functional as F
 
 
-from agents.overworld.value.core import all_node_values, build_model, encode, load_model, nodes, read_runs, save_model, score, td_targets  # noqa: E402
+from agents.overworld.value.core import all_node_values, build_model, encode, load_model, node_bosses, nodes, read_runs, save_model, run_score, td_targets, LAST_FLOOR  # noqa: E402
 
 
-def aux_targets(r):
-    """As netstudy.py: HP fraction entering the boss (0 if not reached), reached boss, floor / 16."""
+def aux_targets(r, last_floor=16):
+    """As netstudy.py: HP fraction entering the (first) boss (0 if not reached), reached it, floor / last_floor."""
     boss = [s for s in r["steps"] if s["kind"] == "fight" and s["category"] == "boss"]
     mx = max(r["steps"][0]["state"]["max_hp"], 1)
-    return [boss[0]["hp_before"] / mx if boss else 0.0, float(bool(boss)), min(r["floor"], 16) / 16]
+    return [boss[0]["hp_before"] / mx if boss else 0.0, float(bool(boss)), min(r["floor"], last_floor) / last_floor]
 
 
-def build_examples(runs, weights, init, lam, progress, hp, device):
+def build_examples(runs, weights, init, lam, progress, hp, device, target="act1"):
     values = all_node_values(init, runs, device) if init is not None and lam < 1 else None
     ex = []
     for k, run in enumerate(runs):
         ns = nodes(run)
         if not ns:
             continue
-        g = score(run, progress, hp)
+        g = run_score(run, target, progress, hp)
         targets = [g] * len(ns) if values is None else td_targets(values[k], g, lam)
-        aux = aux_targets(run)
-        ex += [(s, o, c, run["boss"], t, run["seed"], weights[k], aux) for (s, o, c), t in zip(ns, targets)]
+        aux = aux_targets(run, 16 if target == "act1" else LAST_FLOOR)
+        ex += [(s, o, c, b, t, run["seed"], weights[k], aux) for (s, o, c), t, b in zip(ns, targets, node_bosses(run))]
     return ex
 
 
@@ -90,6 +90,8 @@ def main():
     ap.add_argument("--lam", type=float, default=0.7)
     ap.add_argument("--progress", type=float, default=0.25)
     ap.add_argument("--hp", type=float, default=0.0)
+    ap.add_argument("--target", choices=["act1", "floors"], default="act1",
+                    help="act1: Act-1 clear score (--progress/--hp); floors: core.floor_score (full game)")
     ap.add_argument("--epochs", type=int, default=30)
     ap.add_argument("--lr", type=float, default=1e-3)
     ap.add_argument("--seed", type=int, default=0)
@@ -108,12 +110,12 @@ def main():
         weights += [a.decay ** (len(a.data) - 1 - k)] * len(rs)
     init = load_model(a.init, device) if a.init else None
     td = load_model(a.td_model, device) if a.td_model else init
-    ex = build_examples(runs, weights, td, a.lam, a.progress, a.hp, device)
+    ex = build_examples(runs, weights, td, a.lam, a.progress, a.hp, device, a.target)
     held = {r["seed"] for r in runs if random.Random(r["seed"]).random() < 0.1}
     train = [e for e in ex if e[5] not in held]
     val = [e for e in ex if e[5] in held]
     print(f"{len(runs)} runs, {len(train)} train nodes, {len(val)} val nodes; "
-          f"mean score {sum(score(r, a.progress, a.hp) for r in runs) / len(runs):.3f}", flush=True)
+          f"mean score {sum(run_score(r, a.target, a.progress, a.hp) for r in runs) / len(runs):.3f}", flush=True)
     model = (build_model({"kind": init.KIND, **init.args}) if init else build_model(json.loads(a.arch))).to(device)
     if init:
         model.load_state_dict(init.state_dict())
@@ -145,7 +147,7 @@ def main():
             if bad >= 4:
                 break
     model.load_state_dict(best_state)
-    save_model(model.cpu(), a.out, data=a.data, lam=a.lam, progress=a.progress, hp=a.hp, decay=a.decay, val_bce=best,
+    save_model(model.cpu(), a.out, data=a.data, target=a.target, lam=a.lam, progress=a.progress, hp=a.hp, decay=a.decay, val_bce=best,
                runs=len(runs))
     print(json.dumps({"out": a.out, "val_bce": best, "runs": len(runs)}))
 

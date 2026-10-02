@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
-"""Play real act 1 runs (MCTS fights, SimpleAgent out of combat) with card picks from a policy; log every run.
+"""Play real runs (Act 1, or through --max-act) with learned overworld choices and category-specific combat.
+
+Optional --combat-out records replay-verified combat_v4 facts; --overworld-record writes overworld_v1.
+--combat-leaf value_net uses neural leaves except easy fights, which stay guided-rollout.
+--combat-explore applies one seeded random action per recorded fight (never inside hypothetical lookahead).
 
   play.py --out DIR --first-seed S --seeds N [--workers W] --policy simple|random|net [--ckpt PATH]
           [--eps E] [--explore random|simple] [--sims easy,hard,elite,event,boss]
@@ -26,7 +30,7 @@ WORKER = Path("build/main/run_rl_worker")
 
 
 from agents.overworld.value.policy import Policy
-from apps.common.worker import write_part
+from apps.run_rl.records import write_combat, write_overworld
 
 
 def strip(state):
@@ -45,7 +49,7 @@ def worker_loop(worker, seeds, lock, policy, sims, decide, lookahead, out, stats
                 return
             proc.stdin.write(json.dumps({"seed": seed, "ascension": 20, "simulations": sims, "decide": decide,
                                          "lookahead_samples": lookahead[0], "lookahead_horizon": lookahead[1],
-                                         **combat[0]}) + "\n")
+                                         "max_act": lookahead[2], **combat[0]}) + "\n")
             proc.stdin.flush()
             meta = []
             while True:
@@ -69,9 +73,9 @@ def worker_loop(worker, seeds, lock, policy, sims, decide, lookahead, out, stats
                     break
                 else:
                     raise RuntimeError(f"worker error on seed {seed}: {msg}")
-            rows = msg.pop("combat_rows", [])
+            records = msg.pop("combat_records", [])
             if combat[1] is not None:
-                write_part(combat[1], seed, rows, {"collection_method": "run_rl_selfplay"})
+                write_combat(combat[1], records, seed)
             picks = [s for s in msg["steps"] if s["kind"] in ("pick", "decide")]
             for s, m in zip(picks, meta):
                 s.update(m)
@@ -79,12 +83,17 @@ def worker_loop(worker, seeds, lock, policy, sims, decide, lookahead, out, stats
                 for key in ("state", "after"):
                     if key in s:
                         s[key] = strip(s[key])
+            if combat[2] is not None:
+                write_overworld(combat[2], msg, seed)
             with lock:
                 out.write(json.dumps(msg) + "\n")
                 out.flush()
                 stats["runs"] += 1
                 stats["clear"] += msg["status"] == "act_complete"
                 stats["seconds"] += msg["seconds"]
+                acts = msg.get("acts_cleared", int(msg["status"] == "act_complete"))
+                stats["acts_cleared"][acts] = stats["acts_cleared"].get(acts, 0) + 1
+                stats["floor_sum"] += msg["floor"]
     except BaseException as e:
         with lock:
             stats.setdefault("errors", []).append(repr(e))
@@ -103,30 +112,39 @@ def main():
     ap.add_argument("--ckpt")
     ap.add_argument("--eps", type=float, default=0.0)
     ap.add_argument("--sims", default="500,2000,5000,5000,15000")
-    ap.add_argument("--decide", nargs="*", default=[], choices=["rest", "path", "shop", "neow", "event"],
+    ap.add_argument("--max-act", type=int, default=1, help="play until this act's boss is beaten (or death)")
+    ap.add_argument("--route-p", type=float, default=0.0, help="fraction of runs (by seed) taking uniform random paths")
+    ap.add_argument("--target", choices=["act1", "floors"], default="act1", help="scoring of lookahead terminals")
+    ap.add_argument("--decide", nargs="*", default=[], choices=["rest", "path", "shop", "neow", "event", "boss_relic"],
                     help="decisions besides card picks made by the policy (else SimpleAgent)")
     ap.add_argument("--samples", type=int, default=8, help="lookahead samples per event / Neow option")
     ap.add_argument("--horizon", type=int, default=0, help="lookahead floors (0 = until the event resolves)")
     ap.add_argument("--worker", default=str(WORKER), help="run_rl_worker binary (loop.py passes its own snapshot)")
     ap.add_argument("--combat-leaf", choices=["guided_rollout", "value_net"], default="guided_rollout")
     ap.add_argument("--combat-weights")
-    ap.add_argument("--combat-out", help="combat_v3 out directory; record real fights, never lookahead samples")
+    ap.add_argument("--combat-out", help="combat_v4 out directory; record real fights, never lookahead samples")
+    ap.add_argument("--combat-explore", action="store_true", help="one random legal action per recorded fight")
+    ap.add_argument("--overworld-record", action="store_true", help="write overworld_v1 canonical tables in --out")
+    ap.add_argument("--collection-id", default="legacy")
     a = ap.parse_args()
+    if a.combat_explore and not a.combat_out:
+        ap.error("combat exploration requires --combat-out")
     if (a.combat_leaf == "value_net") != bool(a.combat_weights):
         ap.error("value_net requires --combat-weights; rollout must not receive weights")
     combat_dir = Path(a.combat_out) if a.combat_out else None
     if combat_dir is not None:
         combat_dir.mkdir(parents=True, exist_ok=True)
-    combat_job = {"combat_leaf": a.combat_leaf, "record_combat": combat_dir is not None}
+    combat_job = {"combat_leaf": a.combat_leaf, "record_combat": combat_dir is not None,
+                  "combat_explore": a.combat_explore, "collection_id": a.collection_id}
     if a.combat_weights:
         combat_job["combat_weights"] = a.combat_weights
     torch.set_num_threads(1)
     sims = dict(zip(["easy", "hard", "elite", "event", "boss"], map(int, a.sims.split(","))))
     out_dir = Path(a.out)
     out_dir.mkdir(parents=True, exist_ok=True)
-    policy = Policy(a.policy, a.ckpt, a.eps, seed=a.first_seed)
+    policy = Policy(a.policy, a.ckpt, a.eps, seed=a.first_seed, route_p=a.route_p, target=a.target)
     # Resume: keep complete lines of an earlier, interrupted invocation and skip their seeds.
-    stats = {"runs": 0, "clear": 0, "seconds": 0.0}
+    stats = {"runs": 0, "clear": 0, "seconds": 0.0, "acts_cleared": {}, "floor_sum": 0}
     done, kept = set(), []
     path = out_dir / "runs.jsonl"
     if path.exists():
@@ -137,13 +155,15 @@ def main():
                 continue
             done.add(r["seed"]); kept.append(line if line.endswith("\n") else line + "\n")
             stats["runs"] += 1; stats["clear"] += r["status"] == "act_complete"; stats["seconds"] += r["seconds"]
+            acts = r.get("acts_cleared", int(r["status"] == "act_complete"))
+            stats["acts_cleared"][acts] = stats["acts_cleared"].get(acts, 0) + 1; stats["floor_sum"] += r["floor"]
         path.write_text("".join(kept))
         print(f"resuming: {len(done)} runs already played", flush=True)
     seeds = iter([s for s in range(a.first_seed, a.first_seed + a.seeds) if s not in done])
     lock = threading.Lock()
     t0 = time.monotonic()
     with open(out_dir / "runs.jsonl", "a") as out:
-        threads = [threading.Thread(target=worker_loop, args=(a.worker, seeds, lock, policy, sims, a.decide, (a.samples, a.horizon), out, stats, (combat_job, combat_dir)))
+        threads = [threading.Thread(target=worker_loop, args=(a.worker, seeds, lock, policy, sims, a.decide, (a.samples, a.horizon, a.max_act), out, stats, (combat_job, combat_dir, out_dir if a.overworld_record else None)))
                    for _ in range(a.workers)]
         for t in threads:
             t.start()
@@ -152,6 +172,7 @@ def main():
             with lock:
                 r = max(stats["runs"], 1)
                 print(f"{time.monotonic() - t0:7.0f}s  runs {stats['runs']}/{a.seeds}  clear {stats['clear'] / r:.3f}"
+                      f"  acts {dict(sorted(stats['acts_cleared'].items()))}  floor {stats['floor_sum'] / r:.1f}"
                       f"  {stats['seconds'] / r:.1f} worker-s/run", flush=True)
         for t in threads:
             t.join()
