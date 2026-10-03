@@ -2,6 +2,7 @@
 
 Checks plumbing and contracts only (tables readable, targets sane, telemetry present), not playing strength."""
 import copy
+import json
 import os
 from pathlib import Path
 import subprocess
@@ -37,7 +38,7 @@ class Pipeline(unittest.TestCase):
             tmp = Path(tmp)
             pq.write_table(pa.Table.from_pylist(rows, pq.read_schema(FIGHTS).empty_table().select(['fight_id', 'start']).schema),
                            tmp / 'starts.parquet')
-            run(PLAY, '--starts', tmp / 'starts.parquet', '--agent', 'teacher', '--sims', 20, '--workers', 2,
+            run(PLAY, '--starts', tmp / 'starts.parquet', '--agent', 'teacher', '--sims', 20, '--workers', 1,
                 '--out', tmp / 'teacher', '--worker', WORKER)
             n = data.collect([tmp / 'teacher/fights-0.parquet'], [tmp / 'teacher/search-0.parquet'], [39], tmp / 'rows', WORKER)
             self.assertEqual(n, 40)
@@ -46,12 +47,20 @@ class Pipeline(unittest.TestCase):
             self.assertEqual(shard[1], 40); self.assertGreater(shard[2], 0); self.assertGreaterEqual(shard[3], 1)
             run('-m', 'agents.combat.pv.train', '--data', tmp / 'rows/rows.parquet', '--out', tmp / 'model', '--epochs', 1)
             run(PLAY, '--starts', tmp / 'starts.parquet', '--agent', 'pv', '--model', tmp / 'model/model.onnx', '--sims', 16,
-                '--workers', 2, '--out', tmp / 'pv', '--worker', WORKER)
+                '--workers', 1, '--out', tmp / 'pv', '--worker', WORKER)
             summary = duckdb.sql(f"select count(*), count(mean_depth), min(max_depth), min(nodes) from '{tmp}/pv/decisions_stats-0.parquet'").fetchone()
             self.assertGreater(summary[0], 0); self.assertEqual(summary[0], summary[1]); self.assertGreaterEqual(summary[2], 1)
             # PV-played fights are valid combat_v4 rows: the encoder replays them.
             n = data.collect([tmp / 'pv/fights-0.parquet'], [tmp / 'pv/search-0.parquet'], [39], tmp / 'rows2', WORKER)
             self.assertGreater(n, 0)
+            # Paired comparison of the two arms on the common fights.
+            report = subprocess.run([sys.executable, ROOT / 'apps/pv/compare.py', tmp / 'teacher', tmp / 'pv', '--json'],
+                                    cwd=ROOT, capture_output=True, text=True)
+            self.assertEqual(report.returncode, 0, report.stderr)
+            report = report.stdout
+            splits = json.loads(report)[str(tmp / 'pv')]['vs_baseline']
+            self.assertEqual(splits[0]['split'], 'all'); self.assertGreater(splits[0]['n'], 0)
+            self.assertEqual(sum(s['n'] for s in splits if s['split'].startswith('hp')), splits[0]['n'])
 
 
 if __name__ == '__main__':

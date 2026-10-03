@@ -34,7 +34,7 @@ def collect(fights, searches, encounters, out, worker=WORKER):
         join = f"""left join (select fight_id, list({{'step': step, 'root_value': root_value, 'children': children}}
                    order by step) as search from read_parquet({[str(s) for s in searches]!r}) group by fight_id) s using (fight_id)"""
     db = duckdb.connect()
-    db.execute("set memory_limit='2GB'; set threads=4")
+    db.execute("set memory_limit='2GB'; set threads=1")
     cursor = db.execute(f"""select f.fight_id, f.start, f.actions, f.won, f.final_hp,
         {'s.search' if searches else 'null'} as search from read_parquet({[str(f) for f in fights]!r}) f {join}
         where f.start.encounter in ({','.join(str(int(e)) for e in encounters)}) 

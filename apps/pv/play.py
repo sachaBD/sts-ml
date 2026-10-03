@@ -6,8 +6,8 @@
 
 STARTS: parquet with fight_id and start (combat_v4 fights layout; other columns are ignored). N `pv_worker` processes
 each take one fight at a time (JSON lines over pipes, transport only). Results stream into
-OUT/fights-0.parquet and OUT/search-0.parquet (runs/schema=combat_v4/schema.py; the agent string records the settings),
-OUT/decisions_stats-0.parquet (one row per searched decision: seconds, simulations, tree depth in actions and in player
+OUT/fights-<k>.parquet and OUT/search-<k>.parquet (a new part k every 256 fights; runs/schema=combat_v4/schema.py; the
+agent string records the settings), OUT/decisions_stats-<k>.parquet (one row per searched decision: seconds, simulations, tree depth in actions and in player
 turns crossed (visit-weighted mean and max over simulations), node count; depth is null for the teacher) and
 OUT/summary.json. A fight that hits the turn/action cap is counted as `capped` and not written (it is not a loss).
 """
@@ -33,7 +33,7 @@ STATS = pa.schema([
     ('fight_id', pa.string()), ('step', pa.int16()), ('seconds', pa.float64()), ('simulations', pa.uint32()),
     ('mean_depth', pa.float64()), ('max_depth', pa.int32()), ('mean_turns', pa.float64()), ('max_turns', pa.int32()),
     ('nodes', pa.int64())])
-FLUSH = 32  # fights buffered per parquet write
+PART = 256  # fights per output part file; each part is complete and readable as soon as it is written
 
 
 def starts(path):
@@ -83,13 +83,15 @@ def main():
     begin = time.time()
     for t in threads: t.start()
     tables = {'fights': (v4.FIGHTS, []), 'search': (v4.SEARCH, []), 'decisions_stats': (STATS, [])}
-    writers = {name: pq.ParquetWriter(a.out / f'{name}-0.parquet', schema, compression='zstd')
-               for name, (schema, _) in tables.items()}
+    part = 0
 
     def flush():
+        nonlocal part
+        if not tables['fights'][1]: return
         for name, (schema, rows) in tables.items():
-            if rows: writers[name].write_table(pa.Table.from_pylist(rows, schema))
+            pq.write_table(pa.Table.from_pylist(rows, schema), a.out / f'{name}-{part}.parquet', compression='zstd')
             rows.clear()
+        part += 1
 
     summary = dict(fights=0, wins=0, capped=0, decision_seconds=0.0)
     alive = len(threads)
@@ -103,9 +105,8 @@ def main():
         tables['fights'][1].append(item['fight'])
         tables['search'][1].extend(item['search'])
         tables['decisions_stats'][1].extend(item['stats'])
-        if summary['fights'] % FLUSH == 0: flush()
+        if len(tables['fights'][1]) == PART: flush()
     flush()
-    for w in writers.values(): w.close()
     played = summary['fights'] + summary['capped']
     summary |= dict(wall_seconds=time.time() - begin, workers=a.workers, command=command[1:],
                     mean_seconds_per_fight=summary['decision_seconds'] / played if played else None)
