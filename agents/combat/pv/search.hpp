@@ -73,6 +73,13 @@ public:
         for (std::size_t i = 0; i < priors.size(); ++i) root_.edges[i].prior = priors[i];
     }
 
+    // Per-decision depth telemetry, over this tree's simulations. A path's depth is its number of actions
+    // (terminal action included); turns counts the END_TURN actions on it, i.e. player turns crossed.
+    struct Telemetry {
+        std::int64_t depth_sum = 0, turns_sum = 0, nodes = 1;  // nodes: the root plus every node created
+        int depth_max = 0, turns_max = 0;
+    };
+    const Telemetry& telemetry() const { return telemetry_; }
     const Node& root() const { return root_; }
     std::int64_t simulations() const { return simulations_; }
 
@@ -140,7 +147,7 @@ public:
                     }
 
                     auto& child = edge.outcomes[observation_key(state)];
-                    if (!child) child = std::make_unique<Node>(make_node(state));
+                    if (!child) { child = std::make_unique<Node>(make_node(state)); ++telemetry_.nodes; }
                     node = child.get();
                 }
             }
@@ -222,7 +229,9 @@ private:
 
     void backup(Path& path, double value) {
         validate_value(value);
+        int turns = 0;
         for (auto [node, index] : path) {
+            turns += node->edges.at(index).action.getActionType() == sts::search::ActionType::END_TURN;
             auto& edge = node->edges.at(index);
             if (node->in_flight < 1 || edge.in_flight < 1) throw std::logic_error{"PV: unreserved backup path"};
             --node->in_flight;
@@ -232,6 +241,10 @@ private:
             edge.value_sum += value;
         }
         ++simulations_;
+        const int depth = int(path.size());
+        telemetry_.depth_sum += depth; telemetry_.turns_sum += turns;
+        telemetry_.depth_max = std::max(telemetry_.depth_max, depth);
+        telemetry_.turns_max = std::max(telemetry_.turns_max, turns);
     }
 
     std::vector<sts::BattleContext> particles_;
@@ -241,6 +254,7 @@ private:
     std::mt19937_64 random_;
     Node root_;
     std::int64_t simulations_ = 0;
+    Telemetry telemetry_;
 };
 
 }  // namespace stsrl::pv

@@ -1,75 +1,67 @@
-"""MCTS bootstrap learner. Streams caches produced by pv.data; saves a PyTorch checkpoint and ONNX model.
+"""MCTS bootstrap learner. Reads shards produced by pv.data; saves a PyTorch checkpoint and ONNX model.
 
 Validation membership is a stable hash of run seed, shared across datasets/iterations. Policy: search visits;
 value: terminal combat score. These losses are diagnostics, not a replacement for held-out play evaluation.
+Per epoch it logs train/val value loss and policy loss separately, and val top-1 agreement with the search's most-visited move.
 """
 import argparse
-import hashlib
 import json
-import math
 from pathlib import Path
 
+import numpy as np
 import torch
-from .data import collate
+from .data import Dataset
 from .model import CONTRACT, NAMES, VALUE_SCALE, PolicyValue
 
 
-def validation(seed):
-    return int.from_bytes(hashlib.sha256(str(seed).encode()).digest()[:8], 'little') % 10 == 0
-
-
-def batches(paths, valid, size):
-    rows = []
-    for path in paths:
-        with open(path) as f:
-            for line in f:
-                row = json.loads(line)
-                if row.get('contract') != CONTRACT:
-                    raise ValueError('cache input/value contract mismatch; regenerate it with pv_worker encode')
-                if validation(row['seed']) != valid: continue
-                rows.append(row)
-                if len(rows) == size: yield rows; rows = []
-    if rows: yield rows
-
-
-def objective(net, rows, device):
-    inputs = {k: v.to(device) for k, v in collate(rows).items()}
+def evaluate(net, batch, device):
+    """Return (value loss sum, policy loss sum, top-1 hits, states, policy states) of one batch; grads flow."""
+    inputs, target_value, target, has_policy = (
+        {k: v.to(device) for k, v in batch[0].items()}, batch[1].to(device), batch[2].to(device), batch[3].to(device))
     value, logits = net(*(inputs[n] for n in NAMES))
     if not torch.isfinite(value).all() or not torch.isfinite(logits).all():
         raise ValueError('network produced non-finite predictions')
-    target_value = torch.tensor([r['value_target'] for r in rows], device=device)
     if not torch.isfinite(target_value).all() or (target_value < 0).any():
         raise ValueError('value targets must be finite, nonnegative HP-equivalent points')
+    if (target < 0).any() or not torch.allclose(target.sum(-1)[has_policy], torch.ones((), device=device), atol=1e-5):
+        raise ValueError('policy targets must be nonnegative and sum to one')
     # Balance the two losses without changing the units of predictions or targets.
-    value_loss = ((value - target_value) / VALUE_SCALE).square().mean()
-    target = torch.zeros_like(logits)
-    mask = torch.tensor([r['has_policy'] for r in rows], device=device, dtype=torch.float32)
-    for i, row in enumerate(rows):
-        policy = row['policy_target']
-        if len(policy) != len(row['moves']) or any(not math.isfinite(p) or p < 0 for p in policy):
-            raise ValueError('invalid policy target')
-        if row['has_policy'] and not math.isclose(sum(policy), 1, abs_tol=1e-6):
-            raise ValueError('policy target must sum to one')
-        target[i, :len(policy)] = torch.tensor(policy, device=device)
-    policy = -(target * logits.log_softmax(-1)).sum(-1)
-    policy_loss = (policy * mask).sum() / mask.sum().clamp(min=1)
-    loss = value_loss + policy_loss
-    if not torch.isfinite(loss): raise ValueError('non-finite training loss')
-    return loss
+    value_loss = ((value - target_value) / VALUE_SCALE).square().sum()
+    policy_loss = (-(target * logits.log_softmax(-1)).sum(-1) * has_policy).sum()
+    hits = ((logits.argmax(-1) == target.argmax(-1)) & has_policy).sum().item()
+    return value_loss, policy_loss, hits, len(value), has_policy.sum().item()
+
+
+def run_epoch(net, data, a, optimizer=None, rng=None):
+    totals = np.zeros(4)  # value, policy, hits, states; policy states separately
+    policy_states = 0
+    for batch in data.batches(a.batch, rng):
+        with torch.set_grad_enabled(optimizer is not None):
+            value, policy, hits, n, n_policy = evaluate(net, batch, a.device)
+            loss = value / n + policy / max(n_policy, 1)
+            if not torch.isfinite(loss): raise ValueError('non-finite training loss')
+            if optimizer:
+                optimizer.zero_grad(); loss.backward(); optimizer.step()
+        totals += (value.item(), policy.item(), hits, n); policy_states += n_policy
+    if not totals[3]: raise ValueError('no states in this split (need more independent run seeds)')
+    return dict(value_loss=totals[0] / totals[3], policy_loss=totals[1] / max(policy_states, 1),
+                top1=totals[2] / max(policy_states, 1), states=int(totals[3]), policy_states=policy_states)
 
 
 def main():
     p = argparse.ArgumentParser(description=__doc__)
-    p.add_argument('--data', type=Path, nargs='+', required=True)
+    p.add_argument('--data', type=Path, nargs='+', required=True, help='shard files (rows.parquet)')
     p.add_argument('--out', type=Path, required=True)
     p.add_argument('--init', type=Path)
     p.add_argument('--epochs', type=int, default=10)
     p.add_argument('--batch', type=int, default=64)
     p.add_argument('--width', type=int, default=64)
     p.add_argument('--device', default='cpu')
+    p.add_argument('--stream', action='store_true', help='re-read one shard at a time per epoch instead of holding all in RAM')
     a = p.parse_args()
     if a.batch < 1 or a.epochs < 1: p.error('batch and epochs must be positive')
     torch.manual_seed(0); torch.set_num_threads(1)
+    rng = np.random.default_rng(0)
     if a.init:
         ckpt = torch.load(a.init, map_location='cpu', weights_only=False)
         if ckpt['contract'] != CONTRACT: raise ValueError('checkpoint input contract mismatch')
@@ -77,30 +69,22 @@ def main():
     else: net = PolicyValue(a.width)
     net.to(a.device)
     optimizer = torch.optim.AdamW(net.parameters(), lr=1e-3)
+    train, val = Dataset(a.data, False, a.stream), Dataset(a.data, True, a.stream)
     a.out.mkdir(parents=True, exist_ok=True)
     best = float('inf')
-    example = None
+    example = next(train.batches(2))[0]
     for epoch in range(a.epochs):
-        net.train(); trained = 0
-        for rows in batches(a.data, False, a.batch):
-            if example is None: example = [rows[0], rows[-1]]
-            optimizer.zero_grad(); loss = objective(net, rows, a.device); loss.backward(); optimizer.step()
-            trained += len(rows)
-        if not trained: raise ValueError('no training states (need more independent run seeds)')
-        net.eval(); total = count = 0
-        with torch.no_grad():
-            for rows in batches(a.data, True, a.batch):
-                total += objective(net, rows, a.device).item() * len(rows); count += len(rows)
-        if not count: raise ValueError('no validation states (need more independent run seeds)')
-        score = total / count
-        print(json.dumps({'epoch': epoch, 'train_states': trained, 'val_states': count, 'val_loss': score}), flush=True)
+        net.train(); tr = run_epoch(net, train, a, optimizer, rng)
+        net.eval(); va = run_epoch(net, val, a)
+        print(json.dumps({'epoch': epoch, 'train': tr, 'val': va}), flush=True)
+        score = va['value_loss'] + va['policy_loss']
         if score < best:
             best = score
             torch.save({'contract': CONTRACT, 'width': net.width, 'state_dict': net.state_dict()}, a.out / 'model.pt')
     # One export, of the selected checkpoint, rather than recompiling ONNX every epoch.
     ckpt = torch.load(a.out / 'model.pt', map_location='cpu', weights_only=False)
     selected = PolicyValue(ckpt['width']); selected.load_state_dict(ckpt['state_dict'])
-    selected.export(collate(example), a.out / 'model.onnx')
+    selected.export(example, a.out / 'model.onnx')
 
 
 if __name__ == '__main__': main()

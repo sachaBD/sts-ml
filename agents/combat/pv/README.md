@@ -44,14 +44,14 @@ An alternative runtime installation can be selected using `-DPV_ORT_ROOT=...`.
 ```bash
 WORKER=build/pv/agents/combat/pv/pv_worker
 RUN=runs/pv/champ
-.venv/bin/python -m agents.combat.pv.data \
-  --combat "$COMBAT_DIR" --worker "$WORKER" --out "$RUN/bootstrap.jsonl"
-.venv/bin/python -m agents.combat.pv.train \
-  --data "$RUN/bootstrap.jsonl" --out "$RUN/iteration-0"
+.venv/bin/python -m agents.combat.pv.data --fights "$COMBAT_DIR"/fights-*.parquet \
+  --search "$COMBAT_DIR"/search-*.parquet --encounters 39 --out "$RUN/rows"   # one Parquet shard, rows.parquet
+.venv/bin/python -m agents.combat.pv.train --data "$RUN/rows/rows.parquet" --out "$RUN/iteration-0" --device cuda
 ```
 
-`COMBAT_DIR` contains `fights-*.parquet` and `search-*.parquet`. Collection currently selects Champ.
-A replay mismatch or unsupported feature aborts without publishing a partial cache.
+Shard layout: `agents/combat/pv/data.py` docstring. Training logs per-epoch train/val value loss, policy loss and val
+top-1 agreement with the most-visited move; `--stream` re-reads one shard at a time instead of holding all in RAM.
+A replay mismatch or unsupported feature aborts without publishing a shard.
 Value targets, network outputs, terminal evaluations and tree backups all use **HP-equivalent points**:
 
 ```text
@@ -73,16 +73,15 @@ Both training and validation seeds must be present. Optional `--init previous/mo
 
 ## Play / next iteration
 
-The worker accepts one JSON fight/line containing `fight_id` and the original `combat_v4` `start`.
-A tiny recorded fixture is included for plumbing tests, not performance evaluation:
+`apps/pv/play.py` plays a parquet of starts (`fight_id`, `start`) with N `pv_worker play|teacher` processes and writes
+combat_v4 `fights-0`/`search-0`, `decisions_stats-0` (seconds, simulations, tree depth in actions and player turns,
+nodes; depth null for the teacher) and `summary.json` (see its docstring). PV plays on a BattleContext with its own
+legal-action list, so recorded bits replay with `combat_v4::replay`.
 
 ```bash
-"$WORKER" play "$RUN/iteration-0/model.onnx" 1000 --explore \
-  < agents/combat/pv/testdata/champ.json > "$RUN/selfplay.jsonl"
-"$WORKER" encode < "$RUN/selfplay.jsonl" > "$RUN/selfplay-rows.jsonl"
-.venv/bin/python -m agents.combat.pv.train \
-  --data "$RUN/bootstrap.jsonl" "$RUN/selfplay-rows.jsonl" \
-  --init "$RUN/iteration-0/model.pt" --out "$RUN/iteration-1"
+.venv/bin/python apps/pv/play.py --starts STARTS.parquet --agent pv --model "$RUN/iteration-0/model.onnx" \
+  --sims 1000 --explore --workers 10 --out "$RUN/selfplay"
+.venv/bin/python apps/pv/play.py --starts STARTS.parquet --agent teacher --sims 20000 --workers 10 --out OUT
 ```
 
 Omit `--explore` for deterministic evaluation. Native play uses eight public-belief particles and records root visits;
