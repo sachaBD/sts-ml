@@ -30,6 +30,7 @@ add_library(combat_core STATIC
     environments/combat/environment.cpp
     environments/combat/encoding_v4.cpp
     environments/combat/battle_snapshot.cpp
+    environments/combat/record_v4.cpp
     environments/overworld/act1_run.cpp
     environments/combat/scenarios/jaw_worm.cpp
     environments/combat/scenarios/slime_boss.cpp)
@@ -179,11 +180,47 @@ target_link_libraries(battle_snapshot_test PRIVATE combat_core)
 target_compile_features(battle_snapshot_test PRIVATE cxx_std_23)
 add_test(NAME battle_snapshot_test COMMAND battle_snapshot_test)
 
+# Rebuild a recorded fight from its overworld macro state and play it with guided-rollout MCTS
+# (experiments/act2-boss-search).
+add_executable(boss_rebuild_worker apps/boss_rebuild/worker.cpp)
+target_link_libraries(boss_rebuild_worker PRIVATE combat_core)
+target_compile_features(boss_rebuild_worker PRIVATE cxx_std_23)
+target_compile_options(boss_rebuild_worker PRIVATE -Wall -Wextra -Wpedantic)
+
 # Public/history-reconstructible input contract for the new overworld graph topology.
 add_executable(overworld_observation_test environments/overworld/observation_test.cpp)
 target_link_libraries(overworld_observation_test PRIVATE macro_sim)
 target_compile_options(overworld_observation_test PRIVATE -Wall -Wextra -Wpedantic)
 add_test(NAME overworld_observation_test COMMAND overworld_observation_test)
+
+# combat_v4 recorder (runs/schema=combat_v4/schema.py): first act 1 fights of seeded runs.
+add_executable(combat_record_worker apps/combat_record/worker.cpp)
+target_link_libraries(combat_record_worker PRIVATE combat_core)
+target_compile_features(combat_record_worker PRIVATE cxx_std_23)
+target_compile_options(combat_record_worker PRIVATE -Wall -Wextra -Wpedantic)
+add_executable(combat_v4_replay apps/combat_record/replay.cpp)
+target_link_libraries(combat_v4_replay PRIVATE combat_core)
+target_compile_features(combat_v4_replay PRIVATE cxx_std_23)
+target_compile_options(combat_v4_replay PRIVATE -Wall -Wextra -Wpedantic)
+# combat_v4_full decompressor: Arrow / Parquet from the pyarrow wheel of the project venv (no system Arrow).
+execute_process(COMMAND "${STSRL_PYTHON}" -c "import pyarrow; print(pyarrow.__path__[0], end='')"
+    OUTPUT_VARIABLE STSRL_PYARROW_DIR ERROR_QUIET)
+file(GLOB STSRL_ARROW_LIB "${STSRL_PYARROW_DIR}/libarrow.so.*")
+file(GLOB STSRL_PARQUET_LIB "${STSRL_PYARROW_DIR}/libparquet.so.*")
+if(STSRL_ARROW_LIB AND STSRL_PARQUET_LIB)
+    add_library(combat_v4_full STATIC environments/combat/record_v4_full.cpp)
+    target_link_libraries(combat_v4_full PUBLIC combat_core ${STSRL_PARQUET_LIB} ${STSRL_ARROW_LIB})
+    target_include_directories(combat_v4_full SYSTEM PUBLIC "${STSRL_PYARROW_DIR}/include")
+    target_link_options(combat_v4_full PUBLIC "-Wl,-rpath,${STSRL_PYARROW_DIR}")
+    target_compile_features(combat_v4_full PUBLIC cxx_std_23)
+    target_compile_options(combat_v4_full PRIVATE -Wall -Wextra -Wpedantic)
+    add_executable(combat_v4_decompress apps/combat_record/decompress.cpp)
+    target_link_libraries(combat_v4_decompress PRIVATE combat_v4_full)
+    target_compile_options(combat_v4_decompress PRIVATE -Wall -Wextra -Wpedantic)
+else()
+    message(STATUS "pyarrow not found in ${STSRL_PYTHON}: combat_v4_decompress not built")
+endif()
+
 
 # Thin ONNX-backed policy/value combat agent.
 add_subdirectory(agents/combat/pv)

@@ -42,23 +42,39 @@ def strip(state):
     return state
 
 
+COMBAT_BATCH = 2000  # fights per combat_v4 file pair
+
+
 def worker_loop(worker, seeds, lock, policy, sims, decide, lookahead, out, stats, combat):
     proc = subprocess.Popen([str(worker)], stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True, bufsize=1)
+    batch, batch_key = [], None  # combat_v4 rows of this thread's runs, keyed by the batch's first seed
+
+    def flush():
+        nonlocal batch, batch_key
+        if combat[1] is not None and batch_key is not None:
+            write_combat(combat[1], batch, batch_key)
+        batch, batch_key = [], None
     try:
         while True:
             with lock:
                 seed = next(seeds, None)
             if seed is None:
                 return
+            rule_on = policy.key_rule_for(seed)
             proc.stdin.write(json.dumps({"seed": seed, "ascension": 20, "simulations": sims, "decide": decide,
                                          "lookahead_samples": lookahead[0], "lookahead_horizon": lookahead[1],
-                                         "max_act": lookahead[2], **lookahead[3], **combat[0]}) + "\n")
+                                         "max_act": lookahead[2], **lookahead[3], **combat[0],
+                                         "key_rule": rule_on}) + "\n")
             proc.stdin.flush()
             meta = []
+            failed = None
             while True:
                 line = proc.stdout.readline()
-                if not line:
-                    raise RuntimeError(f"worker exited during seed {seed}")
+                if not line:  # worker crashed: restart it, skip this seed
+                    failed = "worker exited"
+                    proc.wait()
+                    proc = subprocess.Popen([str(worker)], stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True, bufsize=1)
+                    break
                 msg = json.loads(line)
                 if msg["type"] == "pick":
                     choice, source, vals = policy(msg)
@@ -78,14 +94,28 @@ def worker_loop(worker, seeds, lock, policy, sims, decide, lookahead, out, stats
                     proc.stdin.flush()
                 elif msg["type"] == "done":
                     break
+                elif msg["type"] == "error":  # the worker reports, then exits: restart it, skip this seed
+                    failed = msg.get("message", "error")
+                    proc.stdin.close(); proc.wait()
+                    proc = subprocess.Popen([str(worker)], stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True, bufsize=1)
+                    break
                 else:
-                    raise RuntimeError(f"worker error on seed {seed}: {msg}")
+                    raise RuntimeError(f"unexpected worker message on seed {seed}: {msg}")
+            if failed is not None:
+                with lock:
+                    stats.setdefault("seed_errors", []).append({"seed": seed, "error": failed})
+                print(f"seed {seed} skipped: {failed}", file=sys.stderr, flush=True)
+                continue
             records = msg.pop("combat_records", [])
             if combat[1] is not None:
-                write_combat(combat[1], records, seed)
+                batch_key = seed if batch_key is None else batch_key
+                batch += records
+                if len(batch) >= COMBAT_BATCH:
+                    flush()
             picks = [s for s in msg["steps"] if s["kind"] in ("pick", "decide")]
             for s, m in zip(picks, meta):
                 s.update(m)
+            msg["key_rule"] = rule_on
             for s in msg["steps"]:
                 for key in ("state", "after"):
                     if key in s:
@@ -105,8 +135,11 @@ def worker_loop(worker, seeds, lock, policy, sims, decide, lookahead, out, stats
         with lock:
             stats.setdefault("errors", []).append(repr(e))
     finally:
-        proc.stdin.close()
-        proc.wait()
+        try:
+            flush()  # completed runs only: a run's records join the batch after the worker reports it done
+        finally:
+            proc.stdin.close()
+            proc.wait()
 
 
 def main():
@@ -123,7 +156,7 @@ def main():
     ap.add_argument("--rest-lookahead", help="K,S: decide rest vs the greedy choice by K sampled plays to the next fight "
                     "(fight sims x S); off by default")
     ap.add_argument("--route-p", type=float, default=0.0, help="fraction of runs (by seed) taking uniform random paths")
-    ap.add_argument("--target", choices=["act1", "floors", "floors3", "heart"], default="act1", help="heart = actual Heart defeat, not Act 3 clear")
+    ap.add_argument("--target", choices=["act1", "floors", "floors3", "full", "heart"], default="act1", help="heart = actual Heart defeat, not Act 3 clear")
     ap.add_argument("--decide", nargs="*", default=[], choices=["rest", "path", "shop", "neow", "event", "boss_relic"],
                     help="decisions besides card picks made by the policy (else SimpleAgent)")
     ap.add_argument("--samples", type=int, default=8, help="lookahead samples per event / Neow option")
@@ -135,7 +168,14 @@ def main():
     ap.add_argument("--combat-explore", action="store_true", help="one random legal action per recorded fight")
     ap.add_argument("--overworld-record", action="store_true", help="write overworld_v1 canonical tables in --out")
     ap.add_argument("--collection-id", default="legacy")
+    ap.add_argument("--key-rule", action="store_true", help="Heart mode crutch for key-blind nets: force ruby recall at the "
+                    "last Act 3 campfire and route toward the burning elite in Act 3 while emerald is missing")
+    ap.add_argument("--late-ckpt", help="second overworld model used for decisions from --late-act on")
+    ap.add_argument("--late-act", type=int, default=3)
+    ap.add_argument("--key-rule-p", type=float, help="fraction of runs (by seed) with the key rule on; excludes --key-rule")
     a = ap.parse_args()
+    if a.key_rule_p is not None and (a.key_rule or not 0 <= a.key_rule_p <= 1):
+        ap.error("--key-rule-p must be in [0,1] and cannot be combined with --key-rule")
     if a.combat_explore and not a.combat_out:
         ap.error("combat exploration requires --combat-out")
     if (a.combat_leaf == "value_net") != bool(a.combat_weights):
@@ -143,7 +183,7 @@ def main():
     combat_dir = Path(a.combat_out) if a.combat_out else None
     if combat_dir is not None:
         combat_dir.mkdir(parents=True, exist_ok=True)
-    combat_job = {"combat_leaf": a.combat_leaf, "record_combat": combat_dir is not None,
+    combat_job = {"combat_leaf": a.combat_leaf, "record_combat": combat_dir is not None, 
                   "combat_explore": a.combat_explore, "collection_id": a.collection_id}
     if a.combat_weights:
         combat_job["combat_weights"] = a.combat_weights
@@ -155,7 +195,8 @@ def main():
     sims = dict(zip(["easy", "hard", "elite", "event", "boss"], map(int, a.sims.split(","))))
     out_dir = Path(a.out)
     out_dir.mkdir(parents=True, exist_ok=True)
-    policy = Policy(a.policy, a.ckpt, a.eps, seed=a.first_seed, route_p=a.route_p, target=a.target)
+    policy = Policy(a.policy, a.ckpt, a.eps, seed=a.first_seed, route_p=a.route_p, target=a.target, key_rule=a.key_rule, key_rule_p=a.key_rule_p,
+                    late_ckpt=a.late_ckpt, late_act=a.late_act)
     # Resume: keep complete lines of an earlier, interrupted invocation and skip their seeds.
     stats = {"runs": 0, "clear": 0, "seconds": 0.0, "acts_cleared": {}, "floor_sum": 0}
     done, kept = set(), []
@@ -189,7 +230,9 @@ def main():
                       f"  {stats['seconds'] / r:.1f} worker-s/run", flush=True)
         for t in threads:
             t.join()
-    if stats.get("errors") or stats["runs"] != a.seeds:
+    # A few seeds with worker errors (rare simulator faults) are skipped and listed; more than 1% fails the play.
+    skipped = len(stats.get("seed_errors", []))
+    if stats.get("errors") or stats["runs"] + skipped != a.seeds or skipped > max(2, a.seeds // 100):
         raise RuntimeError(f"incomplete play: {stats}")
     summary = {**vars(a), "sims": sims, **stats, "wall_seconds": time.monotonic() - t0,
                "clear_rate": stats["clear"] / max(stats["runs"], 1)}

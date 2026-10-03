@@ -32,15 +32,14 @@ def main():
         subprocess.run(cmd,check=True)
         child=next(RUNS.glob(f'schema=overworld_v1/date=*/id={a.id}'))
     summary=json.loads((child/'out/summary.json').read_text())
-    results=[r for f in a.out.glob('results-*.parquet')
-             for r in pq.ParquetFile(f).read(columns=['replay_verified','replay_error','rollout_fallback_used']).to_pylist()]
-    summary['actual_fights']=len(results)
-    summary['rollout_fallback_fights']=sum(bool(r['rollout_fallback_used']) for r in results)
-    summary['replay_verified_fights']=sum(r['replay_verified'] for r in results)
-    summary['unsupported_snapshot_fights']=sum(bool(r['replay_error']) for r in results)
-    summary['recorded_random_actions']=sum(sum(pq.ParquetFile(f).read(columns=['explored'])['explored'].to_pylist())
-                                          for f in a.out.glob('search-*.parquet'))
-    summary['decision_rows']=sum(pq.ParquetFile(f).metadata.num_rows for f in a.out.glob('steps-*.parquet'))
+    fights=[r for f in a.out.glob('fights-*.parquet')
+            for r in pq.ParquetFile(f).read(columns=['actions','explored']).to_pylist()]
+    search=[r for f in a.out.glob('search-*.parquet') for r in pq.ParquetFile(f).read(columns=['agent']).to_pylist()]
+    summary['actual_fights']=len(fights)
+    summary['decisions']=sum(len(r['actions']) for r in fights)
+    summary['recorded_random_actions']=sum(sum(r['explored']) for r in fights)
+    summary['search_rows']=len(search)
+    summary['rollout_rescue_decisions']=sum(r['agent'].endswith(' rescue') for r in search)
     summary['overworld_run_id']=json.loads((child/'run.json').read_text())['run_id']
     summary['overworld_out']=str(child/'out')
     (a.out/'summary.json').write_text(json.dumps(summary,indent=2))

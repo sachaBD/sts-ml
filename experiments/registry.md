@@ -4,6 +4,8 @@ Experiment material (configs, scripts, plans, and reports) is kept under this di
 
 - **act-1-card-selection** — Last touched: 2026-10-01. Planning for improved Act 1 card-reward decisions with a frozen combat agent.
 - **act-1-combat** — Last touched: 2026-10-01. Act 1 combat value-model training, validation, and MCTS comparison work.
+- **combat-v4-format** — Last touched: 2026-10-02. New minimal combat_v4 (fights + search tables): recording test, storage and write/read performance.
+- **act2-boss-search** — Last touched: 2026-10-02. Act 2 bosses: 20k vs 100k rollout MCTS on 300 rebuilt fights (no meaningful gain).
 - **act-1-easy-combats** — Last touched: 2026-10-01. Tests whether MCTS is near-optimal on floor-1 easy-pool fights.
 - **card-outcomes** — Last touched: 2026-10-01. Staged data generation and training for card-outcome models.
 - **card-search** — Last touched: 2026-10-01. Card-choice search agreement measurements.

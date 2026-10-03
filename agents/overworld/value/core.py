@@ -64,12 +64,33 @@ def floor_score3(floor, cleared):
     return FLOOR_W3 * min(floor, LAST_FLOOR3) / LAST_FLOOR3 + sum(ACT_BONUS3[:cleared])
 
 
+# Full-game target ("full", Heart mode): dense progress plus act steps; keys count only by unlocking Act 4.
+FULL_FLOOR_W, FULL_ACT_BONUS, FULL_ACT4, FULL_HEART = 0.3, (0.05, 0.10, 0.15), 0.10, 0.30
+
+
+def full_score(floor, cleared, act4, heart):
+    """Heart-mode score in [0, 1]: 0.3 floor/56 + .05/.10/.15 per act cleared (Act 3 = both A20 bosses)
+    + .10 entered Act 4 (all keys) + .30 Heart defeated."""
+    return (FULL_FLOOR_W * min(floor, LAST_FLOOR_HEART) / LAST_FLOOR_HEART + sum(FULL_ACT_BONUS[:min(cleared, 3)])
+            + FULL_ACT4 * bool(act4 or heart) + FULL_HEART * bool(heart))
+
+
+def full_terminal(e):
+    """full_score of a worker terminal/run dict (terminal|status, floor, acts_cleared, heart_cleared)."""
+    heart = bool(e.get("heart_cleared", False))
+    cleared = e.get("acts_cleared", 0)
+    locked = e.get("terminal", e.get("status")) == "heart_locked"
+    return full_score(e["floor"], cleared, cleared >= 3 and not locked, heart)
+
+
 def run_score(run, target="act1", progress=0.25, hp=0.0):
-    """act1/floors/floors3: existing progress scores; heart: actual Heart defeat only."""
+    """act1/floors/floors3: existing progress scores; full: Heart-mode progress; heart: actual Heart defeat only."""
     if target == "act1":
         return score(run, progress, hp)
     if target == "heart":
         return float(run.get("heart_cleared", False))
+    if target == "full":
+        return full_terminal({**run, "acts_cleared": acts_cleared(run)})
     scorer = floor_score3 if target == "floors3" else floor_score
     return scorer(run["floor"], acts_cleared(run))
 
@@ -222,16 +243,23 @@ def save_model(model, path, **meta):
     torch.save({"kind": model.KIND, "args": model.args, "state_dict": model.state_dict(), **meta}, path)
 
 
-def read_runs(paths):
-    runs = []
-    for p in paths:
+def iter_runs(paths):
+    """Lazily yield (path index, run): one run parsed at a time (parquet read in small record batches)."""
+    for k, p in enumerate(paths):
         path = Path(p)
         canonical = sorted(path.glob("runs-*.parquet")) if path.is_dir() else []
         if canonical:
             import pyarrow.parquet as pq
             for f in canonical:
-                runs += [json.loads(x) for x in pq.ParquetFile(f).read(columns=["record_json"])["record_json"].to_pylist()]
+                for rb in pq.ParquetFile(f).iter_batches(batch_size=64, columns=["record_json"]):
+                    for x in rb.column(0).to_pylist():
+                        yield k, json.loads(x)
         else:
             for f in sorted(path.glob("**/runs.jsonl")) if path.is_dir() else [path]:
-                runs += [json.loads(line) for line in open(f)]
-    return runs
+                with open(f) as fh:
+                    for line in fh:
+                        yield k, json.loads(line)
+
+
+def read_runs(paths):
+    return [r for _, r in iter_runs(paths)]

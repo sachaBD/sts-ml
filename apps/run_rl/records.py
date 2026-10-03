@@ -24,23 +24,13 @@ def atomic(out, table, key, rows, schema):
     os.replace(tmp, out / f'{table}-{key}.parquet')
 
 def write_combat(out, records, key):
+    """combat_v4 rows ({'fight': ..., 'search': [...]} per fight, from the worker) -> out/fights-<key>.parquet and
+    out/search-<key>.parquet (search only if any rows). Batch many fights per call: one file pair per batch."""
     tables = contract('combat_v4').TABLES
-    rows = {t: [] for t in tables}
-    for rec in records:
-        fid = rec['fight_id']
-        if rec['initial_state'] is not None:
-            rows['fights'].append({'fight_id': fid, 'schema_version': 1, 'initial_state': rec['initial_state']})
-        for row in rec['rows']:
-            if row['row_kind'] == 'decision':
-                i = row['decision_index']
-                rows['steps'].append({'fight_id': fid, 'step_index': i, 'action_bits': row['executed_action_bits']})
-                rows['search'].append({'fight_id': fid, 'step_index': i, 'root_value': row['root_value'],
-                    'simulations_used': row['simulations_used'], 'explored': row['was_random'],
-                    'actions_json': json.dumps(row['actions'])})
-            rows['training'].append({**row, 'fight_id': fid})
-        rows['results'].append({**rec['result'], 'fight_id': fid})
-    for name, table in tables.items():
-        atomic(out, table.file_prefix, key, rows[name], table.schema)
+    atomic(out, 'fights', key, [r['fight'] for r in records], tables['fights'])
+    search = [s for r in records for s in r['search']]
+    if search:
+        atomic(out, 'search', key, search, tables['search'])
 
 def write_overworld(out, msg, key):
     tables = contract('overworld_v1').TABLES

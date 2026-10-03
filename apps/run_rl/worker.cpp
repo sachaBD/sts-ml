@@ -45,6 +45,8 @@
 //         routes that start at that node (macro_sim paths, first_xs); nothing is simulated.
 #include "agents/combat/search/teacher_search.hpp"
 #include "environments/combat/battle_snapshot.hpp"
+#include "environments/combat/environment.hpp"
+#include "environments/combat/record_v4.hpp"
 #include "environments/overworld/game_state.hpp"
 #include "environments/overworld/decisions.hpp"
 #include "environments/overworld/macro_sim.hpp"
@@ -171,7 +173,8 @@ FightModel mcts_fight_model(const Json& sims, const Json& job, std::vector<Json>
     const bool record = job.value("record_combat", false);
     const bool explore = job.value("combat_explore", false);
     const std::string collection = job.value("collection_id", std::string{"legacy"});
-    return [sims, leaf, net, record, explore, collection, &records](GameContext& gc, bool sample, int index) {
+    const std::string weights = job.value("combat_weights", std::string{});
+    return [sims, leaf, net, record, explore, collection, weights, &records](GameContext& gc, bool sample, int index) {
         sts::BattleContext battle;
         battle.init(gc);
         FightRecord rec{encounter_name(battle.encounter), category(gc, battle.encounter), battle.player.curHp, true,
@@ -181,58 +184,69 @@ FightModel mcts_fight_model(const Json& sims, const Json& job, std::vector<Json>
         const std::string budget = gc.act >= 2 && rec.category == "easy" ? "hard" : rec.category;
         const auto primary = teacher::leaf_search(selected, selected.kind == "guided_rollout" ? nullptr : net.get(), {sims.at(budget).get<std::int64_t>(), teacher::particles});
         const auto rescue = teacher::leaf_search({"guided_rollout", 0, 0}, nullptr, {5000, teacher::particles});
-        bool fallback_used = false;
-        const teacher::SearchFn search = [primary, rescue, &fallback_used, selected](auto& tree, std::size_t legal) {
+        bool rescued = false;
+        const teacher::SearchFn search = [primary, rescue, &rescued, selected](auto& tree, std::size_t legal) {
             // Neural values can overvalue endless defensive play. A deterministic public-state safety valve,
             // not a timeout relabelled as a loss, preserves real outcomes and bounds wasted search.
-            if (selected.kind != "guided_rollout" && !tree.particles.empty() && tree.particles.front().turn >= 30) {
-                fallback_used = true;
-                return rescue(tree, legal);
-            }
+            rescued = selected.kind != "guided_rollout" && !tree.particles.empty() && tree.particles.front().turn >= 30;
+            if (rescued) return rescue(tree, legal);
             return primary(tree, legal);
         };
-        const Json fight{{"run_seed", gc.seed}, {"episode_id", static_cast<std::int64_t>(gc.seed) * 100 + index},
-                         {"fight_index", index}, {"act", gc.act}, {"floor", gc.floorNum},
-                         {"encounter", rec.encounter}, {"category", rec.category}, {"ascension", gc.ascension},
-                         {"starting_hp", battle.player.curHp}, {"starting_max_hp", battle.player.maxHp}};
-        std::vector<Json> rows;
         const bool collecting = record && !sample;
-        Json initial;
-        std::string replay_error;
+        sts::BattleContext end;
         if (collecting) {
-            try { initial = stsrl::battle_snapshot(battle); }
-            catch (const std::invalid_argument& e) { replay_error = e.what(); }
-        }
-        const auto end = collecting
-            ? teacher::play_fight(battle, fight, rows, search, explore, false, teacher::particles, false, false)
-            : teacher::play_fight(battle, search, false, teacher::particles, false);
-        bool replay_verified = false;
-        if (collecting && !initial.is_null()) {
-            stsrl::CombatEnvironment replay{stsrl::battle_restore(initial)};
-            for (const auto& row : rows) {
-                if (row.at("row_kind") != "decision") continue;
-                const auto n = replay.legal_action_count();
-                const auto bits = row.at("executed_action_bits").get<std::uint32_t>();
-                std::size_t chosen = n;
-                for (std::size_t i = 0; i < n; ++i) if (replay.action_bits(i) == bits) { chosen = i; break; }
-                if (chosen == n) throw std::runtime_error{"recorded action not legal during replay"};
-                replay.step(chosen);
+            // combat_v4 (runs/schema=combat_v4/schema.py): pre-battle start fields, executed actions, search rows.
+            const auto budget_sims = sims.at(budget).get<std::int64_t>();
+            const std::string searcher = "mcts leaf=" + selected.kind + " sims=" + std::to_string(budget_sims) +
+                                         " particles=" + std::to_string(teacher::particles) +
+                                         (selected.kind != "guided_rollout" ? " weights=" + weights : "");
+            const std::string rescuer = "mcts leaf=guided_rollout sims=5000 particles=" +
+                                        std::to_string(teacher::particles) + " rescue";
+            const Json start = stsrl::combat_v4::start_json(gc);
+            stsrl::CombatEnvironment env{battle};
+            // Exploration: one uniformly random move at a decision drawn from [0, random_window), seeded by fight.
+            std::mt19937_64 rng((static_cast<std::uint64_t>(gc.seed) * 100 + static_cast<std::uint64_t>(index)) ^ 0xe9510ULL);
+            const int random_at = explore ? std::uniform_int_distribution<int>{0, teacher::random_window - 1}(rng) : -1;
+            std::vector<std::uint32_t> actions;
+            std::vector<bool> explored;
+            Json search_rows = Json::array();
+            while (!env.done()) {
+                const auto n = env.legal_action_count();
+                if (n == 0) throw std::runtime_error{"no legal actions in an undecided fight"};
+                const int step = static_cast<int>(actions.size());
+                std::size_t chosen = 0;
+                bool random = false;
+                if (step == random_at && n > 1) {
+                    chosen = std::uniform_int_distribution<std::size_t>{0, n - 1}(rng);
+                    random = true;
+                } else if (n > 1) {
+                    const auto d = teacher::search_decision(env, n, search, false, teacher::particles);
+                    chosen = d.chosen;
+                    Json children = Json::array();
+                    for (const auto& c : d.tried)
+                        children.push_back({{"action", env.action_bits(c.index)}, {"visits", c.visits}, {"value", c.value}});
+                    search_rows.push_back({{"fight_id", rec.fight_id}, {"step", step},
+                                           {"agent", rescued ? rescuer : searcher}, {"root_value", d.value},
+                                           {"simulations", d.used}, {"children", children}});
+                }
+                actions.push_back(env.action_bits(chosen));
+                explored.push_back(random);
+                env.step(chosen);
             }
-            replay_verified = replay.done() && stsrl::battle_snapshot(replay.battle()) == stsrl::battle_snapshot(end);
-            if (!replay_verified) throw std::runtime_error{"combat replay final snapshot mismatch"};
+            end = env.battle();
+            const auto rebuilt = stsrl::combat_v4::replay(start, actions);
+            // A replay mismatch (rare: 2 of ~40k fights in ah-c01) drops this fight's record, not the run.
+            if (stsrl::battle_snapshot(rebuilt) != stsrl::battle_snapshot(end))
+                std::cerr << "combat_v4 rebuild mismatch, record dropped: seed " << gc.seed << " fight " << rec.fight_id << std::endl;
+            else records.push_back({{"fight", {{"fight_id", rec.fight_id}, {"version", stsrl::combat_v4::version},
+                                          {"start", start}, {"actions", actions}, {"explored", explored},
+                                          {"won", end.outcome == sts::Outcome::PLAYER_VICTORY},
+                                          {"final_hp", end.player.curHp}, {"agent", "run_rl " + searcher}}},
+                               {"search", search_rows}});
+        } else {
+            end = teacher::play_fight(battle, search, false, teacher::particles, false);
         }
         end.exitBattle(gc);
-        if (collecting) {
-            const auto outcome = rows.front();
-            records.push_back({{"fight_id", rec.fight_id}, {"initial_state", initial}, {"rows", initial.is_null() ? std::vector<Json>{} : rows},
-                {"result", {{"run_key", collection + ":" + std::to_string(gc.seed)}, {"run_seed", gc.seed},
-                    {"fight_index", index}, {"category", rec.category}, {"encounter", rec.encounter},
-                    {"status", "completed"}, {"won", outcome.at("won")},
-                    {"battle_final_hp", outcome.at("final_hp")}, {"battle_potions", outcome.at("potions")},
-                    {"post_state_json", stsrl::macro_sim::state_json(gc).dump()}, {"combat_leaf", selected.kind},
-                    {"simulations", sims.at(budget)}, {"exploration_enabled", explore},
-                    {"replay_verified", replay_verified}, {"replay_error", replay_error}, {"rollout_fallback_used", fallback_used}}}});
-        }
         rec.won = gc.outcome != sts::GameOutcome::PLAYER_LOSS;
         return rec;
     };
@@ -282,6 +296,7 @@ struct Ctx {
     int rest_samples = 0;   // absent rest_lookahead keeps the protocol and policy unchanged
     bool sample = false;  // inside a lookahead sample: nothing logged, asks are greedy, nested events one-step
     int max_act = 1;
+    bool key_rule = false;  // Heart mode: force ruby recall at the last Act 3 campfire even when the policy decides rests
     std::uint64_t seed = 0;  // real seed, also in hypothetical samples
     int samples = 8;      // lookahead samples per option (event)
     int horizon = 0;      // lookahead floors after the decision; 0 = until back on the map (event resolved)
@@ -324,13 +339,14 @@ struct Player {
         if (gc.screenState == sts::ScreenState::BATTLE) return fight();
         // Conservative Heart-mode key fallback. Emerald still requires routing to a burning elite.
         // Never give keys for free. Sapphire consumes its competing chest relic reward.
-        if (ctx.max_act == 4 && gc.screenState == sts::ScreenState::REWARDS &&
+        // Sapphire only in Act 3 (every act's route passes one chest row), so Act 1/2 chest relics are kept.
+        if (ctx.max_act == 4 && gc.act == 3 && gc.screenState == sts::ScreenState::REWARDS &&
             gc.info.rewardsContainer.sapphireKey && !gc.blueKey) {
             sts::search::GameAction(sts::search::GameAction::RewardsActionType::KEY).execute(gc);
             log({{"kind", "key"}, {"decision", "sapphire"}, {"state", stsrl::macro_sim::state_json(gc)}});
             return;
         }
-        if (ctx.max_act == 4 && !ctx.decide.count("rest") && gc.act == 3 && gc.curMapNodeY == 14 &&
+        if (ctx.max_act == 4 && (ctx.key_rule || !ctx.decide.count("rest")) && gc.act == 3 && gc.curMapNodeY == 14 &&
             gc.screenState == sts::ScreenState::REST_ROOM && !gc.redKey) {
             sts::search::GameAction(2).execute(gc);
             log({{"kind", "key"}, {"decision", "ruby"}, {"state", stsrl::macro_sim::state_json(gc)}});
@@ -721,6 +737,7 @@ Json play_run(const Json& job) {
     Ctx ctx;
     ctx.seed = seed;
     ctx.max_act = job.value("max_act", 1);
+    ctx.key_rule = job.value("key_rule", false);
     if (ctx.max_act < 1 || ctx.max_act > 4) throw std::invalid_argument{"max_act must be 1, 2, 3 or 4 (Heart)"};
     for (const auto& d : job.value("decide", Json::array())) {
         const auto name = d.get<std::string>();

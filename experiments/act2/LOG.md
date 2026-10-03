@@ -102,3 +102,16 @@
 - act2-dev-r02-restla vs act2-dev-act2-r02-train (600 paired dev seeds): act1 +2.83 ± 1.09 pp (88.0 vs 85.2),
   act2 −0.67 ± 1.18 pp, score +0.007 ± 0.007, floor 27.97 vs 27.6; act-1 boss entry HP 60.3 vs 58.7.
   Worker time 55.4 vs 21.7 s/run (2.56×). Verdict: directionally right on act 1, not worth the cost as is.
+
+## 22:30 — fight-outcome GUI covers Act 2 (incl. bosses)
+- `apps/combat_transition/from_overworld.py` → `combat_transition_v1/2026-10-02/act2-overworld-fights`: 229k natural
+  fights from all act2 overworld runs; pre-fight state rebuilt from the last recorded state (verified: HP = hp_before,
+  same deck/relic ids as the post state) → 206k ok, 23k stale (dropped). Act 2 boss fights ok: champ 1981,
+  automaton 1909, collector 2056. Final HP = post HP − Burning/Black Blood/Meat heal (9% capped → midpoint).
+- `experiments/act2/train_fight_outcome.sh`: 3 seeds × {natural, augmented}, topology co2-w32-h64-l1-d30, lr .001,
+  pair_w 1 (same as the old GUI model). Natural arm wins on natural dev for every seed (boss Brier 0.087–0.089 vs
+  0.090–0.092; hexaghost pred 0.84–0.86 vs obs 0.836, augmented 0.76–0.80). Augmented is better calibrated on the
+  Act 1 card experiments, which an older/weaker combat agent played. GUI uses natural.
+- Ensemble on held-out act-2 boss fights (n=1766): Brier 0.149 vs base-rate 0.231. Per boss: automaton 0.131
+  (n=559), champ 0.170 (n=594), collector 0.147 (n=613). Pred/real win: automaton 29.5/29.3%, champ 42.5/38.2%,
+  collector 38.5/40.9%.
