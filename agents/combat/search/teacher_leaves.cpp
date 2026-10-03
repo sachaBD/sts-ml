@@ -117,6 +117,15 @@ bool set_tweak(const std::string& key, const Json& value) {
     return false;
 }
 
+std::vector<sts::BattleContext> public_particles(const sts::BattleContext& observed, int particles) {
+    if (particles < 1) throw std::invalid_argument{"particles must be >= 1"};
+    auto stream = PublicBeliefCombatSearch::publicObservation(observed);
+    std::vector<sts::BattleContext> states;
+    states.reserve(particles);
+    for (int i = 0; i < particles; ++i) states.push_back(sample_particle(observed, next_seed(stream)));
+    return states;  // independent of the legacy teacher's process-wide tweaks
+}
+
 PublicBeliefCombatSearch make_search(const sts::BattleContext& observed, bool oracle, int particles) {
     PublicBeliefCombatSearch search{root_particles(observed, oracle, particles), search_seed(observed), 2,
                                     tweaks().merge_identical_cards};

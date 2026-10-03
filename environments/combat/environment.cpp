@@ -32,7 +32,11 @@ CardType card_type(const sts::CardInstance& card) {
 // outside Ironclad, Act-1 colorless, statuses, and curses rather than inventing
 // zero mechanics.  `getBaseDamage` supplies the simulator's canonical values;
 // dynamic attacks below override it at the live state.
-bool supported_card(const sts::CardInstance& card) {
+bool supported_card(const sts::CardInstance& card, CardCoverage coverage) {
+    // Explicit opt-in for event cards found in later Ironclad runs. Legacy encodings retain their boundary.
+    if (coverage == CardCoverage::ironclad_events &&
+        (card.id == sts::CardId::APPARITION || card.id == sts::CardId::BITE ||
+         card.id == sts::CardId::JAX || card.id == sts::CardId::RITUAL_DAGGER)) return true;
     const auto color = sts::getCardColor(card.id);
     if (color == sts::CardColor::RED || color == sts::CardColor::CURSE || card.getType() == sts::CardType::STATUS) return true;
     using enum sts::CardId;
@@ -57,8 +61,8 @@ bool supported_card(const sts::CardInstance& card) {
     }
 }
 
-CardMeta card_meta(const sts::BattleContext& state, const sts::CardInstance& card) {
-    if (!supported_card(card)) throw std::runtime_error{"unsupported card capability: " + std::string{sts::getCardEnumName(card.id)}};
+CardMeta card_meta(const sts::BattleContext& state, const sts::CardInstance& card, CardCoverage coverage) {
+    if (!supported_card(card, coverage)) throw std::runtime_error{"unsupported card capability: " + std::string{sts::getCardEnumName(card.id)}};
     const bool up = card.upgraded;
     CardMeta meta{card_type(card), card.requiresTarget() ? TargetType::one_enemy : TargetType::none,
                   sts::getBaseDamage(card.id, up), 0, 1, 0};
@@ -109,8 +113,8 @@ CardMeta card_meta(const sts::BattleContext& state, const sts::CardInstance& car
     return meta;
 }
 
-CardToken encode_card(const sts::BattleContext& state, const sts::CardInstance& card, CardZone zone, bool playable_now) {
-    const auto meta = card_meta(state, card);
+CardToken encode_card(const sts::BattleContext& state, const sts::CardInstance& card, CardZone zone, bool playable_now, CardCoverage coverage) {
+    const auto meta = card_meta(state, card, coverage);
     return {static_cast<int>(card.id), zone, meta.type, meta.target,
         {float(card.upgraded), card.cost / 3.f, card.costForTurn / 3.f, meta.damage / 50.f, meta.hits / 10.f,
          meta.block / 50.f, (meta.effective_block >= 0 ? meta.effective_block : state.calculateCardBlock(meta.block)) / 50.f, meta.draws / 10.f, card.specialData / 10.f,
@@ -158,8 +162,8 @@ const sts::CardInstance* selected_card(const sts::BattleContext& state, const st
 // The card x monster interaction numeric of `card` (in hand) played at monster slot `slot`; nullopt when it
 // deals no targeted damage or the monster is not targetable (as encode_state's interaction tokens).
 std::optional<std::array<float, 6>> interaction_numeric(const sts::BattleContext& state, const sts::CardInstance& card,
-                                                        int slot) {
-    const auto meta = card_meta(state, card);
+                                                        int slot, CardCoverage coverage) {
+    const auto meta = card_meta(state, card, coverage);
     if (meta.damage == 0 || meta.target == TargetType::random_enemy) return std::nullopt;
     const auto& monster = state.monsters.arr[slot];
     if (!monster.isTargetable()) return std::nullopt;
@@ -190,7 +194,7 @@ CombatEnvironment::~CombatEnvironment() = default;
 CombatEnvironment::CombatEnvironment(CombatEnvironment&&) noexcept = default;
 CombatEnvironment& CombatEnvironment::operator=(CombatEnvironment&&) noexcept = default;
 
-EncodedCombatState encode_state(const sts::BattleContext& state) {
+EncodedCombatState encode_state(const sts::BattleContext& state, CardCoverage coverage) {
     EncodedCombatState encoding;
     const auto& player = state.player;
     int incoming = 0;
@@ -234,10 +238,10 @@ EncodedCombatState encode_state(const sts::BattleContext& state) {
     cards.reserve(state.cards.cardsInHand + state.cards.drawPile.size() + state.cards.discardPile.size()
                   + state.cards.exhaustPile.size());
     for (int i = 0; i < state.cards.cardsInHand; ++i)
-        cards.push_back({encode_card(state, state.cards.hand[i], CardZone::hand, state.cards.hand[i].canUseOnAnyTarget(state)), i, &state.cards.hand[i]});
-    for (const auto& card : state.cards.drawPile) cards.push_back({encode_card(state, card, CardZone::draw, false), -1, &card});
-    for (const auto& card : state.cards.discardPile) cards.push_back({encode_card(state, card, CardZone::discard, false), -1, &card});
-    for (const auto& card : state.cards.exhaustPile) cards.push_back({encode_card(state, card, CardZone::exhaust, false), -1, &card});
+        cards.push_back({encode_card(state, state.cards.hand[i], CardZone::hand, state.cards.hand[i].canUseOnAnyTarget(state), coverage), i, &state.cards.hand[i]});
+    for (const auto& card : state.cards.drawPile) cards.push_back({encode_card(state, card, CardZone::draw, false, coverage), -1, &card});
+    for (const auto& card : state.cards.discardPile) cards.push_back({encode_card(state, card, CardZone::discard, false, coverage), -1, &card});
+    for (const auto& card : state.cards.exhaustPile) cards.push_back({encode_card(state, card, CardZone::exhaust, false, coverage), -1, &card});
     std::sort(cards.begin(), cards.end(), [](const auto& a, const auto& b) { return card_less(a.token, b.token); });
     encoding.cards.reserve(cards.size());
     for (const auto& card : cards) encoding.cards.push_back(card.token);
@@ -252,13 +256,13 @@ EncodedCombatState encode_state(const sts::BattleContext& state) {
         const auto& source = cards[ci];
         if (source.hand_index < 0) continue;  // (before card_meta: only hand cards interact)
         for (std::size_t mi = 0; mi < monsters.size(); ++mi)
-            if (const auto numeric = interaction_numeric(state, *source.card, monsters[mi].slot))
+            if (const auto numeric = interaction_numeric(state, *source.card, monsters[mi].slot, coverage))
                 encoding.card_monster_interactions.push_back({std::uint16_t(ci), std::uint8_t(mi), *numeric});
     }
     return encoding;
 }
 
-ActionToken encode_action(const sts::BattleContext& state, std::uint32_t action_bits, std::size_t execution_index) {
+ActionToken encode_action(const sts::BattleContext& state, std::uint32_t action_bits, std::size_t execution_index, CardCoverage coverage) {
     const sts::search::Action action{action_bits};
     const int select_task = state.inputState == sts::InputState::CARD_SELECT
         ? static_cast<int>(state.cardSelectInfo.cardSelectTask)
@@ -275,7 +279,7 @@ ActionToken encode_action(const sts::BattleContext& state, std::uint32_t action_
     if (action.getActionType() == sts::search::ActionType::CARD) {
         const auto source = action.getSourceIdx();
         if (source >= 0 && source < state.cards.cardsInHand)
-            token.source_card = encode_card(state, state.cards.hand[source], CardZone::hand, true);
+            token.source_card = encode_card(state, state.cards.hand[source], CardZone::hand, true, coverage);
     } else if (action.getActionType() == sts::search::ActionType::POTION) {
         const auto source = action.getSourceIdx();
         if (source >= 0 && source < static_cast<int>(state.potions.size()))
@@ -292,7 +296,7 @@ ActionToken encode_action(const sts::BattleContext& state, std::uint32_t action_
             token.source_card = CardToken{.card_id = static_cast<int>(id), .zone = CardZone::offered};
         } else {
             CardZone zone{};
-            if (const auto* card = selected_card(state, action, zone)) token.source_card = encode_card(state, *card, zone, false);
+            if (const auto* card = selected_card(state, action, zone)) token.source_card = encode_card(state, *card, zone, false, coverage);
         }
     }
     const bool requires_target = action.getActionType() == sts::search::ActionType::CARD
@@ -307,7 +311,7 @@ ActionToken encode_action(const sts::BattleContext& state, std::uint32_t action_
             token.potion = v4::encode_potion(state, state.potions[source]);
     }
     if (action.getActionType() == sts::search::ActionType::CARD && token.target_monster)  // v4
-        token.interaction = interaction_numeric(state, state.cards.hand[action.getSourceIdx()], action.getTargetIdx());
+        token.interaction = interaction_numeric(state, state.cards.hand[action.getSourceIdx()], action.getTargetIdx(), coverage);
     return token;
 }
 

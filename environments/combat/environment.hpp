@@ -25,11 +25,14 @@ struct Decision {
 };
 
 // The state part of Decision::encoding (all but legal_actions): what the value net reads.
-[[nodiscard]] EncodedCombatState encode_state(const sts::BattleContext& state);
+enum class CardCoverage { legacy_act1, ironclad_events };
+[[nodiscard]] EncodedCombatState encode_state(const sts::BattleContext& state,
+                                             CardCoverage coverage = CardCoverage::legacy_act1);
 // The legal action `action_bits` at `state` as a policy token (legal_actions of Decision::encoding;
 // execution_index is the caller's). Search edges are encoded with it too.
 [[nodiscard]] ActionToken encode_action(const sts::BattleContext& state, std::uint32_t action_bits,
-                                        std::size_t execution_index);
+                                        std::size_t execution_index,
+                                        CardCoverage coverage = CardCoverage::legacy_act1);
 
 class CombatEnvironment final {
 public:

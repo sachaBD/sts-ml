@@ -184,3 +184,6 @@ add_executable(overworld_observation_test environments/overworld/observation_tes
 target_link_libraries(overworld_observation_test PRIVATE macro_sim)
 target_compile_options(overworld_observation_test PRIVATE -Wall -Wextra -Wpedantic)
 add_test(NAME overworld_observation_test COMMAND overworld_observation_test)
+
+# Thin ONNX-backed policy/value combat agent.
+add_subdirectory(agents/combat/pv)

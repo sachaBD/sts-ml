@@ -1,0 +1,7 @@
+# Optional ONNX export/inference dependencies, tested in the project's Python 3.13 WSL venv.
+# Install separately: .venv/bin/python -m pip install -r requirements-onnx.txt
+# requirements.txt uses the PyTorch CUDA wheel index; these packages come from PyPI instead.
+--index-url https://pypi.org/simple
+onnx==1.23.1
+onnxscript==0.7.2
+onnxruntime==1.30.0

@@ -62,6 +62,9 @@ SearchTweaks& tweaks();
 // (0, 1]); false for other keys. Throws on an invalid value.
 bool set_tweak(const std::string& key, const nlohmann::json& value);
 
+// Reusable public-belief particle sampler; does not construct or run a teacher tree.
+std::vector<sts::BattleContext> public_particles(const sts::BattleContext& observed, int particles);
+
 // The teacher's search at `observed`: particles sampled from the public observation. With `oracle`,
 // a single particle that is `observed` itself (true RNG state and draw order) with max backup (the
 // move played is the best-valued root edge; no early stop): perfect-information search of the

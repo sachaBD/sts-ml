@@ -16,6 +16,7 @@ entry-point reference.
 | `bootstrap` | Search-teacher Act 1 self-play | `combat_v3` |
 | `combat_transition` | Replay combat rows into pre/post persistent states | `combat_transition_v1` |
 | `value_train` | Train a combat value model | `value_net_v1` |
+| `pv` | Replay/train/export/play policy-value + PUCT (ONNX Runtime) | `combat_v4` inputs, PyTorch/ONNX outputs |
 | `value_play` | Play combat with a value model | `combat_v3` |
 | `dagger` | Collect learner-played, teacher-labelled combat data | `combat_v3` |
 | `fight_resample` | Re-evaluate stored fights | `combat_v3` |
