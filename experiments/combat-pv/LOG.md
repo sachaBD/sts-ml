@@ -30,3 +30,18 @@
 - Fixes: no fan-out; DuckDB jobs set memory_limit/threads; Champ input pre-filtered once to
   runs/schema=combat_v4/date=2026-10-04/id=champ-ah (1955 fights, 72k search rows, 2.7 MB). Every job > 1 min goes
   through me with a memory bound.
+
+## 00:50 — bootstrap from the teacher: weak (as expected), so straight to self-play
+- Bench = 409 fresh-seed Champ starts without Runic Dome (`champ-bench-nodome`; 44 of 453 have Dome, which PV
+  search rejects: hidden-intent beliefs not implemented — known gap, to fix before Act 2 bosses at large).
+  The teacher is deterministic per start: a 20k rerun reproduced the recorded result on every fight
+  (185/453; nodome 41.8%), 13.4 s/fight on 8 workers.
+- Teacher visit targets are nearly flat: mean entropy 1.37 nats over 5.2 legal moves, max visit share 0.36
+  (UCB1 + rollouts spreads visits). Policy CE barely moves (1.53 → 1.49 val); val top-1 vs the teacher's choice 0.39;
+  sharpening (p ∝ visits^4) doesn't help (0.38–0.41).
+- Value overfits fast: 1.3k training fights; train value loss 0.054 → 0.002 by epoch 20, val best at epoch 1
+  (0.057 ≈ 24 HP-pt RMSE). Data-limited.
+- PV-boot (w64, epoch 1) at 2000 sims on the bench: **25.9% vs teacher 41.8%** (paired b/c 72/7, score −9.6 ± 1.2),
+  6.8 s/fight; search depth mean 4.2 actions / 1.0 turn, p90 max 11 actions / 4 turns.
+- Next: self-play loop (selfplay.py): 3000 generated starts/round, 800 sims + root noise, train from the previous
+  checkpoint on the last 3 rounds, bench at 2000 sims. ~25 min/round.

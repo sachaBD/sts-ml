@@ -14,7 +14,7 @@ from .data import Dataset
 from .model import CONTRACT, NAMES, VALUE_SCALE, PolicyValue
 
 
-def evaluate(net, batch, device):
+def evaluate(net, batch, device, policy_temp=1.0):
     """Return (value loss sum, policy loss sum, top-1 hits, states, policy states) of one batch; grads flow."""
     inputs, target_value, target, has_policy = (
         {k: v.to(device) for k, v in batch[0].items()}, batch[1].to(device), batch[2].to(device), batch[3].to(device))
@@ -25,6 +25,9 @@ def evaluate(net, batch, device):
         raise ValueError('value targets must be finite, nonnegative HP-equivalent points')
     if (target < 0).any() or not torch.allclose(target.sum(-1)[has_policy], torch.ones((), device=device), atol=1e-5):
         raise ValueError('policy targets must be nonnegative and sum to one')
+    if policy_temp != 1.0:  # sharpen flat (e.g. UCB1 teacher) visit distributions: p ∝ visits^(1/T)
+        target = target.pow(1 / policy_temp)
+        target = target / target.sum(-1, keepdim=True).clamp(min=1e-12)
     # Balance the two losses without changing the units of predictions or targets.
     value_loss = ((value - target_value) / VALUE_SCALE).square().sum()
     policy_loss = (-(target * logits.log_softmax(-1)).sum(-1) * has_policy).sum()
@@ -37,7 +40,7 @@ def run_epoch(net, data, a, optimizer=None, rng=None):
     policy_states = 0
     for batch in data.batches(a.batch, rng):
         with torch.set_grad_enabled(optimizer is not None):
-            value, policy, hits, n, n_policy = evaluate(net, batch, a.device)
+            value, policy, hits, n, n_policy = evaluate(net, batch, a.device, a.policy_temp)
             loss = value / n + policy / max(n_policy, 1)
             if not torch.isfinite(loss): raise ValueError('non-finite training loss')
             if optimizer:
@@ -57,6 +60,9 @@ def main():
     p.add_argument('--batch', type=int, default=64)
     p.add_argument('--width', type=int, default=64)
     p.add_argument('--device', default='cpu')
+    p.add_argument('--policy-temp', type=float, default=1.0, help='policy target temperature (<1 sharpens visits)')
+    p.add_argument('--lr', type=float, default=1e-3)
+    p.add_argument('--weight-decay', type=float, default=0.01)
     p.add_argument('--stream', action='store_true', help='re-read one shard at a time per epoch instead of holding all in RAM')
     a = p.parse_args()
     if a.batch < 1 or a.epochs < 1: p.error('batch and epochs must be positive')
@@ -68,7 +74,7 @@ def main():
         net = PolicyValue(ckpt['width']); net.load_state_dict(ckpt['state_dict'])
     else: net = PolicyValue(a.width)
     net.to(a.device)
-    optimizer = torch.optim.AdamW(net.parameters(), lr=1e-3)
+    optimizer = torch.optim.AdamW(net.parameters(), lr=a.lr, weight_decay=a.weight_decay)
     train, val = Dataset(a.data, False, a.stream), Dataset(a.data, True, a.stream)
     a.out.mkdir(parents=True, exist_ok=True)
     best = float('inf')

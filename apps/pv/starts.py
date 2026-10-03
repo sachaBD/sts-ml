@@ -12,7 +12,7 @@ generate: decks from real recorded fight starts of Act >= 2 (deck, relics, potio
 moved into the boss room of `encounter` (act 2 floor 33 for Act 2 bosses) with a fresh battle seed (seed0 + i).
 Augmentation (independent per start): add 1-2 scaling cards (50% upgraded) with add-p, remove all scaling cards
 with remove-p, and redraw HP uniformly in [0.25, 1] x max HP with hp-p. Source run seeds in the exclude range
-(the bench seeds) are never used.
+(the bench seeds) are never used, nor starts with Runic Dome (PV search rejects hidden intents).
 """
 import argparse
 import random
@@ -25,6 +25,7 @@ import pyarrow.parquet as pq
 
 ROOT = Path(__file__).resolve().parents[2]
 CARDS_H = ROOT.parent / 'sts_lightspeed/include/constants/Cards.h'
+RUNIC_DOME = 57  # sts::RelicId; PV search does not support hidden intents yet
 BOSS_ROOM, REST_ROOM = 6, 1  # sts::Room::BOSS / REST
 ACT2_BOSS_FLOOR = 33
 SCALING = ['DEMON_FORM', 'INFLAME', 'SPOT_WEAKNESS', 'LIMIT_BREAK', 'METALLICIZE', 'BARRICADE', 'FEEL_NO_PAIN',
@@ -69,7 +70,7 @@ def generate(a):
     ids = card_ids()
     scaling = {ids[n] for n in SCALING}
     pool = db().sql(f"""select start from read_parquet('{a.source}')
-        where start.act >= 2 and not (start.seed >= {a.exclude_seed_min} and start.seed < {a.exclude_seed_max})
+        where start.act >= 2 and not list_contains(list_transform(start.relics, r -> r.id), {RUNIC_DOME}) and not (start.seed >= {a.exclude_seed_min} and start.seed < {a.exclude_seed_max})
         order by fight_id""").fetchall()
     if len(pool) < a.n:
         raise ValueError(f'only {len(pool)} source starts for {a.n} requested')
