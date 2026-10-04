@@ -48,6 +48,9 @@ class Pipeline(unittest.TestCase):
             run('-m', 'agents.combat.pv.train', '--data', tmp / 'rows/rows.parquet', '--out', tmp / 'model', '--epochs', 1)
             run(PLAY, '--starts', tmp / 'starts.parquet', '--agent', 'pv', '--model', tmp / 'model/model.onnx', '--sims', 16,
                 '--workers', 1, '--out', tmp / 'pv', '--worker', WORKER)
+            run(PLAY, '--starts', tmp / 'starts.parquet', '--agent', 'pv', '--model', tmp / 'model/model.onnx', '--sims', 16,
+                '--rollout-mix', 1, '--workers', 1, '--out', tmp / 'mixed', '--worker', WORKER)
+            self.assertIn('rollout_mix=1', duckdb.sql(f"select any_value(agent) from '{tmp}/mixed/fights-0.parquet'").fetchone()[0])
             summary = duckdb.sql(f"select count(*), count(mean_depth), min(max_depth), min(nodes) from '{tmp}/pv/decisions_stats-0.parquet'").fetchone()
             self.assertGreater(summary[0], 0); self.assertEqual(summary[0], summary[1]); self.assertGreaterEqual(summary[2], 1)
             # PV-played fights are valid combat_v4 rows: the encoder replays them.

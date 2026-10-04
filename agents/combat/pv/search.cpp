@@ -8,6 +8,22 @@ namespace {
 using PublicState = sts::search::PublicBeliefCombatSearch;
 }
 
+GuidedRollout::GuidedRollout(const sts::BattleContext& any_state) : searcher_{any_state} {
+    searcher_.rolloutMode = 2;
+}
+
+double GuidedRollout::operator()(sts::BattleContext& state, std::uint64_t seed) {
+    searcher_.randGen.seed(seed);
+    sts::search::BattleScumSearcher2::Node scratch;
+    for (int step = 0; step < 512 && state.outcome == sts::Outcome::UNDECIDED; ++step) {
+        searcher_.rolloutAction(scratch, state).execute(state);
+    }
+    if (state.unsupportedEffectKind != sts::UnsupportedEffectKind::NONE) {
+        throw std::runtime_error{"PV: unsupported simulator effect in a rollout"};
+    }
+    return state.outcome == sts::Outcome::UNDECIDED ? 0 : CombatObjective::terminal_value(state);
+}
+
 std::uint64_t observation_key(const sts::BattleContext& state) {
     return PublicState::observationKey(state);
 }

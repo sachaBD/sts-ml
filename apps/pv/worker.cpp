@@ -81,10 +81,11 @@ void check_replay(const Json& fight, const std::vector<std::uint32_t>& actions, 
 
 // PV plays directly on a BattleContext with its own legal-action list (the tree's root edges), so recorded bits replay.
 Json play(const Json& fight, pv::Evaluator& evaluator, std::int64_t simulations, bool exploration, double c,
-          const std::string& agent) {
+          double rollout_mix, const std::string& agent) {
     sts::BattleContext state; state.init(stsrl::combat_v4::start_game(fight.at("start")));
     pv::SearchSettings settings;
     settings.noise_fraction = exploration ? 0.25 : 0;
+    settings.rollout_mix = rollout_mix;
     Json search = Json::array(), stats = Json::array();
     std::vector<std::uint32_t> actions;
     while (state.outcome == sts::Outcome::UNDECIDED && state.turn < 50 && actions.size() < 512) {
@@ -179,11 +180,12 @@ int main(int argc, char** argv) {
             }
         } else if (argc >= 4 && command == "play") {
             bool exploration = false;
-            double c = pv::PuctScore{}.exploration;
+            double c = pv::PuctScore{}.exploration, rollout_mix = 0;
             for (int i = 4; i < argc; ++i) {
                 const std::string option = argv[i];
                 if (option == "--explore") exploration = true;
                 else if (option == "--c" && i + 1 < argc) c = std::stod(argv[++i]);
+                else if (option == "--rollout-mix" && i + 1 < argc) rollout_mix = std::stod(argv[++i]);
                 else throw std::invalid_argument{"unknown play option " + option};
             }
             pv::Evaluator evaluator{argv[2]};
@@ -192,10 +194,11 @@ int main(int argc, char** argv) {
             const std::string agent = "pv model=" + std::filesystem::path{argv[2]}.parent_path().filename().string() + "/" +
                 std::filesystem::path{argv[2]}.filename().string() + " sims=" + std::to_string(simulations) +
                 " explore=" + (exploration ? "0.25" : "0") + " c=" + std::to_string(c) + " q=minmax particles=8 batch=" +
-                std::to_string(pv::SearchSettings{}.batch_size);
+                std::to_string(pv::SearchSettings{}.batch_size) +
+                (rollout_mix > 0 ? " rollout_mix=" + std::to_string(rollout_mix) : "");
             std::string line;
             while (std::getline(std::cin, line)) if (!line.empty())
-                std::cout << play(Json::parse(line), evaluator, simulations, exploration, c, agent).dump() << std::endl;
+                std::cout << play(Json::parse(line), evaluator, simulations, exploration, c, rollout_mix, agent).dump() << std::endl;
         } else if (argc == 3 && command == "teacher") {
             const auto sims = std::stoll(argv[2]);
             const auto searcher = stsrl::teacher::leaf_search({"guided_rollout", 0, 0}, nullptr, {sims, stsrl::teacher::particles});
@@ -205,7 +208,7 @@ int main(int argc, char** argv) {
             while (std::getline(std::cin, line)) if (!line.empty())
                 std::cout << teach(Json::parse(line), searcher, agent).dump() << std::endl;
         } else {
-            std::cerr << "usage: pv_worker encode OUT.parquet | evaluate MODEL.onnx | play MODEL.onnx SIMS [--explore] [--c C] | teacher SIMS (JSONL stdin)\n";
+            std::cerr << "usage: pv_worker encode OUT.parquet | evaluate MODEL.onnx | play MODEL.onnx SIMS [--explore] [--c C] [--rollout-mix L] | teacher SIMS (JSONL stdin)\n";
             return 2;
         }
         return 0;

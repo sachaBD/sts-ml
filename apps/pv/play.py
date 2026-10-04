@@ -66,6 +66,7 @@ def main():
     p.add_argument('--model', type=Path)
     p.add_argument('--sims', type=int, required=True)
     p.add_argument('--explore', action='store_true')
+    p.add_argument('--rollout-mix', type=float, help='weight of the guided-rollout leaf value in [0, 1] (worker default 0: network only)')
     p.add_argument('--c', type=float, help='PUCT exploration on min-max normalized Q (worker default when omitted)')
     p.add_argument('--workers', type=int, default=1)
     p.add_argument('--out', type=Path, required=True)
@@ -73,9 +74,10 @@ def main():
     a = p.parse_args()
     if a.agent == 'pv':
         if not a.model: p.error('--agent pv needs --model')
-        command = [str(a.worker), 'play', str(a.model), str(a.sims)] + ['--explore'] * a.explore + (['--c', str(a.c)] if a.c is not None else [])
+        command = [str(a.worker), 'play', str(a.model), str(a.sims)] + ['--explore'] * a.explore + (['--c', str(a.c)] if a.c is not None else []) \
+            + (['--rollout-mix', str(a.rollout_mix)] if a.rollout_mix is not None else [])
     else:
-        if a.model or a.explore: p.error('--model and --explore are for --agent pv')
+        if a.model or a.explore or a.c is not None or a.rollout_mix is not None: p.error('--model, --explore, --c and --rollout-mix are for --agent pv')
         command = [str(a.worker), 'teacher', str(a.sims)]
     a.out.mkdir(parents=True, exist_ok=True)
 

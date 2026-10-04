@@ -4,6 +4,8 @@
 #include "agents/combat/pv/objective.hpp"
 #include "agents/combat/pv/selection.hpp"
 
+#include "sim/search/BattleScumSearcher2.h"
+
 #include <functional>
 #include <limits>
 #include <map>
@@ -18,6 +20,20 @@ struct SearchSettings {
     int maximum_actions = 512;
     double noise_alpha = 0.3;
     double noise_fraction = 0;  // evaluation: off; self-play can explicitly set 0.25
+    // AlphaGo-style leaf mixing: backed-up value = (1 - rollout_mix) * V_net + rollout_mix * guided rollout.
+    // 0 (default) = network only: no rollout is run and the search is unchanged.
+    double rollout_mix = 0;
+};
+
+// The teacher's guided rollout (BattleScumSearcher2 rollout mode 2, as PublicBeliefCombatSearch uses it).
+class GuidedRollout {
+public:
+    explicit GuidedRollout(const sts::BattleContext& any_state);
+    // Plays `state` to its end and returns CombatObjective::terminal_value; deterministic given `seed`.
+    // A fight still undecided after 512 actions is unresolved evidence, never a victory: value 0, as the teacher scores it.
+    double operator()(sts::BattleContext& state, std::uint64_t seed);
+private:
+    sts::search::BattleScumSearcher2 searcher_;
 };
 
 // The old search class is used only for public-observation/action utilities, never as a search driver.
@@ -59,6 +75,10 @@ public:
         if (particles_.empty() || settings_.batch_size < 1 || settings_.maximum_actions < 1) {
             throw std::invalid_argument{"PV: invalid particles or search bounds"};
         }
+        if (!(settings_.rollout_mix >= 0 && settings_.rollout_mix <= 1)) {
+            throw std::invalid_argument{"PV: rollout_mix must be in [0, 1]"};
+        }
+        if (settings_.rollout_mix > 0) rollout_.emplace(particles_.front());
         for (const auto& particle : particles_) {
             if (observation_key(particle) != observation_key(observed)) {
                 throw std::invalid_argument{"PV: particle does not match the root observation"};
@@ -163,7 +183,13 @@ public:
                 if (predictions.size() != requests.size()) throw std::runtime_error{"PV: prediction count mismatch"};
                 for (std::size_t i = 0; i < requests.size(); ++i) {
                     evaluate_node(*requests[i].node, predictions[i]);
-                    for (auto& path : requests[i].paths) backup(path, predictions[i].value);
+                    // One rollout per evaluated node, on the reserved path's particle; its paths share the mixed value.
+                    double value = predictions[i].value;
+                    if (rollout_) {
+                        value = (1 - settings_.rollout_mix) * value +
+                                settings_.rollout_mix * (*rollout_)(requests[i].state, rollout_random_());
+                    }
+                    for (auto& path : requests[i].paths) backup(path, value);
                 }
             }
         }
@@ -257,6 +283,8 @@ private:
     Score score_;
     Selection select_;
     std::mt19937_64 random_;
+    std::optional<GuidedRollout> rollout_;
+    std::mt19937_64 rollout_random_{0x9e3779b97f4a7c15ULL};  // rollout seeds only: the tree's random_ stream is untouched
     Node root_;
     std::int64_t simulations_ = 0;
     double value_lo_ = std::numeric_limits<double>::infinity(), value_hi_ = -std::numeric_limits<double>::infinity();
