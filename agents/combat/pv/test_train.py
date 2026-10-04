@@ -16,8 +16,12 @@ class ValueMix(unittest.TestCase):
         net = lambda *inputs: (torch.tensor([60., 30., 100., 0.]), torch.zeros(4, 1))
         loss, *_ = evaluate(net, batch, 'cpu', value_mix=0.5)
         self.assertEqual(loss.item(), 0)
-        for bad in (-1., 101., float('inf')):
-            with self.subTest(root=bad), self.assertRaisesRegex(ValueError, r'\[0, 100\]'):
+        clipped_net = lambda *inputs: (torch.tensor([100., 30., 100., 0.]), torch.zeros(4, 1))
+        loss, *_ = evaluate(clipped_net, (*batch[:4], torch.tensor([121.8, 60., float('nan'), 0.])),
+                            'cpu', value_mix=0.5)
+        self.assertEqual(loss.item(), 0)  # 121.8 is clamped to 100 before mixing with outcome 100.
+        for bad in (-1., float('inf')):
+            with self.subTest(root=bad), self.assertRaisesRegex(ValueError, 'finite, nonnegative'):
                 evaluate(net, (*batch[:4], torch.tensor([bad, 60., float('nan'), 0.])), 'cpu', value_mix=0.5)
         with self.assertRaisesRegex(ValueError, 'old HP units'):
             evaluate(net, batch, 'cpu', teacher_root_mix=0.5)

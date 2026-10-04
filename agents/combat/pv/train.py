@@ -25,8 +25,9 @@ def evaluate(net, batch, device, policy_temp=1.0, value_mix=1.0, teacher_root_mi
     if value_mix != 1.0:  # PV search roots and outcomes both use 100 × win-probability units.
         root = batch[4].to(device)
         searched = ~torch.isnan(root)  # forced moves have no search: outcome only
-        if not torch.isfinite(root[searched]).all() or ((root[searched] < 0) | (root[searched] > 100)).any():
-            raise ValueError('value mixing needs PV search root values in [0, 100]')
+        if not torch.isfinite(root[searched]).all() or (root[searched] < 0).any():
+            raise ValueError('value mixing needs finite, nonnegative PV search root values')
+        root = root.clamp(0, 100)  # The softplus head is unbounded; probability targets are not.
         target_value = torch.where(searched, value_mix * target_value + (1 - value_mix) * root, target_value)
     value, logits = net(*(inputs[n] for n in NAMES))
     if not torch.isfinite(value).all() or not torch.isfinite(logits).all():
@@ -72,7 +73,7 @@ def main():
     p.add_argument('--device', default='cpu')
     p.add_argument('--policy-temp', type=float, default=1.0, help='policy target temperature (<1 sharpens visits)')
     p.add_argument('--value-mix', type=float, default=1.0,
-                   help='mix·100·won + (1-mix)·PV search root in [0,100]; no-root rows keep outcome')
+                   help='mix·100·won + (1-mix)·PV search root clamped to [0,100]; no-root rows keep outcome')
     p.add_argument('--teacher-root-mix', type=float, default=1.0,
                    help='must remain 1: old HP-unit teacher root mixing is unsupported under the win-only contract')
     p.add_argument('--lr', type=float, default=1e-3)

@@ -62,7 +62,8 @@ victory → 100
 The terminal objective lives in `CombatObjective`; there is no leaf/root max-HP conversion, denominator or score clamp.
 The value head is nonnegative and unbounded (`100 × softplus`). `VALUE_SCALE=100` is a fixed learning-conditioning
 scale: value loss is `mean(((prediction - target) / 100)²)`, added to policy cross-entropy. It does not change search units.
-`--value-mix M` uses `M·100·won + (1−M)·PV search root_value` (roots must be in [0,100]); no-root/forced rows
+`--value-mix M` uses `M·100·won + (1−M)·clamp(PV search root_value, 0, 100)`; non-finite or negative roots are
+rejected (the softplus head can exceed 100). No-root/forced rows
 keep the outcome target. Default M=1 is outcome-only. Old HP-unit `--teacher-root-mix` remains unsupported (must be 1).
 Non-finite or negative predictions/targets fail rather than being clipped or replaced.
 
