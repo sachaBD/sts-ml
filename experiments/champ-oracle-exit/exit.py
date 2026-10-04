@@ -64,12 +64,15 @@ def main():
     p.add_argument('--n', type=int, required=True)
     p.add_argument('--sims', type=int, required=True)
     p.add_argument('--workers', type=int, default=9)
+    p.add_argument('--real-every', type=int, default=1, help='run real bench and compare every K rounds')
     p.add_argument('--train-args', default='--epochs 2')
     p.add_argument('--worker', type=Path, default=ROOT / 'build/pv/agents/combat/pv/pv_worker')
     p.add_argument('--date', default=datetime.now(timezone.utc).strftime('%Y-%m-%d'))
     a = p.parse_args()
     if not 1 <= a.workers <= 9 or min(a.n, a.sims, a.rounds, a.first_round) < 1:
         p.error('workers must be 1–9; n, sims, rounds and first-round must be positive')
+    if a.real_every < 1:
+        p.error('real-every must be positive')
     if a.n > 1_000_000:
         p.error('n exceeds the per-iteration seed block')
     base = ROOT / f'runs/schema=combat_v4/date={a.date}'
@@ -108,9 +111,11 @@ def main():
                             '--init', model / 'model.pt', '--device', 'cuda', '--stream', *shlex.split(a.train_args)])
         model = run / 'model'
         play('bench-oracle', BENCH, a.sims, ['--oracle'])
-        play('bench-real', BENCH, 2000, [])
+        if r % a.real_every == 0:
+            play('bench-real', BENCH, 2000, [])
         play('bench-policy', BENCH, 1, ['--policy-only'])
-        stage(run, 'compare', [PY, 'apps/pv/compare.py', TEACHER, run / 'bench-real'])
+        if r % a.real_every == 0:
+            stage(run, 'compare', [PY, 'apps/pv/compare.py', TEACHER, run / 'bench-real'])
 
 
 if __name__ == '__main__':
