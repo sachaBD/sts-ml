@@ -6,6 +6,10 @@
   starts.py generate --source GLOB --encounter 39 --n 4000 --seed0 991000000000 --exclude-seed-min 981000000000
                      --exclude-seed-max 982000000000 [--add-p 0.3 --remove-p 0.1 --hp-p 0.3] --rng 0 --out F.parquet
 
+generate --bench-copies C --n (source_count*C) --add-p 0 --remove-p 0 --hp-p 0: every provided
+held-out source of the encounter (no Dome), C times, unchanged except fresh seeds. No exclusion range.
+Adds source_fight_id provenance; never use this evaluation-only dataset as training input.
+
 bench: the recorded fights of that encounter whose run seed lies in [seed-min, seed-max), unchanged (the recorded
 teacher result is kept for a paired check).
 generate: decks from real recorded fight starts of Act >= 2 (deck, relics, potions, HP, max HP, gold, RNG counters)
@@ -65,7 +69,35 @@ def bench(a):
     print(f'{len(rel)} bench starts -> {a.out}')
 
 
+def generate_bench(a):
+    """Fresh seeds for every held-out start, with its complete loadout unchanged."""
+    if a.bench_copies < 1 or any((a.add_p, a.remove_p, a.hp_p)):
+        raise ValueError('--bench-copies requires copies >= 1 and --add-p 0 --remove-p 0 --hp-p 0')
+    if a.exclude_seed_min is not None or a.exclude_seed_max is not None:
+        raise ValueError('--bench-copies uses held-out sources: do not pass exclusion ranges')
+    pool = db().sql(f"""select fight_id, start from read_parquet('{a.source}')
+        where start.encounter = {a.encounter} and start.act >= 2
+        and not list_contains(list_transform(start.relics, r -> r.id), {RUNIC_DOME})
+        order by fight_id""").fetchall()
+    if a.n != len(pool) * a.bench_copies:
+        raise ValueError(f'--bench-copies needs n = {len(pool)} * {a.bench_copies}, not {a.n}')
+    rows = []
+    for source_id, source in pool:
+        for _ in range(a.bench_copies):
+            seed = a.seed0 + len(rows)
+            rows.append({'fight_id': f'gen:{seed}', 'start': dict(source, seed=seed),
+                         'augment': '', 'source_fight_id': source_id})
+    schema = pa.schema([('fight_id', pa.string()), ('start', start_type()), ('augment', pa.string()),
+                        ('source_fight_id', pa.string())])
+    pq.write_table(pa.Table.from_pylist(rows, schema=schema), a.out, compression='zstd')
+    print(f'{len(pool)} held-out sources × {a.bench_copies} = {len(rows)} fresh starts -> {a.out}')
+
+
 def generate(a):
+    if a.bench_copies is not None:
+        return generate_bench(a)
+    if a.exclude_seed_min is None or a.exclude_seed_max is None:
+        raise ValueError('normal generate requires --exclude-seed-min and --exclude-seed-max')
     rng = random.Random(a.rng)
     ids = card_ids()
     scaling = {ids[n] for n in SCALING}
@@ -116,13 +148,16 @@ def main():
     b.add_argument('--seed-max', type=int, required=True)
     g.add_argument('--n', type=int, required=True)
     g.add_argument('--seed0', type=int, required=True)
-    g.add_argument('--exclude-seed-min', type=int, required=True)
-    g.add_argument('--exclude-seed-max', type=int, required=True)
+    g.add_argument('--exclude-seed-min', type=int)
+    g.add_argument('--exclude-seed-max', type=int)
+    g.add_argument('--bench-copies', type=int, help='repeat every provided held-out source, no augmentation/exclusion')
     g.add_argument('--add-p', type=float, default=0.3)
     g.add_argument('--remove-p', type=float, default=0.1)
     g.add_argument('--hp-p', type=float, default=0.3)
     g.add_argument('--rng', type=int, default=0)
     a = ap.parse_args()
+    if a.cmd == 'generate' and a.bench_copies is None and (a.exclude_seed_min is None or a.exclude_seed_max is None):
+        ap.error('normal generate requires --exclude-seed-min and --exclude-seed-max')
     a.out.parent.mkdir(parents=True, exist_ok=True)
     bench(a) if a.cmd == 'bench' else generate(a)
 
