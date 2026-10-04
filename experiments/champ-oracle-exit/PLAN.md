@@ -100,3 +100,10 @@ Schedule: tag c runs to r15 (real bench ~01:30 UTC) then stops unless real ≥ 3
 go to items 3 → 1 → 4. Turnbench arms 3/4 continue on CPU 11.
 Decision rules: item 1 — if PIMC-turn beats per-action real2000 on bench2k (p<0.05), it becomes the real-play agent.
 Item 4 — stop after 3 rounds without > 1 SE real gain; null ⇒ stop and report.
+
+### Phase 2 queue (handed to orch 23:30 UTC; code 78c3b64)
+Items 1–3 built (bd79595 PIMC, 37c694b turn targets, 44fbe58 bench2k, 78c3b64 exit flags).
+PIMC smoke (r13, K4 E16, first 20): 1/20 vs per-action real r12 3/20, 16.8 s/fight — screened on 409 before bench2k.
+After tag c stops: J1 PIMC screen (409) → J2 tag d (turn-search expert, E 64, init = last tag-c model, 9 rounds)
+→ J3 bench2k: teacher, best per-action real, PIMC if not clearly worse.
+Tag d stop rule: r06 real2000 not > M's real by 2.3 pp → stop and report.
