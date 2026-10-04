@@ -7,6 +7,7 @@
 #include "agents/combat/pv/search.hpp"
 #include "agents/combat/pv/turn_search.hpp"
 #include "agents/combat/pv/turn_pimc.hpp"
+#include "agents/combat/pv/turn_targets.hpp"
 #include "agents/combat/search/teacher_search.hpp"
 #include "apps/pv/shard.hpp"
 #include "apps/pv/turns.hpp"
@@ -139,27 +140,40 @@ Json play(const Json& fight, pv::Evaluator& evaluator, std::int64_t simulations,
 
 // Turn-search evaluation mode deliberately emits no invented per-action policy targets.
 Json play_turn(const Json& fight, pv::Evaluator& evaluator, std::size_t budget, double c,
-               pv::TurnSearchCaps caps, const std::string& agent) {
+               pv::TurnSearchCaps caps, const std::string& agent, bool targets = false,
+               bool exploration = false, bool sample_turns = false) {
     sts::BattleContext state; state.init(stsrl::combat_v4::start_game(fight.at("start")));
+    std::mt19937_64 random{fight.at("start").at("seed").get<std::uint64_t>()};
     std::unique_ptr<pv::TurnSearch> tree;
     std::vector<std::uint32_t> actions;
     Json search = Json::array(), stats = Json::array(), turns = Json::array();
     while (state.outcome == sts::Outcome::UNDECIDED && state.turn < 50 && actions.size() < 512) {
         const auto started = Clock::now(); const auto step = actions.size(); const int turn = state.turn;
         if (!tree) tree = std::make_unique<pv::TurnSearch>(state, caps, c);
-        const auto sequence = tree->decide(budget, [&](std::span<const pv::Inputs> batch) { return evaluator.evaluate(batch); });
+        const auto sequence = tree->decide(budget, [&](std::span<const pv::Inputs> batch) { return evaluator.evaluate(batch); },
+            targets && exploration ? 0.25 : 0, targets ? &random : nullptr, targets && sample_turns && state.turn < 2);
         auto telemetry = tree->stats();
         if (!telemetry.fallback) {
+            std::vector<std::uint32_t> prefix;
             for (auto bits : sequence) {
                 if (actions.size() >= 512) break;
                 const sts::search::Action chosen{bits};
                 if (!chosen.isValidAction(state)) throw std::runtime_error{"turn search: live sequence illegal"};
-                actions.push_back(bits); chosen.execute(state);
+                if (targets) {
+                    const auto target = pv::turn_prefix_target(tree->root(), prefix, state);
+                    Json children = Json::array();
+                    for (const auto& child : target.children)
+                        children.push_back({{"action", child.action}, {"visits", child.visits}, {"value", child.value}});
+                    search.push_back({{"fight_id", fight.at("fight_id")}, {"step", actions.size()}, {"agent", agent},
+                        {"root_value", target.value}, {"simulations", target.visits}, {"children", std::move(children)}});
+                }
+                actions.push_back(bits); chosen.execute(state); prefix.push_back(bits);
             }
             if (!tree->advance(state)) tree.reset();
         } else {
             tree.reset();
             pv::SearchSettings settings; settings.oracle = true;
+            settings.noise_fraction = targets && exploration ? 0.25 : 0;
             std::unique_ptr<pv::Search<>> fallback;
             do {
                 const auto moves = pv::legal_actions(state); auto chosen = moves.front();
@@ -174,7 +188,7 @@ Json play_turn(const Json& fight, pv::Evaluator& evaluator, std::size_t budget, 
                         ++telemetry.network_calls; telemetry.evaluated_states += batch.size();
                         return evaluator.evaluate(batch);
                     }, 800);
-                    chosen = fallback->selected_action();
+                    chosen = targets && sample_turns && state.turn < 2 ? fallback->sampled_action(random) : fallback->selected_action();
                     Json children = Json::array(); double value = 0, visits = 0;
                     for (const auto& edge : fallback->root().edges) if (edge.visits) {
                         children.push_back({{"action", edge.action.bits}, {"visits", edge.visits}, {"value", edge.value_sum / edge.visits}});
@@ -296,7 +310,7 @@ int main(int argc, char** argv) {
                 std::cout << out.dump() << std::endl;
             }
         } else if (argc >= 4 && command == "play") {
-            bool exploration = false, oracle = false, policy_only = false, sample_turns = false, turn_search = false;
+            bool exploration = false, oracle = false, policy_only = false, sample_turns = false, turn_search = false, turn_targets = false;
             pv::TurnSearchCaps caps;
             int particles = 4; bool particles_set = false;
             double c = pv::PuctScore{}.exploration, rollout_mix = 0;
@@ -305,6 +319,7 @@ int main(int argc, char** argv) {
                 if (option == "--explore") exploration = true;
                 else if (option == "--oracle") oracle = true;
                 else if (option == "--turn-search") turn_search = true;
+                else if (option == "--turn-targets") turn_targets = true;
                 else if (option == "--particles" && i + 1 < argc) { particles = std::stoi(argv[++i]); particles_set = true; }
                 else if (option == "--turn-max-sequences" && i + 1 < argc) caps.max_sequences = std::stoull(argv[++i]);
                 else if (option == "--turn-root-max-children" && i + 1 < argc) caps.root_max_children = std::stoull(argv[++i]);
@@ -316,7 +331,9 @@ int main(int argc, char** argv) {
                 else if (option == "--rollout-mix" && i + 1 < argc) rollout_mix = std::stod(argv[++i]);
                 else throw std::invalid_argument{"unknown play option " + option};
             }
-            if (turn_search && (exploration || policy_only || sample_turns || rollout_mix != 0))
+            if (turn_targets && (!turn_search || !oracle || std::stoll(argv[3]) < 2))
+                throw std::invalid_argument{"--turn-targets requires --oracle --turn-search and E >= 2"};
+            if (turn_search && (policy_only || rollout_mix != 0 || ((exploration || sample_turns) && !turn_targets)))
                 throw std::invalid_argument{"--turn-search requires evaluation-only settings"};
             if (particles_set && (!turn_search || oracle))
                 throw std::invalid_argument{"--particles requires real --turn-search (without --oracle)"};
@@ -335,6 +352,7 @@ int main(int argc, char** argv) {
                 " caps=seq" + std::to_string(caps.max_sequences) + "/root" + std::to_string(caps.root_max_children) +
                 "/node" + std::to_string(caps.max_children) +
                 "/" + std::to_string(caps.max_seconds) + "s/512a/256MiB T=10 fallback_sims=800";
+            if (turn_targets) agent += " turn_targets=1";
             if (turn_search && !oracle) agent += " pimc=1 reuse=0";
             std::string line;
             while (std::getline(std::cin, line)) if (!line.empty()) {
@@ -343,7 +361,7 @@ int main(int argc, char** argv) {
                     std::cout << play_turn_real(fight, evaluator, simulations, particles, c, caps, agent).dump() << std::endl;
                     continue;
                 }
-                std::cout << (turn_search ? play_turn(fight, evaluator, simulations, c, caps, agent) :
+                std::cout << (turn_search ? play_turn(fight, evaluator, simulations, c, caps, agent, turn_targets, exploration, sample_turns) :
                     play(fight, evaluator, simulations, exploration, c, rollout_mix, oracle, policy_only, sample_turns, agent)).dump() << std::endl;
             }
         } else if (argc == 3 && command == "teacher") {

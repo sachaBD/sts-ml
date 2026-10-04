@@ -3,6 +3,7 @@
 #include "agents/combat/pv/evaluator.hpp"
 #include <functional>
 #include <memory>
+#include <random>
 #include <string>
 
 namespace stsrl::pv {
@@ -39,7 +40,8 @@ public:
     using Evaluate = std::function<std::vector<Prediction>(std::span<const Inputs>)>;
     explicit TurnSearch(const sts::BattleContext&, TurnSearchCaps = {}, double c = 1.25, double temperature = 10);
     // Empty sequence only on an explicitly reported root fallback.
-    std::vector<std::uint32_t> decide(std::size_t budget, const Evaluate&);
+    std::vector<std::uint32_t> decide(std::size_t budget, const Evaluate&, double noise_fraction = 0,
+                                      std::mt19937_64* random = nullptr, bool sample = false);
     bool advance(const sts::BattleContext& actual);
     const TurnNode& root() const { return *root_; }
     const TurnSearchStats& stats() const { return stats_; }
@@ -50,7 +52,7 @@ private:
     std::unique_ptr<TurnNode> root_;
     TurnSearchStats stats_;
     std::size_t bytes_ = 0, selected_ = 0;
-    bool reused_ = false;
+    bool reused_ = false, root_noise_done_ = false;
     bool expand(TurnNode&, const sts::BattleContext&, const Evaluate&);
 };
 } // namespace stsrl::pv

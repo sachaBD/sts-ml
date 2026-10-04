@@ -3,6 +3,7 @@
 #include "agents/combat/pv/search.hpp"
 #include <chrono>
 #include <cmath>
+#include <numeric>
 #include <unordered_set>
 
 namespace stsrl::pv {
@@ -164,7 +165,10 @@ bool TurnSearch::expand(TurnNode& node, const sts::BattleContext& parent, const 
     return true;
 }
 
-std::vector<std::uint32_t> TurnSearch::decide(std::size_t budget, const Evaluate& evaluate) {
+std::vector<std::uint32_t> TurnSearch::decide(std::size_t budget, const Evaluate& evaluate, double noise_fraction,
+                                              std::mt19937_64* random, bool sample) {
+    if ((noise_fraction != 0 || sample) && !random)
+        throw std::invalid_argument{"turn search: noise/sampling requires RNG"};
     if (!budget) throw std::invalid_argument{"turn search: budget must be positive"};
     const auto start = Clock::now(); stats_ = {}; stats_.reused = reused_;
     std::size_t used = 0;
@@ -174,6 +178,14 @@ std::vector<std::uint32_t> TurnSearch::decide(std::size_t budget, const Evaluate
             stats_.fallback = true; stats_.reason = root_->reason; stats_.seconds = elapsed(start); return {};
         }
         ++root_->visits;
+    }
+    if (noise_fraction != 0 && !root_noise_done_) {
+        std::vector<double> priors;
+        for (const auto& child : root_->children) priors.push_back(child.prior);
+        SearchSettings settings; settings.noise_fraction = noise_fraction;
+        add_root_noise(priors, settings, *random);
+        for (std::size_t i=0; i<priors.size(); ++i) root_->children[i].prior = priors[i];
+        root_noise_done_ = true;
     }
     while (used++ < budget) {
         ++stats_.expansions;
@@ -201,6 +213,13 @@ std::vector<std::uint32_t> TurnSearch::decide(std::size_t budget, const Evaluate
         const auto& child = root_->children[i]; const auto& best = root_->children[selected_];
         if (child.visits > best.visits || (child.visits == best.visits && child.q() > best.q())) selected_ = i;
     }
+    if (sample) {
+        std::vector<double> weights;
+        for (const auto& child : root_->children) weights.push_back(child.visits);
+        if (std::accumulate(weights.begin(), weights.end(), 0.0) <= 0)
+            throw std::runtime_error{"turn search: sampling has no visited children"};
+        selected_ = std::discrete_distribution<std::size_t>(weights.begin(), weights.end())(*random);
+    }
     stats_.root_children = root_->children.size();
     std::size_t leaves = 0; double sum = 0; depths(*root_, 0, leaves, sum, stats_.max_depth);
     stats_.mean_leaf_depth = leaves ? sum / leaves : 0; stats_.seconds = elapsed(start);
@@ -214,7 +233,7 @@ bool TurnSearch::advance(const sts::BattleContext& actual) {
     auto next = std::move(chosen.node);
     reused_ = bool(next);
     if (!next) { next = std::make_unique<TurnNode>(); next->value = chosen.value; }
-    root_ = std::move(next); state_ = actual; bytes_ = tree_bytes(*root_);
+    root_ = std::move(next); root_noise_done_ = false; state_ = actual; bytes_ = tree_bytes(*root_);
     if (bytes_ > caps_.max_bytes) { root_ = std::make_unique<TurnNode>(); bytes_ = tree_bytes(*root_); reused_ = false; }
     return true;
 }
