@@ -58,3 +58,19 @@ tag c (it0: policy 20.3 / oracle800 25.9 / real2000 21.8; val v0.111 ce1.540 top
 - Canonical buckets are lossy: 67/200 merged pairs re-diverge after one more turn (33.5%) → use exact keys.
 - Implication: turn-level oracle search is affordable for typical turns (≈200 children), needs a tail cap / fallback.
   Network cost and multi-turn search cost not yet measured.
+| r10 | selfplay 1821/6000=0.303 cap0 43.6min | e0 val v0.067 ce1.461 top10.519 (train v0.021) | bench-policy 95/409=0.232 DF 53/87 noDF 42/322 0.01s/f cap0 | bench-oracle 180/409=0.440 DF 75/87 noDF 105/322 4.85s/f cap0 turns 1.28/p90 2 |
+| r11 | selfplay 1870/6000=0.312 cap0 45.9min | e0 val v0.067 ce1.451 top10.527 (train v0.021) | bench-policy 103/409=0.252 DF 53/87 noDF 50/322 0.01s/f cap0 | bench-oracle 185/409=0.452 DF 76/87 noDF 109/322 4.43s/f cap0 turns 1.26/p90 2 |
+| r12 | selfplay 1836/6000=0.306 cap0 46.9min | e0 val v0.060 ce1.455 top10.526 (train v0.020) | bench-policy 96/409=0.235 DF 55/87 noDF 41/322 0.01s/f cap0 | bench-oracle 195/409=0.477 DF 76/87 noDF 119/322 3.36s/f cap0 turns 1.27/p90 2 | bench-real 143/409=0.350 DF 70/87 noDF 73/322 10.22s/f cap0 turns 0.96/p90 2 |
+| r13 | selfplay 1967/6000=0.328 cap0 46.3min | e0 val v0.056 ce1.447 top10.534 (train v0.020) | bench-policy 97/409=0.237 DF 54/87 noDF 43/322 0.01s/f cap0 | bench-oracle 192/409=0.469 DF 77/87 noDF 115/322 4.84s/f cap0 turns 1.27/p90 2 |
+| r14 | selfplay 1910/5998=0.318 cap2 44.6min | e0 val v0.054 ce1.457 top10.530 (train v0.020) | bench-policy 112/409=0.274 DF 62/87 noDF 50/322 0.01s/f cap0 | bench-oracle 186/409=0.455 DF 76/87 noDF 110/322 3.36s/f cap0 turns 1.28/p90 2 |
+| r15 | selfplay 1931/6000=0.322 cap0 37.5min | e0 val v0.059 ce1.443 top10.540 (train v433.252) | bench-policy 97/409=0.237 DF 54/87 noDF 43/322 0.01s/f cap0 | bench-oracle 191/409=0.467 DF 78/87 noDF 113/322 3.68s/f cap0 turns 1.26/p90 2 | bench-real 160/409=0.391 DF 72/87 noDF 88/322 9.56s/f cap0 turns 0.96/p90 2 |
+
+## 23:50 — turn search beats per-action in oracle; tag c r15 real 39.1%
+- Turnbench (r09 net, oracle, 409, fixed simulator; baseline per-action 800 = 41.8%, 3.95 s/fight, 1.25 turns/sim):
+  ts16 40.8% (2.5 s) · ts64 45.0% (4.4 s, p=0.14) · **ts256 47.9% (10.1 s; b/c 23/48, p=0.004)**. Leaf depth
+  1.72 → 1.91 → 2.11 turns (tree max 2.2 → 2.4 → 2.7). Win rate rises monotonically with depth/budget.
+  Gain concentrated in no-Demon-Form decks (ts256 noDF b/c 20/41, p=0.010; DF flat). ~14% turns fall back.
+  → First direct evidence that deeper (turn-level) planning helps on Champ, with the same network.
+- Tag c r15: real2000 39.1% (vs r09 +6.6 pp p=0.001; vs r12 +4.1 pp p=0.06); oracle800 46.7%; policy 23.7%.
+  ≥ 38% gate → continue to r18. r15 train value loss spiked to 433 (val fine 0.059) → grad clipping for tag d.
+- J1 (PIMC screen, r15) started on CPUs 10–11.
