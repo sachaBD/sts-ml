@@ -60,3 +60,15 @@
 - (Lost ~1 h: a wait loop of mine matched its own command line with pgrep. Use pid files.)
 - Added train options: --value-mix (outcome/search-root mix; PV rows only, guarded), --lr, --weight-decay.
 - sp2 launched: init sp1-r01, q1 worker c=1.25, 3000 starts × 800 sims per round, window 3, 2 epochs, 12 rounds.
+
+## 02:25 — self-play from a weak value net doesn't climb; distilling the teacher's *search values* does
+- sp2 round 1 (c=1.25 normalized): bench 21.3% (sp1-r01 init 24.9%). PV visit targets still flat-ish (entropy 1.32
+  vs uniform 1.57 over 5.4 moves; max share 0.45): in Champ, move values differ by a few HP points against a
+  tree-wide value span of ~100, so even normalized PUCT spreads visits. Stopped sp2 after round 1.
+- Value targets from single fight outcomes are too noisy for ~3k fights/round. The teacher's root values (visit-
+  weighted rollout estimates, (35+hp+4·potions)/(55+maxHP) units → HP points; losses carry small damage shaping)
+  are a far less noisy target. `--teacher-root-mix 0` on the same 1.3k teacher fights: val loss 0.023 (vs teacher
+  root) and **bench 30.8%** at 2000 sims, c=1.25 (outcome-trained boot at c=1.25: 23.0%; teacher 41.8%).
+  Paired vs teacher: −7.4 ± 1.3 score, b/c 64/19. 6.3 s/fight.
+- Launched: teacher on 3000 generated Champ starts (champ-teachergen-a, 20k sims, ~85 min) for more distillation
+  data; trainers: troot width 128, troot mix 0.5 (outcome+teacher root); impl T3: rollout leaf mixing in PV search.

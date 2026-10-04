@@ -22,3 +22,22 @@
 2026-10-04T00:20:44Z START play champ-bench-boot-q1-c3 starts=runs/schema=combat_v4/date=2026-10-04/id=champ-bench-nodome/out/fights-00000.parquet worker=build/frozen/pv_worker.q1 agent=pv sims=2000 workers=9 --model runs/schema=pv_model_v1/date=2026-10-03/id=champ-boot-w64/out/model.onnx --c 3
 2026-10-04T00:27:11Z DONE play champ-bench-boot-q1-c3
 2026-10-04T00:35:02Z START play champ-sp2-r01-play model=runs/schema=pv_model_v1/date=2026-10-04/id=champ-sp1-r01/out/model.onnx sims=800 explore=True
+2026-10-04T00:50:26Z DONE play champ-sp2-r01-play {  "fights": 3000,  "wins": 527,  "capped": 0,  "decision_seconds": 7138.822693792992,  "wall_seconds": 922.8905210494995,  "workers": 8,  "command": [   "play",   "runs/schema=pv_model_v1/date=2026-10-04/id=champ-sp1-r01/out/model.onnx",   "800",   "--explore"  ],  "mean_seconds_per_fight": 2.379607564597664 }
+2026-10-04T00:50:35Z START train champ-sp2-r01 data=/home/sborowsk/project/sts_combat_rl/runs/schema=pv_rows_v1/id=champ-sp2-r01/rows.parquet args=--init runs/schema=pv_model_v1/date=2026-10-04/id=champ-sp1-r01/out/model.pt --epochs 2
+2026-10-04T00:51:36Z DONE train champ-sp2-r01
+2026-10-04T00:51:36Z START play champ-sp2-r01-bench model=/home/sborowsk/project/sts_combat_rl/runs/schema=pv_model_v1/date=2026-10-04/id=champ-sp2-r01/out/model.onnx sims=2000 explore=False
+2026-10-04T00:57:55Z DONE play champ-sp2-r01-bench {  "fights": 409,  "wins": 87,  "capped": 0,  "decision_seconds": 3227.1674933479976,  "wall_seconds": 379.3287823200226,  "workers": 9,  "command": [   "play",   "/home/sborowsk/project/sts_combat_rl/runs/schema=pv_model_v1/date=2026-10-04/id=champ-sp2-r01/out/model.onnx",   "2000"  ],  "mean_seconds_per_fight": 7.890385069310508 }
+2026-10-04T00:57:55Z BENCH champ-sp2-r01: /home/sborowsk/project/sts_combat_rl/runs/schema=combat_v4/date=2026-10-04/id=champ-sp2-r01-bench/compare.md
+2026-10-04T00:57:59Z START play champ-sp2-r02-play model=/home/sborowsk/project/sts_combat_rl/runs/schema=pv_model_v1/date=2026-10-04/id=champ-sp2-r01/out/model.onnx sims=800 explore=True
+2026-10-04T00:59:04Z START train champ-boot-troot data=runs/schema=pv_rows_v1/date=2026-10-04/id=champ-train-teacher/out/rows.parquet args=--epochs 8 --width 64 --teacher-root-mix 0
+2026-10-04T01:15:05Z START train champ-boot-troot data=runs/schema=pv_rows_v1/date=2026-10-04/id=champ-train-teacher/out/rows.parquet args=--epochs 8 --width 64 --teacher-root-mix 0
+2026-10-04T01:15:41Z START play champ-teachergen-a starts=runs/schema=pv_starts_v1/id=champ-teachergen-a/starts.parquet worker=build/frozen/pv_worker.q1 agent=teacher sims=20000 workers=8 
+2026-10-04T01:17:32Z DONE train champ-boot-troot
+2026-10-04T01:17:46Z START play champ-bench-troot-c1.25 starts=runs/schema=combat_v4/date=2026-10-04/id=champ-bench-nodome/out/fights-00000.parquet worker=build/frozen/pv_worker.q1 agent=pv sims=2000 workers=9 --model runs/schema=pv_model_v1/date=2026-10-04/id=champ-boot-troot/out/model.onnx
+2026-10-04T01:22:47Z DONE play champ-bench-troot-c1.25
+2026-10-04T01:22:47Z BENCH champ-bench-troot-c1.25 | all | 409 | 0.418 | 0.308 | -7.44 ± 1.27 | 64 / 19 | 0.000 |
+2026-10-04T01:23:14Z START train champ-boot-troot-w128 data=runs/schema=pv_rows_v1/date=2026-10-04/id=champ-train-teacher/out/rows.parquet args=--epochs 8 --width 128 --teacher-root-mix 0
+2026-10-04T01:23:14Z START train champ-boot-troot-m05 data=runs/schema=pv_rows_v1/date=2026-10-04/id=champ-train-teacher/out/rows.parquet args=--epochs 8 --width 64 --teacher-root-mix 0.5
+2026-10-04T01:26:41Z DONE train champ-boot-troot-w128
+2026-10-04T01:26:41Z DONE train champ-boot-troot-m05
+2026-10-04T02:33:02Z DONE play champ-teachergen-a
