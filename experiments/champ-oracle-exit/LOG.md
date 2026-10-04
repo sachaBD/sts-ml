@@ -50,3 +50,11 @@ tag c (it0: policy 20.3 / oracle800 25.9 / real2000 21.8; val v0.111 ce1.540 top
 - **Depth did not grow**: oracle 1.25 turns/sim (p90 2), real 0.96 (p90 2) at every round. The gains are not from
   longer planning. Expert iteration on the per-action PUCT tree improves evaluation, not horizon.
 - Final model: champ-ox-c-r09/model.
+
+## 17:15 — end-of-turn state census (impl, c1d687d; out: id=champ-ox-turns-c-r09/out)
+- 441 turns / 50 r09 oracle bench fights. Median / p90 / max: sequences 326 / 8.2k / ≥1M; exact distinct
+  non-terminal end states 206 / 2.7k / 673k; canonical (sorted hand/discard/exhaust) 66 / 819 / 168k;
+  enumeration 4 ms / 95 ms / 15.6 s. 5 turns (1.1%) hit the 1e6 sequence cap.
+- Canonical buckets are lossy: 67/200 merged pairs re-diverge after one more turn (33.5%) → use exact keys.
+- Implication: turn-level oracle search is affordable for typical turns (≈200 children), needs a tail cap / fallback.
+  Network cost and multi-turn search cost not yet measured.
