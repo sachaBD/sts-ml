@@ -40,11 +40,11 @@ class TurnWorkerTest(unittest.TestCase):
                          json.dumps(stable(after), separators=(',', ':')))
         self.assertNotIn('turn_stats', after)
 
-    def test_requires_oracle(self):
-        done = subprocess.run([str(WORKER), 'play', '/not/a/model', '1', '--turn-search'],
+    def test_particle_flags(self):
+        done = subprocess.run([str(WORKER), 'play', '/not/a/model', '1', '--turn-search', '--oracle', '--particles', '2'],
                               capture_output=True, text=True)
         self.assertNotEqual(done.returncode, 0)
-        self.assertIn('requires --oracle', done.stderr)
+        self.assertIn('--particles requires real', done.stderr)
 
     def test_explicit_fallback_and_no_macro_policy(self):
         out = self.run_worker(WORKER, '--oracle', '--turn-search', '--turn-max-sequences', '1')

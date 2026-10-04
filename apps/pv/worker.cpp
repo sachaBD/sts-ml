@@ -6,6 +6,7 @@
 //   {status, fight (combat_v4 fights row; completed only), search: [combat_v4 search rows], stats: [telemetry per search]}.
 #include "agents/combat/pv/search.hpp"
 #include "agents/combat/pv/turn_search.hpp"
+#include "agents/combat/pv/turn_pimc.hpp"
 #include "agents/combat/search/teacher_search.hpp"
 #include "apps/pv/shard.hpp"
 #include "apps/pv/turns.hpp"
@@ -203,6 +204,36 @@ Json play_turn(const Json& fight, pv::Evaluator& evaluator, std::size_t budget, 
     return out;
 }
 
+// Real-play PIMC: only the first public action is played, then belief is rebuilt.
+Json play_turn_real(const Json& fight, pv::Evaluator& evaluator, std::size_t budget, int particles,
+                    double c, pv::TurnSearchCaps caps, const std::string& agent) {
+    sts::BattleContext state; state.init(stsrl::combat_v4::start_game(fight.at("start")));
+    std::vector<std::uint32_t> actions; Json decisions = Json::array();
+    while (state.outcome == sts::Outcome::UNDECIDED && state.turn < 50 && actions.size() < 512) {
+        const auto moves = pv::legal_actions(state); auto chosen = moves.front();
+        if (moves.size() > 1) {
+            const auto started = Clock::now();
+            const auto belief = stsrl::teacher::public_particles(state, particles);
+            const auto decision = pv::decide_turn_particles(state, belief, budget,
+                [&](std::span<const pv::Inputs> batch) { return evaluator.evaluate(batch); }, caps, c);
+            chosen = decision.action;
+            decisions.push_back({{"fight_id", fight.at("fight_id")}, {"step", actions.size()}, {"turn", state.turn},
+                {"particles", particles}, {"seconds", since(started)}, {"mean_depth", decision.mean_depth},
+                {"fallback_count", decision.fallback_count}, {"time_fallback_count", decision.time_fallback_count},
+                {"time_overshoot_count", decision.time_overshoot_count}, {"fallback_reasons", decision.fallback_reasons},
+                {"network_calls", decision.network_calls},
+                {"evaluated_states", decision.evaluated_states}});
+        }
+        if (!chosen.isValidAction(state)) throw std::runtime_error{"turn PIMC: real action illegal"};
+        actions.push_back(chosen.bits); chosen.execute(state);
+    }
+    const bool done = state.outcome != sts::Outcome::UNDECIDED;
+    if (done) check_replay(fight, actions, state);
+    auto out = result(fight, actions, done, state.outcome == sts::Outcome::PLAYER_VICTORY, state.player.curHp,
+                      agent, Json::array(), Json::array());
+    out["particle_stats"] = std::move(decisions); return out;
+}
+
 // The guided-rollout MCTS teacher (apps/combat_record/worker.cpp settings). Depth telemetry is PV-only: null here.
 Json teach(const Json& fight, const stsrl::teacher::SearchFn& searcher, const std::string& agent) {
     sts::BattleContext state; state.init(stsrl::combat_v4::start_game(fight.at("start")));
@@ -267,12 +298,14 @@ int main(int argc, char** argv) {
         } else if (argc >= 4 && command == "play") {
             bool exploration = false, oracle = false, policy_only = false, sample_turns = false, turn_search = false;
             pv::TurnSearchCaps caps;
+            int particles = 4; bool particles_set = false;
             double c = pv::PuctScore{}.exploration, rollout_mix = 0;
             for (int i = 4; i < argc; ++i) {
                 const std::string option = argv[i];
                 if (option == "--explore") exploration = true;
                 else if (option == "--oracle") oracle = true;
                 else if (option == "--turn-search") turn_search = true;
+                else if (option == "--particles" && i + 1 < argc) { particles = std::stoi(argv[++i]); particles_set = true; }
                 else if (option == "--turn-max-sequences" && i + 1 < argc) caps.max_sequences = std::stoull(argv[++i]);
                 else if (option == "--turn-root-max-children" && i + 1 < argc) caps.root_max_children = std::stoull(argv[++i]);
                 else if (option == "--turn-max-children" && i + 1 < argc) caps.max_children = std::stoull(argv[++i]);
@@ -283,14 +316,17 @@ int main(int argc, char** argv) {
                 else if (option == "--rollout-mix" && i + 1 < argc) rollout_mix = std::stod(argv[++i]);
                 else throw std::invalid_argument{"unknown play option " + option};
             }
-            if (turn_search && (!oracle || exploration || policy_only || sample_turns || rollout_mix != 0))
-                throw std::invalid_argument{"--turn-search requires --oracle and evaluation-only settings"};
+            if (turn_search && (exploration || policy_only || sample_turns || rollout_mix != 0))
+                throw std::invalid_argument{"--turn-search requires evaluation-only settings"};
+            if (particles_set && (!turn_search || oracle))
+                throw std::invalid_argument{"--particles requires real --turn-search (without --oracle)"};
+            if (particles < 1) throw std::invalid_argument{"--particles must be positive"};
             pv::Evaluator evaluator{argv[2]};
             const auto simulations = std::stoll(argv[3]);
             if (simulations < 1) throw std::invalid_argument{"PV needs at least one simulation"};
             std::string agent = "pv model=" + std::filesystem::path{argv[2]}.parent_path().filename().string() + "/" +
                 std::filesystem::path{argv[2]}.filename().string() + " sims=" + std::to_string(simulations) +
-                " explore=" + (exploration ? "0.25" : "0") + " c=" + std::to_string(c) + " q=minmax particles=" + (oracle ? "1" : "8") + " batch=" +
+                " explore=" + (exploration ? "0.25" : "0") + " c=" + std::to_string(c) + " q=minmax particles=" + (oracle ? "1" : turn_search ? std::to_string(particles) : "8") + " batch=" +
                 std::to_string(pv::SearchSettings{}.batch_size) +
                 (rollout_mix > 0 ? " rollout_mix=" + std::to_string(rollout_mix) : "") +
                 (oracle ? " oracle=1 reuse=1" : "") + (policy_only ? " policy_only=1" : "") +
@@ -299,9 +335,14 @@ int main(int argc, char** argv) {
                 " caps=seq" + std::to_string(caps.max_sequences) + "/root" + std::to_string(caps.root_max_children) +
                 "/node" + std::to_string(caps.max_children) +
                 "/" + std::to_string(caps.max_seconds) + "s/512a/256MiB T=10 fallback_sims=800";
+            if (turn_search && !oracle) agent += " pimc=1 reuse=0";
             std::string line;
             while (std::getline(std::cin, line)) if (!line.empty()) {
                 const auto fight = Json::parse(line);
+                if (turn_search && !oracle) {
+                    std::cout << play_turn_real(fight, evaluator, simulations, particles, c, caps, agent).dump() << std::endl;
+                    continue;
+                }
                 std::cout << (turn_search ? play_turn(fight, evaluator, simulations, c, caps, agent) :
                     play(fight, evaluator, simulations, exploration, c, rollout_mix, oracle, policy_only, sample_turns, agent)).dump() << std::endl;
             }
