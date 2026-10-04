@@ -81,39 +81,52 @@ void check_replay(const Json& fight, const std::vector<std::uint32_t>& actions, 
 
 // PV plays directly on a BattleContext with its own legal-action list (the tree's root edges), so recorded bits replay.
 Json play(const Json& fight, pv::Evaluator& evaluator, std::int64_t simulations, bool exploration, double c,
-          double rollout_mix, const std::string& agent) {
+          double rollout_mix, bool oracle, bool policy_only, bool sample_turns, const std::string& agent) {
     sts::BattleContext state; state.init(stsrl::combat_v4::start_game(fight.at("start")));
     pv::SearchSettings settings;
     settings.noise_fraction = exploration ? 0.25 : 0;
     settings.rollout_mix = rollout_mix;
+    settings.oracle = oracle;
+    std::unique_ptr<pv::Search<>> tree;
+    std::mt19937_64 move_random{fight.at("start").at("seed").get<std::uint64_t>()};
     Json search = Json::array(), stats = Json::array();
     std::vector<std::uint32_t> actions;
     while (state.outcome == sts::Outcome::UNDECIDED && state.turn < 50 && actions.size() < 512) {
         const auto moves = pv::legal_actions(state);
         auto chosen = moves.front();
-        if (moves.size() > 1) {
+        if (moves.size() > 1 && policy_only) {
+            const auto t = Clock::now();
+            const auto prediction = pv::evaluate_root(evaluator, state);
+            chosen = moves[std::max_element(prediction.logits.begin(), prediction.logits.end()) - prediction.logits.begin()];
+            stats.push_back({{"fight_id", fight.at("fight_id")}, {"step", actions.size()}, {"seconds", since(t)},
+                             {"simulations", 0}, {"mean_depth", nullptr}, {"max_depth", nullptr},
+                             {"mean_turns", nullptr}, {"max_turns", nullptr}, {"nodes", 0}});
+        } else if (moves.size() > 1) {
             const auto t = Clock::now();
             // Evaluate the real root exactly once, then construct a fully initialized PV-only tree.
-            const auto root_prediction = pv::evaluate_root(evaluator, state);
-            auto particles = stsrl::teacher::public_particles(state, 8);
-            pv::Search<> tree{state, std::move(particles), root_prediction, settings, pv::PuctScore{c}};
-            tree.run([&evaluator](std::span<const pv::Inputs> batch) { return evaluator.evaluate(batch); }, simulations);
-            chosen = tree.selected_action();
+            if (!tree) {
+                const auto root_prediction = pv::evaluate_root(evaluator, state);
+                auto particles = oracle ? std::vector<sts::BattleContext>{state} : stsrl::teacher::public_particles(state, 8);
+                tree = std::make_unique<pv::Search<>>(state, std::move(particles), root_prediction, settings, pv::PuctScore{c});
+            }
+            tree->run([&evaluator](std::span<const pv::Inputs> batch) { return evaluator.evaluate(batch); }, simulations);
+            chosen = sample_turns && state.turn < 2 ? tree->sampled_action(move_random) : tree->selected_action();
             Json children = Json::array();
             double value_sum = 0, visits = 0;
-            for (const auto& edge : tree.root().edges) if (edge.visits) {
+            for (const auto& edge : tree->root().edges) if (edge.visits) {
                 children.push_back({{"action", edge.action.bits}, {"visits", edge.visits}, {"value", edge.value_sum / edge.visits}});
                 value_sum += edge.value_sum; visits += edge.visits;
             }
-            const auto& d = tree.telemetry();
-            const double n = tree.simulations();
+            const auto& d = tree->telemetry();
+            const double n = tree->simulations();
             search.push_back({{"fight_id", fight.at("fight_id")}, {"step", actions.size()}, {"agent", agent},
-                              {"root_value", value_sum / visits}, {"simulations", tree.simulations()}, {"children", children}});
+                              {"root_value", value_sum / visits}, {"simulations", tree->simulations()}, {"children", children}});
             stats.push_back({{"fight_id", fight.at("fight_id")}, {"step", actions.size()}, {"seconds", since(t)},
-                             {"simulations", tree.simulations()}, {"mean_depth", d.depth_sum / n}, {"max_depth", d.depth_max},
-                             {"mean_turns", d.turns_sum / n}, {"max_turns", d.turns_max}, {"nodes", d.nodes}});
+                             {"simulations", tree->simulations()}, {"mean_depth", d.depth_sum / n}, {"max_depth", d.depth_max},
+                             {"mean_turns", d.turns_sum / n}, {"max_turns", d.turns_max}, {"nodes", d.nodes}, {"turns_hist", d.turns_hist}});
         }
         actions.push_back(chosen.bits); chosen.execute(state);
+        if (tree && (!oracle || state.outcome != sts::Outcome::UNDECIDED || !tree->advance(chosen, state))) tree.reset();
     }
     const bool done = state.outcome != sts::Outcome::UNDECIDED;
     if (done) check_replay(fight, actions, state);
@@ -179,11 +192,14 @@ int main(int argc, char** argv) {
                 std::cout << out.dump() << std::endl;
             }
         } else if (argc >= 4 && command == "play") {
-            bool exploration = false;
+            bool exploration = false, oracle = false, policy_only = false, sample_turns = false;
             double c = pv::PuctScore{}.exploration, rollout_mix = 0;
             for (int i = 4; i < argc; ++i) {
                 const std::string option = argv[i];
                 if (option == "--explore") exploration = true;
+                else if (option == "--oracle") oracle = true;
+                else if (option == "--policy-only") policy_only = true;
+                else if (option == "--sample-turns") sample_turns = true;
                 else if (option == "--c" && i + 1 < argc) c = std::stod(argv[++i]);
                 else if (option == "--rollout-mix" && i + 1 < argc) rollout_mix = std::stod(argv[++i]);
                 else throw std::invalid_argument{"unknown play option " + option};
@@ -193,12 +209,14 @@ int main(int argc, char** argv) {
             if (simulations < 1) throw std::invalid_argument{"PV needs at least one simulation"};
             const std::string agent = "pv model=" + std::filesystem::path{argv[2]}.parent_path().filename().string() + "/" +
                 std::filesystem::path{argv[2]}.filename().string() + " sims=" + std::to_string(simulations) +
-                " explore=" + (exploration ? "0.25" : "0") + " c=" + std::to_string(c) + " q=minmax particles=8 batch=" +
+                " explore=" + (exploration ? "0.25" : "0") + " c=" + std::to_string(c) + " q=minmax particles=" + (oracle ? "1" : "8") + " batch=" +
                 std::to_string(pv::SearchSettings{}.batch_size) +
-                (rollout_mix > 0 ? " rollout_mix=" + std::to_string(rollout_mix) : "");
+                (rollout_mix > 0 ? " rollout_mix=" + std::to_string(rollout_mix) : "") +
+                (oracle ? " oracle=1 reuse=1" : "") + (policy_only ? " policy_only=1" : "") +
+                (sample_turns ? " sample_turns=2" : "");
             std::string line;
             while (std::getline(std::cin, line)) if (!line.empty())
-                std::cout << play(Json::parse(line), evaluator, simulations, exploration, c, rollout_mix, agent).dump() << std::endl;
+                std::cout << play(Json::parse(line), evaluator, simulations, exploration, c, rollout_mix, oracle, policy_only, sample_turns, agent).dump() << std::endl;
         } else if (argc == 3 && command == "teacher") {
             const auto sims = std::stoll(argv[2]);
             const auto searcher = stsrl::teacher::leaf_search({"guided_rollout", 0, 0}, nullptr, {sims, stsrl::teacher::particles});
@@ -208,7 +226,7 @@ int main(int argc, char** argv) {
             while (std::getline(std::cin, line)) if (!line.empty())
                 std::cout << teach(Json::parse(line), searcher, agent).dump() << std::endl;
         } else {
-            std::cerr << "usage: pv_worker encode OUT.parquet | evaluate MODEL.onnx | play MODEL.onnx SIMS [--explore] [--c C] [--rollout-mix L] | teacher SIMS (JSONL stdin)\n";
+            std::cerr << "usage: pv_worker encode OUT.parquet | evaluate MODEL.onnx | play MODEL.onnx SIMS [--explore] [--oracle] [--policy-only] [--sample-turns] [--c C] [--rollout-mix L] | teacher SIMS (JSONL stdin)\n";
             return 2;
         }
         return 0;

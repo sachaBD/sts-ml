@@ -56,6 +56,17 @@ class Pipeline(unittest.TestCase):
             # PV-played fights are valid combat_v4 rows: the encoder replays them.
             n = data.collect([tmp / 'pv/fights-0.parquet'], [tmp / 'pv/search-0.parquet'], [39], tmp / 'rows2', WORKER)
             self.assertGreater(n, 0)
+            run(PLAY, '--starts', tmp / 'starts.parquet', '--agent', 'pv', '--model', tmp / 'model/model.onnx', '--sims', 16,
+                '--oracle', '--explore', '--sample-turns', '--workers', 1, '--out', tmp / 'oracle', '--worker', WORKER)
+            n = data.collect([tmp / 'oracle/fights-0.parquet'], [tmp / 'oracle/search-0.parquet'], [39], tmp / 'oracle_rows', WORKER)
+            self.assertGreater(n, 0)
+            agent = duckdb.sql(f"select any_value(agent) from '{tmp}/oracle/fights-0.parquet'").fetchone()[0]
+            self.assertIn('oracle=1 reuse=1', agent)
+            targets = pq.read_table(tmp / 'oracle_rows/rows.parquet', columns=['won', 'value_target']).to_pylist()
+            self.assertTrue(all(r['value_target'] == 100 * r['won'] for r in targets))
+            run(PLAY, '--starts', tmp / 'starts.parquet', '--agent', 'pv', '--model', tmp / 'model/model.onnx', '--sims', 1,
+                '--policy-only', '--workers', 1, '--out', tmp / 'policy', '--worker', WORKER)
+            self.assertEqual(pq.read_table(tmp / 'policy/search-0.parquet').num_rows, 0)
             # Paired comparison of the two arms on the common fights.
             report = subprocess.run([sys.executable, ROOT / 'apps/pv/compare.py', tmp / 'teacher', tmp / 'pv', '--json'],
                                     cwd=ROOT, capture_output=True, text=True)

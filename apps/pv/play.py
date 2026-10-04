@@ -32,7 +32,7 @@ spec.loader.exec_module(v4)
 STATS = pa.schema([
     ('fight_id', pa.string()), ('step', pa.int16()), ('seconds', pa.float64()), ('simulations', pa.uint32()),
     ('mean_depth', pa.float64()), ('max_depth', pa.int32()), ('mean_turns', pa.float64()), ('max_turns', pa.int32()),
-    ('nodes', pa.int64())])
+    ('nodes', pa.int64()), ('turns_hist', pa.list_(pa.int64()))])
 PART = 256  # fights per output part file; each part is complete and readable as soon as it is written
 
 
@@ -66,6 +66,9 @@ def main():
     p.add_argument('--model', type=Path)
     p.add_argument('--sims', type=int, required=True)
     p.add_argument('--explore', action='store_true')
+    p.add_argument('--oracle', action='store_true')
+    p.add_argument('--policy-only', action='store_true')
+    p.add_argument('--sample-turns', action='store_true', help='sample moves proportional to visits in player turns 1–2')
     p.add_argument('--rollout-mix', type=float, help='weight of the guided-rollout leaf value in [0, 1] (worker default 0: network only)')
     p.add_argument('--c', type=float, help='PUCT exploration on min-max normalized Q (worker default when omitted)')
     p.add_argument('--workers', type=int, default=1)
@@ -75,9 +78,10 @@ def main():
     if a.agent == 'pv':
         if not a.model: p.error('--agent pv needs --model')
         command = [str(a.worker), 'play', str(a.model), str(a.sims)] + ['--explore'] * a.explore + (['--c', str(a.c)] if a.c is not None else []) \
-            + (['--rollout-mix', str(a.rollout_mix)] if a.rollout_mix is not None else [])
+            + (['--rollout-mix', str(a.rollout_mix)] if a.rollout_mix is not None else []) \
+            + ['--oracle'] * a.oracle + ['--policy-only'] * a.policy_only + ['--sample-turns'] * a.sample_turns
     else:
-        if a.model or a.explore or a.c is not None or a.rollout_mix is not None: p.error('--model, --explore, --c and --rollout-mix are for --agent pv')
+        if a.model or a.explore or a.oracle or a.policy_only or a.sample_turns or a.c is not None or a.rollout_mix is not None: p.error('--model, --explore, --c and --rollout-mix are for --agent pv')
         command = [str(a.worker), 'teacher', str(a.sims)]
     a.out.mkdir(parents=True, exist_ok=True)
 

@@ -75,13 +75,43 @@ int main() {
             return std::vector<Prediction>{{120, std::vector<float>(batch[0][5].size() / widths[5], 0)}};
         }, 8);
         require(unique_calls == 1 && coalesced.root().edges.back().visits == 8, "pending paths not coalesced");
+        // Oracle edges have one deterministic outcome, and a played child retains its visits.
+        settings.oracle = true;
+        Search<> oracle{state, {state}, root_prediction, settings};
+        oracle.run(evaluate, 128);
+        std::function<void(const Search<>::Node&)> check_outcomes = [&](const auto& node) {
+            for (const auto& edge : node.edges) {
+                require(edge.outcomes.size() <= 1, "oracle edge has multiple outcomes");
+                for (const auto& [key, child] : edge.outcomes) check_outcomes(*child);
+            }
+        };
+        check_outcomes(oracle.root());
+        auto played = state;
+        const auto action = oracle.selected_action();
+        played = oracle.oracle_state();
+        action.execute(played);
+        auto wrong_hidden = played;
+        wrong_hidden.shuffleRng = sts::Random{123};
+        bool hidden_rejected = false;
+        try { oracle.advance(action, wrong_hidden); } catch (const std::logic_error&) { hidden_rejected = true; }
+        require(hidden_rejected, "reuse accepted wrong hidden state");
+        require(oracle.advance(action, played), "searched oracle child not reused");
+        require(observation_key(oracle.oracle_state()) == observation_key(played), "reused observation differs");
+        require(encode(oracle.oracle_state(), legal_actions(played)) == encode(played, legal_actions(played)), "reused features differ");
+        require(oracle.oracle_state().shuffleRng.seed0 == played.shuffleRng.seed0 &&
+                oracle.oracle_state().shuffleRng.seed1 == played.shuffleRng.seed1, "reused RNG differs");
+        const auto inherited = oracle.root().visits;
+        require(inherited > 0, "oracle subtree visits lost");
+        oracle.run(evaluate, 32);
+        require(oracle.simulations() == 32 && oracle.root().visits == inherited + 32, "reuse budget is not additional sims");
+        check_outcomes(oracle.root());
         auto terminal = state;
         terminal.outcome = sts::Outcome::PLAYER_VICTORY;
         terminal.player.curHp = 100;
         terminal.potionCount = 2;
-        require(CombatObjective::terminal_value(terminal) == 143, "objective units changed");
+        require(CombatObjective::terminal_value(terminal) == 100, "objective units changed");
         terminal.player.maxHp += 50;
-        require(CombatObjective::terminal_value(terminal) == 143, "objective depends on max-HP normalization");
+        require(CombatObjective::terminal_value(terminal) == 100, "objective depends on max-HP normalization");
         auto invalid = root_prediction;
         invalid.value = -1;
         bool bad_value_rejected = false;

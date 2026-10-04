@@ -16,6 +16,7 @@
 namespace stsrl::pv {
 
 struct SearchSettings {
+    bool oracle = false;
     int batch_size = 32;
     int maximum_actions = 512;
     double noise_alpha = 0.3;
@@ -72,6 +73,7 @@ public:
            const Prediction& root_prediction, SearchSettings settings = {}, Score score = {}, Selection select = {})
         : particles_{std::move(particles)}, settings_{settings}, score_{std::move(score)},
           select_{std::move(select)}, random_{observation_key(observed)}, root_{make_root(observed)} {
+        if (settings_.oracle && particles_.size() != 1) throw std::invalid_argument{"PV oracle needs one true state"};
         if (particles_.empty() || settings_.batch_size < 1 || settings_.maximum_actions < 1) {
             throw std::invalid_argument{"PV: invalid particles or search bounds"};
         }
@@ -98,6 +100,7 @@ public:
     struct Telemetry {
         std::int64_t depth_sum = 0, turns_sum = 0, nodes = 1;  // nodes: the root plus every node created
         int depth_max = 0, turns_max = 0;
+        std::vector<std::int64_t> turns_hist;
     };
     const Telemetry& telemetry() const { return telemetry_; }
     const Node& root() const { return root_; }
@@ -108,6 +111,55 @@ public:
         const auto best = std::max_element(root_.edges.begin(), root_.edges.end(),
             [](const Edge& a, const Edge& b) { return a.visits < b.visits; });
         return best->action;  // played move: most visits; separate from traversal selection
+    }
+
+    sts::search::Action sampled_action(std::mt19937_64& random) const {
+        std::vector<double> weights;
+        for (const auto& edge : root_.edges) weights.push_back(edge.visits);
+        return root_.edges[std::discrete_distribution<std::size_t>(weights.begin(), weights.end())(random)].action;
+    }
+
+    const sts::BattleContext& oracle_state() const { return particles_.front(); }
+
+    // Advance through the exact deterministic child. If not searched (e.g. a forced move), caller builds a new root.
+    bool advance(sts::search::Action action, const sts::BattleContext& played) {
+        if (!settings_.oracle || root_.in_flight) throw std::logic_error{"PV: reuse requires finished oracle search"};
+        auto expected = particles_.front();
+        action.execute(expected);
+        const auto same_rng = [](const sts::Random& a, const sts::Random& b) {
+            return a.counter == b.counter && a.seed0 == b.seed0 && a.seed1 == b.seed1;
+        };
+        const auto same_order = [](const auto& a, const auto& b) {
+            if (a.size() != b.size()) return false;
+            for (std::size_t i = 0; i < a.size(); ++i)
+                if (a[i].uniqueId != b[i].uniqueId || a[i].id != b[i].id || a[i].upgraded != b[i].upgraded ||
+                    a[i].specialData != b[i].specialData || a[i].costForTurn != b[i].costForTurn) return false;
+            return true;
+        };
+        if (observation_key(expected) != observation_key(played) ||
+            !same_rng(expected.aiRng, played.aiRng) || !same_rng(expected.shuffleRng, played.shuffleRng) ||
+            !same_rng(expected.cardRandomRng, played.cardRandomRng) || !same_rng(expected.miscRng, played.miscRng) ||
+            !same_rng(expected.monsterHpRng, played.monsterHpRng) || !same_rng(expected.potionRng, played.potionRng) ||
+            !same_order(expected.cards.drawPile, played.cards.drawPile) ||
+            !same_order(expected.cards.discardPile, played.cards.discardPile))
+            throw std::logic_error{"PV: reused root differs from played state"};
+        for (auto& edge : root_.edges) if (edge.key == action_key(particles_.front(), action)) {
+            if (edge.outcomes.empty()) return false;
+            if (edge.outcomes.size() != 1 || !edge.outcomes.contains(observation_key(played)))
+                throw std::logic_error{"PV: oracle edge has inconsistent outcome"};
+            auto child = std::move(edge.outcomes.begin()->second);
+            if (!child->value) return false;
+            root_ = std::move(*child);
+            particles_.front() = played;
+            simulations_ = 0;
+            telemetry_ = {};
+            std::vector<double> priors;
+            for (const auto& next : root_.edges) priors.push_back(next.prior);
+            add_root_noise(priors, settings_, random_);
+            for (std::size_t i = 0; i < priors.size(); ++i) root_.edges[i].prior = priors[i];
+            return true;
+        }
+        throw std::logic_error{"PV: played action absent from oracle root"};
     }
 
     // Evaluate is a batched callable: span<const Inputs> -> vector<Prediction>.
@@ -276,6 +328,8 @@ private:
         telemetry_.depth_sum += depth; telemetry_.turns_sum += turns;
         telemetry_.depth_max = std::max(telemetry_.depth_max, depth);
         telemetry_.turns_max = std::max(telemetry_.turns_max, turns);
+        if (telemetry_.turns_hist.size() <= std::size_t(turns)) telemetry_.turns_hist.resize(turns + 1);
+        ++telemetry_.turns_hist[turns];
     }
 
     std::vector<sts::BattleContext> particles_;

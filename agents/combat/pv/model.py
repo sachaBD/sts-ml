@@ -8,7 +8,7 @@ from torch import nn
 
 NAMES = ('context', 'cards', 'monsters', 'potions', 'relics', 'actions')
 WIDTHS = (65, 18, 29, 19, 4, 261)
-CONTRACT = 'pv_champ_hp_v2'
+CONTRACT = 'pv_champ_win_v3'
 VALUE_SCALE = 100.0  # fixed training-conditioning scale, never dependent on state/max HP
 
 
@@ -50,7 +50,7 @@ class PolicyValue(nn.Module):
                           self.card(a[..., 8:26]), self.monster(a[..., 26:55]),
                           self.potion(a[..., 55:74]), subset, a[..., 74:80]), -1)
         logits = self.policy(move).squeeze(-1).masked_fill(a[..., 260] == 0, -1e9)
-        # Unbounded, nonnegative HP-equivalent score. No root/leaf normalization or clipping.
+        # Unbounded, nonnegative 100 × win probability score. No root/leaf normalization or clipping.
         return VALUE_SCALE * torch.nn.functional.softplus(self.value(h).squeeze(-1)), logits
 
     def export(self, example, path):

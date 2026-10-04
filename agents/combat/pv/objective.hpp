@@ -6,10 +6,8 @@
 
 namespace stsrl::pv {
 
-// One value unit for recorded targets, network predictions, backups and selection: HP-equivalent points.
+// One value unit for recorded targets, network predictions, backups and selection: 100 × win probability.
 struct CombatObjective {
-    static constexpr double victory_bonus = 35;
-    static constexpr double retained_potion_value = 4;
 
     static double terminal_value(const sts::BattleContext& state) {
         if (state.outcome == sts::Outcome::UNDECIDED) {
@@ -25,13 +23,13 @@ struct CombatObjective {
             throw std::runtime_error{"PV: invalid terminal resources"};
         }
 
-        return victory_bonus + state.player.curHp + retained_potion_value * state.potionCount;
+        return 100;
     }
 };
 
 inline void validate_value(double value) {
     if (!std::isfinite(value) || value < 0) {
-        throw std::invalid_argument{"PV value must be finite, nonnegative HP-equivalent points"};
+        throw std::invalid_argument{"PV value must be finite, nonnegative 100 × win probability"};
     }
 }
 

@@ -72,7 +72,7 @@ class Shard:
         seeds = table['seed'].to_numpy()
         flags = {s: validation(s) for s in np.unique(seeds)}
         self.rows = np.flatnonzero(np.array([flags[s] for s in seeds], dtype=bool) == valid)
-        self.value = table['value_target'].to_numpy().astype(np.float32)
+        self.value = 100 * table['won'].to_numpy().astype(np.float32)
         root = table['root_value'].to_numpy(zero_copy_only=False)
         self.root_value = np.array([np.nan if v is None else v for v in root], np.float32) if root.dtype == object \
             else root.astype(np.float32)

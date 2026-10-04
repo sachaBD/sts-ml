@@ -1,7 +1,7 @@
 """MCTS bootstrap learner. Reads shards produced by pv.data; saves a PyTorch checkpoint and ONNX model.
 
 Validation membership is a stable hash of run seed, shared across datasets/iterations. Policy: search visits;
-value: terminal combat score. These losses are diagnostics, not a replacement for held-out play evaluation.
+value: 100 × won (scaled MSE). These losses are diagnostics, not a replacement for held-out play evaluation.
 Per epoch it logs train/val value loss and policy loss separately, and val top-1 agreement with the search's most-visited move.
 """
 import argparse
@@ -36,7 +36,7 @@ def evaluate(net, batch, device, policy_temp=1.0, value_mix=1.0, teacher_root_mi
     if not torch.isfinite(value).all() or not torch.isfinite(logits).all():
         raise ValueError('network produced non-finite predictions')
     if not torch.isfinite(target_value).all() or (target_value < 0).any():
-        raise ValueError('value targets must be finite, nonnegative HP-equivalent points')
+        raise ValueError('value targets must be finite, nonnegative win-score units')
     if (target < 0).any() or not torch.allclose(target.sum(-1)[has_policy], torch.ones((), device=device), atol=1e-5):
         raise ValueError('policy targets must be nonnegative and sum to one')
     if policy_temp != 1.0:  # sharpen flat (e.g. UCB1 teacher) visit distributions: p ∝ visits^(1/T)
@@ -82,6 +82,8 @@ def main():
     p.add_argument('--weight-decay', type=float, default=0.01)
     p.add_argument('--stream', action='store_true', help='re-read one shard at a time per epoch instead of holding all in RAM')
     a = p.parse_args()
+    if a.value_mix != 1 or a.teacher_root_mix != 1:
+        p.error('win-only contract requires outcome value targets (both value mixes = 1)')
     if a.batch < 1 or a.epochs < 1: p.error('batch and epochs must be positive')
     torch.manual_seed(0); torch.set_num_threads(1)
     rng = np.random.default_rng(0)

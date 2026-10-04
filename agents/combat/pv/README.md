@@ -20,7 +20,7 @@ Python PyTorch learner ──► model.onnx
 
 - `model.py`: token embeddings, sum pooling, small shared trunk, value and legal-action heads; ONNX export.
 - `features.cpp`: reuse existing combat encodings for both replayed training states and search leaves.
-- `data.py`: join `combat_v4` fights/search Parquet, replay them, write a disposable JSONL feature cache.
+- `data.py`: join `combat_v4` fights/search Parquet, replay them, write Parquet feature shards.
 - `train.py`: streaming bootstrap/retraining; PyTorch checkpoints and ONNX exports.
 - `evaluator.cpp`: thin batched CPU ONNX Runtime call, with contract validation and one inference thread.
 - `search.cpp`: dedicated public-belief PV tree with batched policy/value predictions and optional root noise.
@@ -52,14 +52,14 @@ RUN=runs/pv/champ
 Shard layout: `agents/combat/pv/data.py` docstring. Training logs per-epoch train/val value loss, policy loss and val
 top-1 agreement with the most-visited move; `--stream` re-reads one shard at a time instead of holding all in RAM.
 A replay mismatch or unsupported feature aborts without publishing a shard.
-Value targets, network outputs, terminal evaluations and tree backups all use **HP-equivalent points**:
+Value targets, network outputs, terminal evaluations and tree backups all use **100 × win probability units**:
 
 ```text
 defeat  → 0
-victory → 35 + final_hp + 4 × retained_potions
+victory → 100
 ```
 
-The coefficients live in `CombatObjective`; there is no leaf/root max-HP conversion, denominator or score clamp.
+The terminal objective lives in `CombatObjective`; there is no leaf/root max-HP conversion, denominator or score clamp.
 The value head is nonnegative and unbounded (`100 × softplus`). `VALUE_SCALE=100` is a fixed learning-conditioning
 scale: value loss is `mean(((prediction - target) / 100)²)`, added to policy cross-entropy. It does not change search units.
 Non-finite or negative predictions/targets fail rather than being clipped or replaced.
@@ -99,35 +99,38 @@ observed root → one network evaluation → construct Search with root predicti
                      evaluate → assign priors → back up values → repeat
 ```
 
-A fresh tree is built for each non-forced decision. Root evaluation is outside the simulation budget.
+A fresh tree is built for each non-forced decision by default. `--oracle` instead searches the true state with one
+particle and keeps the chosen child subtree; SIMS is new simulations per decision. No transpositions are used.
+`--policy-only` skips search and chooses argmax network logits. Oracle self-play uses `--explore --sample-turns`: root
+noise plus moves sampled proportional to visits in player turns 1–2, argmax thereafter. Root evaluation is outside the simulation budget.
 Construction requires valid root predictions and particles matching the root's public observation/legal menu.
-There is no UCB/PUCT mode flag, no rollout evaluator, no implicit root initialization and no uniform prior fallback.
+There is no UCB/PUCT mode flag, no implicit root initialization and no uniform prior fallback.
+The opt-in `--rollout-mix` leaf option mixes network values with guided-rollout terminal values (default off).
 Pending nodes are never traversed: multiple reserved paths share one evaluation and each receives a backup.
 Virtual loss treats in-flight paths as temporary zero-value visits. A 512-action path cutoff uses the reached node's V.
 
 Defaults are AlphaZero-style PUCT scoring and argmax traversal:
 
 ```text
-Q = value_sum / (visits + in_flight), or 0 for an unvisited edge
+Q = value_sum / (visits + in_flight), or parent network value for an unvisited edge
 U = c × prior × sqrt(1 + parent_visits + parent_in_flight) / (1 + visits + in_flight)
-select argmax(Q + U)
+select argmax(minmax(Q) + U)
 ```
 
-The parent pseudovisit makes priors guide the first traversal. `c=150` HP-equivalent points is an **untuned starting
-setting**, not a measured optimum. There is no inherited first-play margin or uniform policy floor.
+The parent pseudovisit makes priors guide the first traversal. `c=1.25` applies to tree-wide min-max normalized Q. There is no inherited first-play margin or uniform policy floor.
 Traversal selection and the played move are distinct: play chooses the most-visited root edge, with stable ties.
-`--explore` mixes 25% Dirichlet root noise (alpha 0.3); it does not sample the played move from the policy.
+`--explore` mixes 25% Dirichlet root noise (alpha 0.3). `--sample-turns` separately samples early-turn played moves.
 
 `Search<CustomScore, CustomSelection>` changes these policies without runtime algorithm flags. Score receives
 `(Q, prior, parent_visits, edge_visits)`; selection receives `(scores, RNG)` and returns an edge index.
-Invalid scores or indices fail. A sampled selector can be added later; none is enabled by default.
+Invalid scores or indices fail. Traversal remains argmax by default; played-move sampling is an independent self-play option.
 
 PV reuses the legacy tree's static public-observation/action-key utilities and the existing particle sampler,
 **not its search driver**. The exposed sampler ignores the legacy teacher's process-wide tweaks.
 Rune Dome **search is rejected**: current particle sampling preserves current enemy intents and would expose hidden
 information. Encoding masks those features, but correct hidden-intent belief sampling is still required before playing Dome.
 
-## Input/value contract: `pv_champ_hp_v2`
+## Input/value contract: `pv_champ_win_v3`
 
 ONNX inputs are float32; categorical fields are integer-valued and converted to IDs in PyTorch:
 
@@ -140,7 +143,7 @@ ONNX inputs are float32; categorical fields are integer-valued and converted to 
 | relics | B × R × 4 | existing relic ID + three counter/condition features |
 | actions | B × A × 261 | kind/task/flags, source card, target monster, potion, interaction, selected subset, validity |
 
-The v2 contract includes the new value units. Old normalized caches, PyTorch checkpoints and ONNX models are
+The v3 contract is win-only (100·won), retaining the softplus head and scaled MSE. Old normalized caches, PyTorch checkpoints and ONNX models are
 incompatible and rejected; regenerate caches and retrain. Do not resume an old checkpoint under the new objective.
 
 All token counts and batch size are dynamic. Zero-ID set rows are padding; actions carry a separate validity flag.
@@ -156,9 +159,9 @@ legacy callers keep their original capability boundary and frozen feature layout
 - One redesigned play/record/replay smoke check completed (one fight, 28 actions/replayed states, exactly 32 visits
   per searched root). This is plumbing evidence, not a strength estimate. Old ONNX contracts were rejected.
 - Earlier parity and one-epoch bootstrap checks exercised the previous normalized-value implementation; they do
-  **not** establish training correctness for the new HP-equivalent contract. Updated training and final regression
+  **not** establish training correctness for the win-only contract. Updated training and final regression
   checks remain pending. The deleted ONNX test has not been restored. No tests were run for this docs update.
 - No model has been promoted. Search depth, realistic throughput, held-out win rates, broader encounter coverage
-  and best settings remain unmeasured. JSONL caches prioritize simplicity over I/O efficiency.
+  and best settings remain unmeasured. Feature caches are Parquet; JSON lines are pipe transport only.
 
 Visual primer: [combat-search docs](../../../docs/research/combat-search/README.md).
