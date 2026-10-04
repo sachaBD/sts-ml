@@ -14,3 +14,19 @@ Turns histograms measure player END_TURN crossings per simulation; p90 is not p9
 2026-10-04T10:08:37Z DONE smoke real2000 rc=0
 2026-10-04T10:08:38Z DONE smoke oracle800-replay rc=0
 2026-10-04T10:08:39Z DONE smoke real2000-replay rc=0
+2026-10-04T10:10:12Z LAUNCH sweep0 policy
+2026-10-04T10:10:13Z DONE sweep0 policy rc=0
+2026-10-04T10:10:13Z LAUNCH sweep0 oracle200
+2026-10-04T10:10:51Z DONE sweep0 oracle200 rc=0
+2026-10-04T10:10:51Z LAUNCH sweep0 oracle800
+2026-10-04T10:13:26Z DONE sweep0 oracle800 rc=0
+2026-10-04T10:13:26Z LAUNCH sweep0 real2000
+2026-10-04T10:20:11Z DONE sweep0 real2000 rc=0
+2026-10-04T10:20:11Z LAUNCH sweep0 oracle3200
+2026-10-04T10:32:03Z DONE sweep0 oracle3200 rc=0
+2026-10-04T10:32:58Z LAUNCH exit tag=a 3 rounds n=8000 sims=800 pid=51575 log=experiments/champ-oracle-exit/exit-a.log
+2026-10-04T10:33:01Z DONE id=champ-ox-a-r01 starts log=/home/sborowsk/project/sts_combat_rl/runs/schema=combat_v4/date=2026-10-04/id=champ-ox-a-r01/starts.log
+2026-10-04T10:41:16Z STOPPED exit tag=a (round1 play ~1280/8000 fights done, 238 wins) by main request; partial outputs kept
+2026-10-04T10:41:19Z LAUNCH exit tag=b 9 rounds n=3000 sims=800 real-every=3 pid=57057 log=experiments/champ-oracle-exit/exit-b.log
+2026-10-04T10:41:22Z DONE id=champ-ox-b-r01 starts log=/home/sborowsk/project/sts_combat_rl/runs/schema=combat_v4/date=2026-10-04/id=champ-ox-b-r01/starts.log
+2026-10-04T10:48:45Z STOPPED exit tag=b (round1 play partial; outcome-only value, superseded by tag c value-mix 0.5) by main
