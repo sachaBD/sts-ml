@@ -18,20 +18,16 @@ def evaluate(net, batch, device, policy_temp=1.0, value_mix=1.0, teacher_root_mi
     """Return (value loss sum, policy loss sum, top-1 hits, states, policy states) of one batch; grads flow."""
     inputs, target_value, target, has_policy = (
         {k: v.to(device) for k, v in batch[0].items()}, batch[1].to(device), batch[2].to(device), batch[3].to(device))
-    if value_mix != 1.0:  # target = mix·outcome + (1 − mix)·search root value (PV self-play rows: HP-equivalent units)
+    if teacher_root_mix != 1.0:
+        raise ValueError('teacher root mixing uses old HP units and is incompatible with the win-only contract')
+    if not 0 <= value_mix <= 1:
+        raise ValueError('value-mix must be in [0, 1]')
+    if value_mix != 1.0:  # PV search roots and outcomes both use 100 × win-probability units.
         root = batch[4].to(device)
         searched = ~torch.isnan(root)  # forced moves have no search: outcome only
-        if searched.any() and root[searched].max() <= 2:
-            raise ValueError('value mixing needs HP-unit search root values (PV self-play data, not teacher rows)')
+        if not torch.isfinite(root[searched]).all() or ((root[searched] < 0) | (root[searched] > 100)).any():
+            raise ValueError('value mixing needs PV search root values in [0, 100]')
         target_value = torch.where(searched, value_mix * target_value + (1 - value_mix) * root, target_value)
-    if teacher_root_mix != 1.0:  # guided-rollout teacher root values: (35 + hp + 4·potions)/(55 + max HP) units
-        root = batch[4].to(device)
-        searched = ~torch.isnan(root)
-        if searched.any() and root[searched].max() > 2:
-            raise ValueError('teacher root values must be in normalized teacher units')
-        points = (root * (55 + 100 * inputs["context"][:, 64])).clamp(min=0)  # context[64] = max HP / 100; losses ≥ 0
-        target_value = torch.where(searched, teacher_root_mix * target_value + (1 - teacher_root_mix) * points,
-                                   target_value)
     value, logits = net(*(inputs[n] for n in NAMES))
     if not torch.isfinite(value).all() or not torch.isfinite(logits).all():
         raise ValueError('network produced non-finite predictions')
@@ -75,15 +71,18 @@ def main():
     p.add_argument('--width', type=int, default=64)
     p.add_argument('--device', default='cpu')
     p.add_argument('--policy-temp', type=float, default=1.0, help='policy target temperature (<1 sharpens visits)')
-    p.add_argument('--value-mix', type=float, default=1.0, help='value target = mix·outcome + (1-mix)·search root value')
+    p.add_argument('--value-mix', type=float, default=1.0,
+                   help='mix·100·won + (1-mix)·PV search root in [0,100]; no-root rows keep outcome')
     p.add_argument('--teacher-root-mix', type=float, default=1.0,
-                   help='value target = mix·outcome + (1-mix)·teacher root value converted to HP points (teacher rows)')
+                   help='must remain 1: old HP-unit teacher root mixing is unsupported under the win-only contract')
     p.add_argument('--lr', type=float, default=1e-3)
     p.add_argument('--weight-decay', type=float, default=0.01)
     p.add_argument('--stream', action='store_true', help='re-read one shard at a time per epoch instead of holding all in RAM')
     a = p.parse_args()
-    if a.value_mix != 1 or a.teacher_root_mix != 1:
-        p.error('win-only contract requires outcome value targets (both value mixes = 1)')
+    if not 0 <= a.value_mix <= 1:
+        p.error('value-mix must be in [0, 1]')
+    if a.teacher_root_mix != 1:
+        p.error('teacher root mixing uses old HP units and is incompatible with the win-only contract')
     if a.batch < 1 or a.epochs < 1: p.error('batch and epochs must be positive')
     torch.manual_seed(0); torch.set_num_threads(1)
     rng = np.random.default_rng(0)
