@@ -12,6 +12,7 @@ from pathlib import Path
 import shlex
 import shutil
 import subprocess
+import sys
 import zlib
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -66,9 +67,28 @@ def main():
     p.add_argument('--workers', type=int, default=9)
     p.add_argument('--real-every', type=int, default=1, help='run real bench and compare every K rounds')
     p.add_argument('--train-args', default='--epochs 2')
+    p.add_argument('--selfplay-flags', default='', help='shlex-split extra flags for oracle self-play')
+    p.add_argument('--oracle-bench-flags', default='', help='shlex-split extra flags for oracle bench')
+    p.add_argument('--real-flags', default='', help='shlex-split extra flags for real bench (base sims remains 2000)')
     p.add_argument('--worker', type=Path, default=ROOT / 'build/pv/agents/combat/pv/pv_worker')
     p.add_argument('--date', default=datetime.now(timezone.utc).strftime('%Y-%m-%d'))
-    a = p.parse_args()
+    # Accept quoted single-option values too: argparse otherwise treats "--turn-search" as an option.
+    argv = []
+    words = iter(sys.argv[1:])
+    for word in words:
+        if word in {'--selfplay-flags', '--oracle-bench-flags', '--real-flags'}:
+            value = next(words, None)
+            if value is None:
+                p.error(f'{word} requires a flag string')
+            word += '=' + value
+        argv.append(word)
+    a = p.parse_args(argv)
+    try:
+        selfplay_flags = shlex.split(a.selfplay_flags)
+        oracle_bench_flags = shlex.split(a.oracle_bench_flags)
+        real_flags = shlex.split(a.real_flags)
+    except ValueError as error:
+        p.error(f'invalid play flags: {error}')
     if not 1 <= a.workers <= 9 or min(a.n, a.sims, a.rounds, a.first_round) < 1:
         p.error('workers must be 1–9; n, sims, rounds and first-round must be positive')
     if a.real_every < 1:
@@ -100,7 +120,7 @@ def main():
             stage(run, name, [PY, 'apps/pv/play.py', '--starts', source, '--agent', 'pv', '--model', model / 'model.onnx',
                               '--sims', sims, '--workers', a.workers, '--worker', frozen, '--out', run / name, *flags])
 
-        play('play', starts, a.sims, ['--oracle', '--explore', '--sample-turns'])
+        play('play', starts, a.sims, ['--oracle', '--explore', '--sample-turns', *selfplay_flags])
         stage(run, 'encode', [PY, '-m', 'agents.combat.pv.data', '--fights', *sorted((run / 'play').glob('fights-*.parquet')),
                              '--search', *sorted((run / 'play').glob('search-*.parquet')), '--encounters', 39,
                              '--worker', frozen, '--out', run / 'rows'])
@@ -110,9 +130,9 @@ def main():
         stage(run, 'train', [PY, '-m', 'agents.combat.pv.train', '--data', *rows, '--out', run / 'model',
                             '--init', model / 'model.pt', '--device', 'cuda', '--stream', *shlex.split(a.train_args)])
         model = run / 'model'
-        play('bench-oracle', BENCH, a.sims, ['--oracle'])
+        play('bench-oracle', BENCH, a.sims, ['--oracle', *oracle_bench_flags])
         if r % a.real_every == 0:
-            play('bench-real', BENCH, 2000, [])
+            play('bench-real', BENCH, 2000, real_flags)
         play('bench-policy', BENCH, 1, ['--policy-only'])
         if r % a.real_every == 0:
             stage(run, 'compare', [PY, 'apps/pv/compare.py', TEACHER, run / 'bench-real'])

@@ -41,3 +41,23 @@ tests pass. Immutable worker `build/frozen/pv_worker.turn-targets-dc8f9579d2b6`.
 Smoke is an acceptance/workload check, not a paired/full-bench outcome claim;
 uncertainty/generalization unknown. Artifacts:
 `runs/schema=combat_v4/date=2026-10-04/id=champ-turn-targets-r13-smoke/`.
+
+## Tag-d driver flags
+
+`exit.py --selfplay-flags "--turn-search --turn-targets"
+--oracle-bench-flags "--turn-search" --sims 64
+--worker build/frozen/pv_worker.turn-targets-dc8f9579d2b6`.
+The three options selfplay-flags/oracle-bench-flags/real-flags are shlex-split and
+appended only to their respective play.py calls, defaultempty. Real bench keeps
+base2000 sims; policy bench unchanged. Every stage uses the same immutable driver
+snapshot of the selected worker, including encode. Quoted single-option strings
+are accepted as well as multi-option strings. Malformed quoting fails before
+snapshotting or stage side effects. Three mocked command-construction tests pass;
+no tag-d stages were launched by this change.
+
+Frozen worker SHA256
+`dc8f9579d2b651aa3dc7174bdb33ce0aca498f28b8913c730fc576f2ad38b2b6`
+was built from clean simulator648229bf49ec5898ceff3e6dca60a07abee86f28;
+private CMake cache resolves `/home/sborowsk/project/sts_lightspeed`.
+It includes the Liquid Memories forZeroCost fix; its two-start r10 history
+regression passed in `turn-targets-phase2-worker-tests.log`.
