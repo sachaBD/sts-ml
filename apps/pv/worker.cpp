@@ -1,11 +1,13 @@
 // pv_worker encode OUT.parquet: combat_v4 fights (+ search rows) on stdin (JSON lines, a pipe transport) → per-decision
 //   training rows in one Parquet shard (apps/pv/shard.hpp).
+// pv_worker turns: recorded fights on stdin → per-turn DFS measurement rows (pipe transport only).
 // pv_worker evaluate MODEL: encoded input batches on stdin → predictions on stdout (parity/debug interface).
 // pv_worker play MODEL SIMS [--explore] | teacher SIMS: {fight_id, start} lines on stdin → one result line per fight:
 //   {status, fight (combat_v4 fights row; completed only), search: [combat_v4 search rows], stats: [telemetry per search]}.
 #include "agents/combat/pv/search.hpp"
 #include "agents/combat/search/teacher_search.hpp"
 #include "apps/pv/shard.hpp"
+#include "apps/pv/turns.hpp"
 #include "environments/combat/environment.hpp"
 #include "environments/combat/record_v4.hpp"
 #include <chrono>
@@ -171,6 +173,9 @@ int main(int argc, char** argv) {
             std::string line;
             while (std::getline(std::cin, line)) if (!line.empty()) encode(Json::parse(line), writer);
             writer.close();
+        } else if (argc == 2 && command == "turns") {
+            std::string line;
+            while (std::getline(std::cin, line)) if (!line.empty()) pv::measure_turns(Json::parse(line));
         } else if (argc == 3 && command == "evaluate") {
             pv::Evaluator evaluator{argv[2]};
             std::string line;
@@ -226,7 +231,7 @@ int main(int argc, char** argv) {
             while (std::getline(std::cin, line)) if (!line.empty())
                 std::cout << teach(Json::parse(line), searcher, agent).dump() << std::endl;
         } else {
-            std::cerr << "usage: pv_worker encode OUT.parquet | evaluate MODEL.onnx | play MODEL.onnx SIMS [--explore] [--oracle] [--policy-only] [--sample-turns] [--c C] [--rollout-mix L] | teacher SIMS (JSONL stdin)\n";
+            std::cerr << "usage: pv_worker encode OUT.parquet | turns | evaluate MODEL.onnx | play MODEL.onnx SIMS [--explore] [--oracle] [--policy-only] [--sample-turns] [--c C] [--rollout-mix L] | teacher SIMS (JSONL stdin)\n";
             return 2;
         }
         return 0;
