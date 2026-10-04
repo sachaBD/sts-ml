@@ -75,3 +75,28 @@ afford 10^4–10^5 fights per iteration.
 - Oracle optimism: value learned is P(win | public state, oracle play) — optimistic for real play.
 - The public-feature net may still fail to value long-term state (Strength vs HP); value probes come after the loop.
 - PV worktree has uncommitted rollout-mix changes (impl-26-10-3); commit or stash before branching.
+
+## Phase 2 (from 2026-10-04 22:10 UTC, ~16 h compute, autonomous)
+Evidence so far: per-action EXIT improves real play slowly (21.8 → 35.0% by r12, ~0.8 pp/round), oracle−real gap
+widening (12.7 pp), depth flat (~1 turn). Turn search (r09 net, oracle) 45.0% vs per-action 41.8% (p=0.14) with
+~1.5× deeper leaves at equal cost. Deployment is real play, so depth must reach real play.
+
+Work items:
+1. **Real-play turn search (determinized, PIMC):** at each real decision, sample K public-belief particles, run the
+   oracle turn search on each, aggregate by first action (mean over particles of the best child Q among children
+   whose sequence starts with that action), play argmax. Re-plan at every decision (simple; no cross-decision reuse
+   in v1). Eval-only. Arms on the 409 bench with the latest model: per-action real2000 vs PIMC-turn (K=4, E=16) and
+   (K=8, E=16).
+2. **Turn-search training targets:** one turn search at turn start yields targets for every decision along the
+   played plan: policy at a prefix = visits of root children consistent with that prefix, grouped by next action;
+   value = root Q of the consistent children (visit-weighted). Emitted as normal per-decision search rows, so the
+   existing encode/train path is unchanged.
+3. **Larger held-out bench (bench2k):** the 409 bench decks × 5 fresh battle seeds (decks never in training sources),
+   ≈ 2045 fights, no augmentation. Paired SE ≈ 1 pp. Teacher run on it once (~50 min on 9 cores).
+4. **EXIT tag d:** expert = oracle turn search (E=64), init from the latest tag-c model, value-mix 0.5, N 3000/round,
+   window 3, 1 epoch. Real bench via the better real-play agent from item 1.
+
+Schedule: tag c runs to r15 (real bench ~01:30 UTC) then stops unless real ≥ 38% (clear acceleration); its cores
+go to items 3 → 1 → 4. Turnbench arms 3/4 continue on CPU 11.
+Decision rules: item 1 — if PIMC-turn beats per-action real2000 on bench2k (p<0.05), it becomes the real-play agent.
+Item 4 — stop after 3 rounds without > 1 SE real gain; null ⇒ stop and report.
