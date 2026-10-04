@@ -73,6 +73,9 @@ class Shard:
         flags = {s: validation(s) for s in np.unique(seeds)}
         self.rows = np.flatnonzero(np.array([flags[s] for s in seeds], dtype=bool) == valid)
         self.value = table['value_target'].to_numpy().astype(np.float32)
+        root = table['root_value'].to_numpy(zero_copy_only=False)
+        self.root_value = np.array([np.nan if v is None else v for v in root], np.float32) if root.dtype == object \
+            else root.astype(np.float32)
         self.has_policy = table['has_policy'].to_numpy(zero_copy_only=False)
         self.counts = {n: table[c].to_numpy() for n, c in COUNTS.items()}
         self.flat = {}
@@ -100,7 +103,8 @@ class Shard:
         for i, r in enumerate(idx):
             p = self.policy[0][self.policy[1][r]:self.policy[1][r + 1]]
             policy[i, :len(p)] = p
-        return out, torch.from_numpy(self.value[idx]), torch.from_numpy(policy), torch.from_numpy(self.has_policy[idx])
+        return (out, torch.from_numpy(self.value[idx]), torch.from_numpy(policy), torch.from_numpy(self.has_policy[idx]),
+                torch.from_numpy(self.root_value[idx]))
 
 
 class Dataset:
@@ -111,7 +115,7 @@ class Dataset:
         self.loaded = None if stream else [Shard(p, valid) for p in self.paths]
 
     def batches(self, size, rng=None):
-        """Yield (inputs, value, policy, has_policy); shards and rows are shuffled when `rng` is given."""
+        """Yield (inputs, value, policy, has_policy, root_value [NaN when absent]); shards and rows are shuffled when `rng` is given."""
         order = np.arange(len(self.paths))
         if rng is not None: rng.shuffle(order)
         for k in order:

@@ -80,7 +80,8 @@ void check_replay(const Json& fight, const std::vector<std::uint32_t>& actions, 
 }
 
 // PV plays directly on a BattleContext with its own legal-action list (the tree's root edges), so recorded bits replay.
-Json play(const Json& fight, pv::Evaluator& evaluator, std::int64_t simulations, bool exploration, const std::string& agent) {
+Json play(const Json& fight, pv::Evaluator& evaluator, std::int64_t simulations, bool exploration, double c,
+          const std::string& agent) {
     sts::BattleContext state; state.init(stsrl::combat_v4::start_game(fight.at("start")));
     pv::SearchSettings settings;
     settings.noise_fraction = exploration ? 0.25 : 0;
@@ -94,7 +95,7 @@ Json play(const Json& fight, pv::Evaluator& evaluator, std::int64_t simulations,
             // Evaluate the real root exactly once, then construct a fully initialized PV-only tree.
             const auto root_prediction = pv::evaluate_root(evaluator, state);
             auto particles = stsrl::teacher::public_particles(state, 8);
-            pv::Search<> tree{state, std::move(particles), root_prediction, settings};
+            pv::Search<> tree{state, std::move(particles), root_prediction, settings, pv::PuctScore{c}};
             tree.run([&evaluator](std::span<const pv::Inputs> batch) { return evaluator.evaluate(batch); }, simulations);
             chosen = tree.selected_action();
             Json children = Json::array();
@@ -176,18 +177,25 @@ int main(int argc, char** argv) {
                 for (const auto& p : evaluator.evaluate(batch)) out.push_back({{"value", p.value}, {"logits", p.logits}});
                 std::cout << out.dump() << std::endl;
             }
-        } else if ((argc == 4 || argc == 5) && command == "play") {
-            const bool exploration = argc == 5 && std::string{argv[4]} == "--explore";
-            if (argc == 5 && !exploration) throw std::invalid_argument{"unknown play option"};
+        } else if (argc >= 4 && command == "play") {
+            bool exploration = false;
+            double c = pv::PuctScore{}.exploration;
+            for (int i = 4; i < argc; ++i) {
+                const std::string option = argv[i];
+                if (option == "--explore") exploration = true;
+                else if (option == "--c" && i + 1 < argc) c = std::stod(argv[++i]);
+                else throw std::invalid_argument{"unknown play option " + option};
+            }
             pv::Evaluator evaluator{argv[2]};
             const auto simulations = std::stoll(argv[3]);
             if (simulations < 1) throw std::invalid_argument{"PV needs at least one simulation"};
             const std::string agent = "pv model=" + std::filesystem::path{argv[2]}.parent_path().filename().string() + "/" +
                 std::filesystem::path{argv[2]}.filename().string() + " sims=" + std::to_string(simulations) +
-                " explore=" + (exploration ? "0.25" : "0") + " particles=8 batch=" + std::to_string(pv::SearchSettings{}.batch_size);
+                " explore=" + (exploration ? "0.25" : "0") + " c=" + std::to_string(c) + " q=minmax particles=8 batch=" +
+                std::to_string(pv::SearchSettings{}.batch_size);
             std::string line;
             while (std::getline(std::cin, line)) if (!line.empty())
-                std::cout << play(Json::parse(line), evaluator, simulations, exploration, agent).dump() << std::endl;
+                std::cout << play(Json::parse(line), evaluator, simulations, exploration, c, agent).dump() << std::endl;
         } else if (argc == 3 && command == "teacher") {
             const auto sims = std::stoll(argv[2]);
             const auto searcher = stsrl::teacher::leaf_search({"guided_rollout", 0, 0}, nullptr, {sims, stsrl::teacher::particles});
@@ -197,7 +205,7 @@ int main(int argc, char** argv) {
             while (std::getline(std::cin, line)) if (!line.empty())
                 std::cout << teach(Json::parse(line), searcher, agent).dump() << std::endl;
         } else {
-            std::cerr << "usage: pv_worker encode OUT.parquet | evaluate MODEL.onnx | play MODEL.onnx SIMS [--explore] | teacher SIMS (JSONL stdin)\n";
+            std::cerr << "usage: pv_worker encode OUT.parquet | evaluate MODEL.onnx | play MODEL.onnx SIMS [--explore] [--c C] | teacher SIMS (JSONL stdin)\n";
             return 2;
         }
         return 0;

@@ -214,11 +214,15 @@ private:
 
     std::size_t choose(const Node& node) {
         if (!node.value) throw std::logic_error{"PV: cannot traverse an unevaluated node"};
+        // Q is min-max normalized over the values backed up in this tree (MuZero), so the exploration constant is
+        // independent of HP-point scales. An unvisited edge takes its parent's network value (parent FPU).
+        const double span = value_hi_ > value_lo_ ? value_hi_ - value_lo_ : 0;
         std::vector<double> scores;
         for (const auto& edge : node.edges) {
             const auto visits = edge.visits + edge.in_flight;
-            const double q = visits ? edge.value_sum / visits : 0;
-            const double score = score_(q, edge.prior, node.visits + node.in_flight, visits);
+            const double q = visits ? edge.value_sum / visits : *node.value;
+            const double normalized = span > 0 ? (q - value_lo_) / span : 0.5;
+            const double score = score_(normalized, edge.prior, node.visits + node.in_flight, visits);
             if (!std::isfinite(score)) throw std::runtime_error{"PV: non-finite selection score"};
             scores.push_back(score);
         }
@@ -229,6 +233,7 @@ private:
 
     void backup(Path& path, double value) {
         validate_value(value);
+        value_lo_ = std::min(value_lo_, value); value_hi_ = std::max(value_hi_, value);
         int turns = 0;
         for (auto [node, index] : path) {
             turns += node->edges.at(index).action.getActionType() == sts::search::ActionType::END_TURN;
@@ -254,6 +259,7 @@ private:
     std::mt19937_64 random_;
     Node root_;
     std::int64_t simulations_ = 0;
+    double value_lo_ = std::numeric_limits<double>::infinity(), value_hi_ = -std::numeric_limits<double>::infinity();
     Telemetry telemetry_;
 };
 

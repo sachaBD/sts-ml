@@ -9,11 +9,11 @@
 
 namespace stsrl::pv {
 
-// AlphaZero-style Q + U. Q is the backed-up mean, or zero for an unvisited edge.
-// The +1 parent pseudovisit makes priors steer the very first traversal.
+// AlphaZero-style Q + U. Search passes Q min-max normalized over the tree's backed-up values (unvisited edge: the
+// parent's network value). The +1 parent pseudovisit makes priors steer the very first traversal.
 // In-flight simulations count as temporary zero-value visits (virtual loss).
 struct PuctScore {
-    const double exploration = 150;  // HP-equivalent points; a starting setting, not a tuned result
+    double exploration = 1.25;  // on normalized Q (MuZero's c1); a starting setting, not a tuned result
 
     PuctScore() = default;
     explicit PuctScore(double points) : exploration{points} {

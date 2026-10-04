@@ -45,3 +45,18 @@
   6.8 s/fight; search depth mean 4.2 actions / 1.0 turn, p90 max 11 actions / 4 turns.
 - Next: self-play loop (selfplay.py): 3000 generated starts/round, 800 sims + root noise, train from the previous
   checkpoint on the last 3 rounds, bench at 2000 sims. ~25 min/round.
+
+## 01:40 — self-play round 1 (old PUCT) flat; PUCT scale was wrong; Q normalization
+- sp1 round 1 (3000 generated starts, 800 sims, c=150 HP points): self-play win 15.4%; bench 24.9% (boot 25.9%).
+  Training showed why: the PV visit targets were as flat as the teacher's (val policy CE 1.53, top-1 0.38).
+  With c=150 HP-points the exploration term (~150·p·√N/(1+n)) swamps Q differences between moves (a few HP
+  points), so visits ≈ prior and the loop cannot sharpen its policy. Stopped sp1.
+- Fix: MuZero-style min-max normalization of Q over the tree's backed-up values, c on normalized Q (default 1.25),
+  unvisited edge = parent's network value (worker `play ... --c C`; frozen build/frozen/pv_worker.q1).
+- c sweep with the (weak, teacher-distilled) boot model, 2000 sims, 409 bench fights:
+  old c=150: 25.9% · c=0.5: 22.0% · c=1.25: 23.0% · c=3: 24.0% (teacher 41.8%). Search depth unchanged (~1 turn).
+  With a poor value net a Q-greedier search doesn't help; the value net is the bottleneck. Kept c=1.25 for
+  self-play, where sharper visits are the point.
+- (Lost ~1 h: a wait loop of mine matched its own command line with pgrep. Use pid files.)
+- Added train options: --value-mix (outcome/search-root mix; PV rows only, guarded), --lr, --weight-decay.
+- sp2 launched: init sp1-r01, q1 worker c=1.25, 3000 starts × 800 sims per round, window 3, 2 epochs, 12 rounds.

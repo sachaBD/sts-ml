@@ -66,13 +66,14 @@ def main():
     p.add_argument('--model', type=Path)
     p.add_argument('--sims', type=int, required=True)
     p.add_argument('--explore', action='store_true')
+    p.add_argument('--c', type=float, help='PUCT exploration on min-max normalized Q (worker default when omitted)')
     p.add_argument('--workers', type=int, default=1)
     p.add_argument('--out', type=Path, required=True)
     p.add_argument('--worker', type=Path, default=WORKER)
     a = p.parse_args()
     if a.agent == 'pv':
         if not a.model: p.error('--agent pv needs --model')
-        command = [str(a.worker), 'play', str(a.model), str(a.sims)] + ['--explore'] * a.explore
+        command = [str(a.worker), 'play', str(a.model), str(a.sims)] + ['--explore'] * a.explore + (['--c', str(a.c)] if a.c is not None else [])
     else:
         if a.model or a.explore: p.error('--model and --explore are for --agent pv')
         command = [str(a.worker), 'teacher', str(a.sims)]

@@ -14,10 +14,16 @@ from .data import Dataset
 from .model import CONTRACT, NAMES, VALUE_SCALE, PolicyValue
 
 
-def evaluate(net, batch, device, policy_temp=1.0):
+def evaluate(net, batch, device, policy_temp=1.0, value_mix=1.0):
     """Return (value loss sum, policy loss sum, top-1 hits, states, policy states) of one batch; grads flow."""
     inputs, target_value, target, has_policy = (
         {k: v.to(device) for k, v in batch[0].items()}, batch[1].to(device), batch[2].to(device), batch[3].to(device))
+    if value_mix != 1.0:  # target = mix·outcome + (1 − mix)·search root value (PV self-play rows: HP-equivalent units)
+        root = batch[4].to(device)
+        searched = ~torch.isnan(root)  # forced moves have no search: outcome only
+        if searched.any() and root[searched].max() <= 2:
+            raise ValueError('value mixing needs HP-unit search root values (PV self-play data, not teacher rows)')
+        target_value = torch.where(searched, value_mix * target_value + (1 - value_mix) * root, target_value)
     value, logits = net(*(inputs[n] for n in NAMES))
     if not torch.isfinite(value).all() or not torch.isfinite(logits).all():
         raise ValueError('network produced non-finite predictions')
@@ -40,7 +46,7 @@ def run_epoch(net, data, a, optimizer=None, rng=None):
     policy_states = 0
     for batch in data.batches(a.batch, rng):
         with torch.set_grad_enabled(optimizer is not None):
-            value, policy, hits, n, n_policy = evaluate(net, batch, a.device, a.policy_temp)
+            value, policy, hits, n, n_policy = evaluate(net, batch, a.device, a.policy_temp, a.value_mix)
             loss = value / n + policy / max(n_policy, 1)
             if not torch.isfinite(loss): raise ValueError('non-finite training loss')
             if optimizer:
@@ -61,6 +67,7 @@ def main():
     p.add_argument('--width', type=int, default=64)
     p.add_argument('--device', default='cpu')
     p.add_argument('--policy-temp', type=float, default=1.0, help='policy target temperature (<1 sharpens visits)')
+    p.add_argument('--value-mix', type=float, default=1.0, help='value target = mix·outcome + (1-mix)·search root value')
     p.add_argument('--lr', type=float, default=1e-3)
     p.add_argument('--weight-decay', type=float, default=0.01)
     p.add_argument('--stream', action='store_true', help='re-read one shard at a time per epoch instead of holding all in RAM')

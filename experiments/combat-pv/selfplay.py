@@ -67,8 +67,8 @@ def main():
     ap.add_argument('--workers', type=int, default=8)
     ap.add_argument('--window', type=int, default=3)
     ap.add_argument('--extra-rows', nargs='*', default=[])
-    ap.add_argument('--train-args', default='--epochs 4')
-    ap.add_argument('--worker', default='build/frozen/pv_worker')
+    ap.add_argument('--train-args', default='--epochs 2')
+    ap.add_argument('--worker', default='build/frozen/pv_worker.q1')
     a = ap.parse_args()
     model = a.init
     rows = []
