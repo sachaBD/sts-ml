@@ -2,10 +2,12 @@
 
 Validation membership is a stable hash of run seed, shared across datasets/iterations. Policy: search visits;
 value: 100 × won (scaled MSE). These losses are diagnostics, not a replacement for held-out play evaluation.
-Per epoch it logs train/val value loss and policy loss separately, and val top-1 agreement with the search's most-visited move.
+Per epoch it logs train/val losses and maximum absolute raw value prediction (win-score units),
+and val top-1 agreement with the search's most-visited move. Gradient norm clipping is opt-in.
 """
 import argparse
 import json
+import math
 from pathlib import Path
 
 import numpy as np
@@ -14,7 +16,7 @@ from .data import Dataset
 from .model import CONTRACT, NAMES, VALUE_SCALE, PolicyValue
 
 
-def evaluate(net, batch, device, policy_temp=1.0, value_mix=1.0, teacher_root_mix=1.0):
+def evaluate(net, batch, device, policy_temp=1.0, value_mix=1.0, teacher_root_mix=1.0, prediction_stats=None):
     """Return (value loss sum, policy loss sum, top-1 hits, states, policy states) of one batch; grads flow."""
     inputs, target_value, target, has_policy = (
         {k: v.to(device) for k, v in batch[0].items()}, batch[1].to(device), batch[2].to(device), batch[3].to(device))
@@ -32,6 +34,9 @@ def evaluate(net, batch, device, policy_temp=1.0, value_mix=1.0, teacher_root_mi
     value, logits = net(*(inputs[n] for n in NAMES))
     if not torch.isfinite(value).all() or not torch.isfinite(logits).all():
         raise ValueError('network produced non-finite predictions')
+    if prediction_stats is not None:
+        prediction_stats['max_abs_value_prediction'] = max(
+            prediction_stats.get('max_abs_value_prediction', 0.0), value.detach().abs().max().item())
     if not torch.isfinite(target_value).all() or (target_value < 0).any():
         raise ValueError('value targets must be finite, nonnegative win-score units')
     if (target < 0).any() or not torch.allclose(target.sum(-1)[has_policy], torch.ones((), device=device), atol=1e-5):
@@ -49,17 +54,23 @@ def evaluate(net, batch, device, policy_temp=1.0, value_mix=1.0, teacher_root_mi
 def run_epoch(net, data, a, optimizer=None, rng=None):
     totals = np.zeros(4)  # value, policy, hits, states; policy states separately
     policy_states = 0
+    prediction_stats = {'max_abs_value_prediction': 0.0}
     for batch in data.batches(a.batch, rng):
         with torch.set_grad_enabled(optimizer is not None):
-            value, policy, hits, n, n_policy = evaluate(net, batch, a.device, a.policy_temp, a.value_mix, a.teacher_root_mix)
+            value, policy, hits, n, n_policy = evaluate(
+                net, batch, a.device, a.policy_temp, a.value_mix, a.teacher_root_mix, prediction_stats)
             loss = value / n + policy / max(n_policy, 1)
             if not torch.isfinite(loss): raise ValueError('non-finite training loss')
             if optimizer:
-                optimizer.zero_grad(); loss.backward(); optimizer.step()
+                optimizer.zero_grad(); loss.backward()
+                if a.grad_clip is not None:
+                    torch.nn.utils.clip_grad_norm_(net.parameters(), a.grad_clip)
+                optimizer.step()
         totals += (value.item(), policy.item(), hits, n); policy_states += n_policy
     if not totals[3]: raise ValueError('no states in this split (need more independent run seeds)')
     return dict(value_loss=totals[0] / totals[3], policy_loss=totals[1] / max(policy_states, 1),
-                top1=totals[2] / max(policy_states, 1), states=int(totals[3]), policy_states=policy_states)
+                top1=totals[2] / max(policy_states, 1), states=int(totals[3]), policy_states=policy_states,
+                **prediction_stats)
 
 
 def main():
@@ -76,10 +87,13 @@ def main():
                    help='mix·100·won + (1-mix)·PV search root clamped to [0,100]; no-root rows keep outcome')
     p.add_argument('--teacher-root-mix', type=float, default=1.0,
                    help='must remain 1: old HP-unit teacher root mixing is unsupported under the win-only contract')
+    p.add_argument('--grad-clip', type=float, default=None, help='clip total parameter gradient norm to G; default off')
     p.add_argument('--lr', type=float, default=1e-3)
     p.add_argument('--weight-decay', type=float, default=0.01)
     p.add_argument('--stream', action='store_true', help='re-read one shard at a time per epoch instead of holding all in RAM')
     a = p.parse_args()
+    if a.grad_clip is not None and (not math.isfinite(a.grad_clip) or a.grad_clip <= 0):
+        p.error('grad-clip must be finite and positive')
     if not 0 <= a.value_mix <= 1:
         p.error('value-mix must be in [0, 1]')
     if a.teacher_root_mix != 1:
