@@ -5,6 +5,7 @@
 // pv_worker play MODEL SIMS [--explore] | teacher SIMS: {fight_id, start} lines on stdin → one result line per fight:
 //   {status, fight (combat_v4 fights row; completed only), search: [combat_v4 search rows], stats: [telemetry per search]}.
 #include "agents/combat/pv/search.hpp"
+#include "agents/combat/pv/turn_search.hpp"
 #include "agents/combat/search/teacher_search.hpp"
 #include "apps/pv/shard.hpp"
 #include "apps/pv/turns.hpp"
@@ -135,6 +136,73 @@ Json play(const Json& fight, pv::Evaluator& evaluator, std::int64_t simulations,
     return result(fight, actions, done, state.outcome == sts::Outcome::PLAYER_VICTORY, state.player.curHp, agent, search, stats);
 }
 
+// Turn-search evaluation mode deliberately emits no invented per-action policy targets.
+Json play_turn(const Json& fight, pv::Evaluator& evaluator, std::size_t budget, double c,
+               pv::TurnSearchCaps caps, const std::string& agent) {
+    sts::BattleContext state; state.init(stsrl::combat_v4::start_game(fight.at("start")));
+    std::unique_ptr<pv::TurnSearch> tree;
+    std::vector<std::uint32_t> actions;
+    Json search = Json::array(), stats = Json::array(), turns = Json::array();
+    while (state.outcome == sts::Outcome::UNDECIDED && state.turn < 50 && actions.size() < 512) {
+        const auto started = Clock::now(); const auto step = actions.size(); const int turn = state.turn;
+        if (!tree) tree = std::make_unique<pv::TurnSearch>(state, caps, c);
+        const auto sequence = tree->decide(budget, [&](std::span<const pv::Inputs> batch) { return evaluator.evaluate(batch); });
+        auto telemetry = tree->stats();
+        if (!telemetry.fallback) {
+            for (auto bits : sequence) {
+                if (actions.size() >= 512) break;
+                const sts::search::Action chosen{bits};
+                if (!chosen.isValidAction(state)) throw std::runtime_error{"turn search: live sequence illegal"};
+                actions.push_back(bits); chosen.execute(state);
+            }
+            if (!tree->advance(state)) tree.reset();
+        } else {
+            tree.reset();
+            pv::SearchSettings settings; settings.oracle = true;
+            std::unique_ptr<pv::Search<>> fallback;
+            do {
+                const auto moves = pv::legal_actions(state); auto chosen = moves.front();
+                if (moves.size() > 1) {
+                    const auto t = Clock::now();
+                    if (!fallback) {
+                        const auto prediction = pv::evaluate_root(evaluator, state);
+                        ++telemetry.network_calls; ++telemetry.evaluated_states;
+                        fallback = std::make_unique<pv::Search<>>(state, std::vector<sts::BattleContext>{state}, prediction, settings, pv::PuctScore{c});
+                    }
+                    fallback->run([&](std::span<const pv::Inputs> batch) {
+                        ++telemetry.network_calls; telemetry.evaluated_states += batch.size();
+                        return evaluator.evaluate(batch);
+                    }, 800);
+                    chosen = fallback->selected_action();
+                    Json children = Json::array(); double value = 0, visits = 0;
+                    for (const auto& edge : fallback->root().edges) if (edge.visits) {
+                        children.push_back({{"action", edge.action.bits}, {"visits", edge.visits}, {"value", edge.value_sum / edge.visits}});
+                        value += edge.value_sum; visits += edge.visits;
+                    }
+                    const auto& d = fallback->telemetry(); const double n = fallback->simulations();
+                    search.push_back({{"fight_id", fight.at("fight_id")}, {"step", actions.size()}, {"agent", agent},
+                        {"root_value", value / visits}, {"simulations", fallback->simulations()}, {"children", children}});
+                    stats.push_back({{"fight_id", fight.at("fight_id")}, {"step", actions.size()}, {"seconds", since(t)},
+                        {"simulations", fallback->simulations()}, {"mean_depth", d.depth_sum / n}, {"max_depth", d.depth_max},
+                        {"mean_turns", d.turns_sum / n}, {"max_turns", d.turns_max}, {"nodes", d.nodes}, {"turns_hist", d.turns_hist}});
+                }
+                actions.push_back(chosen.bits); chosen.execute(state);
+                if (fallback && (state.outcome != sts::Outcome::UNDECIDED || !fallback->advance(chosen, state))) fallback.reset();
+            } while (state.outcome == sts::Outcome::UNDECIDED && state.turn < 50 && actions.size() < 512 &&
+                     !(state.turn != turn && state.inputState == sts::InputState::PLAYER_NORMAL));
+        }
+        turns.push_back({{"fight_id", fight.at("fight_id")}, {"step", step}, {"turn", turn}, {"seconds", since(started)},
+            {"expansions", telemetry.expansions}, {"network_calls", telemetry.network_calls}, {"evaluated_states", telemetry.evaluated_states},
+            {"root_children", telemetry.root_children}, {"max_depth", telemetry.max_depth}, {"mean_leaf_depth", telemetry.mean_leaf_depth},
+            {"fallback", telemetry.fallback}, {"reason", telemetry.reason}, {"time_overshoot", telemetry.time_overshoot}, {"reused", telemetry.reused}});
+    }
+    const bool done = state.outcome != sts::Outcome::UNDECIDED;
+    if (done) check_replay(fight, actions, state);
+    auto out = result(fight, actions, done, state.outcome == sts::Outcome::PLAYER_VICTORY, state.player.curHp, agent, search, stats);
+    out["turn_stats"] = std::move(turns);
+    return out;
+}
+
 // The guided-rollout MCTS teacher (apps/combat_record/worker.cpp settings). Depth telemetry is PV-only: null here.
 Json teach(const Json& fight, const stsrl::teacher::SearchFn& searcher, const std::string& agent) {
     sts::BattleContext state; state.init(stsrl::combat_v4::start_game(fight.at("start")));
@@ -197,31 +265,46 @@ int main(int argc, char** argv) {
                 std::cout << out.dump() << std::endl;
             }
         } else if (argc >= 4 && command == "play") {
-            bool exploration = false, oracle = false, policy_only = false, sample_turns = false;
+            bool exploration = false, oracle = false, policy_only = false, sample_turns = false, turn_search = false;
+            pv::TurnSearchCaps caps;
             double c = pv::PuctScore{}.exploration, rollout_mix = 0;
             for (int i = 4; i < argc; ++i) {
                 const std::string option = argv[i];
                 if (option == "--explore") exploration = true;
                 else if (option == "--oracle") oracle = true;
+                else if (option == "--turn-search") turn_search = true;
+                else if (option == "--turn-max-sequences" && i + 1 < argc) caps.max_sequences = std::stoull(argv[++i]);
+                else if (option == "--turn-root-max-children" && i + 1 < argc) caps.root_max_children = std::stoull(argv[++i]);
+                else if (option == "--turn-max-children" && i + 1 < argc) caps.max_children = std::stoull(argv[++i]);
+                else if (option == "--turn-max-seconds" && i + 1 < argc) caps.max_seconds = std::stod(argv[++i]);
                 else if (option == "--policy-only") policy_only = true;
                 else if (option == "--sample-turns") sample_turns = true;
                 else if (option == "--c" && i + 1 < argc) c = std::stod(argv[++i]);
                 else if (option == "--rollout-mix" && i + 1 < argc) rollout_mix = std::stod(argv[++i]);
                 else throw std::invalid_argument{"unknown play option " + option};
             }
+            if (turn_search && (!oracle || exploration || policy_only || sample_turns || rollout_mix != 0))
+                throw std::invalid_argument{"--turn-search requires --oracle and evaluation-only settings"};
             pv::Evaluator evaluator{argv[2]};
             const auto simulations = std::stoll(argv[3]);
             if (simulations < 1) throw std::invalid_argument{"PV needs at least one simulation"};
-            const std::string agent = "pv model=" + std::filesystem::path{argv[2]}.parent_path().filename().string() + "/" +
+            std::string agent = "pv model=" + std::filesystem::path{argv[2]}.parent_path().filename().string() + "/" +
                 std::filesystem::path{argv[2]}.filename().string() + " sims=" + std::to_string(simulations) +
                 " explore=" + (exploration ? "0.25" : "0") + " c=" + std::to_string(c) + " q=minmax particles=" + (oracle ? "1" : "8") + " batch=" +
                 std::to_string(pv::SearchSettings{}.batch_size) +
                 (rollout_mix > 0 ? " rollout_mix=" + std::to_string(rollout_mix) : "") +
                 (oracle ? " oracle=1 reuse=1" : "") + (policy_only ? " policy_only=1" : "") +
                 (sample_turns ? " sample_turns=2" : "");
+            if (turn_search) agent += " turn_search=1 E=" + std::to_string(simulations) +
+                " caps=seq" + std::to_string(caps.max_sequences) + "/root" + std::to_string(caps.root_max_children) +
+                "/node" + std::to_string(caps.max_children) +
+                "/" + std::to_string(caps.max_seconds) + "s/512a/256MiB T=10 fallback_sims=800";
             std::string line;
-            while (std::getline(std::cin, line)) if (!line.empty())
-                std::cout << play(Json::parse(line), evaluator, simulations, exploration, c, rollout_mix, oracle, policy_only, sample_turns, agent).dump() << std::endl;
+            while (std::getline(std::cin, line)) if (!line.empty()) {
+                const auto fight = Json::parse(line);
+                std::cout << (turn_search ? play_turn(fight, evaluator, simulations, c, caps, agent) :
+                    play(fight, evaluator, simulations, exploration, c, rollout_mix, oracle, policy_only, sample_turns, agent)).dump() << std::endl;
+            }
         } else if (argc == 3 && command == "teacher") {
             const auto sims = std::stoll(argv[2]);
             const auto searcher = stsrl::teacher::leaf_search({"guided_rollout", 0, 0}, nullptr, {sims, stsrl::teacher::particles});
@@ -231,7 +314,7 @@ int main(int argc, char** argv) {
             while (std::getline(std::cin, line)) if (!line.empty())
                 std::cout << teach(Json::parse(line), searcher, agent).dump() << std::endl;
         } else {
-            std::cerr << "usage: pv_worker encode OUT.parquet | turns | evaluate MODEL.onnx | play MODEL.onnx SIMS [--explore] [--oracle] [--policy-only] [--sample-turns] [--c C] [--rollout-mix L] | teacher SIMS (JSONL stdin)\n";
+            std::cerr << "usage: pv_worker encode OUT.parquet | turns | evaluate MODEL.onnx | play MODEL.onnx SIMS [--explore] [--oracle] [--turn-search] [--policy-only] [--sample-turns] [--c C] [--rollout-mix L] | teacher SIMS (JSONL stdin)\n";
             return 2;
         }
         return 0;
