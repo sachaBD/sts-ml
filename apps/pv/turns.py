@@ -22,6 +22,35 @@ SCHEMA = pa.schema([
 ])
 
 
+def summarize(final, count):
+    db = duckdb.connect()
+    db.execute("set memory_limit='512MB'; set threads=1")
+    lines = [f'Fights: {count}; keys: conservative upper bounds. All three key sanity checks passed.']
+    for column in ('sequences', 'distinct', 'canonical_distinct', 'seconds'):
+        row = db.execute(f'select median("{column}"), quantile_cont("{column}", 0.9), max("{column}") from read_parquet(?)',
+                         [str(final)]).fetchone()
+        lines.append(f'{column}: median={row[0]}, p90={row[1]}, max={row[2]}')
+    turns, capped = db.execute('select count(*), sum(capped::int) from read_parquet(?)', [str(final)]).fetchone()
+    lines.append(f'Turns: {turns}; capped: {capped}/{turns} ({100 * capped / turns:.1f}%). '
+                 'Counts in capped turns are partial, not final distinct-state estimates.')
+    wins, losses = db.execute('select sum(terminal_wins), sum(terminal_losses) from read_parquet(?)',
+                              [str(final)]).fetchone()
+    lines.append(f'Terminal sequences (excluded from distinct counts): wins={wins}, losses={losses}, total={wins + losses}.')
+    reasons = db.execute('select cap_reason, count(*) from read_parquet(?) where capped group by cap_reason',
+                         [str(final)]).fetchall()
+    lines.append(f'Cap reasons: {reasons}.')
+    pairs, divergent, illegal, pair_capped = db.execute(
+        'select sum(pairs), sum(divergent), sum(illegal), sum(pair_capped) from read_parquet(?)', [str(final)]).fetchone()
+    matched = pairs - illegal - pair_capped
+    lines.append(f'Differential pairs: {pairs}; completed: {matched}; divergent: {divergent}/{matched} '
+                 f'({100 * divergent / matched:.1f}%)' if matched else f'Differential pairs: {pairs}; none completed.')
+    lines.append(f'Illegal replays: {illegal}/{pairs}; depth-capped continuations: {pair_capped}/{pairs}. '
+                 'Deterministic sample: first 64 buckets and up to 5 pairs/turn, max 200 pairs total.')
+    lines.append('Differential sample is non-random and within-turn correlated; population uncertainty not estimated.')
+    summary = '\n'.join(lines) + '\n'
+    return summary
+
+
 def main():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument('--fights', type=Path, required=True, help='directory containing fights-*.parquet')
@@ -65,31 +94,7 @@ def main():
     if not count:
         raise ValueError('no fights found')
     partial.replace(final)
-    db = duckdb.connect()
-    db.execute("set memory_limit='512MB'; set threads=1")
-    lines = [f'Fights: {count}; keys: conservative upper bounds. All three key sanity checks passed.']
-    for column in ('sequences', 'distinct', 'canonical_distinct', 'seconds'):
-        row = db.execute(f"select median({column}), quantile_cont({column}, 0.9), max({column}) from read_parquet(?)",
-                         [str(final)]).fetchone()
-        lines.append(f'{column}: median={row[0]}, p90={row[1]}, max={row[2]}')
-    turns, capped = db.execute('select count(*), sum(capped::int) from read_parquet(?)', [str(final)]).fetchone()
-    lines.append(f'Turns: {turns}; capped: {capped}/{turns} ({100 * capped / turns:.1f}%). '
-                 'Counts in capped turns are partial, not final distinct-state estimates.')
-    wins, losses = db.execute('select sum(terminal_wins), sum(terminal_losses) from read_parquet(?)',
-                              [str(final)]).fetchone()
-    lines.append(f'Terminal sequences (excluded from distinct counts): wins={wins}, losses={losses}, total={wins + losses}.')
-    reasons = db.execute('select cap_reason, count(*) from read_parquet(?) where capped group by cap_reason',
-                         [str(final)]).fetchall()
-    lines.append(f'Cap reasons: {reasons}.')
-    pairs, divergent, illegal, pair_capped = db.execute(
-        'select sum(pairs), sum(divergent), sum(illegal), sum(pair_capped) from read_parquet(?)', [str(final)]).fetchone()
-    matched = pairs - illegal - pair_capped
-    lines.append(f'Differential pairs: {pairs}; completed: {matched}; divergent: {divergent}/{matched} '
-                 f'({100 * divergent / matched:.1f}%)' if matched else f'Differential pairs: {pairs}; none completed.')
-    lines.append(f'Illegal replays: {illegal}/{pairs}; depth-capped continuations: {pair_capped}/{pairs}. '
-                 'Deterministic sample: first 64 buckets and up to 5 pairs/turn, max 200 pairs total.')
-    lines.append('Differential sample is non-random and within-turn correlated; population uncertainty not estimated.')
-    summary = '\n'.join(lines) + '\n'
+    summary = summarize(final, count)
     (a.out / 'summary.txt').write_text(summary)
     print(summary, flush=True)
 
