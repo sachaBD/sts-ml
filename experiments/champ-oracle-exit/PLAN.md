@@ -107,3 +107,10 @@ PIMC smoke (r13, K4 E16, first 20): 1/20 vs per-action real r12 3/20, 16.8 s/fig
 After tag c stops: J1 PIMC screen (409) → J2 tag d (turn-search expert, E 64, init = last tag-c model, 9 rounds)
 → J3 bench2k: teacher, best per-action real, PIMC if not clearly worse.
 Tag d stop rule: r06 real2000 not > M's real by 2.3 pp → stop and report.
+
+## Phase 3 (from 2026-10-05 ~07:00 UTC; ~24 h compute)
+Running: J3 bench2k status (teacher / c-r18 / D5) → tag e (D5 recipe iterated, bench2k real at r03/r06).
+New: real-play one-turn expectimax (REAL_TURN.md): lockstep enumeration across particles to the first info reveal /
+END_TURN, leaf = mean V → no strategy fusion; long horizon carried by V trained from deep oracle turn search.
+Candidates after that, chosen by results: (a) bounded value head (100·sigmoid) contract; (b) real-information value
+targets (8-particle self-play share) if the oracle−real gap persists; (c) larger turn-search E for self-play targets.
