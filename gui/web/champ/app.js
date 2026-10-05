@@ -8,6 +8,7 @@ const actionType = (bits) => bits >>> 29;
 let meta, deck, base, patch = {}, ops = [], undos = 0, view, pv, live = {}, teacherRec = null, replayK = null, pre;
 let seq = 0;  // drops stale responses
 const recorded = new Set();
+const seedRuns = {}, after = {};  // key() -> search reruns; key() + bits -> playouts after that move
 const pct = (p, d = 1) => (100 * p).toFixed(d) + "%";
 const key = () => JSON.stringify([base, patch, ops]);
 
@@ -89,6 +90,27 @@ async function playouts() {
     <br>95% CI ${pct(out.ci95[0], 0)}–${pct(out.ci95[1], 0)}` +
     (out.mean_hp_if_won !== null ? `<br>HP if won ${out.mean_hp_if_won.toFixed(1)}` : "") +
     `<br><span class="hint">${out.sims} sims · ${out.wall_seconds.toFixed(0)} s</span>`;
+}
+
+async function searchSeeds() {
+  const k = key();
+  spin(1, "6 teacher searches with independent seeds…");
+  const out = await post("api/champ/query", { base, patch, ops, query: "search_seeds", k: 6, sims: 20000 });
+  spin(-1);
+  if (out.error) { $("status").textContent = out.error; return; }
+  seedRuns[k] = out.runs;
+  if (k === key()) render();
+}
+
+async function playoutsAfter(bits) {
+  const n = +$("nPlay").value, sims = +$("simsPlay").value, k = key() + "|" + bits;
+  after[k] = "running";
+  render();
+  spin(1, `${n} playouts after one move…`);
+  const out = await post("api/champ/query", { base, patch, ops: [...ops, { act: bits }], query: "playout", n, sims });
+  spin(-1);
+  after[k] = out.error ? { error: out.error } : out;
+  render();
 }
 
 async function recordIfBench() {
@@ -202,12 +224,34 @@ function render() {
   const rows = v.legal.map((l) => ({ l, pr: prior(l.bits), sh: share(l.bits), q: ts && ts.moves[l.bits] ? ts.moves[l.bits].value : null }));
   rows.sort((a, b) => (b.sh ?? -1) - (a.sh ?? -1) || (b.pr ?? -1) - (a.pr ?? -1));
   const bar = (x, cls) => x === null ? "" : `<span class="shr ${cls}" style="width:${Math.round(60 * x)}px"></span>${pct(x, 1)}`;
-  $("moves").innerHTML = `<tr><th>Move</th><th>PV prior</th><th>Teacher visits</th><th>Teacher Q</th><th></th></tr>` +
+  const runs = seedRuns[key()];
+  const seedCell = (bits) => {
+    if (!runs) return "";
+    const shares = runs.map((r) => {
+      const tot = Object.values(r.moves).reduce((a, m) => a + m.visits, 0);
+      return r.moves[bits] ? r.moves[bits].visits / tot : 0;
+    });
+    const mean = shares.reduce((a, b) => a + b, 0) / shares.length;
+    const picked = runs.filter((r) => r.chosen === bits).length;
+    return `${pct(mean, 0)} <span class="band">(${pct(Math.min(...shares), 0)}–${pct(Math.max(...shares), 0)})</span> · ${picked}/${runs.length}`;
+  };
+  const afterCell = (bits) => {
+    const a = after[key() + "|" + bits];
+    if (!a) return `<button data-after="${bits}">run</button>`;
+    if (a === "running") return `<span class="spinner inline"></span>`;
+    if (a.error) return `<span class="band">${a.error}</span>`;
+    return `<b>${a.wins}/${a.n}</b> <span class="band">${pct(a.ci95[0], 0)}–${pct(a.ci95[1], 0)}</span>`;
+  };
+  $("moves").innerHTML = `<tr><th>Move</th><th>PV prior</th><th>Teacher visits</th><th>Teacher Q</th><th>Seeds ×6 · picked</th><th>Playouts after</th><th></th></tr>` +
     rows.map(({ l, pr, sh, q }) => `<tr class="${ts && ts.chosen === l.bits ? "chosen" : ""}">
       <td class="desc" title="${l.desc}">${moveLabel(l)}</td><td>${bar(pr, "pv")}</td><td>${bar(sh, "")}</td>
-      <td class="band">${q === null ? "" : q.toFixed(3)}</td><td><button data-bits="${l.bits}">play</button></td></tr>`).join("") +
-    (done ? `<tr><td colspan="5" class="hint">fight over: ${v.won ? "won with " + p.hp + " HP" : "lost"}</td></tr>` : "");
+      <td class="band">${q === null ? "" : q.toFixed(3)}</td><td>${seedCell(l.bits)}</td><td>${afterCell(l.bits)}</td>
+      <td><button data-bits="${l.bits}">play</button></td></tr>`).join("") +
+    (done ? `<tr><td colspan="7" class="hint">fight over: ${v.won ? "won with " + p.hp + " HP" : "lost"}</td></tr>` : "");
   $("moves").querySelectorAll("button[data-bits]").forEach((b) => b.onclick = () => act(+b.dataset.bits));
+  $("moves").querySelectorAll("button[data-after]").forEach((b) => b.onclick = () => playoutsAfter(+b.dataset.after));
+  $("seeds").disabled = done;
+  history.replaceState(null, "", "#" + base + "|" + btoa(JSON.stringify({ patch, ops })));
   // piles (draw grouped: order hidden)
   const group = (list) => {
     const m = new Map();
@@ -345,15 +389,15 @@ function fillSeeds() {
   const d = meta.deckBySource[$("deckSel").value];
   $("seedSel").innerHTML = d ? d.fights.map((f, i) => `<option value="${f.fight_id}">#${i + 1} teacher ${f.won ? "won (" + f.final_hp + " HP)" : "lost"}</option>`).join("") : "";
 }
-async function load() {
+async function load(restore) {
   deck = meta.deckBySource[$("deckSel").value];
   base = $("seedSel").value;
   if (!base) return;
   patch = {}; ops = []; undos = 0; replayK = null; teacherRec = null;
   pre = { deck: structuredClone(deck.deck), relics: structuredClone(deck.relics), potions: [...deck.potions],
           hp: deck.hp, max_hp: deck.max_hp, seed: meta.fightById[base].seed };
+  if (restore) { patch = restore.patch || {}; ops = restore.ops || []; Object.assign(pre, patch); }
   renderSetup();
-  history.replaceState(null, "", "#" + base);
   await refresh();
   teacherRec = await (await fetch(ROOT + "api/champ/teacher/" + base)).json();
   renderReplay();
@@ -387,6 +431,11 @@ async function load() {
   $("restart").onclick = () => { ops = []; replayK = null; refresh(); };
   $("editMode").onchange = render;
   $("askTeacher").onclick = askTeacher;
+  $("seeds").onclick = searchSeeds;
+  $("share").onclick = async () => {
+    await navigator.clipboard.writeText(location.href).catch(() => {});
+    $("status").textContent = "link copied (also in the address bar)";
+  };
   $("autoTeacher").onchange = () => $("autoTeacher").checked && askTeacher();
   $("playout").onclick = playouts;
   $("cardAdd").onclick = () => {
@@ -418,12 +467,15 @@ async function load() {
 
   if (new URLSearchParams(location.search).has("edit")) $("editMode").checked = true;
   fillDecks();
-  const hash = location.hash.slice(1);
+  const [hash, saved] = decodeURIComponent(location.hash.slice(1)).split("|");
   if (hash && meta.fightById[hash]) {
     const src = meta.fightById[hash].source;
     $("filter").value = "all"; fillDecks();
     $("deckSel").value = src; fillSeeds(); $("seedSel").value = hash;
   }
   loadTally();
-  load();
+  if (saved) {  // a shared link: restore the patch and ops before the first query
+    const st = JSON.parse(atob(saved));
+    await load(st);
+  } else load();
 })().catch((e) => { console.error(e); $("status").textContent = "failed to load: " + e; });

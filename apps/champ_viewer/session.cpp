@@ -15,7 +15,7 @@
 // Queries:
 //   view                 public state (what a player sees; never draw order or RNG) + legal moves
 //   pv                   view + the PV network's value (100 × P(win)) and per-move policy priors (needs PV_MODEL)
-//   search SIMS          view + one teacher search (guided rollout, 8 particles): visits / mean value per move
+//   search SIMS [SALT]   view + one teacher search (guided rollout, 8 particles): visits / mean value per move
 //   playout SIMS FROM N  win/HP of teacher fights from public-belief particles FROM..FROM+N-1 of this state
 //                        (the hidden draw order / RNG resampled per playout; search salt = particle index + 1)
 #include "agents/combat/pv/search.hpp"
@@ -314,13 +314,15 @@ Json pv_query(const S::BattleContext& bc, stsrl::pv::Evaluator* evaluator) {
     return out;
 }
 
-Json search_query(const S::BattleContext& bc, std::int64_t sims) {
+Json search_query(const S::BattleContext& bc, std::int64_t sims, std::uint64_t salt) {
     if (bc.outcome != S::Outcome::UNDECIDED) throw std::runtime_error{"the fight is over"};
     stsrl::CombatEnvironment env{bc};
     const auto n = env.legal_action_count();
     const auto searcher = stsrl::teacher::leaf_search({"guided_rollout", 0, 0}, nullptr, {sims, stsrl::teacher::particles});
     const auto t = std::chrono::steady_clock::now();
+    stsrl::teacher::tweaks().search_salt = salt;  // 0: the bench teacher's own seeds; others: independent reruns
     const auto d = stsrl::teacher::search_decision(env, n, searcher, false, stsrl::teacher::particles);
+    stsrl::teacher::tweaks().search_salt = 0;
     Json out{{"simulations", d.used}, {"root_value", d.value}, {"chosen", env.action_bits(d.chosen)},
              {"seconds", since(t)}, {"moves", Json::object()}};
     for (const auto& c : d.tried)
@@ -363,7 +365,7 @@ int main(int argc, char** argv) {
             out["view"]["relics"] = relics;
             try {  // a failed query (e.g. on a finished fight) still returns the view
                 if (query == "pv") out["pv"] = pv_query(bc, evaluator.get());
-                else if (query == "search") out["search"] = search_query(bc, request.value("sims", 20000));
+                else if (query == "search") out["search"] = search_query(bc, request.value("sims", 20000), request.value("salt", std::uint64_t{0}));
                 else if (query == "playout")
                     out["playouts"] = playout_query(bc, request.value("sims", 20000), request.value("from", 0), request.value("n", 1));
                 else if (query != "view") throw std::runtime_error{"unknown query " + query};

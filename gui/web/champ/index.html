@@ -76,10 +76,12 @@
       <span class="sep"></span>
       <button id="askTeacher">Ask teacher</button>
       <label class="check"><input type="checkbox" id="autoTeacher" checked> auto</label>
+      <button id="seeds" title="rerun the teacher search with 6 independent seeds: is its preference stable?">× 6 seeds</button>
       <span class="sep"></span>
       <button id="playout">Playouts</button>
       <label for="nPlay">N</label><input id="nPlay" type="number" min="1" max="100" value="10">
       <label for="simsPlay">sims</label><input id="simsPlay" type="number" min="100" max="20000" step="100" value="20000">
+      <button id="share" title="copy a link to this exact state">copy link</button>
       <span class="spinner" id="spin" hidden></span>
       <span class="hint" id="status"></span>
     </div>
@@ -99,6 +101,8 @@
 
   <section>
     <p class="deck-head">Moves <span class="hint" id="teacherHint"></span></p>
+    <p class="hint">Seeds: mean visit share over 6 reruns (range) · picked: how often it was the teacher's move.
+      Playouts after: N teacher games after taking that move (same N / sims as above).</p>
     <table class="tbl" id="moves"></table>
   </section>
 

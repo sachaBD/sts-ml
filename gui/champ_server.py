@@ -128,8 +128,16 @@ def query(q):
         return FAST.ask(dict(req, query=kind))  # query_error (e.g. no PV on a finished fight) keeps the view
     sims = int(q.get("sims", 20000))
     if kind == "search":
-        out = heavy(dict(req, query="search", sims=sims))
+        out = heavy(dict(req, query="search", sims=sims, salt=int(q.get("salt", 0))))
         return dict(error=out["query_error"]) if "query_error" in out else out
+    if kind == "search_seeds":  # the same search with k independent seeds: is the visit split stable?
+        k = max(1, min(int(q.get("k", 6)), 16))
+        with ThreadPoolExecutor(2) as pool:
+            outs = list(pool.map(lambda salt: heavy(dict(req, query="search", sims=sims, salt=salt)), range(1, k + 1)))
+        for o in outs:
+            if "error" in o or "query_error" in o:
+                return dict(error=o.get("error") or o["query_error"])
+        return dict(runs=[o["search"] for o in outs])
     if kind == "playout":
         n, workers = min(int(q.get("n", 10)), 100), max(1, min(int(q.get("workers", 2)), 2))
         chunks = [(i * n // workers, (i + 1) * n // workers) for i in range(workers)]
