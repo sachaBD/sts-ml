@@ -74,3 +74,14 @@ tag c (it0: policy 20.3 / oracle800 25.9 / real2000 21.8; val v0.111 ce1.540 top
 - Tag c r15: real2000 39.1% (vs r09 +6.6 pp p=0.001; vs r12 +4.1 pp p=0.06); oracle800 46.7%; policy 23.7%.
   ≥ 38% gate → continue to r18. r15 train value loss spiked to 433 (val fine 0.059) → grad clipping for tag d.
 - J1 (PIMC screen, r15) started on CPUs 10–11.
+| r16 | selfplay 1964/6000=0.327 cap0 35.6min | e0 val v0.054 ce1.449 top10.533 (train v0.020) | bench-policy 107/409=0.262 DF 57/87 noDF 50/322 0.01s/f cap0 | bench-oracle 190/409=0.465 DF 74/87 noDF 116/322 3.20s/f cap0 turns 1.27/p90 2 |
+| r17 | selfplay 2057/6000=0.343 cap0 34.4min | e0 val v0.058 ce1.434 top10.543 (train v0.019) | bench-policy 117/409=0.286 DF 63/87 noDF 54/322 0.01s/f cap0 | bench-oracle 194/409=0.474 DF 77/87 noDF 117/322 3.53s/f cap0 turns 1.30/p90 2 |
+| r18 | selfplay 2080/6000=0.347 cap0 35.5min | e0 val v0.058 ce1.438 top10.535 (train v0.020) | bench-policy 108/409=0.264 DF 55/87 noDF 53/322 0.01s/f cap0 | bench-oracle 203/409=0.496 DF 78/87 noDF 125/322 3.23s/f cap0 turns 1.27/p90 2 | bench-real 160/409=0.391 DF 71/87 noDF 89/322 8.62s/f cap0 turns 0.95/p90 2 |
+
+## 02:20 — tag c ends at r18; PIMC turn search rejected; tag d launched
+- Tag c real2000: r15 39.1% → r18 39.1% (flat). Oracle800 r18 49.6%, policy 26.4%. Plateau ≈ 39% real (teacher 41.8%).
+  Oracle−real gap ≈ 10.5 pp.
+- J1 PIMC turn search (r15, K4 E16): 31.3% vs per-action real 39.1% (b/c 57/25, p=0.001), 23.4 s/fight. Clearly worse
+  (consistent with strategy fusion: each particle plans with its own known draws). Rejected as a real-play agent;
+  bench2k PIMC arm skipped by rule.
+- J2 tag d launched (init c-r18, turn-search expert E64, targets, grad-clip 1.0, 9 rounds × 3000).
