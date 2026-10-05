@@ -46,7 +46,7 @@ class GradientClip(unittest.TestCase):
         def train(clip):
             net = Net(); optimizer = torch.optim.SGD(net.parameters(), lr=1)
             before = torch.stack([p.detach().clone() for p in net.parameters()])
-            args = SimpleNamespace(batch=2, device='cpu', policy_temp=1., value_mix=1., teacher_root_mix=1., grad_clip=clip)
+            args = SimpleNamespace(batch=2, device='cpu', policy_temp=1., value_mix=1., teacher_root_mix=1., value_weight=1., policy_weight=1., grad_clip=clip)
             stats = run_epoch(net, data, args, optimizer)
             after = torch.stack([p.detach() for p in net.parameters()])
             return stats, torch.linalg.vector_norm(after - before).item(), net
@@ -61,12 +61,43 @@ class GradientClip(unittest.TestCase):
         self.assertLessEqual(clipped_norm, .0501)
         self.assertEqual(off['max_abs_value_prediction'], 1000)
         self.assertEqual(clipped['max_abs_value_prediction'], 1000)
-        args = SimpleNamespace(batch=2, device='cpu', policy_temp=1., value_mix=1., teacher_root_mix=1., grad_clip=.05)
+        args = SimpleNamespace(batch=2, device='cpu', policy_temp=1., value_mix=1., teacher_root_mix=1., value_weight=1., policy_weight=1., grad_clip=.05)
         val = run_epoch(net, data, args)
         self.assertEqual(val['max_abs_value_prediction'], net.value.detach().abs().item())
     def test_bad_clip_rejected_before_data_read(self):
         for clip in ('0', '-1', 'nan', 'inf'):
             with self.subTest(clip=clip), patch('sys.argv', ['train', '--data', '/missing', '--out', '/missing', '--grad-clip', clip]):
+                with self.assertRaises(SystemExit): main()
+
+
+class LossWeights(unittest.TestCase):
+    def test_weighted_gradients_raw_metrics(self):
+        class Net(torch.nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.value = torch.nn.Parameter(torch.tensor(1000.))
+                self.policy = torch.nn.Parameter(torch.tensor(0.))
+            def forward(self, *inputs):
+                return self.value.expand(2), torch.stack((self.policy, -self.policy)).expand(2, 2)
+        batch = ({name: torch.zeros(2, 1) for name in NAMES}, torch.zeros(2),
+                 torch.tensor([[0., 1.], [0., 1.]]), torch.ones(2, dtype=torch.bool),
+                 torch.full((2,), float('nan')))
+        data = SimpleNamespace(batches=lambda size, rng: iter([batch]))
+        baseline = None
+        for vw, pw in ((1., 1.), (0., 1.), (1., 0.), (2., .5)):
+            with self.subTest(value_weight=vw, policy_weight=pw):
+                net = Net(); optimizer = torch.optim.SGD(net.parameters(), lr=1)
+                args = SimpleNamespace(batch=2, device='cpu', policy_temp=1., value_mix=1.,
+                    teacher_root_mix=1., value_weight=vw, policy_weight=pw, grad_clip=None)
+                stats = run_epoch(net, data, args, optimizer)
+                self.assertAlmostEqual(net.value.grad.item(), .2*vw, places=6)
+                self.assertAlmostEqual(net.policy.grad.item(), pw, places=6)
+                if baseline is None: baseline = stats
+                self.assertEqual(stats, baseline)  # All metrics stay raw, not scaled by weights.
+    def test_invalid_weights_rejected_before_data_read(self):
+        for flags in (['--value-weight','-1'], ['--policy-weight','nan'], ['--value-weight','inf'],
+                      ['--value-weight','0','--policy-weight','0']):
+            with self.subTest(flags=flags), patch('sys.argv', ['train','--data','/missing','--out','/missing',*flags]):
                 with self.assertRaises(SystemExit): main()
 
 

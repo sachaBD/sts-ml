@@ -4,6 +4,7 @@ Validation membership is a stable hash of run seed, shared across datasets/itera
 value: 100 × won (scaled MSE). These losses are diagnostics, not a replacement for held-out play evaluation.
 Per epoch it logs train/val losses and maximum absolute raw value prediction (win-score units),
 and val top-1 agreement with the search's most-visited move. Gradient norm clipping is opt-in.
+Loss weights affect optimization and checkpoint selection, not raw logged losses; defaults are both 1.
 """
 import argparse
 import json
@@ -59,7 +60,7 @@ def run_epoch(net, data, a, optimizer=None, rng=None):
         with torch.set_grad_enabled(optimizer is not None):
             value, policy, hits, n, n_policy = evaluate(
                 net, batch, a.device, a.policy_temp, a.value_mix, a.teacher_root_mix, prediction_stats)
-            loss = value / n + policy / max(n_policy, 1)
+            loss = a.value_weight * (value / n) + a.policy_weight * (policy / max(n_policy, 1))
             if not torch.isfinite(loss): raise ValueError('non-finite training loss')
             if optimizer:
                 optimizer.zero_grad(); loss.backward()
@@ -87,11 +88,17 @@ def main():
                    help='mix·100·won + (1-mix)·PV search root clamped to [0,100]; no-root rows keep outcome')
     p.add_argument('--teacher-root-mix', type=float, default=1.0,
                    help='must remain 1: old HP-unit teacher root mixing is unsupported under the win-only contract')
+    p.add_argument('--policy-weight', type=float, default=1.0, help='policy loss weight; raw logged losses unchanged')
+    p.add_argument('--value-weight', type=float, default=1.0, help='value loss weight; raw logged losses unchanged')
     p.add_argument('--grad-clip', type=float, default=None, help='clip total parameter gradient norm to G; default off')
     p.add_argument('--lr', type=float, default=1e-3)
     p.add_argument('--weight-decay', type=float, default=0.01)
     p.add_argument('--stream', action='store_true', help='re-read one shard at a time per epoch instead of holding all in RAM')
     a = p.parse_args()
+    if any(not math.isfinite(w) or w < 0 for w in (a.policy_weight, a.value_weight)):
+        p.error('policy-weight and value-weight must be finite and nonnegative')
+    if a.policy_weight == 0 and a.value_weight == 0:
+        p.error('at least one loss weight must be positive')
     if a.grad_clip is not None and (not math.isfinite(a.grad_clip) or a.grad_clip <= 0):
         p.error('grad-clip must be finite and positive')
     if not 0 <= a.value_mix <= 1:
@@ -116,7 +123,7 @@ def main():
         net.train(); tr = run_epoch(net, train, a, optimizer, rng)
         net.eval(); va = run_epoch(net, val, a)
         print(json.dumps({'epoch': epoch, 'train': tr, 'val': va}), flush=True)
-        score = va['value_loss'] + va['policy_loss']
+        score = a.value_weight * va['value_loss'] + a.policy_weight * va['policy_loss']
         if score < best:
             best = score
             torch.save({'contract': CONTRACT, 'width': net.width, 'state_dict': net.state_dict()}, a.out / 'model.pt')
