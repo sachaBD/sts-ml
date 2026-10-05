@@ -27,7 +27,7 @@ entry-point reference.
 | `run_rl` | Research loop for real-run card-choice RL | `loop.py` |
 | `topology_report` | Offline selected-overworld architecture and interaction visualizations | `python -m apps.topology_report.generate` |
 | `export_save` | Export a stored fight as a Slay the Spire save | `export_save.py` |
-| `megacrit_dump` | List and pull a filtered slice of the public Mega Crit StS1 run-history dump | `megacrit_runs_v1` |
+| `megacrit_dump` | List and pull a filtered slice of the public Mega Crit StS1 run-history dump; rebuild Champ start states | `megacrit_runs_v1`, `megacrit_champ_v1` |
 | `common` | Shared launcher, configuration, worker, and replay support | library only |
 
 Experiment-specific configurations and analysis remain with their experiment in `experiments/`.
