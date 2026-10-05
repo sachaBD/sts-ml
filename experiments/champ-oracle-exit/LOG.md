@@ -85,3 +85,18 @@ tag c (it0: policy 20.3 / oracle800 25.9 / real2000 21.8; val v0.111 ce1.540 top
   (consistent with strategy fusion: each particle plans with its own known draws). Rejected as a real-play agent;
   bench2k PIMC arm skipped by rule.
 - J2 tag d launched (init c-r18, turn-search expert E64, targets, grad-clip 1.0, 9 rounds × 3000).
+| r01 | selfplay 1095/3000=0.365 cap0 26.6min | e0 val v0.051 ce1.213 top10.539 (train v0.022) | bench-policy 78/409=0.191 DF 40/87 noDF 38/322 0.01s/f cap0 | bench-oracle 186/409=0.455 DF 76/87 noDF 110/322 4.39s/f cap0 turns 0.93/p90 2 |
+| r02 | selfplay 1088/3000=0.363 cap0 26.0min | e0 val v0.056 ce1.207 top10.543 (train v0.019) | bench-policy 90/409=0.220 DF 51/87 noDF 39/322 0.01s/f cap0 | bench-oracle 199/409=0.487 DF 78/87 noDF 121/322 4.26s/f cap0 turns 0.91/p90 2 |
+| r03 | selfplay 1063/3000=0.354 cap0 26.4min | e0 val v0.053 ce1.198 top10.546 (train v0.019) | bench-policy 92/409=0.225 DF 53/87 noDF 39/322 0.01s/f cap0 | bench-oracle 186/409=0.455 DF 76/87 noDF 110/322 4.06s/f cap0 turns 0.92/p90 2 | bench-real 137/409=0.335 DF 63/87 noDF 74/322 8.06s/f cap0 turns 0.93/p90 2 |
+
+## 04:05 — tag d regressed; stopped at r03; diagnosis
+- Tag d (init c-r18 = 39.1% real): r03 real2000 33.5% (b/c 50/27, p=0.012); policy-only 26.4 → 19.1 (r01) → 22.5.
+  Turn-search oracle bench 45.5–48.7% (c-r18 per-action oracle 49.6%; c-r18 turn-search baseline being measured).
+- Data check (rows): c-r18 per-action policy targets entropy 1.29 (max share 0.45, 0% one-hot); tag d turn targets
+  entropy 0.74 (max share 0.67, **32% one-hot** — within-turn decisions along the played plan collapse to one path).
+  Root-value bias vs outcome: c-r18 +0.4; d-r01 +0.3; d-r03 +4.4 (max-backup optimism growing).
+  Volume: d-r01 trained on 134k rows vs tag c's ~660k-row window (forgetting risk).
+- Candidate causes: (P) sharp oracle-plan policy targets; (V) optimistic turn-search values; (N) small fresh window.
+- Diagnostic (all init c-r18, 1 epoch, value-mix 0.5, grad-clip 1.0; bench real2000 + policy-only on 409):
+  D1 c-r16..18 rows (control) · D2 d-r01..03 full · D3 d rows value-only · D4 d rows policy-only · D5 c-r16..18 + d-r01..03.
+  Reading: D3 ok & D4 bad → P; D4 ok & D3 bad → V; D2 bad & D5 ok → N.
