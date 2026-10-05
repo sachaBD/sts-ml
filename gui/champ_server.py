@@ -121,11 +121,62 @@ def wilson(k, n, z=1.96):
     return [max(0.0, c - h), min(1.0, c + h)]
 
 
+# Finished searches / playouts, keyed by state (base, patch, ops) then by query name, kept across restarts in
+# CACHE_FILE: a resumed or pasted link shows them again without recomputing. A failed query is not cached.
+CACHE_FILE = ROOT / "experiments/champ-web-viewer/cache.jsonl"
+CACHE, CACHE_LOCK = {}, threading.Lock()
+if CACHE_FILE.exists():
+    for line in CACHE_FILE.open():
+        r = json.loads(line)
+        CACHE.setdefault(r["state"], {})[r["name"]] = r["result"]
+
+
+def state_key(base, patch, ops):
+    return json.dumps([base, patch or {}, ops or []], sort_keys=True, separators=(",", ":"))
+
+
+def query_name(q):
+    kind, sims = q.get("query", "view"), int(q.get("sims", 20000))
+    if kind == "search":
+        return f"search sims={sims} salt={int(q.get('salt', 0))}"
+    if kind == "search_seeds":
+        return f"seeds k={max(1, min(int(q.get('k', 6)), 16))} sims={sims}"
+    if kind == "playout":
+        return f"playout n={min(int(q.get('n', 10)), 100)} sims={sims}"
+    return None
+
+
 def query(q):
-    req = battle(q)
     kind = q.get("query", "view")
     if kind in ("view", "pv"):
-        return FAST.ask(dict(req, query=kind))  # query_error (e.g. no PV on a finished fight) keeps the view
+        return FAST.ask(dict(battle(q), query=kind))  # query_error (e.g. no PV on a finished fight) keeps the view
+    state, name = state_key(q["base"], q.get("patch"), q.get("ops")), query_name(q)
+    with CACHE_LOCK:
+        hit = CACHE.get(state, {}).get(name)
+    if hit is not None:
+        return dict(hit, cached=True)
+    out = compute(q)
+    if name and "error" not in out:
+        with CACHE_LOCK:
+            CACHE.setdefault(state, {})[name] = out
+            with CACHE_FILE.open("a") as f:
+                f.write(json.dumps(dict(state=state, name=name, result=out)) + "\n")
+    return out
+
+
+def cached(q):
+    """Everything cached for this state, and for each child state reached by one of `children` (action bits)."""
+    ops = q.get("ops") or []
+    with CACHE_LOCK:
+        own = CACHE.get(state_key(q["base"], q.get("patch"), ops), {})
+        kids = {str(b): CACHE[k] for b in q.get("children", [])
+                if (k := state_key(q["base"], q.get("patch"), ops + [{"act": b}])) in CACHE}
+    return dict(own=own, children=kids)
+
+
+def compute(q):
+    req = battle(q)
+    kind = q.get("query", "view")
     sims = int(q.get("sims", 20000))
     if kind == "search":
         out = heavy(dict(req, query="search", sims=sims, salt=int(q.get("salt", 0))))
@@ -226,7 +277,7 @@ class Handler(SimpleHTTPRequestHandler):
         return super().do_GET()
 
     def do_POST(self):
-        routes = {"/api/champ/query": query, "/api/champ/record": record}
+        routes = {"/api/champ/query": query, "/api/champ/record": record, "/api/champ/cached": cached}
         if self.path not in routes:
             return self.send_error(404)
         q = json.loads(self.rfile.read(int(self.headers["Content-Length"])))

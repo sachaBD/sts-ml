@@ -8,7 +8,7 @@ const actionType = (bits) => bits >>> 29;
 let meta, deck, base, patch = {}, ops = [], undos = 0, view, pv, live = {}, teacherRec = null, replayK = null, pre;
 let seq = 0;  // drops stale responses
 const recorded = new Set();
-const seedRuns = {}, after = {};  // key() -> search reruns; key() + bits -> playouts after that move
+const seedRuns = {}, after = {}, here = {};  // here: key() -> playouts from this state  // key() -> search reruns; key() + bits -> playouts after that move
 const pct = (p, d = 1) => (100 * p).toFixed(d) + "%";
 const key = () => JSON.stringify([base, patch, ops]);
 
@@ -62,8 +62,34 @@ async function refresh() {
   if (out.error) { $("status").textContent = out.error; ops.pop(); return; }  // a rejected op is dropped
   view = out.view; pv = out.pv || null;
   render();
+  await loadCached();
+  if (my !== seq) return;
   if (view.kind === "done") recordIfBench();
   else if ($("autoTeacher").checked && !live[key()]) askTeacher();
+}
+
+// Searches / playouts the server already ran for this state and its one-move children (resume, pasted links).
+async function loadCached() {
+  const k = key();
+  const out = await post("api/champ/cached", { base, patch, ops, children: view.legal.map((l) => l.bits) });
+  if (k !== key() || out.error) return;
+  const pick = (res, prefix) => {  // prefer the current N / sims, else the largest cached run
+    const want = `${prefix} n=${$("nPlay").value} sims=${$("simsPlay").value}`;
+    if (res[want]) return res[want];
+    const all = Object.entries(res).filter(([name]) => name.startsWith(prefix)).map(([, r]) => r);
+    return all.sort((a, b) => b.n - a.n)[0];
+  };
+  const own = out.own;
+  if (own["search sims=20000 salt=0"] && !live[k]) live[k] = own["search sims=20000 salt=0"].search;
+  const seeds = Object.entries(own).find(([name]) => name.startsWith("seeds"));
+  if (seeds && !seedRuns[k]) seedRuns[k] = seeds[1].runs;
+  const p = pick(own, "playout");
+  if (p && !here[k]) here[k] = p;
+  for (const [bits, res] of Object.entries(out.children)) {
+    const r = pick(res, "playout");
+    if (r && !after[k + "|" + bits]) after[k + "|" + bits] = r;
+  }
+  render();
 }
 
 async function askTeacher() {
@@ -80,16 +106,18 @@ async function askTeacher() {
 async function playouts() {
   const n = +$("nPlay").value, sims = +$("simsPlay").value;
   const k = key();
-  $("playoutRes").textContent = "";
   spin(1, `${n} teacher playouts at ${sims} sims (2 cores)…`);
   const out = await post("api/champ/query", { base, patch, ops, query: "playout", n, sims });
   spin(-1);
   if (out.error) { $("status").textContent = out.error; return; }
-  if (k !== key()) return;
-  $("playoutRes").innerHTML = `teacher playouts: <b>${out.wins}/${out.n}</b> = ${pct(out.p_win, 0)}
+  here[k] = out;
+  if (k === key()) render();
+}
+function playoutHtml(out) {
+  return `teacher playouts: <b>${out.wins}/${out.n}</b> = ${pct(out.p_win, 0)}
     <br>95% CI ${pct(out.ci95[0], 0)}–${pct(out.ci95[1], 0)}` +
     (out.mean_hp_if_won !== null ? `<br>HP if won ${out.mean_hp_if_won.toFixed(1)}` : "") +
-    `<br><span class="hint">${out.sims} sims · ${out.wall_seconds.toFixed(0)} s</span>`;
+    `<br><span class="hint">${out.sims} sims · ${out.wall_seconds.toFixed(0)} s${out.cached ? " · cached" : ""}</span>`;
 }
 
 async function searchSeeds() {
@@ -190,6 +218,7 @@ function render() {
   const done = v.kind === "done";
   $("pwin").innerHTML = done ? `<span class="done-banner ${v.won ? "won" : "lost"}">${v.won ? "Won" : "Lost"}</span>` :
     pv ? pct(pv.value / 1, 1) : "–";
+  $("playoutRes").innerHTML = here[key()] ? playoutHtml(here[key()]) : "";
   // hand
   const ts = teacherStats();
   const total = ts ? Object.values(ts.moves).reduce((a, m) => a + m.visits, 0) : 0;
@@ -242,7 +271,7 @@ function render() {
     if (a.error) return `<span class="band">${a.error}</span>`;
     return `<b>${a.wins}/${a.n}</b> <span class="band">${pct(a.ci95[0], 0)}–${pct(a.ci95[1], 0)}</span>`;
   };
-  $("moves").innerHTML = `<tr><th>Move</th><th>PV prior</th><th>Teacher visits</th><th>Teacher Q</th><th>Seeds ×6 · picked</th><th>Playouts after</th><th></th></tr>` +
+  $("moves").innerHTML = `<tr><th>Move</th><th>PV prior</th><th>Teacher visits</th><th>Teacher Q</th><th>Seeds ×${runs ? runs.length : 6} · picked</th><th>Playouts after</th><th></th></tr>` +
     rows.map(({ l, pr, sh, q }) => `<tr class="${ts && ts.chosen === l.bits ? "chosen" : ""}">
       <td class="desc" title="${l.desc}">${moveLabel(l)}</td><td>${bar(pr, "pv")}</td><td>${bar(sh, "")}</td>
       <td class="band">${q === null ? "" : q.toFixed(3)}</td><td>${seedCell(l.bits)}</td><td>${afterCell(l.bits)}</td>
@@ -251,7 +280,7 @@ function render() {
   $("moves").querySelectorAll("button[data-bits]").forEach((b) => b.onclick = () => act(+b.dataset.bits));
   $("moves").querySelectorAll("button[data-after]").forEach((b) => b.onclick = () => playoutsAfter(+b.dataset.after));
   $("seeds").disabled = done;
-  history.replaceState(null, "", "#" + base + "|" + btoa(JSON.stringify({ patch, ops })));
+  saveUrl();
   // piles (draw grouped: order hidden)
   const group = (list) => {
     const m = new Map();
@@ -296,6 +325,43 @@ function renderEdit() {
     `<label>turn<input type="number" data-key="turn" value="${view.turn}"></label>`;
   $("editFields").querySelectorAll("[data-key]").forEach((el) => el.onchange = () =>
     edit({ set: { [el.dataset.key]: el.tagName === "SELECT" ? el.value : +el.value } }));
+}
+
+// ---------- page state in the URL: #<fight_id>|<base64 JSON> ----------
+
+function pageState() {
+  return { patch, ops, f: $("filter").value, e: $("editMode").checked ? 1 : 0, n: +$("nPlay").value,
+           s: +$("simsPlay").value, a: $("autoTeacher").checked ? 1 : 0, r: replayK, u: undos, m: $("moveTo").value };
+}
+function saveUrl() {
+  if (!base) return;
+  const enc = btoa(JSON.stringify(pageState())).replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/, "");
+  const url = "#" + base + "|" + enc;
+  if (location.hash !== url) history.replaceState(null, "", url);
+}
+function readUrl() {
+  const [fid, enc] = decodeURIComponent(location.hash.slice(1)).split("|");
+  if (!fid || !meta.fightById[fid]) return null;
+  let st = {};
+  if (enc) st = JSON.parse(atob(enc.replaceAll("-", "+").replaceAll("_", "/")));
+  return { fid, st };
+}
+// Restore controls first (they shape the first queries), then the battle.
+async function restoreUrl() {
+  const u = readUrl();
+  if (!u) return false;
+  const { fid, st } = u;
+  if (st.f) $("filter").value = st.f;
+  fillDecks();
+  if (![...$("deckSel").options].some((o) => o.value === meta.fightById[fid].source)) { $("filter").value = "all"; fillDecks(); }
+  $("deckSel").value = meta.fightById[fid].source; fillSeeds(); $("seedSel").value = fid;
+  if (st.e !== undefined) $("editMode").checked = !!st.e;
+  if (st.n) $("nPlay").value = st.n;
+  if (st.s) $("simsPlay").value = st.s;
+  if (st.a !== undefined) $("autoTeacher").checked = !!st.a;
+  if (st.m) $("moveTo").value = st.m;
+  await load(st);
+  return true;
 }
 
 // ---------- teacher replay ----------
@@ -396,7 +462,11 @@ async function load(restore) {
   patch = {}; ops = []; undos = 0; replayK = null; teacherRec = null;
   pre = { deck: structuredClone(deck.deck), relics: structuredClone(deck.relics), potions: [...deck.potions],
           hp: deck.hp, max_hp: deck.max_hp, seed: meta.fightById[base].seed };
-  if (restore) { patch = restore.patch || {}; ops = restore.ops || []; Object.assign(pre, patch); }
+  if (restore) {
+    patch = restore.patch || {}; ops = restore.ops || []; undos = restore.u || 0;
+    replayK = restore.r ?? null;
+    Object.assign(pre, patch);
+  }
   renderSetup();
   await refresh();
   teacherRec = await (await fetch(ROOT + "api/champ/teacher/" + base)).json();
@@ -421,7 +491,7 @@ async function load(restore) {
 
   $("filter").onchange = fillDecks;
   $("deckSel").onchange = fillSeeds;
-  $("load").onclick = load;
+  $("load").onclick = () => load();
   $("undo").onclick = () => {
     if (!ops.length) return;
     ops.pop(); undos++;
@@ -467,15 +537,9 @@ async function load(restore) {
 
   if (new URLSearchParams(location.search).has("edit")) $("editMode").checked = true;
   fillDecks();
-  const [hash, saved] = decodeURIComponent(location.hash.slice(1)).split("|");
-  if (hash && meta.fightById[hash]) {
-    const src = meta.fightById[hash].source;
-    $("filter").value = "all"; fillDecks();
-    $("deckSel").value = src; fillSeeds(); $("seedSel").value = hash;
-  }
   loadTally();
-  if (saved) {  // a shared link: restore the patch and ops before the first query
-    const st = JSON.parse(atob(saved));
-    await load(st);
-  } else load();
+  if (!(await restoreUrl())) await load();
+  // A pasted link in the same tab only changes the hash: restore it. (saveUrl uses replaceState: no event.)
+  window.addEventListener("hashchange", () => restoreUrl());
+  ["filter", "editMode", "nPlay", "simsPlay", "autoTeacher", "moveTo"].forEach((id) => $(id).addEventListener("change", saveUrl));
 })().catch((e) => { console.error(e); $("status").textContent = "failed to load: " + e; });
