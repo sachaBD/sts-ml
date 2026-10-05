@@ -100,3 +100,30 @@ tag c (it0: policy 20.3 / oracle800 25.9 / real2000 21.8; val v0.111 ce1.540 top
 - Diagnostic (all init c-r18, 1 epoch, value-mix 0.5, grad-clip 1.0; bench real2000 + policy-only on 409):
   D1 c-r16..18 rows (control) · D2 d-r01..03 full · D3 d rows value-only · D4 d rows policy-only · D5 c-r16..18 + d-r01..03.
   Reading: D3 ok & D4 bad → P; D4 ok & D3 bad → V; D2 bad & D5 ok → N.
+| r04 | selfplay 947/3000=0.316 cap0 26.5min | e0 val v0.058 ce1.178 top10.554 (train v0.019) | bench-policy 84/409=0.205 DF 49/87 noDF 35/322 0.01s/f cap0 | bench-oracle 193/409=0.472 DF 75/87 noDF 118/322 4.46s/f cap0 turns 0.99/p90 2 |
+| r05 | selfplay 999/3000=0.333 cap0 27.4min | e0 val v0.057 ce1.168 top10.555 (train v0.019) | bench-policy 103/409=0.252 DF 55/87 noDF 48/322 0.01s/f cap0 | bench-oracle 197/409=0.482 DF 79/87 noDF 118/322 4.25s/f cap0 turns 0.93/p90 2 |
+| r06 | selfplay 1066/3000=0.355 cap0 26.3min | e0 val v0.055 ce1.165 top10.556 (train v0.019) | bench-policy 83/409=0.203 DF 48/87 noDF 35/322 0.01s/f cap0 | bench-oracle 195/409=0.477 DF 79/87 noDF 116/322 4.35s/f cap0 turns 0.91/p90 2 | bench-real 142/409=0.347 DF 66/87 noDF 76/322 8.47s/f cap0 turns 0.92/p90 1 |
+| diag done 2026-10-05T06:31:42Z D1-D5 see message
+
+## 06:35 — diagnostic results (all init c-r18, 1 epoch; 409 bench; c-r18 real 39.1%)
+| model | rows | real2000 | b/c vs c-r18, p | policy-only |
+|---|---|---:|---|---:|
+| D1 | c-r16..18 (control) | 36.7% | 35/25, 0.25 | 25.7% |
+| D2 | d-r01..03 | 36.4% | 41/30, 0.24 | 25.2% |
+| D3 | d, value loss only | 31.1% | 54/21, <0.001 | 22.2% |
+| D4 | d, policy loss only | 27.6% | 65/18, <0.001 | 23.5% |
+| D5 | c + d mixed | **41.3%** | 23/32, 0.28 | 27.1% |
+- Turn-search rows are NOT intrinsically harmful: D2 ≈ D1 control. Tag d's regression is best explained by loop
+  dynamics: a fresh small window (134k rows at r01 vs ~660k) repeatedly retrained → drift/forgetting (cause N).
+- D3/D4 are confounded (shared trunk: training one head degrades the other) — design flaw on my part; they don't
+  separate P vs V. Not used for conclusions.
+- Retrain noise is material: D1 control moved −2.4 pp from the same init. Single-model 409-bench comparisons can't
+  resolve ~2 pp → move evaluation to bench2k (2045 fights).
+- D5 (mixed per-action + turn-search data) is the best real model so far (41.3%; teacher 41.8% on the 409 bench).
+- c-r18 turn-search E64 oracle 48.4% vs per-action oracle 49.6%: the r09-era turn-search edge at E64 is gone for r18.
+
+### Next (≈ 7 h left)
+1. bench2k status (9 workers, ~2 h): teacher (frozen t1, 20k), c-r18 real2000, D5 real2000 — paired.
+2. Tag e (~4 h): EXIT with turn-search self-play (E64, turn targets) training on [last 3 tag-e rounds + fixed anchor
+   c-r16..18 rows] (replicates D5 iteratively), init D5, 1 epoch, value-mix 0.5, grad-clip 1.0, 6 rounds × 3000;
+   real2000 on bench2k at r03 and r06. Stop if r03 is below D5 on bench2k (p<0.05) or r06 not above D5 by > 1 SE.
