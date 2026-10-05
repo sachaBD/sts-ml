@@ -224,3 +224,10 @@ endif()
 
 # Thin ONNX-backed policy/value combat agent.
 add_subdirectory(agents/combat/pv)
+
+# Champ viewer sandbox (gui/web/champ/): rebuild an edited Champ battle per request, PV priors, teacher search.
+if(TARGET pv_onnx)
+    add_executable(champ_session apps/champ_viewer/session.cpp)
+    target_link_libraries(champ_session PRIVATE pv_onnx)
+    target_compile_options(champ_session PRIVATE -Wall -Wextra -Wpedantic)
+endif()

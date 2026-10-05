@@ -1,0 +1,133 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Champ viewer</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Kreon:wght@400;600&display=swap">
+<link rel="stylesheet" href="../assets/style.css">
+<link rel="stylesheet" href="../assets/gui.css">
+<link rel="stylesheet" href="champ.css">
+</head>
+<body>
+<div class="page champ">
+  <div class="masthead">
+    <nav class="site-nav" aria-label="Site"><a href="../">STS model reports</a><span aria-current="page">Champ viewer</span></nav>
+    <h1>Champ viewer</h1>
+    <p>Ironclad A20 vs The Champ. Load a held-out bench deck, edit the board, and compare the PV network
+      (instant value and priors) with the teacher (guided-rollout MCTS, 20k sims, 8 particles) and its playouts.
+      Local only: needs <code>gui/champ_server.py</code>.</p>
+    <p class="caveat">PV value / priors come from a network trained on our agent's play and share its blind spots.
+      Playout win rates are teacher fights from this public state (hidden draw order resampled per playout).</p>
+  </div>
+
+  <div class="controls">
+    <label for="filter">Teacher wins</label>
+    <select id="filter">
+      <option value="all">all</option><option value="0" selected>0 / 5</option><option value="1-2">1–2 / 5</option>
+      <option value="3-4">3–4 / 5</option><option value="5">5 / 5</option>
+    </select>
+    <label for="deckSel">Deck</label><select id="deckSel" class="wide"></select>
+    <label for="seedSel">Seed</label><select id="seedSel"></select>
+    <button id="load">Load</button>
+    <span class="hint" id="tally"></span>
+  </div>
+
+  <details class="controls setup" id="setup">
+    <summary>Pre-battle setup <span class="hint">deck · relics · potions · HP · seed — applying restarts the fight</span></summary>
+    <div class="adder">
+      <label for="preHp">HP</label><input id="preHp" type="number" min="1" max="999">
+      <label for="preMax">Max</label><input id="preMax" type="number" min="1" max="999">
+      <label for="preSeed">Seed</label><input id="preSeed" type="number" class="seed">
+      <button id="applySetup">Apply &amp; restart</button>
+    </div>
+    <div class="relics" id="preRelics"></div>
+    <div class="adder">
+      <input id="relicIn" list="relicList" placeholder="add relic…"><button id="relicAdd">Add</button>
+      <input id="potIn" list="potList" placeholder="add potion…"><button id="potAdd">Add</button>
+    </div>
+    <p class="deck-head">Deck <span id="preSize"></span> <span class="hint">click: remove one · shift-click: toggle upgrade</span></p>
+    <div class="adder">
+      <input id="preCardIn" list="cardList" placeholder="add card…">
+      <label class="check"><input type="checkbox" id="preCardUp"> upgraded</label>
+      <button id="preCardAdd">Add</button>
+    </div>
+    <div class="deck" id="preDeck"></div>
+  </details>
+
+  <section class="board">
+    <div class="foe" id="champ"></div>
+    <div class="verdict">
+      <div class="pwin" id="pwin">–</div>
+      <div class="sub">PV net P(win)</div>
+      <div class="sub" id="playoutRes"></div>
+    </div>
+  </section>
+  <div class="player" id="player"></div>
+
+  <section>
+    <p class="deck-head">Hand <span class="hint" id="handHint">click a card to play it · badges: PV prior · teacher visit share</span></p>
+    <div class="hand" id="hand"></div>
+    <div class="adder actions">
+      <button id="endTurn">End turn</button>
+      <button id="undo">Undo</button>
+      <button id="restart">Restart</button>
+      <label class="check"><input type="checkbox" id="editMode"> edit board</label>
+      <span class="sep"></span>
+      <button id="askTeacher">Ask teacher</button>
+      <label class="check"><input type="checkbox" id="autoTeacher" checked> auto</label>
+      <span class="sep"></span>
+      <button id="playout">Playouts</button>
+      <label for="nPlay">N</label><input id="nPlay" type="number" min="1" max="100" value="10">
+      <label for="simsPlay">sims</label><input id="simsPlay" type="number" min="100" max="20000" step="100" value="20000">
+      <span class="spinner" id="spin" hidden></span>
+      <span class="hint" id="status"></span>
+    </div>
+  </section>
+
+  <section class="edit" id="editPanel" hidden>
+    <p class="deck-head">Edit board <span class="hint">values apply on change · clicking a card in any pile moves it to the target</span></p>
+    <div class="grid" id="editFields"></div>
+    <div class="adder">
+      <label for="moveTo">Card click moves to</label>
+      <select id="moveTo"><option>hand</option><option>draw</option><option>discard</option><option>exhaust</option><option value="remove">remove</option></select>
+      <input id="cardIn" list="cardList" placeholder="add card…">
+      <label class="check"><input type="checkbox" id="cardUp"> upgraded</label>
+      <button id="cardAdd">Add to target</button>
+    </div>
+  </section>
+
+  <section>
+    <p class="deck-head">Moves <span class="hint" id="teacherHint"></span></p>
+    <table class="tbl" id="moves"></table>
+  </section>
+
+  <section class="replay" id="replay" hidden>
+    <p class="deck-head">Teacher's fight on this seed <span class="hint" id="replayHint"></span></p>
+    <div class="adder">
+      <button id="repStart">start</button><button id="repPrev">◀</button><button id="repNext">▶</button><button id="repTurn">next turn ▶▶</button>
+      <span id="repPos" class="nums"></span>
+      <span class="hint">stepping replaces your moves with the teacher's; play any move to take over</span>
+    </div>
+  </section>
+
+  <section>
+    <p class="deck-head">Piles</p>
+    <div class="piles">
+      <div><p class="deck-head">Draw <span id="nDraw"></span> <span class="hint">order hidden</span></p><div class="deck small" id="draw"></div></div>
+      <div><p class="deck-head">Discard <span id="nDiscard"></span></p><div class="deck small" id="discard"></div></div>
+      <div><p class="deck-head">Exhaust <span id="nExhaust"></span></p><div class="deck small" id="exhaust"></div></div>
+    </div>
+  </section>
+
+  <footer>Sources: <code>gui/champ_server.py</code>, <code>apps/champ_viewer/session.cpp</code>; bench
+    <code>runs/schema=pv_starts_v1/id=champ-bench2k</code>, teacher <code>runs/schema=combat_v4/date=2026-10-05/id=champ-bench2k-teacher</code>.
+    Your finished, unedited bench fights are logged to <code>experiments/champ-web-viewer/user_fights.jsonl</code>.</footer>
+</div>
+<datalist id="cardList"></datalist>
+<datalist id="relicList"></datalist>
+<datalist id="potList"></datalist>
+<script src="../vis/data/cards.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

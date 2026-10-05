@@ -1,0 +1,51 @@
+.champ { max-width: 1000px; }
+.champ select.wide { max-width: 420px; }
+.champ input.seed { width: 140px; }
+.champ .setup summary { cursor: pointer; font-size: 13px; }
+.champ .setup[open] { display: block; }
+.champ .setup .adder:first-of-type { margin-top: 12px; }
+
+.board { display: grid; grid-template-columns: 1fr 220px; gap: 16px; align-items: stretch; }
+.board .foe { max-width: none; }
+.verdict { padding: 14px 16px; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; }
+
+.hand .card { cursor: pointer; }
+.hand .card.illegal { opacity: .45; cursor: default; }
+.hand .card:hover:not(.illegal) { border-color: var(--crimson); }
+.hand .card.best { box-shadow: 0 0 0 2px var(--ember); border-color: var(--ember); }
+.badges { display: flex; justify-content: space-between; gap: 4px; padding: 0 .45em .4em; font-size: .9em;
+  font-variant-numeric: tabular-nums; }
+.badges .pv { color: var(--skill); }
+.badges .tv { color: var(--ember); font-weight: 600; }
+
+.actions .sep { width: 1px; height: 22px; background: var(--line); margin: 0 4px; }
+.actions input[type=number] { width: 84px; }
+
+.spinner { width: 16px; height: 16px; border-radius: 50%; border: 2px solid var(--line);
+  border-top-color: var(--crimson); animation: spin .8s linear infinite; }
+.spinner[hidden] { display: none; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.edit { padding: 12px 14px; background: var(--surface); border: 1px dashed var(--ember); border-radius: 8px; }
+.edit .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 6px 14px; }
+.edit .grid label { display: flex; justify-content: space-between; align-items: center; gap: 6px; font-size: 12.5px; color: var(--muted); }
+.edit .grid input { width: 64px; }
+.edit .grid select { font-size: 12px; padding: 3px 4px; max-width: 150px; }
+.edit .grid h4 { grid-column: 1 / -1; margin: 6px 0 0; font: 600 13px Kreon, Georgia, serif; color: var(--crimson); }
+
+.piles { display: grid; grid-template-columns: 2fr 1fr 1fr; gap: 16px; }
+.deck.small .card { --w: 76px; font-size: calc(var(--w) / 10); }
+.deck.small .card .name { padding: .3em .35em .35em; }
+.editing .card { cursor: pointer; }
+.editing .deck .card:hover, .editing .hand .card:hover { border-color: var(--ember); }
+
+.tbl td.desc { font-size: 12.5px; }
+.tbl tr.chosen td { background: var(--ember-wash); }
+.tbl .shr { display: inline-block; height: 7px; background: var(--ember); border-radius: 3px; vertical-align: middle; margin-right: 6px; }
+.tbl .shr.pv { background: var(--skill); }
+.potion.use { cursor: pointer; }
+.potion.use:hover { background: var(--ember-wash); }
+.done-banner { font: 600 18px Kreon, Georgia, serif; }
+.done-banner.won { color: var(--ember); }
+.done-banner.lost { color: var(--crimson); }
+@media (max-width: 720px) { .board, .piles { grid-template-columns: 1fr; } }
