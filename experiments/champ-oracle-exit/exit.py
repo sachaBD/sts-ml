@@ -66,6 +66,9 @@ def main():
     p.add_argument('--sims', type=int, required=True)
     p.add_argument('--workers', type=int, default=9)
     p.add_argument('--real-every', type=int, default=1, help='run real bench and compare every K rounds')
+    p.add_argument('--extra-rows', type=Path, nargs='+', default=[], help='fixed anchor shards appended to every training window')
+    p.add_argument('--real-starts', type=Path, default=BENCH, help='real bench starts only; oracle/policy retain the 409 bench')
+    p.add_argument('--real-baseline', type=Path, default=TEACHER, help='baseline directory for real bench comparison')
     p.add_argument('--train-args', default='--epochs 2')
     p.add_argument('--selfplay-flags', default='', help='shlex-split extra flags for oracle self-play')
     p.add_argument('--oracle-bench-flags', default='', help='shlex-split extra flags for oracle bench')
@@ -95,6 +98,9 @@ def main():
         p.error('real-every must be positive')
     if a.n > 1_000_000:
         p.error('n exceeds the per-iteration seed block')
+    a.extra_rows = [path.resolve() for path in a.extra_rows]
+    if any(not path.is_file() for path in a.extra_rows):
+        p.error(f'extra rows missing or not files: {[str(path) for path in a.extra_rows if not path.is_file()]}')
     base = ROOT / f'runs/schema=combat_v4/date={a.date}'
     run_for = lambda r: base / f'id=champ-ox-{a.tag}-r{r:02d}'
     # One immutable snapshot per driver launch, shared by its sequential stages.
@@ -127,15 +133,15 @@ def main():
         rows = [run_for(k) / 'rows/rows.parquet' for k in range(max(1, r - 2), r + 1)]
         if not all(path.exists() for path in rows):
             raise RuntimeError(f'replay window missing rows: {rows}')
-        stage(run, 'train', [PY, '-m', 'agents.combat.pv.train', '--data', *rows, '--out', run / 'model',
+        stage(run, 'train', [PY, '-m', 'agents.combat.pv.train', '--data', *rows, *a.extra_rows, '--out', run / 'model',
                             '--init', model / 'model.pt', '--device', 'cuda', '--stream', *shlex.split(a.train_args)])
         model = run / 'model'
         play('bench-oracle', BENCH, a.sims, ['--oracle', *oracle_bench_flags])
         if r % a.real_every == 0:
-            play('bench-real', BENCH, 2000, real_flags)
+            play('bench-real', a.real_starts, 2000, real_flags)
         play('bench-policy', BENCH, 1, ['--policy-only'])
         if r % a.real_every == 0:
-            stage(run, 'compare', [PY, 'apps/pv/compare.py', TEACHER, run / 'bench-real'])
+            stage(run, 'compare', [PY, 'apps/pv/compare.py', a.real_baseline, run / 'bench-real'])
 
 
 if __name__ == '__main__':
