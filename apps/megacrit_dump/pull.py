@@ -86,6 +86,18 @@ def process(data: bytes, file_id: str, name: str, character: str, ascension: int
     return rows, seen
 
 
+def exclude_done(table: pa.Table, runs: list[str]) -> pa.Table:
+    """Drop listed files that earlier pull runs already processed (their out/done/ file_ids)."""
+    import pyarrow.compute as pc
+    done = set()
+    for r in runs:
+        r = Path(r)
+        d = r / "out" / "done" if (r / "out" / "done").is_dir() else r / "done"
+        for p in d.glob("part-*.parquet"):
+            done.update(pq.read_table(p, columns=["file_id"]).column(0).to_pylist())
+    return table.filter(pc.invert(pc.is_in(table["file_id"], value_set=pa.array(sorted(done), pa.string()))))
+
+
 def choose_files(table: pa.Table, n: int | None) -> list[dict]:
     """Deterministic: n targets evenly spaced in time across [first, last]; nearest unused file to each."""
     rows = [r for r in table.to_pylist() if r["timestamp"] is not None]
@@ -214,11 +226,19 @@ def main():
     ap.add_argument("--files", required=True)
     ap.add_argument("--out", required=True)
     ap.add_argument("--n-files", type=int, default=None)
+    ap.add_argument("--folder-prefix", default="", help="only files whose folder_path starts with this (e.g. Monthly_2020)")
+    ap.add_argument("--exclude-runs", nargs="*", default=[],
+                    help="earlier pull run dirs (or their out/): skip files already processed there (out/done/)")
     ap.add_argument("--workers", type=int, default=4)
     ap.add_argument("--filter-character", default="IRONCLAD")
     ap.add_argument("--filter-ascension", type=int, default=20)
     a = ap.parse_args()
-    files = choose_files(pq.read_table(a.files), a.n_files)
+    table = pq.read_table(a.files)
+    if a.folder_prefix:
+        import pyarrow.compute as pc
+        table = table.filter(pc.starts_with(table["folder_path"], a.folder_prefix))
+    table = exclude_done(table, a.exclude_runs)
+    files = choose_files(table, a.n_files)
     s = run(files, Path(a.out), a.filter_character, a.filter_ascension, max(1, min(a.workers, 4)))
     print(json.dumps(s, indent=2))
     sys.exit(3 if s["throttled"] else 0)

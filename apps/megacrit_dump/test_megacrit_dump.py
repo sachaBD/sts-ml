@@ -105,6 +105,17 @@ class T(unittest.TestCase):
         self.assertEqual((a[0]["file_id"], a[-1]["file_id"]), ("0", "99"))
         self.assertEqual(len({r["file_id"] for r in a}), 10)
 
+    def test_exclude_done(self):
+        t = pa.Table.from_pylist([{"file_id": str(i), "name": str(i), "folder_path": "",
+                                   "timestamp": dt.datetime(2020, 1, 1 + i)} for i in range(5)], schema=load().FILES)
+        with tempfile.TemporaryDirectory() as d:
+            (Path(d) / "out" / "done").mkdir(parents=True)
+            pq.write_table(pa.Table.from_pylist([{"file_id": "1", "runs_seen": 0, "runs_kept": 0, "kept_reached_champ": 0,
+                                                  "kept_champ_won": 0, "bytes": 0}], schema=load().DONE),
+                           Path(d) / "out" / "done" / "part-00000.parquet")
+            self.assertEqual(pull.exclude_done(t, [d])["file_id"].to_pylist(), ["0", "2", "3", "4"])
+            self.assertEqual(pull.exclude_done(t, [])["file_id"].to_pylist(), ["0", "1", "2", "3", "4"])
+
     def test_listing_parse_and_crawl(self):
         def entry(i, name, folder):
             href = f"https://drive.google.com/drive/folders/{i}" if folder else f"https://drive.google.com/file/d/{i}/view"
