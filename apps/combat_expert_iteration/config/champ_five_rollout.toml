@@ -1,0 +1,65 @@
+# ./apps/combat_expert_iteration/run.sh apps/combat_expert_iteration/config/champ_five_rollout.toml
+# Rollout-guided expert iteration, ONE network trained jointly on five Champ fights.
+# Budgets as the finished champ-both-rollout-v1 run, except 10 updates (not 5) and monitoring 50 fights/deck after EVERY update,
+# so the learning curve (and any plateau) is visible. Estimated ~6-6.5 h on 10 workers (rough; replay and training time grow each update).
+[run]
+id = "champ-five-rollout-v1"
+worker_run = "combat_v4/2026-10-05/human-combat-r01"   # its out/frozen/pv_worker (sha256 58c5c4ab...), as both recipes
+workers = 10
+device = "cuda"
+
+# Fight counts are PER DECK.
+teacher_sims = 20000     # MCTS teacher: bootstrap fights and monitor reference
+bootstrap_fights = 300
+bootstrap_epochs = 10
+bootstrap_lr = 0.001
+monitor_fights = 50     # never trained on
+
+updates = 10
+batch_fights = 200       # new network+search fights per update
+sims = 2000
+rollout_mix = 0.5        # search leaf = (1 - mix) network value + mix guided rollout; 0 = network-only recipe
+explore = true           # root noise while collecting (network-only recipe setting; Phase5 collected greedily)
+sample_turns = true      # sample early-turn moves from visits while collecting
+epochs = 3
+lr = 0.0003
+replay_batches = 10      # train on the last N update batches
+teacher_taper = 20       # teacher fights per deck in replay: bootstrap_fights - teacher_taper * (update - 1)
+states_per_fight = 64
+width = 64
+eval_every = 1
+
+[[deck]]
+name = "barricade"       # Barricade+/Entrench+/Body Slam+ vs A20 Champ (network-only recipe: 595/600 vs MCTS20k 514/600)
+starts = "runs/schema=human_champ_bench_v1/date=2026-10-05/id=v1/out/starts.parquet"
+deck_id = "7a9ada48-a4d6-41fc-a85b-0147618df00a"
+hp = 41                  # checked against the stored start
+max_hp = 75
+
+[[deck]]
+name = "demon-form"      # Demon Form/Pyramid vs A20 Champ (rollout recipe, continued: 485/600 vs MCTS20k 441/600)
+starts = "runs/schema=combat_v4/date=2026-10-05/id=human-deck-corpus/splits/pool.parquet"
+deck_id = "249e5246-153d-4030-bc11-598774146147"
+hp = 34
+max_hp = 52
+
+[[deck]]
+name = "metallicize"     # 1676535e, "strength" in the sweep; really Metallicize x3/Rupture/J.A.X./Uppercut+ (sweep MCTS20k 10/20)
+starts = "runs/schema=combat_v4/date=2026-10-05/id=human-combat-r01/out/source/starts.parquet"
+deck_id = "1676535e-d19b-46ef-a715-3baab598dff6"
+hp = 75
+max_hp = 75
+
+[[deck]]
+name = "corruption"      # 5d626798, "exhaust" in the sweep; Corruption+, 2x Inflame+, Flex, Heavy Blade+, 5x Bite (sweep MCTS20k 8/20)
+starts = "runs/schema=combat_v4/date=2026-10-05/id=human-combat-r01/out/source/starts.parquet"
+deck_id = "5d626798-3013-43c7-9ee8-53f555bf1ead"
+hp = 37
+max_hp = 59
+
+[[deck]]
+name = "apparition"      # ca29d1e5, "mixed" in the sweep; 3x Apparition, Searing Blow+, Impervious, Offering (sweep MCTS20k 3/20)
+starts = "runs/schema=human_champ_bench_v1/date=2026-10-05/id=v1/out/starts.parquet"
+deck_id = "ca29d1e5-539f-412d-8ac0-0b1cc7ba58c9"
+hp = 27
+max_hp = 40

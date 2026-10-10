@@ -1,0 +1,43 @@
+# ./apps/combat_expert_iteration/run.sh apps/combat_expert_iteration/config/champ_both_rollout.toml
+# Rollout-guided expert iteration, ONE network trained jointly on both Champ fights (Barricade + Demon Form).
+# Same per-deck budgets as barricade_rollout.toml, so twice the fights; results are reported per deck.
+[run]
+id = "champ-both-rollout-v1"
+worker_run = "combat_v4/2026-10-05/human-combat-r01"   # its out/frozen/pv_worker (sha256 58c5c4ab...), as both recipes
+workers = 10
+device = "cuda"
+
+# Fight counts are PER DECK.
+teacher_sims = 20000     # MCTS teacher: bootstrap fights and monitor reference
+bootstrap_fights = 300
+bootstrap_epochs = 10
+bootstrap_lr = 0.001
+monitor_fights = 30     # never trained on
+
+updates = 5
+batch_fights = 200       # new network+search fights per update
+sims = 2000
+rollout_mix = 0.5        # search leaf = (1 - mix) network value + mix guided rollout; 0 = network-only recipe
+explore = true           # root noise while collecting (network-only recipe setting; Phase5 collected greedily)
+sample_turns = true      # sample early-turn moves from visits while collecting
+epochs = 3
+lr = 0.0003
+replay_batches = 10      # train on the last N update batches
+teacher_taper = 20       # teacher fights per deck in replay: bootstrap_fights - teacher_taper * (update - 1)
+states_per_fight = 64
+width = 64
+eval_every = 5
+
+[[deck]]
+name = "barricade"       # Barricade+/Entrench+/Body Slam+ vs A20 Champ (network-only recipe: 595/600 vs MCTS20k 514/600)
+starts = "runs/schema=human_champ_bench_v1/date=2026-10-05/id=v1/out/starts.parquet"
+deck_id = "7a9ada48-a4d6-41fc-a85b-0147618df00a"
+hp = 41                  # checked against the stored start
+max_hp = 75
+
+[[deck]]
+name = "demon-form"      # Demon Form/Pyramid vs A20 Champ (rollout recipe, continued: 485/600 vs MCTS20k 441/600)
+starts = "runs/schema=combat_v4/date=2026-10-05/id=human-deck-corpus/splits/pool.parquet"
+deck_id = "249e5246-153d-4030-bc11-598774146147"
+hp = 34
+max_hp = 52

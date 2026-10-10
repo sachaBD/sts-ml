@@ -24,10 +24,12 @@ entry-point reference.
 | `card_marginals` | Generate paired card-addition combat outcomes | `card_marginals_v1` |
 | `gauntlet` | Evaluate card rewards on downstream elite/boss fights | `gauntlet_v1` |
 | `card_search` | Prototype model-based card-pick search | `search.py` |
-| `run_rl` | Research loop for real-run card-choice RL | `loop.py` |
+| `run_rl` | Real-run overworld learning | `loop.py`, `play.py`, `train.py` |
+| `combat_expert_iteration` | Expert iteration on fixed combat starts (one or more decks, one network) and head-to-head tests | `run.sh`, `evaluate.sh`, `combat_v4`; dashboard `python -m apps.combat_expert_iteration.status` |
 | `topology_report` | Offline selected-overworld architecture and interaction visualizations | `python -m apps.topology_report.generate` |
 | `export_save` | Export a stored fight as a Slay the Spire save | `export_save.py` |
 | `megacrit_dump` | List and pull a filtered slice of the public Mega Crit StS1 run-history dump; rebuild Champ start states | `megacrit_runs_v1`, `megacrit_champ_v1` |
+| `human_champ` | One-off paired human-derived Champ benchmark: prepare, play, report | `human_champ_bench_v1`; `python -m apps.human_champ.bench` |
 | `common` | Shared launcher, configuration, worker, and replay support | library only |
 
 Experiment-specific configurations and analysis remain with their experiment in `experiments/`.

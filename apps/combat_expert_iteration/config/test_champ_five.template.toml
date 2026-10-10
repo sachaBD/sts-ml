@@ -1,0 +1,65 @@
+# TEMPLATE: experiments/multi-fight-champ-expert/overnight.sh replaces __TRAIN_OUT__ with the champ-five-rollout-v1
+# run's out/ dir and runs the result with evaluate.sh. Model fixed in advance: the LAST update (no checkpoint choice).
+# 300 fresh seeds per deck, all agents on the same starts. ~65 min on 10 workers (rough).
+[run]
+id = "champ-five-test-v1"
+worker_run = "combat_v4/2026-10-05/human-combat-r01"   # out/frozen/pv_worker, sha256 58c5c4ab...
+workers = 10
+fights = 300
+
+[[agent]]
+name = "five"            # champ-five-rollout-v1, update 10: one network for all five fights
+kind = "network"
+model = "__TRAIN_OUT__/update010/model"
+sims = 2000
+rollout_mix = 0.5
+decks = ["barricade", "demon-form", "metallicize", "corruption", "apparition"]
+
+[[agent]]
+name = "mcts"
+kind = "mcts"
+sims = 20000
+decks = ["barricade", "demon-form", "metallicize", "corruption", "apparition"]
+
+[[agent]]
+name = "two"             # champ-both-rollout-v1, update 5: did adding three fights cost the original two?
+kind = "network"
+model = "runs/schema=combat_v4/date=2026-10-08/id=champ-both-rollout-v1/out/update005/model"
+sims = 2000
+rollout_mix = 0.5
+decks = ["barricade", "demon-form"]
+
+[[deck]]
+name = "barricade"       # Barricade+/Entrench+/Body Slam+ vs A20 Champ (network-only recipe: 595/600 vs MCTS20k 514/600)
+starts = "runs/schema=human_champ_bench_v1/date=2026-10-05/id=v1/out/starts.parquet"
+deck_id = "7a9ada48-a4d6-41fc-a85b-0147618df00a"
+hp = 41                  # checked against the stored start
+max_hp = 75
+
+[[deck]]
+name = "demon-form"      # Demon Form/Pyramid vs A20 Champ (rollout recipe, continued: 485/600 vs MCTS20k 441/600)
+starts = "runs/schema=combat_v4/date=2026-10-05/id=human-deck-corpus/splits/pool.parquet"
+deck_id = "249e5246-153d-4030-bc11-598774146147"
+hp = 34
+max_hp = 52
+
+[[deck]]
+name = "metallicize"     # 1676535e, "strength" in the sweep; really Metallicize x3/Rupture/J.A.X./Uppercut+ (sweep MCTS20k 10/20)
+starts = "runs/schema=combat_v4/date=2026-10-05/id=human-combat-r01/out/source/starts.parquet"
+deck_id = "1676535e-d19b-46ef-a715-3baab598dff6"
+hp = 75
+max_hp = 75
+
+[[deck]]
+name = "corruption"      # 5d626798, "exhaust" in the sweep; Corruption+, 2x Inflame+, Flex, Heavy Blade+, 5x Bite (sweep MCTS20k 8/20)
+starts = "runs/schema=combat_v4/date=2026-10-05/id=human-combat-r01/out/source/starts.parquet"
+deck_id = "5d626798-3013-43c7-9ee8-53f555bf1ead"
+hp = 37
+max_hp = 59
+
+[[deck]]
+name = "apparition"      # ca29d1e5, "mixed" in the sweep; 3x Apparition, Searing Blow+, Impervious, Offering (sweep MCTS20k 3/20)
+starts = "runs/schema=human_champ_bench_v1/date=2026-10-05/id=v1/out/starts.parquet"
+deck_id = "ca29d1e5-539f-412d-8ac0-0b1cc7ba58c9"
+hp = 27
+max_hp = 40

@@ -1,0 +1,107 @@
+# TEMPLATE: experiments/multi-fight-champ-expert/overnight_ten.sh replaces __TRAIN_OUT__ with the champ-ten-rollout-v1
+# out/ dir. Model fixed in advance: the LAST update. 300 fresh seeds per deck, all agents on the same starts.
+# Rough estimate ~2.5 h on 10 workers. "five" (zero-shot transfer, never trained on these decks) runs last.
+[run]
+id = "champ-ten-test-v1"
+worker_run = "combat_v4/2026-10-05/human-combat-r01"   # out/frozen/pv_worker, sha256 58c5c4ab...
+workers = 10
+fights = 300
+
+[[agent]]
+name = "ten"             # champ-ten-rollout-v1, update 10
+kind = "network"
+model = "__TRAIN_OUT__/update010/model"
+sims = 2000
+rollout_mix = 0.5
+decks = ["apparition-block", "perfected-strike", "clash", "corruption-fnp", "fire-breathing", "limit-break-rage", "barricade-searing", "exhume-immolate", "demon-combust", "panache"]
+
+[[agent]]
+name = "mcts"
+kind = "mcts"
+sims = 20000
+decks = ["apparition-block", "perfected-strike", "clash", "corruption-fnp", "fire-breathing", "limit-break-rage", "barricade-searing", "exhume-immolate", "demon-combust", "panache"]
+
+[[agent]]
+name = "five"            # champ-five-rollout-v1 update 10: transfer to unseen decks
+kind = "network"
+model = "runs/schema=combat_v4/date=2026-10-08/id=champ-five-rollout-v1/out/update010/model"
+sims = 2000
+rollout_mix = 0.5
+decks = ["apparition-block", "perfected-strike", "clash", "corruption-fnp", "fire-breathing", "limit-break-rage", "barricade-searing", "exhume-immolate", "demon-combust", "panache"]
+
+# Ten NEW fights (none of the champ-five decks), MCTS20k 20% to 65% on 20-seed screens
+# (human-deck-library-v1 or hdc-screen-w1, as noted per deck). No 0% or >=90% decks.
+[[deck]]
+name = "apparition-block"   # 51a5aff9, 31 cards: 3x Apparition, Dark Embrace+, Reaper, Entrench (MCTS20k 13/20)
+starts = "runs/schema=combat_v4/date=2026-10-05/id=human-deck-corpus/splits/pool.parquet"
+deck_id = "51a5aff9-c3f6-496d-a2dd-b655cd9af6ff"
+hp = 27
+max_hp = 37
+
+[[deck]]
+name = "perfected-strike"   # 4f2c64a3: 4x Perfected Strike, Flex+, Offering (MCTS20k 6/20)
+starts = "runs/schema=combat_v4/date=2026-10-05/id=human-deck-corpus/splits/pool.parquet"
+deck_id = "4f2c64a3-f510-4ae6-9799-2f6c09a07b7c"
+hp = 56
+max_hp = 75
+
+[[deck]]
+name = "clash"              # 9308c94d: 3x Clash, 2x Twin Strike, Inflame+, Bludgeon (MCTS20k 5/20)
+starts = "runs/schema=combat_v4/date=2026-10-05/id=human-combat-r01/out/source/starts.parquet"
+deck_id = "9308c94d-6bad-4553-9de5-9163e86d7054"
+hp = 59
+max_hp = 89
+
+[[deck]]
+name = "corruption-fnp"     # 691c2b82: Corruption+, Feel No Pain, Limit Break, Whirlwind+ (MCTS20k 4/20)
+starts = "runs/schema=combat_v4/date=2026-10-05/id=human-deck-corpus/splits/pool.parquet"
+deck_id = "691c2b82-0250-4474-8ce3-6319a3d96f80"
+hp = 38
+max_hp = 82
+
+[[deck]]
+name = "fire-breathing"     # 35a58920, 12 cards: Fire Breathing+, Evolve+, Sword Boomerang, Flex (MCTS20k 4/20)
+starts = "runs/schema=combat_v4/date=2026-10-05/id=human-deck-corpus/splits/pool.parquet"
+deck_id = "35a58920-0e99-4632-978f-632c41e4fca5"
+hp = 48
+max_hp = 77
+
+[[deck]]
+name = "limit-break-rage"
+starts = "runs/schema=combat_v4/date=2026-10-05/id=human-deck-corpus/splits/pool.parquet"
+deck_id = "35084002-69c2-4c5b-92f3-aa937e521072"
+hp = 54
+max_hp = 75
+# 35084002: Limit Break+, Rage+, Rampage, Heavy Blade, Enlightenment+ (MCTS20k 7/20, hdc-screen-w1)
+
+[[deck]]
+name = "barricade-searing"
+starts = "runs/schema=combat_v4/date=2026-10-05/id=human-deck-corpus/splits/pool.parquet"
+deck_id = "879b437e-25ac-48cc-b37f-985061198ccc"
+hp = 44
+max_hp = 91
+# 879b437e, 12 cards: Barricade, Searing Blow+, Shrug It Off+, Second Wind (MCTS20k 8/20, hdc-screen-w1)
+
+[[deck]]
+name = "exhume-immolate"
+starts = "runs/schema=combat_v4/date=2026-10-05/id=human-deck-corpus/splits/pool.parquet"
+deck_id = "603cf664-714d-4be3-86be-9123054522ca"
+hp = 41
+max_hp = 109
+# 603cf664: Exhume+, Immolate+, Feed+, Hemokinesis, Disarm+ (MCTS20k 8/20, hdc-screen-w1)
+
+[[deck]]
+name = "demon-combust"
+starts = "runs/schema=combat_v4/date=2026-10-05/id=human-deck-corpus/splits/pool.parquet"
+deck_id = "168ec20d-9445-44e5-bac0-e0709ad9f6bf"
+hp = 62
+max_hp = 80
+# 168ec20d: Demon Form, Combust, Rupture, Flame Barrier, Searing Blow+ (MCTS20k 11/20, hdc-screen-w1)
+
+[[deck]]
+name = "panache"
+starts = "runs/schema=combat_v4/date=2026-10-05/id=human-deck-corpus/splits/pool.parquet"
+deck_id = "3a7d5ed7-694c-48f1-b3e7-a034bc883010"
+hp = 43
+max_hp = 95
+# 3a7d5ed7: Panache+, Dark Embrace+, 2x Battle Trance, Metallicize, Dark Shackles (MCTS20k 12/20, hdc-screen-w1)
