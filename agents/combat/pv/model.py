@@ -23,9 +23,12 @@ class TokenEncoder(nn.Module):
 
 
 class PolicyValue(nn.Module):
-    def __init__(self, width=64):
+    def __init__(self, width=64, value_activation='softplus'):
         super().__init__()
+        if value_activation not in ('softplus', 'sigmoid'):
+            raise ValueError('unknown value activation')
         self.width = width
+        self.value_activation = value_activation
         self.card = TokenEncoder(512, 17, width)
         self.monster = TokenEncoder(128, 28, width)
         self.potion = TokenEncoder(64, 18, width)
@@ -50,8 +53,10 @@ class PolicyValue(nn.Module):
                           self.card(a[..., 8:26]), self.monster(a[..., 26:55]),
                           self.potion(a[..., 55:74]), subset, a[..., 74:80]), -1)
         logits = self.policy(move).squeeze(-1).masked_fill(a[..., 260] == 0, -1e9)
-        # Unbounded, nonnegative 100 × win probability score. No root/leaf normalization or clipping.
-        return VALUE_SCALE * torch.nn.functional.softplus(self.value(h).squeeze(-1)), logits
+        raw_value = self.value(h).squeeze(-1)
+        # Existing checkpoints default to softplus. Fresh probability-head experiments opt into sigmoid.
+        value = torch.sigmoid(raw_value) if self.value_activation == 'sigmoid' else torch.nn.functional.softplus(raw_value)
+        return VALUE_SCALE * value, logits
 
     def export(self, example, path):
         """Export dynamic batch/token dimensions; all graph computation stays in PyTorch/ONNX."""
@@ -65,5 +70,6 @@ class PolicyValue(nn.Module):
         torch.onnx.export(self, tuple(example[n] for n in NAMES), str(path), dynamo=True,
                           input_names=list(NAMES), output_names=['value', 'policy_logits'], dynamic_shapes=dims)
         graph = onnx.load(path)
-        onnx.helper.set_model_props(graph, {'pv_contract': CONTRACT, 'width': str(self.width)})
+        onnx.helper.set_model_props(graph, {'pv_contract': CONTRACT, 'width': str(self.width),
+                                           'value_activation': self.value_activation})
         onnx.save(graph, path)

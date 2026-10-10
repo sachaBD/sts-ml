@@ -45,6 +45,52 @@ std::vector<sts::search::Action> legal_actions(const sts::BattleContext& state) 
     return moves;
 }
 
+HalvingSchedule halving_schedule(int max_num_considered_actions, std::int64_t num_simulations) {
+    // mctx 0.0.71 seq_halving.get_sequence_of_considered_visits, line for line; considered_count records the phase.
+    if (num_simulations < 1) throw std::invalid_argument{"PV: halving needs a positive budget"};
+    HalvingSchedule out;
+    if (max_num_considered_actions <= 1) {
+        for (std::int64_t i = 0; i < num_simulations; ++i) { out.considered_visit.push_back(i); out.considered_count.push_back(1); }
+        return out;
+    }
+    const int log2max = int(std::ceil(std::log2(double(max_num_considered_actions))));
+    std::vector<std::int64_t> visits(std::size_t(max_num_considered_actions), 0);
+    int num_considered = max_num_considered_actions;
+    while (std::int64_t(out.considered_visit.size()) < num_simulations) {
+        const auto extra = std::max<std::int64_t>(1, std::int64_t(double(num_simulations) / (double(log2max) * num_considered)));
+        for (std::int64_t r = 0; r < extra; ++r) {
+            for (int i = 0; i < num_considered; ++i) { out.considered_visit.push_back(visits[std::size_t(i)]); out.considered_count.push_back(num_considered); }
+            for (int i = 0; i < num_considered; ++i) ++visits[std::size_t(i)];
+        }
+        num_considered = std::max(2, num_considered / 2);
+    }
+    out.considered_visit.resize(std::size_t(num_simulations)); out.considered_count.resize(std::size_t(num_simulations));
+    return out;
+}
+
+std::vector<double> halving_completed_sigma(const std::vector<std::int64_t>& visits, const std::vector<double>& value_sums,
+                                            const std::vector<double>& priors, double raw_value,
+                                            const SearchSettings::RootHalving& h) {
+    const auto n = visits.size();
+    if (n == 0 || value_sums.size() != n || priors.size() != n) throw std::invalid_argument{"PV: halving sigma shape"};
+    std::int64_t total = 0, most = 0;
+    double probs_visited = 0;
+    for (std::size_t i = 0; i < n; ++i) {
+        total += visits[i]; most = std::max(most, visits[i]);
+        if (visits[i] > 0) probs_visited += std::max(priors[i], double(std::numeric_limits<float>::min()));  // mctx finfo(float32).tiny
+    }
+    double weighted = 0;  // mctx _compute_mixed_value
+    for (std::size_t i = 0; i < n; ++i)
+        if (visits[i] > 0) weighted += std::max(priors[i], double(std::numeric_limits<float>::min())) * (value_sums[i] / double(visits[i])) / probs_visited;
+    const double mixed = (raw_value + double(total) * weighted) / double(total + 1);
+    std::vector<double> q(n);
+    for (std::size_t i = 0; i < n; ++i) q[i] = visits[i] > 0 ? value_sums[i] / double(visits[i]) : mixed;
+    const double lo = *std::min_element(q.begin(), q.end()), hi = *std::max_element(q.begin(), q.end());
+    const double scale = (h.maxvisit_init + double(most)) * h.value_scale;
+    for (auto& v : q) v = scale * (v - lo) / std::max(hi - lo, 1e-8);
+    return q;
+}
+
 std::vector<double> policy_priors(const Prediction& prediction, std::size_t action_count) {
     validate_value(prediction.value);
     if (action_count == 0 || prediction.logits.size() != action_count) {

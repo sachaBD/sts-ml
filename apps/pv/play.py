@@ -43,6 +43,13 @@ PARTICLE_STATS = pa.schema([
     ('seconds', pa.float64()), ('mean_depth', pa.float64()), ('fallback_count', pa.int32()),
     ('time_fallback_count', pa.int32()), ('time_overshoot_count', pa.int32()), ('fallback_reasons', pa.list_(pa.string())),
     ('network_calls', pa.int64()), ('evaluated_states', pa.int64())])
+REAL_TURN_STATS = pa.schema([
+    ('fight_id', pa.string()), ('step', pa.int16()), ('turn', pa.int32()), ('particles', pa.int32()),
+    ('seconds', pa.float64()), ('sequences', pa.int64()), ('leaves', pa.int64()),
+    ('network_calls', pa.int64()), ('evaluated_states', pa.int64()), ('mean_leaf_depth', pa.float64()),
+    ('end_turn_fraction', pa.float64()), ('reveal_fraction', pa.float64()), ('terminal_fraction', pa.float64()),
+    ('end_turn_leaves', pa.int64()), ('reveal_leaves', pa.int64()), ('terminal_leaves', pa.int64()),
+    ('fallback', pa.bool_()), ('reason', pa.string()), ('time_overshoot', pa.bool_())])
 PART = 256  # fights per output part file; each part is complete and readable as soon as it is written
 
 
@@ -77,6 +84,7 @@ def main():
     p.add_argument('--sims', type=int, required=True)
     p.add_argument('--explore', action='store_true')
     p.add_argument('--oracle', action='store_true')
+    p.add_argument('--real-turn', action='store_true', help='eval-only lockstep one-turn expectimax')
     p.add_argument('--turn-targets', action='store_true', help='oracle turn-prefix training rows; requires E >= 2')
     p.add_argument('--particles', type=int, help='K belief particles for real turn search')
     p.add_argument('--turn-search', action='store_true', help='turn search: oracle macro or real PIMC; --sims is E')
@@ -88,17 +96,19 @@ def main():
     p.add_argument('--out', type=Path, required=True)
     p.add_argument('--worker', type=Path, default=WORKER)
     a = p.parse_args()
+    if a.real_turn and (a.agent != 'pv' or a.oracle or a.turn_search or a.turn_targets or a.explore or a.sample_turns or a.policy_only or a.rollout_mix):
+        p.error('--real-turn requires real evaluation-only settings without --turn-search')
     if a.turn_targets and (not a.turn_search or not a.oracle or a.sims < 2):
         p.error('--turn-targets requires --oracle --turn-search and E >= 2')
     if a.turn_search and (a.agent != 'pv' or a.policy_only or a.rollout_mix or ((a.explore or a.sample_turns) and not a.turn_targets)):
         p.error('--turn-search requires --agent pv and evaluation-only settings')
-    if a.particles is not None and (not a.turn_search or a.oracle or a.particles < 1):
+    if a.particles is not None and ((not a.turn_search and not a.real_turn) or a.oracle or a.particles < 1):
         p.error('--particles requires real --turn-search and K >= 1')
     if a.agent == 'pv':
         if not a.model: p.error('--agent pv needs --model')
         command = [str(a.worker), 'play', str(a.model), str(a.sims)] + ['--explore'] * a.explore + (['--c', str(a.c)] if a.c is not None else []) \
             + (['--rollout-mix', str(a.rollout_mix)] if a.rollout_mix is not None else []) \
-            + ['--oracle'] * a.oracle + ['--turn-search'] * a.turn_search + ['--turn-targets'] * a.turn_targets + (['--particles', str(a.particles)] if a.particles is not None else []) + ['--policy-only'] * a.policy_only + ['--sample-turns'] * a.sample_turns
+            + ['--real-turn'] * a.real_turn + ['--oracle'] * a.oracle + ['--turn-search'] * a.turn_search + ['--turn-targets'] * a.turn_targets + (['--particles', str(a.particles)] if a.particles is not None else []) + ['--policy-only'] * a.policy_only + ['--sample-turns'] * a.sample_turns
     else:
         if a.model or a.explore or a.oracle or a.policy_only or a.sample_turns or a.c is not None or a.rollout_mix is not None: p.error('--model, --explore, --c and --rollout-mix are for --agent pv')
         command = [str(a.worker), 'teacher', str(a.sims)]
@@ -110,6 +120,7 @@ def main():
     for t in threads: t.start()
     tables = {'fights': (v4.FIGHTS, []), 'search': (v4.SEARCH, []), 'decisions_stats': (STATS, [])}
     extra_stats = 'turn_stats' if a.oracle else 'particle_stats'
+    if a.real_turn: extra_stats = 'real_turn_stats'; tables[extra_stats] = (REAL_TURN_STATS, [])
     if a.turn_search: tables[extra_stats] = (TURN_STATS if a.oracle else PARTICLE_STATS, [])
     part = 0
 
@@ -127,13 +138,13 @@ def main():
         item = results.get()
         if item is None: alive -= 1; continue
         if isinstance(item, BaseException): raise item
-        summary['decision_seconds'] += sum(s['seconds'] for s in item[extra_stats if a.turn_search else 'stats'])
+        summary['decision_seconds'] += sum(s['seconds'] for s in item[extra_stats if a.turn_search or a.real_turn else 'stats'])
         if item['status'] == 'capped': summary['capped'] += 1; continue
         summary['fights'] += 1; summary['wins'] += item['fight']['won']
         tables['fights'][1].append(item['fight'])
         tables['search'][1].extend(item['search'])
         tables['decisions_stats'][1].extend(item['stats'])
-        if a.turn_search: tables[extra_stats][1].extend(item[extra_stats])
+        if a.turn_search or a.real_turn: tables[extra_stats][1].extend(item[extra_stats])
         if len(tables['fights'][1]) == PART: flush()
     flush()
     played = summary['fights'] + summary['capped']

@@ -4,7 +4,7 @@ if(NOT EXISTS "${PV_ORT_ROOT}/include/onnxruntime_cxx_api.h" OR NOT EXISTS "${PV
     message(STATUS "PV not built: run apps/pv/setup_runtime.sh for ONNX Runtime C++ support")
     return()
 endif()
-add_library(pv_onnx STATIC features.cpp evaluator.cpp search.cpp turn_search.cpp turn_pimc.cpp turn_targets.cpp)
+add_library(pv_onnx STATIC features.cpp evaluator.cpp search.cpp turn_search.cpp turn_pimc.cpp turn_targets.cpp real_turn.cpp)
 target_include_directories(pv_onnx SYSTEM PRIVATE "${PV_ORT_ROOT}/include")
 target_link_libraries(pv_onnx PUBLIC combat_core "${PV_ORT_ROOT}/lib/libonnxruntime.so.1")
 target_link_options(pv_onnx PUBLIC "-Wl,-rpath,${PV_ORT_ROOT}/lib")
@@ -40,3 +40,14 @@ add_executable(pv_turn_targets_test turn_targets_test.cpp)
 target_link_libraries(pv_turn_targets_test PRIVATE pv_onnx)
 target_compile_definitions(pv_turn_targets_test PRIVATE PV_FIXTURE="${CMAKE_CURRENT_SOURCE_DIR}/testdata/champ.json")
 add_test(NAME pv_turn_targets_test COMMAND pv_turn_targets_test)
+
+add_executable(pv_real_turn_test real_turn_test.cpp)
+target_link_libraries(pv_real_turn_test PRIVATE pv_onnx)
+target_compile_definitions(pv_real_turn_test PRIVATE PV_FIXTURE="${CMAKE_CURRENT_SOURCE_DIR}/testdata/champ.json")
+add_test(NAME pv_real_turn_test COMMAND pv_real_turn_test)
+
+add_executable(pv_root_halving_test root_halving_test.cpp)
+target_link_libraries(pv_root_halving_test PRIVATE pv_onnx)
+target_compile_definitions(pv_root_halving_test PRIVATE PV_FIXTURE="${CMAKE_CURRENT_SOURCE_DIR}/testdata/champ.json"
+                           PV_HALVING_FIXTURE="${CMAKE_CURRENT_SOURCE_DIR}/testdata/halving_fixture.json")
+add_test(NAME pv_root_halving_test COMMAND pv_root_halving_test)

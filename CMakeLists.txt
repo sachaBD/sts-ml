@@ -161,7 +161,7 @@ add_test(NAME run_rl_worker_test COMMAND run_rl_worker_test)
 # runs/schema=*/ output trees: only runs/test_*.py is source-level test code.
 set(STSRL_PYTHON "${CMAKE_CURRENT_SOURCE_DIR}/.venv/bin/python3" CACHE FILEPATH "Python interpreter for tests")
 file(GLOB_RECURSE python_test_files CONFIGURE_DEPENDS RELATIVE "${CMAKE_CURRENT_SOURCE_DIR}"
-    "agents/test_*.py" "environments/test_*.py" "models/test_*.py" "apps/test_*.py")
+    "agents/test_*.py" "environments/test_*.py" "models/test_*.py" "apps/test_*.py" "gui/test_*.py")
 file(GLOB run_test_files CONFIGURE_DEPENDS RELATIVE "${CMAKE_CURRENT_SOURCE_DIR}" "runs/test_*.py")
 list(APPEND python_test_files ${run_test_files})
 file(RELATIVE_PATH python_test_build_dir "${CMAKE_CURRENT_SOURCE_DIR}/build" "${CMAKE_CURRENT_BINARY_DIR}")

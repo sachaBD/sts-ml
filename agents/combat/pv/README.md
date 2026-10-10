@@ -73,6 +73,12 @@ invalid visits or unmatched recorded actions abort. Played actions are not subst
 Validation membership is SHA-256(run seed) modulo 10 = 0, so all fights/policy variants of a run stay together.
 This is a deterministic approximately 10% split, not a guarantee of exactly 10% on a small dataset.
 Both training and validation seeds must be present. Optional `--init previous/model.pt` starts a retraining round.
+Human-deck iteration instead passes `--split-manifest JSON` (`fight_id -> train/val`) assigned by source deck/family
+before descendant generation; missing IDs fail closed. Optional `--flat-policy-weighting` weights policy loss by
+`clamp((n * max(target) - 1)/(n - 1), 0, 1)` over legal actions (one-action rows get zero), before sharpening.
+It leaves outcome-value supervision unchanged and logs effective policy-state mass. This heuristic measures visit
+concentration, not calibrated search correctness. Existing defaults/checkpoint contracts are unchanged.
+See [`apps/run_rl/COMBAT.md`](../../../apps/run_rl/COMBAT.md) for the bounded controller.
 
 ## Play / next iteration
 

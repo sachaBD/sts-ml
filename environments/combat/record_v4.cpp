@@ -128,7 +128,14 @@ sts::BattleContext replay(const Json& start, const std::vector<std::uint32_t>& a
             throw std::runtime_error{"combat_v4 replay: invalid action " + std::to_string(i)};
         action.execute(bc);
     }
-    if (bc.outcome == sts::Outcome::UNDECIDED) throw std::runtime_error{"combat_v4 replay: fight did not end"};
+    if (bc.outcome == sts::Outcome::UNDECIDED) {
+        if (bc.turn >= 50 || actions.size() >= 512) {
+            bc.outcome = sts::Outcome::PLAYER_LOSS;
+            bc.player.curHp = 0;
+        } else {
+            throw std::runtime_error{"combat_v4 replay: fight did not end"};
+        }
+    }
     return bc;
 }
 
