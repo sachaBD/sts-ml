@@ -41,3 +41,4 @@ __pycache__/
 # Runtime workers and model artifacts are generated, including the active
 # run-rl deck while it remains outside experiments.
 /experiments/**/bin/
+/experiments/**/*.pid
