@@ -15,7 +15,10 @@ Experiment material (configs, scripts, plans, and reports) is kept under this di
 - **outcome-ui** — Last touched: 2026-10-01. Small win-rate UI for the pre-combat outcome model.
 - **reuse_probe** — Last touched: 2026-10-01. C++ probes for reuse behavior and performance.
 - **run-rl-v4** — Last touched: 2026-10-01. Two-round real-run RL experiment with every run decision made by the value network.
+- **single-deck-expert-iteration** — Uncommitted planning, 2026-10-05. Fixed human-derived Champ loadout; HP/seed variation, teacher bootstrap, repeated search-guided learning, and paired learning curves.
+- **human-deck-corpus** — Uncommitted, 2026-10-06. Joint multi-deck expert iteration over human Champ decks; reproduced on A, plateaued on hard decks. See HANDOFF.md.
 - **slime-v6** — Last touched: 2026-10-01. Slime Boss A20 bootstrap, initial model, and DAgger iterations.
 - **slime-v7** — Last touched: 2026-10-01. Fair-search limits assessed before expert iteration on Slime Boss.
 - **slime-v8** — Last touched: 2026-10-01. Slime Boss self-play / rollout-teacher iteration.
 - **topology-sweep** — Last touched: 2026-10-01. Outcome-model topology sweep.
+- **multi-fight-champ-expert** — Uncommitted work, 2026-10-08. One rollout-guided expert-iteration network for several fixed A20 Champ fights (`apps/combat_expert_iteration`); 2-fight model beats MCTS20k on both, matches the specialists.

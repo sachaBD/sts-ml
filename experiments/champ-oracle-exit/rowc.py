@@ -1,6 +1,6 @@
-import sys,json,duckdb,numpy as np
+import os,sys,json,duckdb,numpy as np
 r=int(sys.argv[1]); tag=sys.argv[2] if len(sys.argv)>2 else 'c'
-R=f'runs/schema=combat_v4/date=2026-10-04/id=champ-ox-{tag}-r{r:02d}/'
+R='runs/schema=combat_v4/date=%s/id=champ-ox-%s-r%02d/'%(os.environ.get('DATE','2026-10-04'),tag,r)
 c=duckdb.connect(); c.execute("set memory_limit='2GB'; set threads=2")
 def S(p): return json.load(open(R+p+'/summary.json'))
 sp=S('play'); out={'sp':f"{sp['wins']}/{sp['fights']}={sp['wins']/sp['fights']:.3f} cap{sp['capped']} {sp['wall_seconds']/60:.1f}min"}

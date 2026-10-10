@@ -95,3 +95,150 @@ Turns histograms measure player END_TURN crossings per simulation; p90 is not p9
 2026-10-04T16:00:12Z DONE id=champ-ox-c-r09 bench-policy log=/home/sborowsk/project/sts_combat_rl/runs/schema=combat_v4/date=2026-10-04/id=champ-ox-c-r09/bench-policy.log
 2026-10-04T16:00:12Z DONE id=champ-ox-c-r09 compare log=/home/sborowsk/project/sts_combat_rl/runs/schema=combat_v4/date=2026-10-04/id=champ-ox-c-r09/compare.log
 2026-10-04T16:00:30Z DONE exit tag=c 9 rounds
+2026-10-04T16:33:45Z LAUNCH exit tag=c r10-r18 n=6000 sims=800 workers=8 epochs=1 value-mix=0.5 real-every=3 commit=9c81956 worker=ox-e902f9a pid=228686 log=experiments/champ-oracle-exit/exit-c.log
+2026-10-04T16:33:50Z DONE id=champ-ox-c-r10 starts log=/home/sborowsk/project/sts_combat_rl/runs/schema=combat_v4/date=2026-10-04/id=champ-ox-c-r10/starts.log
+2026-10-04T17:17:25Z DONE id=champ-ox-c-r10 play log=/home/sborowsk/project/sts_combat_rl/runs/schema=combat_v4/date=2026-10-04/id=champ-ox-c-r10/play.log
+2026-10-04T17:17:49Z DONE id=champ-ox-c-r10 encode log=/home/sborowsk/project/sts_combat_rl/runs/schema=combat_v4/date=2026-10-04/id=champ-ox-c-r10/encode.log
+2026-10-04T17:23:53Z DONE id=champ-ox-c-r10 train log=/home/sborowsk/project/sts_combat_rl/runs/schema=combat_v4/date=2026-10-04/id=champ-ox-c-r10/train.log
+2026-10-04T17:28:30Z DONE id=champ-ox-c-r10 bench-oracle log=/home/sborowsk/project/sts_combat_rl/runs/schema=combat_v4/date=2026-10-04/id=champ-ox-c-r10/bench-oracle.log
+2026-10-04T17:28:30Z DONE id=champ-ox-c-r10 bench-policy log=/home/sborowsk/project/sts_combat_rl/runs/schema=combat_v4/date=2026-10-04/id=champ-ox-c-r10/bench-policy.log
+2026-10-04T17:28:34Z DONE id=champ-ox-c-r11 starts log=/home/sborowsk/project/sts_combat_rl/runs/schema=combat_v4/date=2026-10-04/id=champ-ox-c-r11/starts.log
+2026-10-04T17:54:12Z FAIL id=champ-ox-c-r11 play exit=1 log=/home/sborowsk/project/sts_combat_rl/runs/schema=combat_v4/date=2026-10-04/id=champ-ox-c-r11/play.log
+2026-10-04T18:57:51Z LAUNCH exit tag=c RESUME r11-r18 worker CHANGED e902f9a->ox-426c5f5 (sts_lightspeed 648229b fixes stale-task discard recovery/replay divergence behind r11 'invalid action 4'; combat_rl 426c5f5); r11 partial play moved to play-crashed-e902f9a; pid=298373 log=experiments/champ-oracle-exit/exit-c.log
+2026-10-04T19:43:45Z DONE id=champ-ox-c-r11 play log=/home/sborowsk/project/sts_combat_rl/runs/schema=combat_v4/date=2026-10-04/id=champ-ox-c-r11/play.log
+2026-10-04T19:44:09Z DONE id=champ-ox-c-r11 encode log=/home/sborowsk/project/sts_combat_rl/runs/schema=combat_v4/date=2026-10-04/id=champ-ox-c-r11/encode.log
+2026-10-04T19:51:20Z DONE id=champ-ox-c-r11 train log=/home/sborowsk/project/sts_combat_rl/runs/schema=combat_v4/date=2026-10-04/id=champ-ox-c-r11/train.log
+2026-10-04T19:55:39Z DONE id=champ-ox-c-r11 bench-oracle log=/home/sborowsk/project/sts_combat_rl/runs/schema=combat_v4/date=2026-10-04/id=champ-ox-c-r11/bench-oracle.log
+2026-10-04T19:55:40Z DONE id=champ-ox-c-r11 bench-policy log=/home/sborowsk/project/sts_combat_rl/runs/schema=combat_v4/date=2026-10-04/id=champ-ox-c-r11/bench-policy.log
+2026-10-04T19:55:43Z DONE id=champ-ox-c-r12 starts log=/home/sborowsk/project/sts_combat_rl/runs/schema=combat_v4/date=2026-10-04/id=champ-ox-c-r12/starts.log
+2026-10-04T20:42:37Z DONE id=champ-ox-c-r12 play log=/home/sborowsk/project/sts_combat_rl/runs/schema=combat_v4/date=2026-10-04/id=champ-ox-c-r12/play.log
+2026-10-04T20:43:01Z DONE id=champ-ox-c-r12 encode log=/home/sborowsk/project/sts_combat_rl/runs/schema=combat_v4/date=2026-10-04/id=champ-ox-c-r12/encode.log
+2026-10-04T20:49:33Z DONE id=champ-ox-c-r12 train log=/home/sborowsk/project/sts_combat_rl/runs/schema=combat_v4/date=2026-10-04/id=champ-ox-c-r12/train.log
+2026-10-04T20:52:42Z DONE id=champ-ox-c-r12 bench-oracle log=/home/sborowsk/project/sts_combat_rl/runs/schema=combat_v4/date=2026-10-04/id=champ-ox-c-r12/bench-oracle.log
+2026-10-04T21:02:23Z DONE id=champ-ox-c-r12 bench-real log=/home/sborowsk/project/sts_combat_rl/runs/schema=combat_v4/date=2026-10-04/id=champ-ox-c-r12/bench-real.log
+2026-10-04T21:02:24Z DONE id=champ-ox-c-r12 bench-policy log=/home/sborowsk/project/sts_combat_rl/runs/schema=combat_v4/date=2026-10-04/id=champ-ox-c-r12/bench-policy.log
+2026-10-04T21:02:24Z DONE id=champ-ox-c-r12 compare log=/home/sborowsk/project/sts_combat_rl/runs/schema=combat_v4/date=2026-10-04/id=champ-ox-c-r12/compare.log
+2026-10-04T21:02:28Z DONE id=champ-ox-c-r13 starts log=/home/sborowsk/project/sts_combat_rl/runs/schema=combat_v4/date=2026-10-04/id=champ-ox-c-r13/starts.log
+2026-10-04T21:02:53Z LAUNCH turnbench baseline (1 worker, cpu11)
+2026-10-04T21:31:39Z DONE turnbench baseline rc=0
+2026-10-04T21:31:39Z LAUNCH turnbench ts64 (1 worker, cpu11)
+2026-10-04T21:48:46Z DONE id=champ-ox-c-r13 play log=/home/sborowsk/project/sts_combat_rl/runs/schema=combat_v4/date=2026-10-04/id=champ-ox-c-r13/play.log
+2026-10-04T21:49:08Z DONE id=champ-ox-c-r13 encode log=/home/sborowsk/project/sts_combat_rl/runs/schema=combat_v4/date=2026-10-04/id=champ-ox-c-r13/encode.log
+2026-10-04T21:58:04Z DONE id=champ-ox-c-r13 train log=/home/sborowsk/project/sts_combat_rl/runs/schema=combat_v4/date=2026-10-04/id=champ-ox-c-r13/train.log
+2026-10-04T22:02:51Z DONE id=champ-ox-c-r13 bench-oracle log=/home/sborowsk/project/sts_combat_rl/runs/schema=combat_v4/date=2026-10-04/id=champ-ox-c-r13/bench-oracle.log
+2026-10-04T22:02:52Z DONE id=champ-ox-c-r13 bench-policy log=/home/sborowsk/project/sts_combat_rl/runs/schema=combat_v4/date=2026-10-04/id=champ-ox-c-r13/bench-policy.log
+2026-10-04T22:02:56Z DONE id=champ-ox-c-r14 starts log=/home/sborowsk/project/sts_combat_rl/runs/schema=combat_v4/date=2026-10-04/id=champ-ox-c-r14/starts.log
+2026-10-04T22:03:43Z DONE turnbench ts64 rc=0
+2026-10-04T22:03:43Z LAUNCH turnbench ts16 (1 worker, cpu11)
+2026-10-04T22:21:44Z DONE turnbench ts16 rc=0
+2026-10-04T22:21:44Z LAUNCH turnbench ts256 (1 worker, cpu11)
+2026-10-04T22:47:32Z DONE id=champ-ox-c-r14 play log=/home/sborowsk/project/sts_combat_rl/runs/schema=combat_v4/date=2026-10-04/id=champ-ox-c-r14/play.log
+2026-10-04T22:47:51Z DONE id=champ-ox-c-r14 encode log=/home/sborowsk/project/sts_combat_rl/runs/schema=combat_v4/date=2026-10-04/id=champ-ox-c-r14/encode.log
+2026-10-04T22:51:46Z DONE id=champ-ox-c-r14 train log=/home/sborowsk/project/sts_combat_rl/runs/schema=combat_v4/date=2026-10-04/id=champ-ox-c-r14/train.log
+2026-10-04T22:54:51Z DONE id=champ-ox-c-r14 bench-oracle log=/home/sborowsk/project/sts_combat_rl/runs/schema=combat_v4/date=2026-10-04/id=champ-ox-c-r14/bench-oracle.log
+2026-10-04T22:54:52Z DONE id=champ-ox-c-r14 bench-policy log=/home/sborowsk/project/sts_combat_rl/runs/schema=combat_v4/date=2026-10-04/id=champ-ox-c-r14/bench-policy.log
+2026-10-04T22:54:58Z DONE id=champ-ox-c-r15 starts log=/home/sborowsk/project/sts_combat_rl/runs/schema=combat_v4/date=2026-10-04/id=champ-ox-c-r15/starts.log
+2026-10-04T23:32:26Z DONE id=champ-ox-c-r15 play log=/home/sborowsk/project/sts_combat_rl/runs/schema=combat_v4/date=2026-10-04/id=champ-ox-c-r15/play.log
+2026-10-04T23:32:47Z DONE id=champ-ox-c-r15 encode log=/home/sborowsk/project/sts_combat_rl/runs/schema=combat_v4/date=2026-10-04/id=champ-ox-c-r15/encode.log
+2026-10-04T23:34:54Z DONE turnbench ts256 rc=0
+2026-10-04T23:36:19Z DONE id=champ-ox-c-r15 train log=/home/sborowsk/project/sts_combat_rl/runs/schema=combat_v4/date=2026-10-04/id=champ-ox-c-r15/train.log
+2026-10-04T23:39:45Z DONE id=champ-ox-c-r15 bench-oracle log=/home/sborowsk/project/sts_combat_rl/runs/schema=combat_v4/date=2026-10-04/id=champ-ox-c-r15/bench-oracle.log
+2026-10-04T23:48:31Z DONE id=champ-ox-c-r15 bench-real log=/home/sborowsk/project/sts_combat_rl/runs/schema=combat_v4/date=2026-10-04/id=champ-ox-c-r15/bench-real.log
+2026-10-04T23:48:32Z DONE id=champ-ox-c-r15 bench-policy log=/home/sborowsk/project/sts_combat_rl/runs/schema=combat_v4/date=2026-10-04/id=champ-ox-c-r15/bench-policy.log
+2026-10-04T23:48:32Z DONE id=champ-ox-c-r15 compare log=/home/sborowsk/project/sts_combat_rl/runs/schema=combat_v4/date=2026-10-04/id=champ-ox-c-r15/compare.log
+2026-10-04T23:48:35Z DONE id=champ-ox-c-r16 starts log=/home/sborowsk/project/sts_combat_rl/runs/schema=combat_v4/date=2026-10-04/id=champ-ox-c-r16/starts.log
+2026-10-05T00:24:09Z DONE id=champ-ox-c-r16 play log=/home/sborowsk/project/sts_combat_rl/runs/schema=combat_v4/date=2026-10-04/id=champ-ox-c-r16/play.log
+2026-10-05T00:24:27Z DONE id=champ-ox-c-r16 encode log=/home/sborowsk/project/sts_combat_rl/runs/schema=combat_v4/date=2026-10-04/id=champ-ox-c-r16/encode.log
+2026-10-05T00:27:55Z DONE id=champ-ox-c-r16 train log=/home/sborowsk/project/sts_combat_rl/runs/schema=combat_v4/date=2026-10-04/id=champ-ox-c-r16/train.log
+2026-10-05T00:30:51Z DONE id=champ-ox-c-r16 bench-oracle log=/home/sborowsk/project/sts_combat_rl/runs/schema=combat_v4/date=2026-10-04/id=champ-ox-c-r16/bench-oracle.log
+2026-10-05T00:30:52Z DONE id=champ-ox-c-r16 bench-policy log=/home/sborowsk/project/sts_combat_rl/runs/schema=combat_v4/date=2026-10-04/id=champ-ox-c-r16/bench-policy.log
+2026-10-05T00:30:55Z DONE id=champ-ox-c-r17 starts log=/home/sborowsk/project/sts_combat_rl/runs/schema=combat_v4/date=2026-10-04/id=champ-ox-c-r17/starts.log
+2026-10-05T01:05:18Z DONE id=champ-ox-c-r17 play log=/home/sborowsk/project/sts_combat_rl/runs/schema=combat_v4/date=2026-10-04/id=champ-ox-c-r17/play.log
+2026-10-05T01:05:36Z DONE id=champ-ox-c-r17 encode log=/home/sborowsk/project/sts_combat_rl/runs/schema=combat_v4/date=2026-10-04/id=champ-ox-c-r17/encode.log
+2026-10-05T01:08:59Z DONE id=champ-ox-c-r17 train log=/home/sborowsk/project/sts_combat_rl/runs/schema=combat_v4/date=2026-10-04/id=champ-ox-c-r17/train.log
+2026-10-05T01:12:32Z DONE id=champ-ox-c-r17 bench-oracle log=/home/sborowsk/project/sts_combat_rl/runs/schema=combat_v4/date=2026-10-04/id=champ-ox-c-r17/bench-oracle.log
+2026-10-05T01:12:33Z DONE id=champ-ox-c-r17 bench-policy log=/home/sborowsk/project/sts_combat_rl/runs/schema=combat_v4/date=2026-10-04/id=champ-ox-c-r17/bench-policy.log
+2026-10-05T01:12:37Z DONE id=champ-ox-c-r18 starts log=/home/sborowsk/project/sts_combat_rl/runs/schema=combat_v4/date=2026-10-04/id=champ-ox-c-r18/starts.log
+2026-10-05T01:48:09Z DONE id=champ-ox-c-r18 play log=/home/sborowsk/project/sts_combat_rl/runs/schema=combat_v4/date=2026-10-04/id=champ-ox-c-r18/play.log
+2026-10-05T01:48:27Z DONE id=champ-ox-c-r18 encode log=/home/sborowsk/project/sts_combat_rl/runs/schema=combat_v4/date=2026-10-04/id=champ-ox-c-r18/encode.log
+2026-10-05T01:51:51Z DONE id=champ-ox-c-r18 train log=/home/sborowsk/project/sts_combat_rl/runs/schema=combat_v4/date=2026-10-04/id=champ-ox-c-r18/train.log
+2026-10-05T01:54:49Z DONE id=champ-ox-c-r18 bench-oracle log=/home/sborowsk/project/sts_combat_rl/runs/schema=combat_v4/date=2026-10-04/id=champ-ox-c-r18/bench-oracle.log
+2026-10-05T02:02:40Z DONE id=champ-ox-c-r18 bench-real log=/home/sborowsk/project/sts_combat_rl/runs/schema=combat_v4/date=2026-10-04/id=champ-ox-c-r18/bench-real.log
+2026-10-05T02:02:41Z DONE id=champ-ox-c-r18 bench-policy log=/home/sborowsk/project/sts_combat_rl/runs/schema=combat_v4/date=2026-10-04/id=champ-ox-c-r18/bench-policy.log
+2026-10-05T02:02:41Z DONE id=champ-ox-c-r18 compare log=/home/sborowsk/project/sts_combat_rl/runs/schema=combat_v4/date=2026-10-04/id=champ-ox-c-r18/compare.log
+2026-10-05T02:03:05Z DONE exit tag=c r10-r18 (r18 real2000 39.1%)
+2026-10-05T02:03:13Z LAUNCH J1 PIMC k4 e16 M=r15 9 workers runs/schema=combat_v4/date=2026-10-05/id=champ-pimc-r15-k4-e16
+2026-10-05T02:19:12Z DONE J1 rc=0
+2026-10-05T02:19:40Z LAUNCH J2 exit tag=d init=c-r18 9 rounds n=3000 sims=64 workers=8 turn-search+turn-targets grad-clip=1.0 commit=885f55c worker=turn-targets-dc8f9579d2b6 pid=515274 log=experiments/champ-oracle-exit/exit-d.log
+2026-10-05T02:19:43Z DONE id=champ-ox-d-r01 starts log=/home/sborowsk/project/sts_combat_rl/runs/schema=combat_v4/date=2026-10-05/id=champ-ox-d-r01/starts.log
+2026-10-05T02:46:18Z DONE id=champ-ox-d-r01 play log=/home/sborowsk/project/sts_combat_rl/runs/schema=combat_v4/date=2026-10-05/id=champ-ox-d-r01/play.log
+2026-10-05T02:46:29Z DONE id=champ-ox-d-r01 encode log=/home/sborowsk/project/sts_combat_rl/runs/schema=combat_v4/date=2026-10-05/id=champ-ox-d-r01/encode.log
+2026-10-05T02:47:18Z DONE id=champ-ox-d-r01 train log=/home/sborowsk/project/sts_combat_rl/runs/schema=combat_v4/date=2026-10-05/id=champ-ox-d-r01/train.log
+2026-10-05T02:51:10Z DONE id=champ-ox-d-r01 bench-oracle log=/home/sborowsk/project/sts_combat_rl/runs/schema=combat_v4/date=2026-10-05/id=champ-ox-d-r01/bench-oracle.log
+2026-10-05T02:51:11Z DONE id=champ-ox-d-r01 bench-policy log=/home/sborowsk/project/sts_combat_rl/runs/schema=combat_v4/date=2026-10-05/id=champ-ox-d-r01/bench-policy.log
+2026-10-05T02:51:14Z DONE id=champ-ox-d-r02 starts log=/home/sborowsk/project/sts_combat_rl/runs/schema=combat_v4/date=2026-10-05/id=champ-ox-d-r02/starts.log
+2026-10-05T03:17:13Z DONE id=champ-ox-d-r02 play log=/home/sborowsk/project/sts_combat_rl/runs/schema=combat_v4/date=2026-10-05/id=champ-ox-d-r02/play.log
+2026-10-05T03:17:23Z DONE id=champ-ox-d-r02 encode log=/home/sborowsk/project/sts_combat_rl/runs/schema=combat_v4/date=2026-10-05/id=champ-ox-d-r02/encode.log
+2026-10-05T03:18:50Z DONE id=champ-ox-d-r02 train log=/home/sborowsk/project/sts_combat_rl/runs/schema=combat_v4/date=2026-10-05/id=champ-ox-d-r02/train.log
+2026-10-05T03:22:33Z DONE id=champ-ox-d-r02 bench-oracle log=/home/sborowsk/project/sts_combat_rl/runs/schema=combat_v4/date=2026-10-05/id=champ-ox-d-r02/bench-oracle.log
+2026-10-05T03:22:34Z DONE id=champ-ox-d-r02 bench-policy log=/home/sborowsk/project/sts_combat_rl/runs/schema=combat_v4/date=2026-10-05/id=champ-ox-d-r02/bench-policy.log
+2026-10-05T03:22:37Z DONE id=champ-ox-d-r03 starts log=/home/sborowsk/project/sts_combat_rl/runs/schema=combat_v4/date=2026-10-05/id=champ-ox-d-r03/starts.log
+2026-10-05T03:49:00Z DONE id=champ-ox-d-r03 play log=/home/sborowsk/project/sts_combat_rl/runs/schema=combat_v4/date=2026-10-05/id=champ-ox-d-r03/play.log
+2026-10-05T03:49:10Z DONE id=champ-ox-d-r03 encode log=/home/sborowsk/project/sts_combat_rl/runs/schema=combat_v4/date=2026-10-05/id=champ-ox-d-r03/encode.log
+2026-10-05T03:51:17Z DONE id=champ-ox-d-r03 train log=/home/sborowsk/project/sts_combat_rl/runs/schema=combat_v4/date=2026-10-05/id=champ-ox-d-r03/train.log
+2026-10-05T03:54:50Z DONE id=champ-ox-d-r03 bench-oracle log=/home/sborowsk/project/sts_combat_rl/runs/schema=combat_v4/date=2026-10-05/id=champ-ox-d-r03/bench-oracle.log
+2026-10-05T04:01:49Z DONE id=champ-ox-d-r03 bench-real log=/home/sborowsk/project/sts_combat_rl/runs/schema=combat_v4/date=2026-10-05/id=champ-ox-d-r03/bench-real.log
+2026-10-05T04:01:50Z DONE id=champ-ox-d-r03 bench-policy log=/home/sborowsk/project/sts_combat_rl/runs/schema=combat_v4/date=2026-10-05/id=champ-ox-d-r03/bench-policy.log
+2026-10-05T04:01:50Z DONE id=champ-ox-d-r03 compare log=/home/sborowsk/project/sts_combat_rl/runs/schema=combat_v4/date=2026-10-05/id=champ-ox-d-r03/compare.log
+2026-10-05T04:01:54Z DONE id=champ-ox-d-r04 starts log=/home/sborowsk/project/sts_combat_rl/runs/schema=combat_v4/date=2026-10-05/id=champ-ox-d-r04/starts.log
+2026-10-05T04:28:24Z DONE id=champ-ox-d-r04 play log=/home/sborowsk/project/sts_combat_rl/runs/schema=combat_v4/date=2026-10-05/id=champ-ox-d-r04/play.log
+2026-10-05T04:28:33Z DONE id=champ-ox-d-r04 encode log=/home/sborowsk/project/sts_combat_rl/runs/schema=combat_v4/date=2026-10-05/id=champ-ox-d-r04/encode.log
+2026-10-05T04:30:35Z DONE id=champ-ox-d-r04 train log=/home/sborowsk/project/sts_combat_rl/runs/schema=combat_v4/date=2026-10-05/id=champ-ox-d-r04/train.log
+2026-10-05T04:34:25Z DONE id=champ-ox-d-r04 bench-oracle log=/home/sborowsk/project/sts_combat_rl/runs/schema=combat_v4/date=2026-10-05/id=champ-ox-d-r04/bench-oracle.log
+2026-10-05T04:34:26Z DONE id=champ-ox-d-r04 bench-policy log=/home/sborowsk/project/sts_combat_rl/runs/schema=combat_v4/date=2026-10-05/id=champ-ox-d-r04/bench-policy.log
+2026-10-05T04:34:30Z DONE id=champ-ox-d-r05 starts log=/home/sborowsk/project/sts_combat_rl/runs/schema=combat_v4/date=2026-10-05/id=champ-ox-d-r05/starts.log
+2026-10-05T05:01:56Z DONE id=champ-ox-d-r05 play log=/home/sborowsk/project/sts_combat_rl/runs/schema=combat_v4/date=2026-10-05/id=champ-ox-d-r05/play.log
+2026-10-05T05:02:06Z DONE id=champ-ox-d-r05 encode log=/home/sborowsk/project/sts_combat_rl/runs/schema=combat_v4/date=2026-10-05/id=champ-ox-d-r05/encode.log
+2026-10-05T05:04:09Z DONE id=champ-ox-d-r05 train log=/home/sborowsk/project/sts_combat_rl/runs/schema=combat_v4/date=2026-10-05/id=champ-ox-d-r05/train.log
+2026-10-05T05:07:54Z DONE id=champ-ox-d-r05 bench-oracle log=/home/sborowsk/project/sts_combat_rl/runs/schema=combat_v4/date=2026-10-05/id=champ-ox-d-r05/bench-oracle.log
+2026-10-05T05:07:55Z DONE id=champ-ox-d-r05 bench-policy log=/home/sborowsk/project/sts_combat_rl/runs/schema=combat_v4/date=2026-10-05/id=champ-ox-d-r05/bench-policy.log
+2026-10-05T05:07:58Z DONE id=champ-ox-d-r06 starts log=/home/sborowsk/project/sts_combat_rl/runs/schema=combat_v4/date=2026-10-05/id=champ-ox-d-r06/starts.log
+2026-10-05T05:34:14Z DONE id=champ-ox-d-r06 play log=/home/sborowsk/project/sts_combat_rl/runs/schema=combat_v4/date=2026-10-05/id=champ-ox-d-r06/play.log
+2026-10-05T05:34:23Z DONE id=champ-ox-d-r06 encode log=/home/sborowsk/project/sts_combat_rl/runs/schema=combat_v4/date=2026-10-05/id=champ-ox-d-r06/encode.log
+2026-10-05T05:36:32Z DONE id=champ-ox-d-r06 train log=/home/sborowsk/project/sts_combat_rl/runs/schema=combat_v4/date=2026-10-05/id=champ-ox-d-r06/train.log
+2026-10-05T05:40:20Z DONE id=champ-ox-d-r06 bench-oracle log=/home/sborowsk/project/sts_combat_rl/runs/schema=combat_v4/date=2026-10-05/id=champ-ox-d-r06/bench-oracle.log
+2026-10-05T05:47:38Z DONE id=champ-ox-d-r06 bench-real log=/home/sborowsk/project/sts_combat_rl/runs/schema=combat_v4/date=2026-10-05/id=champ-ox-d-r06/bench-real.log
+2026-10-05T05:47:39Z DONE id=champ-ox-d-r06 bench-policy log=/home/sborowsk/project/sts_combat_rl/runs/schema=combat_v4/date=2026-10-05/id=champ-ox-d-r06/bench-policy.log
+2026-10-05T05:47:39Z DONE id=champ-ox-d-r06 compare log=/home/sborowsk/project/sts_combat_rl/runs/schema=combat_v4/date=2026-10-05/id=champ-ox-d-r06/compare.log
+2026-10-05T05:47:42Z DONE id=champ-ox-d-r07 starts log=/home/sborowsk/project/sts_combat_rl/runs/schema=combat_v4/date=2026-10-05/id=champ-ox-d-r07/starts.log
+2026-10-05T05:48:10Z STOPPED exit tag=d after r06 (real2000 r03 33.5%, r06 34.7% vs M 39.1%; policy-only regression) by main request; outputs kept
+2026-10-05T05:48:28Z LAUNCH diag D1 train 
+2026-10-05T05:48:28Z LAUNCH diag c18-ts64
+2026-10-05T05:52:22Z DONE diag c18ts64 rc=0
+2026-10-05T05:53:30Z DONE diag D1-train rc=0
+2026-10-05T05:53:30Z LAUNCH diag D2 train 
+2026-10-05T05:53:37Z LAUNCH diag D1 bench-real2000
+2026-10-05T05:57:07Z DONE diag D2-train rc=0
+2026-10-05T05:57:07Z LAUNCH diag D3 train --policy-weight 0
+2026-10-05T06:00:52Z DONE diag D3-train rc=0
+2026-10-05T06:00:52Z LAUNCH diag D4 train --value-weight 0
+2026-10-05T06:01:17Z DONE diag D1-real rc=0
+2026-10-05T06:01:18Z DONE diag D1-pol rc=0
+2026-10-05T06:01:18Z LAUNCH diag D2 bench-real2000
+2026-10-05T06:04:20Z DONE diag D4-train rc=0
+2026-10-05T06:04:20Z LAUNCH diag D5 train 
+2026-10-05T06:09:47Z DONE diag D2-real rc=0
+2026-10-05T06:09:48Z DONE diag D2-pol rc=0
+2026-10-05T06:09:48Z LAUNCH diag D3 bench-real2000
+2026-10-05T06:13:13Z DONE diag D5-train rc=0
+2026-10-05T06:16:38Z DONE diag D3-real rc=0
+2026-10-05T06:16:39Z DONE diag D3-pol rc=0
+2026-10-05T06:16:39Z LAUNCH diag D4 bench-real2000
+2026-10-05T06:23:57Z DONE diag D4-real rc=0
+2026-10-05T06:23:58Z DONE diag D4-pol rc=0
+2026-10-05T06:23:58Z LAUNCH diag D5 bench-real2000
+2026-10-05T06:31:18Z DONE diag D5-real rc=0
+2026-10-05T06:31:19Z DONE diag D5-pol rc=0
+2026-10-05T06:33:06Z LAUNCH J3 teacher 9 workers
+2026-10-05T07:27:05Z DONE J3 teacher rc=0
+2026-10-05T07:27:05Z LAUNCH J3 c18 9 workers
