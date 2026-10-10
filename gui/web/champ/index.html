@@ -14,23 +14,17 @@
   <div class="masthead">
     <nav class="site-nav" aria-label="Site"><a href="../">STS model reports</a><span aria-current="page">Champ viewer</span></nav>
     <h1>Champ viewer</h1>
-    <p>Ironclad A20 vs The Champ. Load a held-out bench deck, edit the board, and compare the PV network
-      (instant value and priors) with the teacher (guided-rollout MCTS, 20k sims, 8 particles) and its playouts.
-      Local only: needs <code>gui/champ_server.py</code>.</p>
-    <p class="caveat">PV value / priors come from a network trained on our agent's play and share its blind spots.
-      Playout win rates are teacher fights from this public state (hidden draw order resampled per playout).</p>
+    <p>Replay a recorded Ironclad A20 vs The Champ fight from any <code>combat_v4</code> run, with the PV network's
+      value and priors at every step. Play any move to take over from the recording. Local only: needs
+      <code>gui/champ_server.py</code>.</p>
   </div>
 
   <div class="controls">
-    <label for="filter">Teacher wins</label>
-    <select id="filter">
-      <option value="all">all</option><option value="0" selected>0 / 5</option><option value="1-2">1–2 / 5</option>
-      <option value="3-4">3–4 / 5</option><option value="5">5 / 5</option>
-    </select>
-    <label for="deckSel">Deck</label><select id="deckSel" class="wide"></select>
-    <label for="seedSel">Seed</label><select id="seedSel"></select>
+    <label for="dateSel">Date</label><select id="dateSel"></select>
+    <label for="runSel">Run</label><select id="runSel" class="wide"></select>
+    <label for="fightSel">Fight</label><select id="fightSel" class="wide"></select>
     <button id="load">Load</button>
-    <span class="hint" id="tally"></span>
+    <span class="hint" id="fightHint"></span>
   </div>
 
   <details class="controls setup" id="setup">
@@ -60,29 +54,19 @@
     <div class="verdict">
       <div class="pwin" id="pwin">–</div>
       <div class="sub">PV net P(win)</div>
-      <div class="sub" id="playoutRes"></div>
     </div>
   </section>
   <div class="player" id="player"></div>
 
   <section>
-    <p class="deck-head">Hand <span class="hint" id="handHint">click a card to play it · badges: PV prior · teacher visit share</span></p>
+    <p class="deck-head">Hand <span class="hint">click a card to play it · badge: PV prior · outlined: the recorded next move</span></p>
     <div class="hand" id="hand"></div>
     <div class="adder actions">
       <button id="endTurn">End turn</button>
       <button id="undo">Undo</button>
       <button id="restart">Restart</button>
       <label class="check"><input type="checkbox" id="editMode"> edit board</label>
-      <span class="sep"></span>
-      <button id="askTeacher">Ask teacher</button>
-      <label class="check"><input type="checkbox" id="autoTeacher" checked> auto</label>
-      <button id="seeds" title="rerun the teacher search with 6 independent seeds: is its preference stable?">× 6 seeds</button>
-      <span class="sep"></span>
-      <button id="playout">Playouts</button>
-      <label for="nPlay">N</label><input id="nPlay" type="number" min="1" max="100" value="10">
-      <label for="simsPlay">sims</label><input id="simsPlay" type="number" min="100" max="20000" step="100" value="20000">
       <button id="share" title="copy a link to this exact state">copy link</button>
-      <span class="spinner" id="spin" hidden></span>
       <span class="hint" id="status"></span>
     </div>
   </section>
@@ -100,19 +84,8 @@
   </section>
 
   <section>
-    <p class="deck-head">Moves <span class="hint" id="teacherHint"></span></p>
-    <p class="hint">Seeds: mean visit share over 6 reruns (range) · picked: how often it was the teacher's move.
-      Playouts after: N teacher games after taking that move (same N / sims as above).</p>
-    <table class="tbl" id="moves"></table>
-  </section>
-
-  <section class="replay" id="replay" hidden>
-    <p class="deck-head">Teacher's fight on this seed <span class="hint" id="replayHint"></span></p>
-    <div class="adder">
-      <button id="repStart">start</button><button id="repPrev">◀</button><button id="repNext">▶</button><button id="repTurn">next turn ▶▶</button>
-      <span id="repPos" class="nums"></span>
-      <span class="hint">stepping replaces your moves with the teacher's; play any move to take over</span>
-    </div>
+    <p class="deck-head">Moves</p>
+    <div class="moves-box"><table class="tbl" id="moves"></table></div>
   </section>
 
   <section>
@@ -124,9 +97,20 @@
     </div>
   </section>
 
-  <footer>Sources: <code>gui/champ_server.py</code>, <code>apps/champ_viewer/session.cpp</code>; bench
-    <code>runs/schema=pv_starts_v1/id=champ-bench2k</code>, teacher <code>runs/schema=combat_v4/date=2026-10-05/id=champ-bench2k-teacher</code>.
-    Your finished, unedited bench fights are logged to <code>experiments/champ-web-viewer/user_fights.jsonl</code>.</footer>
+  <footer>Sources: <code>gui/champ_server.py</code>, <code>apps/champ_viewer/session.cpp</code>; fights from
+    <code>runs/schema=combat_v4/date=…/id=…/[part]/fights-*.parquet</code> (Champ fights only).</footer>
+</div>
+
+<div class="timeline" id="timeline">
+  <button id="tStart" title="start">⏮</button>
+  <button id="tPrevTurn" title="previous turn">⏪</button>
+  <button id="tPrev" title="step back">◀</button>
+  <button id="tPlay" class="play" title="play / pause (space)">▶</button>
+  <button id="tNext" title="step forward">▶|</button>
+  <button id="tNextTurn" title="next turn">⏩</button>
+  <select id="tSpeed" title="speed"><option value="0.5">0.5×</option><option value="1" selected>1×</option><option value="2">2×</option><option value="4">4×</option><option value="8">8×</option></select>
+  <input id="tSlider" type="range" min="0" max="0" value="0">
+  <span class="pos nums" id="tPos"></span>
 </div>
 <datalist id="cardList"></datalist>
 <datalist id="relicList"></datalist>

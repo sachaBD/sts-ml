@@ -1,26 +1,36 @@
-// Champ viewer: a sandbox Champ battle rebuilt server-side from {base, patch, ops} on every change.
+// Champ viewer: a recorded Champ fight, rebuilt server-side from {base, patch, ops} on every change.
+// The fight is on its recording while ops are a prefix of its actions (and nothing is patched): the timeline
+// position is then ops.length. Playing any other move, or editing, leaves the recording.
 const $ = (id) => document.getElementById(id);
 const ART = window.CARDS || {};
 const ROOT = "../";
 const END_TURN = 4;  // sts::search::ActionType in the top 3 bits of Action::bits
 const actionType = (bits) => bits >>> 29;
 
-let meta, deck, base, patch = {}, ops = [], undos = 0, view, pv, live = {}, teacherRec = null, replayK = null, pre;
+let meta, rec = null, patch = {}, ops = [], view, pv, pre;
 let seq = 0;  // drops stale responses
-const recorded = new Set();
-const seedRuns = {}, after = {}, here = {};  // here: key() -> playouts from this state  // key() -> search reruns; key() + bits -> playouts after that move
+let playing = false, timer = null;
 const pct = (p, d = 1) => (100 * p).toFixed(d) + "%";
-const key = () => JSON.stringify([base, patch, ops]);
 
-async function post(path, body) {
-  const res = await fetch(ROOT + path, { method: "POST", body: JSON.stringify(body) });
-  return res.json();
+async function api(path, options) {
+  try {
+    const res = await fetch(ROOT + path, options);
+    let out;
+    try { out = await res.json(); }
+    catch { throw new Error(`${path}: HTTP ${res.status}, expected a JSON API response`); }
+    if (!res.ok || out.error) throw new Error(`${path}: ${out.error || "HTTP " + res.status}`);
+    return out;
+  } catch (e) {
+    const error = `API error: ${e.message}`;
+    $("status").textContent = error;
+    return { error };
+  }
 }
-let busy = 0;
-function spin(delta, text = "") {
-  busy += delta;
-  $("spin").hidden = busy === 0;
-  if (text || busy === 0) $("status").textContent = text;
+async function post(path, body) {
+  return api(path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+}
+async function get(path, params = {}) {
+  return api(path + "?" + new URLSearchParams(params));
 }
 
 // ---------- cards ----------
@@ -53,119 +63,82 @@ function card(c, extraClass = "") {
 const cardName = (c) => meta.cardById[c.id].name + (c.upgraded ? "+" : "");
 const nice = (s) => s ? s.replace(/^THE_CHAMP_/, "").toLowerCase().replaceAll("_", " ") : "–";
 
+// ---------- recording / timeline ----------
+
+// Length of the recorded prefix that ops follow; equals ops.length while on the recording.
+function recPrefix() {
+  if (!rec || Object.keys(patch).length) return 0;
+  let k = 0;
+  while (k < ops.length && k < rec.actions.length && ops[k].act === rec.actions[k]) k++;
+  return k;
+}
+const onRec = () => rec && Object.keys(patch).length === 0 && recPrefix() === ops.length;
+const nextRecorded = () => onRec() && ops.length < rec.actions.length ? rec.actions[ops.length] : null;
+function turnStarts() {
+  const s = [0];
+  rec.actions.forEach((a, i) => { if (actionType(a) === END_TURN) s.push(i + 1); });
+  return s;
+}
+function goTo(k) {
+  if (!rec) return;
+  k = Math.max(0, Math.min(rec.actions.length, k));
+  patch = {}; pre = startPre();
+  ops = rec.actions.slice(0, k).map((a) => ({ act: a }));
+  refresh();
+}
+function pos() { return onRec() ? ops.length : recPrefix(); }
+function prevTurn() { const p = pos(); goTo(Math.max(0, ...turnStarts().filter((s) => s < p))); }
+function nextTurn() { const p = pos(); goTo(turnStarts().find((s) => s > p) ?? rec.actions.length); }
+
+function setPlaying(on) {
+  playing = on && !!rec;
+  clearTimeout(timer);
+  if (playing && !onRec()) goTo(recPrefix());  // resume the recording from where you left it
+  else if (playing) schedule();
+  renderTimeline();
+}
+function schedule() {
+  clearTimeout(timer);
+  if (!playing) return;
+  if (!onRec() || ops.length >= rec.actions.length) return setPlaying(false);
+  timer = setTimeout(() => goTo(ops.length + 1), 1000 / +$("tSpeed").value);
+}
+
+function renderTimeline() {
+  const n = rec ? rec.actions.length : 0;
+  ["tStart", "tPrevTurn", "tPrev", "tPlay", "tNext", "tNextTurn", "tSlider"].forEach((id) => $(id).disabled = !rec);
+  $("tSlider").max = n;
+  $("tSlider").value = pos();
+  $("tPlay").textContent = playing ? "⏸" : "▶";
+  if (!rec) { $("tPos").textContent = "no fight loaded"; return; }
+  const nb = nextRecorded();
+  $("tPos").textContent = onRec()
+    ? `move ${ops.length} / ${n}` + (nb !== null ? ` · next: ${describeBits(nb)}` : ` · end: ${rec.won ? "won, " + rec.final_hp + " HP" : "lost"}`)
+    : `your line (left the recording at move ${recPrefix()}${Object.keys(patch).length ? ", setup patched" : ""})`;
+}
+function describeBits(bits) {
+  const l = view && view.legal.find((x) => x.bits === bits);
+  return l ? moveLabel(l) : String(bits);
+}
+
 // ---------- server round trips ----------
 
 async function refresh() {
   const my = ++seq;
-  const out = await post("api/champ/query", { base, patch, ops, query: "pv" });
+  const out = await post("api/champ/query", { base: rec.base, patch, ops, query: "pv" });
   if (my !== seq) return;
-  if (out.error) { $("status").textContent = out.error; ops.pop(); return; }  // a rejected op is dropped
+  if (out.error) { $("status").textContent = out.error; ops.pop(); setPlaying(false); return; }  // a rejected op is dropped
   view = out.view; pv = out.pv || null;
   render();
-  await loadCached();
-  if (my !== seq) return;
-  if (view.kind === "done") recordIfBench();
-  else if ($("autoTeacher").checked && !live[key()]) askTeacher();
-}
-
-// Searches / playouts the server already ran for this state and its one-move children (resume, pasted links).
-async function loadCached() {
-  const k = key();
-  const out = await post("api/champ/cached", { base, patch, ops, children: view.legal.map((l) => l.bits) });
-  if (k !== key() || out.error) return;
-  const pick = (res, prefix) => {  // prefer the current N / sims, else the largest cached run
-    const want = `${prefix} n=${$("nPlay").value} sims=${$("simsPlay").value}`;
-    if (res[want]) return res[want];
-    const all = Object.entries(res).filter(([name]) => name.startsWith(prefix)).map(([, r]) => r);
-    return all.sort((a, b) => b.n - a.n)[0];
-  };
-  const own = out.own;
-  if (own["search sims=20000 salt=0"] && !live[k]) live[k] = own["search sims=20000 salt=0"].search;
-  const seeds = Object.entries(own).find(([name]) => name.startsWith("seeds"));
-  if (seeds && !seedRuns[k]) seedRuns[k] = seeds[1].runs;
-  const p = pick(own, "playout");
-  if (p && !here[k]) here[k] = p;
-  for (const [bits, res] of Object.entries(out.children)) {
-    const r = pick(res, "playout");
-    if (r && !after[k + "|" + bits]) after[k + "|" + bits] = r;
-  }
-  render();
-}
-
-async function askTeacher() {
-  const k = key();
-  if (view.kind === "done" || live[k]) return render();
-  spin(1, "teacher searching…");
-  const out = await post("api/champ/query", { base, patch, ops, query: "search", sims: 20000 });
-  spin(-1);
-  if (out.error) { $("status").textContent = out.error; return; }
-  live[k] = out.search;
-  if (k === key()) render();
-}
-
-async function playouts() {
-  const n = +$("nPlay").value, sims = +$("simsPlay").value;
-  const k = key();
-  spin(1, `${n} teacher playouts at ${sims} sims (2 cores)…`);
-  const out = await post("api/champ/query", { base, patch, ops, query: "playout", n, sims });
-  spin(-1);
-  if (out.error) { $("status").textContent = out.error; return; }
-  here[k] = out;
-  if (k === key()) render();
-}
-function playoutHtml(out) {
-  return `teacher playouts: <b>${out.wins}/${out.n}</b> = ${pct(out.p_win, 0)}
-    <br>95% CI ${pct(out.ci95[0], 0)}–${pct(out.ci95[1], 0)}` +
-    (out.mean_hp_if_won !== null ? `<br>HP if won ${out.mean_hp_if_won.toFixed(1)}` : "") +
-    `<br><span class="hint">${out.sims} sims · ${out.wall_seconds.toFixed(0)} s${out.cached ? " · cached" : ""}</span>`;
-}
-
-async function searchSeeds() {
-  const k = key();
-  spin(1, "6 teacher searches with independent seeds…");
-  const out = await post("api/champ/query", { base, patch, ops, query: "search_seeds", k: 6, sims: 20000 });
-  spin(-1);
-  if (out.error) { $("status").textContent = out.error; return; }
-  seedRuns[k] = out.runs;
-  if (k === key()) render();
-}
-
-async function playoutsAfter(bits) {
-  const n = +$("nPlay").value, sims = +$("simsPlay").value, k = key() + "|" + bits;
-  after[k] = "running";
-  render();
-  spin(1, `${n} playouts after one move…`);
-  const out = await post("api/champ/query", { base, patch, ops: [...ops, { act: bits }], query: "playout", n, sims });
-  spin(-1);
-  after[k] = out.error ? { error: out.error } : out;
-  render();
-}
-
-async function recordIfBench() {
-  const k = key();
-  if (recorded.has(k) || replayK !== null) return;
-  recorded.add(k);
-  const out = await post("api/champ/record", { base, patch, ops, undos, won: view.won, final_hp: view.player.hp });
-  $("status").textContent = out.error ? out.error : `fight recorded${out.edited ? " (edited: not in the tally)" : ""}`;
-  loadTally();
-}
-
-async function loadTally() {
-  const t = await (await fetch(ROOT + "api/champ/tally")).json();
-  $("tally").textContent = t.n ? `your unedited bench fights: you ${t.user_wins}/${t.n} · teacher ${t.teacher_wins}/${t.n}` +
-    ` (only you ${t.user_only}, only teacher ${t.teacher_only}; ${t.with_undo} used undo)` : "";
+  schedule();
 }
 
 // ---------- ops ----------
 
-function act(bits) {
-  if (replayK !== null) { replayK = null; renderReplay(); }
-  ops.push({ act: bits });
-  refresh();
-}
+function act(bits) { ops.push({ act: bits }); if (!onRec()) setPlaying(false); refresh(); }
 function edit(op) {
   if (view.kind !== "play") { $("status").textContent = "edits only at a normal play decision"; return; }
-  if (replayK !== null) { replayK = null; renderReplay(); }
+  setPlaying(false);
   ops.push(op);
   refresh();
 }
@@ -177,16 +150,6 @@ function moveLabel(l) {
   if (l.type === "potion") return "drink " + view.potions[l.source];
   if (l.type === "end_turn") return "end turn";
   return l.desc.replace(/^\{\s*|\s*\}$/g, "");
-}
-
-function teacherStats() {
-  const s = live[key()];
-  if (s) return { moves: s.moves, chosen: s.chosen, src: `live search: ${s.simulations} sims, ${s.seconds.toFixed(1)} s` };
-  if (replayK !== null && teacherRec) {
-    const r = teacherRec.search[replayK];
-    if (r) return { moves: r.moves, chosen: teacherRec.actions[replayK], src: `recorded search (step ${replayK})` };
-  }
-  return null;
 }
 
 function render() {
@@ -212,75 +175,45 @@ function render() {
     <span class="stat energy">Energy <b>${p.energy}</b> / ${p.energy_per_turn}</span>
     <span class="pips">${pips(p.statuses)}</span>
     <div class="relics">${v.relics.map((r) => `<span class="relic">${r}</span>`).join("")}
-      ${v.potions.map((x, i) => x ? `<span class="relic potion${legalPotion.has(i) ? " use" : ""}" data-slot="${i}" title="click to drink">${x}</span>` : "").join("")}</div>`;
+      ${v.potions.map((x, i) => x ? `<span class="relic potion${legalPotion.has(i) ? " use" : ""}" data-slot="${i}" title="click to drink">${x}</span>` : `<span class="relic potion empty">empty</span>`).join("")}</div>`;
   $("player").querySelectorAll(".potion.use").forEach((el) => el.onclick = () => act(legalPotion.get(+el.dataset.slot).bits));
   // verdict
   const done = v.kind === "done";
   $("pwin").innerHTML = done ? `<span class="done-banner ${v.won ? "won" : "lost"}">${v.won ? "Won" : "Lost"}</span>` :
     pv ? pct(pv.value / 1, 1) : "–";
-  $("playoutRes").innerHTML = here[key()] ? playoutHtml(here[key()]) : "";
   // hand
-  const ts = teacherStats();
-  const total = ts ? Object.values(ts.moves).reduce((a, m) => a + m.visits, 0) : 0;
-  const share = (bits) => ts && ts.moves[bits] ? ts.moves[bits].visits / total : (ts ? 0 : null);
+  const next = nextRecorded();
   const prior = (bits) => pv && pv.priors[bits] !== undefined ? pv.priors[bits] : null;
   const legalCard = new Map();
   v.legal.filter((l) => l.type === "card").forEach((l) => { if (!legalCard.has(l.source)) legalCard.set(l.source, l); });
+  const nextCard = next !== null ? v.legal.find((l) => l.bits === next && l.type === "card") : null;
   $("hand").replaceChildren(...v.hand.map((h, i) => {
     const l = legalCard.get(i);
     const el = card(h, l ? "" : "illegal");
-    if (l) {
-      if (ts && ts.chosen === l.bits) el.classList.add("best");
-      const pr = prior(l.bits), sh = share(l.bits);
-      el.insertAdjacentHTML("beforeend", `<div class="badges"><span class="pv">${pr === null ? "" : pct(pr, 0)}</span>
-        <span class="tv">${sh === null ? "" : pct(sh, 0)}</span></div>`);
-    }
+    if (nextCard && nextCard.source === i) el.classList.add("best");
+    const pr = l ? prior(l.bits) : null;
+    el.insertAdjacentHTML("beforeend", `<div class="badges"><span class="pv">${pr === null ? "" : pct(pr, 0)}</span></div>`);
     el.onclick = () => {
       if ($("editMode").checked) return pileClick("hand", i);
       if (l) act(l.bits);
     };
     return el;
-  }));
+  }), ...ghosts(v.hand.length));
   // buttons
   const end = v.legal.find((l) => l.type === "end_turn");
   $("endTurn").disabled = !end;
   $("endTurn").onclick = () => end && act(end.bits);
   $("undo").disabled = ops.length === 0;
-  $("askTeacher").disabled = done; $("playout").disabled = done;
   // moves table
-  $("teacherHint").textContent = (ts ? ts.src : "no teacher search yet") +
-    (pv ? " · PV prior from " + meta.pv_model.split("/").slice(-3, -2)[0] : (done ? "" : " · PV unavailable"));
-  const rows = v.legal.map((l) => ({ l, pr: prior(l.bits), sh: share(l.bits), q: ts && ts.moves[l.bits] ? ts.moves[l.bits].value : null }));
-  rows.sort((a, b) => (b.sh ?? -1) - (a.sh ?? -1) || (b.pr ?? -1) - (a.pr ?? -1));
-  const bar = (x, cls) => x === null ? "" : `<span class="shr ${cls}" style="width:${Math.round(60 * x)}px"></span>${pct(x, 1)}`;
-  const runs = seedRuns[key()];
-  const seedCell = (bits) => {
-    if (!runs) return "";
-    const shares = runs.map((r) => {
-      const tot = Object.values(r.moves).reduce((a, m) => a + m.visits, 0);
-      return r.moves[bits] ? r.moves[bits].visits / tot : 0;
-    });
-    const mean = shares.reduce((a, b) => a + b, 0) / shares.length;
-    const picked = runs.filter((r) => r.chosen === bits).length;
-    return `${pct(mean, 0)} <span class="band">(${pct(Math.min(...shares), 0)}–${pct(Math.max(...shares), 0)})</span> · ${picked}/${runs.length}`;
-  };
-  const afterCell = (bits) => {
-    const a = after[key() + "|" + bits];
-    if (!a) return `<button data-after="${bits}">run</button>`;
-    if (a === "running") return `<span class="spinner inline"></span>`;
-    if (a.error) return `<span class="band">${a.error}</span>`;
-    return `<b>${a.wins}/${a.n}</b> <span class="band">${pct(a.ci95[0], 0)}–${pct(a.ci95[1], 0)}</span>`;
-  };
-  $("moves").innerHTML = `<tr><th>Move</th><th>PV prior</th><th>Teacher visits</th><th>Teacher Q</th><th>Seeds ×${runs ? runs.length : 6} · picked</th><th>Playouts after</th><th></th></tr>` +
-    rows.map(({ l, pr, sh, q }) => `<tr class="${ts && ts.chosen === l.bits ? "chosen" : ""}">
-      <td class="desc" title="${l.desc}">${moveLabel(l)}</td><td>${bar(pr, "pv")}</td><td>${bar(sh, "")}</td>
-      <td class="band">${q === null ? "" : q.toFixed(3)}</td><td>${seedCell(l.bits)}</td><td>${afterCell(l.bits)}</td>
-      <td><button data-bits="${l.bits}">play</button></td></tr>`).join("") +
-    (done ? `<tr><td colspan="7" class="hint">fight over: ${v.won ? "won with " + p.hp + " HP" : "lost"}</td></tr>` : "");
+  const rows = v.legal.map((l) => ({ l, pr: prior(l.bits) }));
+  rows.sort((a, b) => (b.pr ?? -1) - (a.pr ?? -1));
+  const bar = (x) => x === null ? "" : `<span class="shr" style="width:${Math.round(60 * x)}px"></span>${pct(x, 1)}`;
+  $("moves").innerHTML = `<tr><th>Move</th><th>PV prior</th><th>Recorded</th><th></th></tr>` +
+    rows.map(({ l, pr }) => `<tr class="${l.bits === next ? "chosen" : ""}">
+      <td class="desc" title="${l.desc}">${moveLabel(l)}</td><td>${bar(pr)}</td>
+      <td>${l.bits === next ? "◀ next" : ""}</td><td><button data-bits="${l.bits}">play</button></td></tr>`).join("") +
+    (done ? `<tr><td colspan="4" class="hint">fight over: ${v.won ? "won with " + p.hp + " HP" : "lost"}</td></tr>` : "");
   $("moves").querySelectorAll("button[data-bits]").forEach((b) => b.onclick = () => act(+b.dataset.bits));
-  $("moves").querySelectorAll("button[data-after]").forEach((b) => b.onclick = () => playoutsAfter(+b.dataset.after));
-  $("seeds").disabled = done;
-  saveUrl();
   // piles (draw grouped: order hidden)
   const group = (list) => {
     const m = new Map();
@@ -298,7 +231,18 @@ function render() {
   };
   pile("draw", v.draw, true); pile("discard", v.discard, false); pile("exhaust", v.exhaust, false);
   renderEdit();
-  renderReplay();
+  renderTimeline();
+  saveUrl();
+}
+
+// Invisible cards filling the hand to 10 slots, so its height never changes.
+function ghosts(n) {
+  const strike = meta.cards.find((c) => c.name === "Strike") || meta.cards[0];
+  return Array.from({ length: Math.max(0, 10 - n) }, () => {
+    const el = card({ id: strike.id, upgraded: 0 }, "ghost");
+    el.insertAdjacentHTML("beforeend", `<div class="badges"></div>`);
+    return el;
+  });
 }
 
 // The draw pile is shown sorted; the server addresses it in its true (hidden) order, so map back by card.
@@ -327,73 +271,29 @@ function renderEdit() {
     edit({ set: { [el.dataset.key]: el.tagName === "SELECT" ? el.value : +el.value } }));
 }
 
-// ---------- page state in the URL: #<fight_id>|<base64 JSON> ----------
+// ---------- URL: ?date=&id=&part=&fight= picks the fight; #<base64 JSON> holds patch / ops ----------
 
-function pageState() {
-  return { patch, ops, f: $("filter").value, e: $("editMode").checked ? 1 : 0, n: +$("nPlay").value,
-           s: +$("simsPlay").value, a: $("autoTeacher").checked ? 1 : 0, r: replayK, u: undos, m: $("moveTo").value };
-}
 function saveUrl() {
-  if (!base) return;
-  const enc = btoa(JSON.stringify(pageState())).replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/, "");
-  const url = "#" + base + "|" + enc;
-  if (location.hash !== url) history.replaceState(null, "", url);
+  if (!rec) return;
+  const [date, id, part, fight] = rec.base.split("|");
+  const q = new URLSearchParams({ date, id, ...(part ? { part } : {}), fight });
+  const st = { patch, ops, e: $("editMode").checked ? 1 : 0, m: $("moveTo").value, v: +$("tSpeed").value };
+  const enc = btoa(JSON.stringify(st)).replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/, "");
+  const url = "?" + q + "#" + enc;
+  if (location.search + location.hash !== url) history.replaceState(null, "", url);
 }
-function readUrl() {
-  const [fid, enc] = decodeURIComponent(location.hash.slice(1)).split("|");
-  if (!fid || !meta.fightById[fid]) return null;
-  let st = {};
-  if (enc) st = JSON.parse(atob(enc.replaceAll("-", "+").replaceAll("_", "/")));
-  return { fid, st };
-}
-// Restore controls first (they shape the first queries), then the battle.
-async function restoreUrl() {
-  const u = readUrl();
-  if (!u) return false;
-  const { fid, st } = u;
-  if (st.f) $("filter").value = st.f;
-  fillDecks();
-  if (![...$("deckSel").options].some((o) => o.value === meta.fightById[fid].source)) { $("filter").value = "all"; fillDecks(); }
-  $("deckSel").value = meta.fightById[fid].source; fillSeeds(); $("seedSel").value = fid;
-  if (st.e !== undefined) $("editMode").checked = !!st.e;
-  if (st.n) $("nPlay").value = st.n;
-  if (st.s) $("simsPlay").value = st.s;
-  if (st.a !== undefined) $("autoTeacher").checked = !!st.a;
-  if (st.m) $("moveTo").value = st.m;
-  await load(st);
-  return true;
-}
-
-// ---------- teacher replay ----------
-
-function renderReplay() {
-  const show = teacherRec && Object.keys(patch).length === 0;
-  $("replay").hidden = !show;
-  if (!show) return;
-  const n = teacherRec.actions.length;
-  $("replayHint").textContent = `${teacherRec.won ? "won" : "lost"} · final HP ${teacherRec.final_hp} · ${n} decisions`;
-  $("repPos").textContent = replayK === null ? "(your line)" : `decision ${replayK} / ${n}` +
-    (replayK < n ? ` · teacher plays: ${describeBits(teacherRec.actions[replayK])}` : " · end");
-}
-function describeBits(bits) {
-  const l = view && view.legal.find((x) => x.bits === bits);
-  return l ? moveLabel(l) : String(bits);
-}
-function replayTo(k) {
-  const n = teacherRec.actions.length;
-  replayK = Math.max(0, Math.min(n, k));
-  ops = teacherRec.actions.slice(0, replayK).map((a) => ({ act: a }));
-  refresh();
-}
-function replayNextTurn() {
-  let k = replayK ?? 0;
-  const a = teacherRec.actions;
-  while (k < a.length && actionType(a[k]) !== END_TURN) k++;
-  replayTo(k + 1);
+function readHash() {
+  const enc = location.hash.slice(1);
+  if (!enc) return {};
+  try { return JSON.parse(atob(enc.replaceAll("-", "+").replaceAll("_", "/"))); } catch { return {}; }
 }
 
 // ---------- pre-battle setup ----------
 
+function startPre() {
+  const s = rec.start;
+  return { deck: structuredClone(s.deck), relics: structuredClone(s.relics), potions: [...s.potions], hp: s.hp, max_hp: s.max_hp, seed: s.seed };
+}
 function renderSetup() {
   $("preHp").value = pre.hp; $("preMax").value = pre.max_hp; $("preSeed").value = pre.seed;
   $("preRelics").replaceChildren(
@@ -420,68 +320,72 @@ function chip(text, klass, onclick) {
 }
 function applySetup() {
   pre.hp = +$("preHp").value; pre.max_hp = +$("preMax").value; pre.seed = +$("preSeed").value;
-  const orig = meta.fightById[base];
+  const s = rec.start, same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
   patch = {};
-  const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
-  if (!same(pre.deck, deck.deck)) patch.deck = pre.deck;
-  if (!same(pre.relics, deck.relics)) patch.relics = pre.relics;
-  if (!same(pre.potions, deck.potions)) patch.potions = pre.potions;
-  if (pre.hp !== deck.hp) patch.hp = pre.hp;
-  if (pre.max_hp !== deck.max_hp) patch.max_hp = pre.max_hp;
-  if (pre.seed !== orig.seed) patch.seed = pre.seed;
-  ops = []; undos = 0; replayK = null;
+  if (!same(pre.deck, s.deck)) patch.deck = pre.deck;
+  if (!same(pre.relics, s.relics)) patch.relics = pre.relics;
+  if (!same(pre.potions, s.potions)) patch.potions = pre.potions;
+  if (pre.hp !== s.hp) patch.hp = pre.hp;
+  if (pre.max_hp !== s.max_hp) patch.max_hp = pre.max_hp;
+  if (pre.seed !== s.seed) patch.seed = pre.seed;
+  ops = [];
+  setPlaying(false);
   refresh();
 }
 
-// ---------- start picker ----------
+// ---------- fight picker ----------
 
-function inFilter(d) {
-  const f = $("filter").value;
-  if (f === "all") return true;
-  const [lo, hi] = f.split("-").map(Number);
-  return d.wins >= lo && d.wins <= (hi ?? lo);
+const dataset = () => meta.datasets[+$("runSel").value];
+function fillDates() {
+  $("dateSel").innerHTML = [...new Set(meta.datasets.map((d) => d.date))].reverse().map((d) => `<option>${d}</option>`).join("");
 }
-function deckLabel(d) {
-  const names = d.deck.map((c) => meta.cardById[c.id]).filter((c) => !["basic", "curse", "special"].includes(c.rarity))
-    .map((c) => c.name);
-  return `${d.wins}/5 · ${d.hp}/${d.max_hp} HP · ${d.deck.length} cards · ${[...new Set(names)].slice(0, 6).join(", ")}`;
+function fillRuns() {
+  $("runSel").innerHTML = meta.datasets.map((d, i) => d.date === $("dateSel").value ?
+    `<option value="${i}">${d.id}${d.part ? " / " + d.part : ""}</option>` : "").join("");
 }
-function fillDecks() {
-  const list = meta.decks.filter(inFilter);
-  $("deckSel").innerHTML = list.map((d) => `<option value="${d.source}">${deckLabel(d)}</option>`).join("");
-  fillSeeds();
+async function fillFights() {
+  const d = dataset();
+  if (!d) { $("fightHint").textContent = "No recorded fight datasets found"; return; }
+  $("fightSel").innerHTML = "";
+  $("fightHint").textContent = "loading fights…";
+  const out = await get("api/champ/fights", d);
+  if (d !== dataset()) return;
+  if (out.error) { $("fightHint").textContent = out.error; return; }
+  const w = out.fights.filter((f) => f.won).length;
+  $("fightHint").textContent = out.fights.length ? `${out.fights.length} Champ fights, ${w} won` : "no Champ fights in this run";
+  $("fightSel").innerHTML = out.fights.map((f) =>
+    `<option value="${f.fight_id}">${f.won ? "won " + f.final_hp + " HP" : "lost"} · ${f.n} moves · ${f.fight_id}</option>`).join("");
 }
-function fillSeeds() {
-  const d = meta.deckBySource[$("deckSel").value];
-  $("seedSel").innerHTML = d ? d.fights.map((f, i) => `<option value="${f.fight_id}">#${i + 1} teacher ${f.won ? "won (" + f.final_hp + " HP)" : "lost"}</option>`).join("") : "";
+async function selectFromQuery() {
+  const q = new URLSearchParams(location.search);
+  const i = meta.datasets.findIndex((d) => d.date === q.get("date") && d.id === q.get("id") && d.part === (q.get("part") || ""));
+  if (i < 0) { fillRuns(); await fillFights(); return false; }
+  $("dateSel").value = meta.datasets[i].date; fillRuns(); $("runSel").value = i;
+  await fillFights();
+  if (q.get("fight")) $("fightSel").value = q.get("fight");
+  return !!q.get("fight");
 }
-async function load(restore) {
-  deck = meta.deckBySource[$("deckSel").value];
-  base = $("seedSel").value;
-  if (!base) return;
-  patch = {}; ops = []; undos = 0; replayK = null; teacherRec = null;
-  pre = { deck: structuredClone(deck.deck), relics: structuredClone(deck.relics), potions: [...deck.potions],
-          hp: deck.hp, max_hp: deck.max_hp, seed: meta.fightById[base].seed };
-  if (restore) {
-    patch = restore.patch || {}; ops = restore.ops || []; undos = restore.u || 0;
-    replayK = restore.r ?? null;
-    Object.assign(pre, patch);
-  }
+async function load(restore = {}) {
+  const fid = $("fightSel").value;
+  if (!fid) return;
+  setPlaying(false);
+  const out = await get("api/champ/fight", { ...dataset(), fight: fid });
+  if (out.error) { $("status").textContent = out.error; return; }
+  rec = out;
+  $("status").textContent = `agent: ${rec.agent || "?"}`;
+  patch = restore.patch || {}; ops = restore.ops || [];
+  pre = Object.assign(startPre(), patch);
   renderSetup();
   await refresh();
-  teacherRec = await (await fetch(ROOT + "api/champ/teacher/" + base)).json();
-  renderReplay();
 }
 
 // ---------- startup ----------
 
 (async () => {
-  meta = await (await fetch(ROOT + "api/champ/meta")).json();
+  meta = await get("api/champ/meta");
+  if (meta.error) return;
   const by = (list, k = "id") => Object.fromEntries(list.map((x) => [x[k], x]));
   meta.cardById = by(meta.cards); meta.relicById = by(meta.relics); meta.potById = by(meta.potions);
-  meta.deckBySource = by(meta.decks, "source");
-  meta.fightById = {};
-  meta.decks.forEach((d) => d.fights.forEach((f) => meta.fightById[f.fight_id] = { ...f, source: d.source }));
   const byName = (list) => Object.fromEntries(list.map((x) => [x.name.toLowerCase(), x]));
   const cardByName = byName(meta.cards), relicByName = byName(meta.relics), potByName = byName(meta.potions);
   const addable = meta.cards.filter((c) => ["red", "colorless", "curse"].includes(c.color) || c.type === "status");
@@ -489,25 +393,17 @@ async function load(restore) {
   $("relicList").innerHTML = meta.relics.map((c) => `<option value="${c.name}">`).join("");
   $("potList").innerHTML = meta.potions.map((c) => `<option value="${c.name}">`).join("");
 
-  $("filter").onchange = fillDecks;
-  $("deckSel").onchange = fillSeeds;
+  $("dateSel").onchange = () => { fillRuns(); fillFights(); };
+  $("runSel").onchange = fillFights;
   $("load").onclick = () => load();
-  $("undo").onclick = () => {
-    if (!ops.length) return;
-    ops.pop(); undos++;
-    if (replayK !== null) replayK = ops.length;
-    refresh();
-  };
-  $("restart").onclick = () => { ops = []; replayK = null; refresh(); };
+  $("fightSel").onchange = () => load();
+  $("undo").onclick = () => { if (ops.length) { ops.pop(); setPlaying(false); refresh(); } };
+  $("restart").onclick = () => { ops = []; setPlaying(false); refresh(); };
   $("editMode").onchange = render;
-  $("askTeacher").onclick = askTeacher;
-  $("seeds").onclick = searchSeeds;
   $("share").onclick = async () => {
     await navigator.clipboard.writeText(location.href).catch(() => {});
     $("status").textContent = "link copied (also in the address bar)";
   };
-  $("autoTeacher").onchange = () => $("autoTeacher").checked && askTeacher();
-  $("playout").onclick = playouts;
   $("cardAdd").onclick = () => {
     const c = cardByName[$("cardIn").value.trim().toLowerCase()];
     const to = $("moveTo").value;
@@ -530,16 +426,27 @@ async function load(restore) {
     $("potIn").value = ""; renderSetup();
   };
   $("applySetup").onclick = applySetup;
-  $("repStart").onclick = () => replayTo(0);
-  $("repPrev").onclick = () => replayTo((replayK ?? ops.length) - 1);
-  $("repNext").onclick = () => replayTo((replayK ?? 0) + 1);
-  $("repTurn").onclick = replayNextTurn;
+  // timeline
+  $("tStart").onclick = () => { setPlaying(false); goTo(0); };
+  $("tPrev").onclick = () => { setPlaying(false); goTo(pos() - 1); };
+  $("tNext").onclick = () => { setPlaying(false); goTo(onRec() ? ops.length + 1 : recPrefix()); };
+  $("tPrevTurn").onclick = () => { setPlaying(false); prevTurn(); };
+  $("tNextTurn").onclick = () => { setPlaying(false); nextTurn(); };
+  $("tPlay").onclick = () => setPlaying(!playing);
+  $("tSlider").oninput = () => { setPlaying(false); goTo(+$("tSlider").value); };
+  $("tSpeed").onchange = () => { saveUrl(); schedule(); };
+  document.addEventListener("keydown", (e) => {
+    if (!rec || e.target.closest("input, select, textarea")) return;
+    if (e.key === " ") { e.preventDefault(); setPlaying(!playing); }
+    else if (e.key === "ArrowRight") $("tNext").click();
+    else if (e.key === "ArrowLeft") $("tPrev").click();
+  });
 
-  if (new URLSearchParams(location.search).has("edit")) $("editMode").checked = true;
-  fillDecks();
-  loadTally();
-  if (!(await restoreUrl())) await load();
-  // A pasted link in the same tab only changes the hash: restore it. (saveUrl uses replaceState: no event.)
-  window.addEventListener("hashchange", () => restoreUrl());
-  ["filter", "editMode", "nPlay", "simsPlay", "autoTeacher", "moveTo"].forEach((id) => $(id).addEventListener("change", saveUrl));
+  const st = readHash();
+  if (st.e) $("editMode").checked = true;
+  if (st.m) $("moveTo").value = st.m;
+  if (st.v) $("tSpeed").value = st.v;
+  fillDates();
+  renderTimeline();
+  if (await selectFromQuery()) await load(st);
 })().catch((e) => { console.error(e); $("status").textContent = "failed to load: " + e; });

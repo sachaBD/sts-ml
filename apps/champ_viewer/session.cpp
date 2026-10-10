@@ -15,6 +15,7 @@
 // Queries:
 //   view                 public state (what a player sees; never draw order or RNG) + legal moves
 //   pv                   view + the PV network's value (100 × P(win)) and per-move policy priors (needs PV_MODEL)
+//   (search / playout are no longer used by gui/champ_server.py, which only asks view / pv)
 //   search SIMS [SALT]   view + one teacher search (guided rollout, 8 particles): visits / mean value per move
 //   playout SIMS FROM N  win/HP of teacher fights from public-belief particles FROM..FROM+N-1 of this state
 //                        (the hidden draw order / RNG resampled per playout; search salt = particle index + 1)

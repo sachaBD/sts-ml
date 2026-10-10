@@ -8,9 +8,18 @@ against every fight, and real vs predicted win rates on held-out fights.
 
 ## Run locally
 
+```sh
+cd gui
+make run                                # http://127.0.0.1:8732/index.html
 ```
-.venv/bin/python gui/server.py            # http://127.0.0.1:8732/  (~40 s startup, CPU: scores ~61k held-out fights)
-```
+
+One server serves all pages, including the Champ viewer at `http://127.0.0.1:8732/champ/`.
+Outcome-model calibration is loaded on the first outcome API request (may take a few minutes), not at startup.
+The Champ backend is also initialized on first use; it requires `build/champ-viewer/champ_session`.
+API failures appear in the Champ page's status area.
+
+Link a recorded Champ fight with `/champ/?date=2026-10-04&id=champ-ox-c-r01&part=bench-oracle&fight=<fight_id>`.
+The standalone `champ_server.py` remains available on port 8733, but is not needed with `make run`.
 
 ## Publish (GitHub Pages)
 

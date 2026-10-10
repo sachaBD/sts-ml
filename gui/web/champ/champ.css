@@ -14,17 +14,12 @@
 .hand .card:hover:not(.illegal) { border-color: var(--crimson); }
 .hand .card.best { box-shadow: 0 0 0 2px var(--ember); border-color: var(--ember); }
 .badges { display: flex; justify-content: space-between; gap: 4px; padding: 0 .45em .4em; font-size: .9em;
-  font-variant-numeric: tabular-nums; }
+  font-variant-numeric: tabular-nums; min-height: 1.3em; }
 .badges .pv { color: var(--skill); }
-.badges .tv { color: var(--ember); font-weight: 600; }
 
 .actions .sep { width: 1px; height: 22px; background: var(--line); margin: 0 4px; }
 .actions input[type=number] { width: 84px; }
 
-.spinner { width: 16px; height: 16px; border-radius: 50%; border: 2px solid var(--line);
-  border-top-color: var(--crimson); animation: spin .8s linear infinite; }
-.spinner[hidden] { display: none; }
-@keyframes spin { to { transform: rotate(360deg); } }
 
 .edit { padding: 12px 14px; background: var(--surface); border: 1px dashed var(--ember); border-radius: 8px; }
 .edit .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 6px 14px; }
@@ -41,12 +36,34 @@
 
 .tbl td.desc { font-size: 12.5px; }
 .tbl tr.chosen td { background: var(--ember-wash); }
-.tbl .shr { display: inline-block; height: 7px; background: var(--ember); border-radius: 3px; vertical-align: middle; margin-right: 6px; }
-.tbl .shr.pv { background: var(--skill); }
+.tbl .shr { display: inline-block; height: 7px; background: var(--skill); border-radius: 3px; vertical-align: middle; margin-right: 6px; }
 .potion.use { cursor: pointer; }
 .potion.use:hover { background: var(--ember-wash); }
 .done-banner { font: 600 18px Kreon, Georgia, serif; }
 .done-banner.won { color: var(--ember); }
 .done-banner.lost { color: var(--crimson); }
 @media (max-width: 720px) { .board, .piles { grid-template-columns: 1fr; } }
-.spinner.inline { display: inline-block; vertical-align: middle; width: 12px; height: 12px; }
+
+/* timeline: fixed to the bottom of the window so the controls never move */
+.champ { padding-bottom: 80px; }
+.timeline { position: fixed; left: 0; right: 0; bottom: 0; z-index: 10; display: flex; align-items: center; gap: 6px;
+  padding: 10px 16px; background: var(--surface); border-top: 1px solid var(--line); box-shadow: 0 -2px 8px rgba(0,0,0,.08); }
+.timeline button { min-width: 38px; }
+.timeline button.play { min-width: 52px; font-weight: 600; }
+.timeline input[type=range] { flex: 1; min-width: 120px; }
+.timeline .pos { flex: 0 0 380px; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* fixed footprints: nothing above the piles changes size during a replay */
+html { scrollbar-gutter: stable; overflow-y: scroll; }
+.hand { display: grid; grid-template-columns: repeat(10, 1fr); gap: 6px; container-type: inline-size; }
+.hand .card { --w: calc((100cqw - 54px) / 10); font-size: calc(var(--w) / 10); }
+.hand .card .name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.hand .card.ghost { visibility: hidden; }
+.board { height: 168px; }
+.board .foe, .verdict { overflow: hidden; }
+.board .foe .pips { min-height: 20px; }
+.player { height: 136px; align-content: flex-start; overflow: hidden; }
+.player .relics { flex-wrap: wrap; height: 70px; align-content: flex-start; overflow: hidden; }  /* 2 rows of chips */
+.potion.empty { opacity: .4; }
+.actions #status { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 360px; }
+.moves-box { height: 300px; overflow-y: auto; border-bottom: 1px solid var(--line); }
