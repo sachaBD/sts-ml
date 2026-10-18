@@ -17,6 +17,11 @@ SEARCH = search.SearchConfig(simulations=8, particles=2, max_considered=4, gumbe
 DECKS = decks.DeckConfig(count=8, extra_min=0, extra_max=5, upgrade_prob=0.5, hp_min=60, hp_max=300, seed=0)
 
 
+class ContractTests(unittest.TestCase):
+    def test_jaxsim_contract_matches_the_network(self):
+        self.assertEqual(jaxsim.CONTRACT, model.CONTRACT, "jaxsim observation layout changed: update AZNet")
+
+
 class AZTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):

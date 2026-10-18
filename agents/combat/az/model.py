@@ -17,6 +17,7 @@ import jax.numpy as jnp
 import jaxsim
 
 F32 = jnp.float32
+CONTRACT = "jaxsim_champ_v2"   # the observation layout this network reads (checked by test_az)
 
 
 @dataclass(frozen=True)
@@ -48,7 +49,7 @@ class AZNet(nn.Module):
         pools = (counts @ h) / jnp.maximum(size, 1.0)                            # [5, W]
 
         # scalars (ints -> floats only here)
-        player = f(o.player) / jnp.array([100.0, 100.0, 50.0, 5.0])
+        player = f(o.player) / jnp.array([100.0, 100.0, 50.0, 5.0, 5.0])   # hp, max hp, block, energy, per turn
         enemy_num = f(o.enemy[:3]) / jnp.array([440.0, 440.0, 50.0])
         move = nn.Embed(sp.n_moves, 16, name="move")
         enemy = jnp.concatenate([enemy_num, move(clip(o.enemy[3], 0, sp.n_moves - 1)),
