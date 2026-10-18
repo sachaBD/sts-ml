@@ -1,0 +1,9 @@
+# Optional JAX self-play stack (agents/combat/az, apps/az_train). Install with `make jax-env`.
+# jaxsim comes from the sibling sts-lightspeed checkout at $STS_LIGHTSPEED_DIR (pip expands ${VAR}).
+# NVIDIA GPU: additionally `.venv/bin/python -m pip install "jax[cuda12]==0.11.2"`.
+--index-url https://pypi.org/simple
+jax==0.11.2
+flax==0.12.10
+optax==0.2.8
+mctx==0.0.71
+-e ${STS_LIGHTSPEED_DIR}/jaxsim

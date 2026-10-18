@@ -30,6 +30,8 @@ entry-point reference.
 | `export_save` | Export a stored fight as a Slay the Spire save | `export_save.py` |
 | `megacrit_dump` | List and pull a filtered slice of the public Mega Crit StS1 run-history dump; rebuild Champ start states | `megacrit_runs_v1`, `megacrit_champ_v1` |
 | `human_champ` | One-off paired human-derived Champ benchmark: prepare, play, report | `human_champ_bench_v1`; `python -m apps.human_champ.bench` |
+| `az_train` | AlphaZero-style self-play training on the JAX simulator (`agents/combat/az`) | `az_champ_v1` |
+| `az_bench` | Throughput of the JAX simulator, search and self-play | `python -m apps.az_bench.bench` |
 | `common` | Shared launcher, configuration, worker, and replay support | library only |
 
 Experiment-specific configurations and analysis remain with their experiment in `experiments/`.

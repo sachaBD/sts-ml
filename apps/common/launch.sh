@@ -36,4 +36,4 @@ while IFS= read -r input; do
     if [[ -n $input ]]; then run_args+=(--input "$input"); fi
 done <<< "$inputs"
 exec .venv/bin/python -m runs.run "$schema" "$id" "${run_args[@]}" -- \
-    apps/common/job.sh "${build[@]}" "$script" "$config" --out '{out}'
+    apps/common/job.sh ${build[@]+"${build[@]}"} "$script" "$config" --out '{out}'
