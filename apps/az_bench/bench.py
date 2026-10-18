@@ -1,7 +1,11 @@
 #!/usr/bin/env python3
 """Throughput benchmark for the JAX self-play stack (agents/combat/az on sts-lightspeed jaxsim).
 
-  PYTHONPATH=. .venv/bin/python -m apps.az_bench.bench [--games 64 256] [--sims 64] [--particles 8] [--json FILE]
+  PYTHONPATH=. .venv/bin/python -m apps.az_bench.bench            # quick (~30-60 s): the numbers we track
+  PYTHONPATH=. .venv/bin/python -m apps.az_bench.bench --full     # more batch sizes and longer timing
+  options: [--games 64 256] [--sims 64] [--particles 8] [--json FILE]
+
+Compiled programs are cached on disk (build/jax-cache), so reruns of unchanged code skip compilation.
 
 Three numbers per batch size, on a fixed reference deck bank (seeded random A20 decks of jaxsim-supported cards,
 80 HP) and an untrained reference network:
@@ -16,6 +20,7 @@ from __future__ import annotations
 import argparse
 import json
 import time
+from pathlib import Path
 
 import jax
 import jax.numpy as jnp
@@ -27,7 +32,7 @@ REFERENCE_DECKS = decks.DeckConfig(count=1024, extra_min=0, extra_max=12, upgrad
 REFERENCE_MODEL = model.ModelConfig(width=64, card_dim=32, head_width=128, head_blocks=2)
 
 
-def timed(fn, *args, repeat=3):
+def timed(fn, *args, repeat=2):
     jax.block_until_ready(fn(*args))  # compile + warm up
     t0 = time.perf_counter()
     for _ in range(repeat):
@@ -35,7 +40,7 @@ def timed(fn, *args, repeat=3):
     return (time.perf_counter() - t0) / repeat, out
 
 
-def bench_sim(env, bank, games, steps=256):
+def bench_sim(env, bank, games, steps=128):
     init, step = jax.vmap(env.init), jax.vmap(env.step)
     legal, outcome = jax.vmap(env.legal_mask), jax.vmap(env.outcome)
 
@@ -69,12 +74,12 @@ def bench_search(env, net, params, bank, games, cfg):
     return {"simulations_per_s": games * cfg.particles * cfg.simulations / dt, "seconds_per_call": dt}
 
 
-def bench_selfplay(env, net, params, bank, games, cfg, chunk):
+def bench_selfplay(env, net, params, bank, games, cfg, chunk, repeat):
     start, run = selfplay.make_selfplay(env, search.make_policy(env, net, cfg), bank, games, chunk, explore=True)
     carry = start(jax.random.key(4))
     carry, _ = jax.block_until_ready(run(params, carry, jax.random.key(5)))  # compile + warm up
     t0, fights, decisions = time.perf_counter(), 0, 0
-    for i in range(3):
+    for i in range(repeat):
         carry, rec = jax.block_until_ready(run(params, carry, jax.random.key(6 + i)))
         fights += int(rec.done.sum())
         decisions += games * chunk
@@ -84,13 +89,24 @@ def bench_selfplay(env, net, params, bank, games, cfg, chunk):
 
 def main():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("--games", type=int, nargs="+", default=[64, 256])
+    p.add_argument("--full", action="store_true", help="more batch sizes, longer self-play timing")
+    p.add_argument("--games", type=int, nargs="+", help="search/self-play games (quick: 64; full: 64 256)")
     p.add_argument("--sims", type=int, default=64)
     p.add_argument("--particles", type=int, default=8)
-    p.add_argument("--chunk", type=int, default=16)
-    p.add_argument("--sim-games", type=int, nargs="+", default=[1024, 4096])
+    p.add_argument("--chunk", type=int, help="self-play decisions per timed call (quick: 4; full: 16)")
+    p.add_argument("--sim-games", type=int, nargs="+", help="simulator batch sizes (quick: 2048; full: 1024 4096)")
     p.add_argument("--json", help="append results as one JSON line")
     a = p.parse_args()
+    a.games = a.games or ([64, 256] if a.full else [64])
+    a.chunk = a.chunk or (16 if a.full else 4)
+    a.sim_games = a.sim_games or ([1024, 4096] if a.full else [2048])
+    repeat = 3 if a.full else 2
+
+    cache = Path(__file__).resolve().parents[2] / "build" / "jax-cache"
+    jax.config.update("jax_compilation_cache_dir", str(cache))
+    jax.config.update("jax_persistent_cache_min_compile_time_secs", 1.0)
+    t_start = time.perf_counter()
+    lap = lambda: f"[{time.perf_counter() - t_start:5.1f}s]"
 
     spec = jaxsim.DEFAULT_SPEC
     env = jaxsim.make_env(spec)
@@ -106,12 +122,12 @@ def main():
           f"search={a.particles} particles x {a.sims} sims")
     for g in a.sim_games:
         r = result["sim"][g] = bench_sim(env, bank, g)
-        print(f"sim      games {g:5d}: {r['decisions_per_s']:12,.0f} decisions/s {r['fights_per_s']:10,.1f} fights/s")
+        print(f"{lap()} sim      games {g:5d}: {r['decisions_per_s']:12,.0f} decisions/s {r['fights_per_s']:10,.1f} fights/s")
     for g in a.games:
         r = result["search"][g] = bench_search(env, net, params, bank, g, cfg)
-        print(f"search   games {g:5d}: {r['simulations_per_s']:12,.0f} simulations/s ({r['seconds_per_call']:.3f} s/call)")
-        r = result["selfplay"][g] = bench_selfplay(env, net, params, bank, g, cfg, a.chunk)
-        print(f"selfplay games {g:5d}: {r['decisions_per_s']:12,.1f} decisions/s {r['fights_per_s']:10,.2f} fights/s")
+        print(f"{lap()} search   games {g:5d}: {r['simulations_per_s']:12,.0f} simulations/s ({r['seconds_per_call']:.3f} s/call)")
+        r = result["selfplay"][g] = bench_selfplay(env, net, params, bank, g, cfg, a.chunk, repeat)
+        print(f"{lap()} selfplay games {g:5d}: {r['decisions_per_s']:12,.1f} decisions/s {r['fights_per_s']:10,.2f} fights/s")
     if a.json:
         with open(a.json, "a") as f:
             f.write(json.dumps(result) + "\n")

@@ -23,12 +23,14 @@ venv: `STS_LIGHTSPEED_DIR=../sts-lightspeed uv pip install --python .venv/bin/py
 ```sh
 PYTHONPATH=. .venv/bin/python -m agents.combat.az.test_az
 ./apps/az_train/run.sh apps/az_train/config/smoke.toml --scratch
-PYTHONPATH=. .venv/bin/python -m apps.az_bench.bench --games 64 256 --json bench.jsonl
+PYTHONPATH=. .venv/bin/python -m apps.az_bench.bench           # quick, ~40 s on the Mac (compile cached)
+PYTHONPATH=. .venv/bin/python -m apps.az_bench.bench --full    # more batch sizes, longer timing
 ```
 
 ## Throughput
 
 `apps/az_bench`: reference deck bank, untrained 179k-parameter network, 8 particles x 64 simulations.
+CPU numbers are a rough guide only; the target is a GPU. Rows up to batch 2 used the old full run.
 
 | Date | Device | Cards | Sim decisions/s | Search simulations/s | Self-play decisions/s | Self-play fights/s |
 |---|---|---|---|---|---|---|
