@@ -35,6 +35,8 @@ PYTHONPATH=. .venv/bin/python -m apps.az_bench.bench --games 64 256 --json bench
 | 2026-10-18 | MacBook Air CPU | 12 | 410k | 67k (64 games) | 65 (64 games) | 3.0 |
 | 2026-10-18 | MacBook Air CPU | 12 (sts-lightspeed b648f15, rerun) | 406k / 429k | 69k | 65.9 | 2.98 |
 | 2026-10-18 | MacBook Air CPU | 44 (batch 1, sts-lightspeed 3e5dfa5) | 372k / 388k | 69k | 60.9 | 2.64 |
+| 2026-10-18 | MacBook Air CPU | 44 (batch 1, 3e5dfa5, rerun) | 388k / 409k | 69k | 63.9 | 2.77 |
+| 2026-10-18 | MacBook Air CPU | 54 (batch 2, 0d330cc) | 327k / 326k | 63k | 59.4 | 2.46 |
 
 Sim decisions/s is given at 1024 / 4096 games. Fight length depends on the policy (an untrained network loses
 fast), so compare decisions/s. The reference bank is drawn from the supported cards, so it changes as cards are
