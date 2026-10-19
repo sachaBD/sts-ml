@@ -17,7 +17,7 @@ import jax.numpy as jnp
 import jaxsim
 
 F32 = jnp.float32
-CONTRACT = "jaxsim_champ_v3"   # the observation layout this network reads (checked by test_az)
+CONTRACT = "jaxsim_champ_v4"   # the observation layout this network reads (checked by test_az)
 
 
 @dataclass(frozen=True)
