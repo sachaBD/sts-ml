@@ -28,7 +28,7 @@ def make_evaluate(env: jaxsim.Env, net):
     def evaluate(params, states):
         obs = jax.vmap(env.observe)(states)
         mask = jax.vmap(env.legal_mask)(states)
-        logits, value_logit = jax.vmap(lambda o: net.apply(params, o))(obs)
+        logits, value_logit = jax.vmap(lambda o, m: net.apply(params, o, m))(obs, mask)
         return jnp.where(mask, logits, NEG), jax.nn.sigmoid(value_logit), mask
     return evaluate
 

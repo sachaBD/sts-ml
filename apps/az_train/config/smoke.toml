@@ -1,57 +1,44 @@
 # ./apps/az_train/run.sh apps/az_train/config/smoke.toml --scratch
-# A minute on a laptop CPU: checks the whole loop end to end, not learning.
+# A couple of minutes on a laptop CPU (mostly compilation): checks the whole loop end to end, not learning.
 [run]
 id = "az-smoke"
 
 [decks]
-count = 64
-extra_min = 0
-extra_max = 8
-upgrade_prob = 0.3
-hp_min = 80
-hp_max = 300
-seed = 0
+train = "apps/az_train/decks/example.json"
+eval = "apps/az_train/decks/example.json"
 
 [model]
-width = 32
-card_dim = 16
-head_width = 64
-head_blocks = 1
+d = 32
+layers = 1
+heads = 2
+mlp_ratio = 2
 
 [search]
-simulations = 8
-particles = 2
-max_considered = 8
+simulations = 4
+particles = 1
+max_considered = 4
 gumbel_scale = 1.0
 
 [selfplay]
-games = 16
-chunk = 32
+games = 8
+chunk = 8
 
 [train]
 iterations = 3
 chunks_per_iteration = 2
-steps_per_iteration = 10
-batch_size = 64
+steps_per_iteration = 5
+batch_size = 32
 lr = 0.001
 weight_decay = 0.0001
 value_weight = 1.0
-replay_capacity = 20000
-min_replay = 64
+replay_capacity = 4096
+games_table = 4096
+min_replay = 32
 seed = 0
 
 [eval]
 every = 3
-simulations = 8
-particles = 2
+simulations = 4
+particles = 1
+repeats = 1
 chunk = 64
-hp = [80, 200]
-
-[eval.decks]
-count = 8
-extra_min = 0
-extra_max = 8
-upgrade_prob = 0.3
-hp_min = 80
-hp_max = 80
-seed = 1

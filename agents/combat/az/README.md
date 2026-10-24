@@ -5,15 +5,16 @@ program. The simulator is used only through `jaxsim.Env` (contract: `jaxsim/src/
 
 | File | What |
 |---|---|
-| `model.py` | `AZNet`: integer observations -> per-slot policy logits + win-probability logit |
+| `model.py` | `AZNet`: transformer over card-slot, potion, player and enemy tokens -> per-action logits + P(win) logit |
 | `search.py` | mctx Gumbel MuZero with the real simulator as the model; root particles = different keys |
-| `selfplay.py` | B games x T decisions per jitted call, reset from a start bank; evaluation play |
-| `replay.py` | host replay buffer; win-only value targets attached when a game ends |
-| `learn.py` | policy cross-entropy + value BCE, AdamW |
-| `decks.py` | random start banks over jaxsim-supported cards (until human decks are supported) |
+| `selfplay.py` | B games x T decisions per jitted call, written straight into the device replay buffer; lane recycling; evaluation |
+| `replay.py` | device replay ring + game-outcome table (value targets: win/loss; truncated and errors give none) |
+| `learn.py` | policy cross-entropy + masked value BCE, AdamW, K steps per jitted call |
+| `decks.py` | deck files (JSON, see the module docstring) with a rejection report; seeded random banks for tests |
 
-**Status:** the plumbing works end to end (`apps/az_train`). It is not tuned for learning: training waits
-until jaxsim supports enough cards for real decks. The tracked metric for now is throughput (`apps/az_bench`).
+**Status:** runs end to end (`apps/az_train`, smoke config on the Mac). Not yet trained on the GPU.
+On macOS the package sets XLA optimisation level 0 (see `__init__.py`): the default takes minutes to compile
+jaxsim's batched step on the CPU.
 
 ## Setup
 
@@ -22,7 +23,8 @@ venv: `STS_LIGHTSPEED_DIR=../sts-lightspeed uv pip install --python .venv/bin/py
 
 ```sh
 PYTHONPATH=. .venv/bin/python -m agents.combat.az.test_az
-./apps/az_train/run.sh apps/az_train/config/smoke.toml --scratch
+./apps/az_train/run.sh apps/az_train/config/smoke.toml --scratch      # ~1 min
+./apps/az_train/run.sh apps/az_train/config/gpu3060.toml             # the GPU box; decks in [decks]
 PYTHONPATH=. .venv/bin/python -m apps.az_bench.bench           # quick, ~40 s on the Mac (compile cached)
 PYTHONPATH=. .venv/bin/python -m apps.az_bench.bench --full    # more batch sizes, longer timing
 ```

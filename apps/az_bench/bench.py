@@ -14,6 +14,8 @@ Three numbers per batch size, on a fixed reference deck bank (seeded random A20 
   selfplay  self-play decisions/s and fights/s at the given search budget (the headline number)
 Fight length depends on the policy, so decisions/s is primary and fights/s is reported alongside.
 Compile time is excluded (one warm-up call). Results are comparable only at equal settings and jaxsim card set.
+On macOS the az package compiles at XLA optimisation level 0 (agents/combat/az/__init__.py), so Mac numbers
+understate the CPU; they are a smoke check. Use the GPU box for real numbers.
 """
 from __future__ import annotations
 
@@ -26,10 +28,10 @@ import jax
 import jax.numpy as jnp
 
 import jaxsim
-from agents.combat.az import decks, model, search, selfplay
+from agents.combat.az import decks, model, replay, search, selfplay
 
-REFERENCE_DECKS = decks.DeckConfig(count=1024, extra_min=0, extra_max=12, upgrade_prob=0.3, hp_min=80, hp_max=80, seed=0)
-REFERENCE_MODEL = model.ModelConfig(width=64, card_dim=32, head_width=128, head_blocks=2)
+REFERENCE_DECKS = decks.RandomDecks(count=1024, extra_min=0, extra_max=12, upgrade_prob=0.3, hp_min=80, hp_max=80, seed=0)
+REFERENCE_MODEL = model.ModelConfig(d=128, layers=2, heads=4, mlp_ratio=2)   # ~330k parameters (gpu3060.toml)
 
 
 def timed(fn, *args, repeat=2):
@@ -75,13 +77,15 @@ def bench_search(env, net, params, bank, games, cfg):
 
 
 def bench_selfplay(env, net, params, bank, games, cfg, chunk, repeat):
-    start, run = selfplay.make_selfplay(env, search.make_policy(env, net, cfg), bank, games, chunk, explore=True)
+    start, run = selfplay.make_selfplay(env, search.make_policy(env, net, cfg), bank, games, chunk)
     carry = start(jax.random.key(4))
-    carry, _ = jax.block_until_ready(run(params, carry, jax.random.key(5)))  # compile + warm up
+    s0 = env.init(jax.tree.map(lambda x: x[0], bank), jax.random.key(0))
+    buf = replay.empty(env.observe(s0), env.spec.A, games * chunk * (repeat + 1), 1 << 16)
+    carry, buf, _ = jax.block_until_ready(run(params, carry, buf, jax.random.key(5)))  # compile + warm up
     t0, fights, decisions = time.perf_counter(), 0, 0
     for i in range(repeat):
-        carry, rec = jax.block_until_ready(run(params, carry, jax.random.key(6 + i)))
-        fights += int(rec.done.sum())
+        carry, buf, st = jax.block_until_ready(run(params, carry, buf, jax.random.key(6 + i)))
+        fights += int(st.games)
         decisions += games * chunk
     dt = time.perf_counter() - t0
     return {"decisions_per_s": decisions / dt, "fights_per_s": fights / dt}
@@ -91,8 +95,8 @@ def main():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--full", action="store_true", help="more batch sizes, longer self-play timing")
     p.add_argument("--games", type=int, nargs="+", help="search/self-play games (quick: 64; full: 64 256)")
-    p.add_argument("--sims", type=int, default=64)
-    p.add_argument("--particles", type=int, default=8)
+    p.add_argument("--sims", type=int, default=32)
+    p.add_argument("--particles", type=int, default=1)
     p.add_argument("--chunk", type=int, help="self-play decisions per timed call (quick: 4; full: 16)")
     p.add_argument("--sim-games", type=int, nargs="+", help="simulator batch sizes (quick: 2048; full: 1024 4096)")
     p.add_argument("--json", help="append results as one JSON line")
@@ -110,10 +114,10 @@ def main():
 
     spec = jaxsim.DEFAULT_SPEC
     env = jaxsim.make_env(spec)
-    bank = decks.make_bank(REFERENCE_DECKS, spec)
+    bank = decks.random_bank(REFERENCE_DECKS, spec)
     net = model.AZNet(spec, REFERENCE_MODEL)
     s0 = env.init(jax.tree.map(lambda x: x[0], bank), jax.random.key(0))
-    params = net.init(jax.random.key(0), env.observe(s0))
+    params = net.init(jax.random.key(0), env.observe(s0), env.legal_mask(s0))
     cfg = search.SearchConfig(simulations=a.sims, particles=a.particles, max_considered=16, gumbel_scale=1.0)
     result = {"device": str(jax.devices()[0]), "jaxsim_contract": jaxsim.CONTRACT,
               "supported_cards": len(jaxsim.supported_cards()), "sims": a.sims, "particles": a.particles,
