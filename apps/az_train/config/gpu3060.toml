@@ -1,5 +1,5 @@
 # ./apps/az_train/run.sh apps/az_train/config/gpu3060.toml --scratch
-# First guess for an RTX 3060 (12 GB): ~330k-parameter network, 2048 games x 1 particle x 32 simulations.
+# First guess for an RTX 3060 (12 GB): ~460k-parameter network, 2048 games x 1 particle x 32 simulations.
 # Tune games / simulations with apps/az_bench on the card before a long run. Replace the deck files with yours.
 [run]
 id = "az-3060"

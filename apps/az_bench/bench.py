@@ -31,7 +31,7 @@ import jaxsim
 from agents.combat.az import decks, model, replay, search, selfplay
 
 REFERENCE_DECKS = decks.RandomDecks(count=1024, extra_min=0, extra_max=12, upgrade_prob=0.3, hp_min=80, hp_max=80, seed=0)
-REFERENCE_MODEL = model.ModelConfig(d=128, layers=2, heads=4, mlp_ratio=2)   # ~330k parameters (gpu3060.toml)
+REFERENCE_MODEL = model.ModelConfig(d=128, layers=2, heads=4, mlp_ratio=2)   # 460,165 parameters (gpu3060.toml)
 
 
 def timed(fn, *args, repeat=2):
