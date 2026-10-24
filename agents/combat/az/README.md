@@ -12,7 +12,8 @@ program. The simulator is used only through `jaxsim.Env` (contract: `jaxsim/src/
 | `learn.py` | policy cross-entropy + masked value BCE, AdamW, K steps per jitted call |
 | `decks.py` | deck files (JSON, see the module docstring) with a rejection report; seeded random banks for tests |
 
-**Status:** runs end to end (`apps/az_train`, smoke config on the Mac). Not yet trained on the GPU.
+**Status:** runs end to end (`apps/az_train`, smoke config on the Mac and on an RTX 3060). Not yet trained on the GPU.
+RTX 3060 throughput, the search-depth bottleneck and next steps: `docs/research/az_gpu_throughput_handoff.md`.
 On macOS the package sets XLA optimisation level 0 (see `__init__.py`): the default takes minutes to compile
 jaxsim's batched step on the CPU.
 
@@ -45,3 +46,6 @@ CPU numbers are a rough guide only; the target is a GPU. Rows up to batch 2 used
 Sim decisions/s is given at 1024 / 4096 games. Fight length depends on the policy (an untrained network loses
 fast), so compare decisions/s. The reference bank is drawn from the supported cards, so it changes as cards are
 added. Rows marked "rerun" were measured back-to-back with the row below them, under the same machine load.
+
+RTX 3060, 128 simulations x 1 particle, mid-fight, after the search fix (23e8f04): self-play 714 / 281 / 256
+decisions/s at 2048 games with a trivial / small (59k) / reference (460k) network (`apps/az_bench/probe_selfplay`).
