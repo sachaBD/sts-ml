@@ -42,6 +42,10 @@ def make_policy(env: jaxsim.Env, net, cfg: SearchConfig):
         nxt = jax.vmap(env.step)(states, action, keys)
         out = jax.vmap(env.outcome)(nxt)
         logits, value, _ = evaluate(params, nxt)
+        # Terminal states allow only END_TURN (jaxsim contract), so a 100% prior made every revisit of a finished
+        # fight one node deeper: chains up to num_simulations deep, and mctx's traversal/backup cost follows the
+        # deepest tree in the batch (~8x slower per simulation). A uniform prior keeps the dead subtree shallow.
+        logits = jnp.where(out.done[:, None], 0.0, logits)
         return mctx.RecurrentFnOutput(
             reward=(out.won & ~was_done).astype(jnp.float32),
             discount=(~out.done).astype(jnp.float32),
