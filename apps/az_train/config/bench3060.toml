@@ -1,0 +1,45 @@
+# ./apps/az_train/run.sh apps/az_train/config/bench3060.toml --scratch
+# Capacity probe on the RTX 3060 (not training): gpu3060 network and replay size, 2048 games x 128 simulations,
+# 10 short iterations. Before the search fix (23e8f04) one iteration took > 3 min; use apps/az_bench probes first.
+[run]
+id = "az-bench3060"
+
+[decks]
+train = "apps/az_train/decks/example.json"
+eval = "apps/az_train/decks/example.json"
+
+[model]
+d = 128
+layers = 2
+heads = 4
+mlp_ratio = 2
+
+[search]
+simulations = 128
+particles = 1
+max_considered = 16
+gumbel_scale = 1.0
+
+[selfplay]
+games = 2048
+chunk = 32
+
+[train]
+iterations = 10                   # guess: aims at ~1 min after compilation
+chunks_per_iteration = 1          # 65k decisions per iteration
+steps_per_iteration = 64
+batch_size = 1024
+lr = 0.0003
+weight_decay = 0.0001
+value_weight = 1.0
+replay_capacity = 1048576
+games_table = 1048576
+min_replay = 65536
+seed = 0
+
+[eval]
+every = 1000                      # only the forced final eval
+simulations = 32
+particles = 1
+repeats = 1
+chunk = 64
