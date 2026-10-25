@@ -1,4 +1,5 @@
 # Python environment for combat_rl, managed with uv (https://docs.astral.sh/uv/).
+# Usually via make: env / env-onnx / env-jax / env-all (see `make help`). Directly:
 #   uv sync                  core only (training, data, analysis)
 #   uv sync --group onnx     + ONNX export/inference (agents/combat/pv)
 #   uv sync --group jax      + JAX self-play stack and jaxsim (agents/combat/az, apps/az_train)

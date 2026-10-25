@@ -12,7 +12,8 @@ teacher's leaf evaluation for the next generation of self-play.
 ## Setup
 
 ```sh
-make python-env   # .venv via uv (core); GROUPS="--group jax" / "--all-groups", see pyproject.toml
+make help         # list targets
+make env          # .venv via uv, core only; env-onnx / env-jax / env-all add optional groups
 make build        # build/main (all build dirs live under build/<name>/)
 make test         # ctest + Python unittests
 ```
