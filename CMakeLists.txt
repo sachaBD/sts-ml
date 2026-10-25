@@ -224,6 +224,7 @@ endif()
 
 # Thin ONNX-backed policy/value combat agent.
 add_subdirectory(agents/combat/pv)
+add_subdirectory(agents/combat/nn)
 
 # Champ viewer sandbox (gui/web/champ/): rebuild an edited Champ battle per request, PV priors, teacher search.
 if(TARGET pv_onnx)

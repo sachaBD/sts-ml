@@ -12,7 +12,7 @@ PY
 )
 root="$PWD/build/deps/onnxruntime"
 mkdir -p "$root/include" "$root/lib"
-for header in onnxruntime_c_api.h onnxruntime_cxx_api.h onnxruntime_cxx_inline.h onnxruntime_float16.h onnxruntime_ep_c_api.h onnxruntime_error_code.h; do
+for header in onnxruntime_c_api.h onnxruntime_cxx_api.h onnxruntime_cxx_inline.h onnxruntime_float16.h onnxruntime_ep_c_api.h; do
     curl --fail --silent --show-error --location --max-time 30 \
         "https://raw.githubusercontent.com/microsoft/onnxruntime/v${version}/include/onnxruntime/core/session/${header}" \
         -o "$root/include/$header"

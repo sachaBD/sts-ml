@@ -25,7 +25,8 @@ dependencies = [
 onnx = [
     "onnx==1.23.1",
     "onnxscript==0.7.2",
-    "onnxruntime==1.30.0",
+    "onnxruntime-gpu==1.24.4",
+    "tensorrt-cu12-libs==10.16.1.11",  # TensorRT for the onnxruntime TensorRT provider (agents/combat/nn GPU inference)
 ]
 # JAX self-play (NVIDIA GPU build) plus the jaxsim simulator from the sibling lightspeed checkout.
 jax = [
