@@ -1,0 +1,49 @@
+# Python environment for combat_rl, managed with uv (https://docs.astral.sh/uv/).
+#   uv sync                  core only (training, data, analysis)
+#   uv sync --group onnx     + ONNX export/inference (agents/combat/pv)
+#   uv sync --group jax      + JAX self-play stack and jaxsim (agents/combat/az, apps/az_train)
+#   uv sync --all-groups     everything
+# `uv sync` makes .venv match exactly what is requested: groups not listed are uninstalled.
+# uv.lock pins exact versions; commit it alongside changes here.
+
+[project]
+name = "combat_rl"
+version = "0.0.0"
+requires-python = ">=3.13"
+dependencies = [
+    "torch==2.14.0",  # CUDA 12.6 build, see [tool.uv.sources]
+    "numpy==2.5.2",
+    "pyarrow==23.0.1",
+    "msgpack==1.1.2",
+    "scipy==1.18.1",
+    "duckdb==1.5.5",
+]
+
+[dependency-groups]
+# Export PyTorch nets to ONNX for native C++ inference (pv_worker) and verify parity.
+onnx = [
+    "onnx==1.23.1",
+    "onnxscript==0.7.2",
+    "onnxruntime==1.30.0",
+]
+# JAX self-play (NVIDIA GPU build) plus the jaxsim simulator from the sibling lightspeed checkout.
+jax = [
+    "jax[cuda12]==0.11.2",
+    "flax==0.12.10",
+    "optax==0.2.8",
+    "mctx==0.0.71",
+    "jaxsim",
+]
+
+[tool.uv]
+package = false                         # an environment for this repo, not an installable package
+environments = ["sys_platform == 'linux'"]
+
+[tool.uv.sources]
+torch = { index = "pytorch-cu126" }
+jaxsim = { path = "../lightspeed/jaxsim", editable = true }
+
+[[tool.uv.index]]
+name = "pytorch-cu126"
+url = "https://download.pytorch.org/whl/cu126"
+explicit = true                         # only packages pinned to this index (torch) come from it

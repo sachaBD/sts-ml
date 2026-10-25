@@ -19,8 +19,7 @@ jaxsim's batched step on the CPU.
 
 ## Setup
 
-`make jax-env STS_LIGHTSPEED_DIR=../sts-lightspeed` (the default is `../sts_lightspeed`). On a uv-created
-venv: `STS_LIGHTSPEED_DIR=../sts-lightspeed uv pip install --python .venv/bin/python -r requirements-jax.txt`.
+Needs the `jax` dependency group (JAX GPU build + jaxsim from `../lightspeed/jaxsim`): `uv sync --group jax`.
 
 ```sh
 PYTHONPATH=. .venv/bin/python -m agents.combat.az.test_az

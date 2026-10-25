@@ -29,7 +29,7 @@ Python PyTorch learner ──► model.onnx
 ## Build
 
 ```bash
-.venv/bin/python -m pip install -r requirements-onnx.txt
+uv sync --group onnx
 apps/pv/setup_runtime.sh  # matching official headers + wheel library link, all under build/deps/
 cmake -S . -B build/pv -DCMAKE_BUILD_TYPE=Release
 cmake --build build/pv --target pv_worker pv_features_test encoding_v4_test -j6

@@ -10,7 +10,7 @@ try:
     import jax.numpy as jnp
     import numpy as np
     import jaxsim
-except ImportError as e:  # JAX stack is optional (requirements-jax.txt)
+except ImportError as e:  # JAX stack missing from this environment
     raise unittest.SkipTest(f"JAX stack not installed: {e}")
 
 from agents.combat.az import decks, learn, model, replay, search, selfplay
