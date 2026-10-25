@@ -22,7 +22,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from apps.megacrit_dump.pull import champ_fields  # noqa: E402  (tested HP indexing / F / outcome)
 from apps.megacrit_dump.schema import load  # noqa: E402
 
-SIM = Path(__file__).resolve().parents[3] / "sts_lightspeed" / "include" / "constants"
+SIM = Path(__file__).resolve().parents[3] / "lightspeed" / "include" / "constants"
 LATE = 10 ** 9  # sort key for boss relics, which are all picked after the Champ
 
 

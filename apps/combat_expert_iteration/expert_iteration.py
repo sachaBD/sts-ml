@@ -12,6 +12,15 @@ network; only the fight RNG seed varies. Fight budgets below are per deck.
 
 Results are reported per deck and pooled. Value target: 100 x actual win. Policy target: normalized root visits. Monitor fights never train.
 rollout_mix = 0 is the network-only recipe; 0.5 is the rollout-guided recipe.
+
+Optional [run] keys (absent = the original recipe):
+- root_halving = true: Gumbel root search (Sequential Halving, m=16) for every network fight; collection
+  (explore = true) adds Gumbel noise and trains on the improved policy instead of visits. sample_turns must be false.
+- flat_policy_weighting (default true): the trainer's visit-concentration policy weighting.
+- worker_path: a pv_worker binary to snapshot instead of worker_run's frozen one.
+- bootstrap_states_per_fight (default states_per_fight): states sampled per teacher fight for the bootstrap network.
+- bootstrap_run (run id): reuse that run's teacher bootstrap and monitor-teacher fights of the same [[deck]]
+  names/starts instead of replaying them; bootstrap_fights / monitor_fights must equal the stored counts.
 """
 import copy
 import re
@@ -38,7 +47,8 @@ PY = sys.executable
 KEYS = {"id", "worker_run", "workers", "device",
         "teacher_sims", "bootstrap_fights", "bootstrap_epochs", "bootstrap_lr", "monitor_fights",
         "updates", "batch_fights", "sims", "rollout_mix", "explore", "sample_turns",
-        "epochs", "lr", "replay_batches", "teacher_taper", "states_per_fight", "width", "eval_every"}
+        "epochs", "lr", "replay_batches", "teacher_taper", "states_per_fight", "width", "eval_every",
+        "root_halving", "flat_policy_weighting", "worker_path", "bootstrap_run", "bootstrap_states_per_fight"}
 DECK_KEYS = {"name", "starts", "deck_id", "hp", "max_hp"}
 INTS = ("workers", "teacher_sims", "bootstrap_fights", "bootstrap_epochs", "monitor_fights", "updates",
         "batch_fights", "sims", "epochs", "replay_batches", "teacher_taper", "states_per_fight", "width", "eval_every")
@@ -58,13 +68,25 @@ def settings(config):
         required(run, key, "run", str)
     if not 0 <= run["rollout_mix"] <= 1:
         sys.exit("[run].rollout_mix must be in [0, 1]")
+    run.setdefault("root_halving", False)
+    run.setdefault("bootstrap_states_per_fight", run["states_per_fight"])
+    required(run, "bootstrap_states_per_fight", "run", int)
+    run.setdefault("flat_policy_weighting", True)
+    for key in ("root_halving", "flat_policy_weighting"):
+        required(run, key, "run", bool)
+    for key in ("worker_path", "bootstrap_run"):
+        if key in run:
+            required(run, key, "run", str)
+    if run["root_halving"] and run["sample_turns"]:
+        sys.exit("[run].root_halving explores with Gumbel noise: sample_turns must be false")
     decks = config.get("deck") or sys.exit("at least one [[deck]] required")
     check_decks(decks)
     return run, decks
 
 
 def inputs(config):
-    return sorted({d["starts"] for d in config["deck"]}) + [config["run"]["worker_run"]]
+    return sorted({d["starts"] for d in config["deck"]}) + [config["run"]["worker_run"]] + (
+        [config["run"]["bootstrap_run"]] if "bootstrap_run" in config["run"] else [])
 
 
 def deck_of(fight_id):
@@ -146,7 +168,8 @@ class Experiment:
         for deck in decks:
             self.bases[deck["name"]], seeds = load_base(deck)
             self.used |= seeds
-        self.worker, self.worker_sha = snapshot(run_dir(run["worker_run"]) / "out/frozen/pv_worker", out)
+        worker = Path(run["worker_path"]) if "worker_path" in run else run_dir(run["worker_run"]) / "out/frozen/pv_worker"
+        self.worker, self.worker_sha = snapshot(worker, out)
         self.split = {}  # fight_id -> train / val, for the trainer
         self.validation_rows = None
 
@@ -158,6 +181,43 @@ class Experiment:
         write_json(self.out / "split.json", self.split)
         return rows
 
+    def reuse(self, directory, name, stored, n):
+        """Stored teacher fights of this run's decks instead of new ones: (start rows, {fight_id: result}).
+        Same deck name and start (seed aside), exactly n completed-or-capped fights per deck, no errors."""
+        rows, results = [], {}
+        for line in (run_dir(self.run["bootstrap_run"]) / "out" / stored / "results.jsonl").open():
+            result = json.loads(line)
+            deck = deck_of(result["fight_id"])
+            if deck not in self.bases:
+                continue
+            if result["status"] not in ("completed", "capped"):
+                sys.exit(f"{stored}: {result['fight_id']} has status {result['status']}; not reused")
+            start = dict(result["fight"]["start"]) if "fight" in result else None
+            base = dict(self.bases[deck]["start"])
+            volatile = ("seed", "misc_rng", "potion_rng")
+            if start is None or {k: v for k, v in start.items() if k not in volatile} != {
+                    k: v for k, v in base.items() if k not in volatile}:
+                sys.exit(f"{stored}: {result['fight_id']} start differs from deck {deck}; not reused")
+            rows.append(dict(fight_id=result["fight_id"], start=start))
+            results[result["fight_id"]] = result
+            self.used.add(start["seed"])
+        for deck in self.bases:
+            if (count := sum(deck_of(k) == deck for k in results)) != n:
+                sys.exit(f"{stored}: {count} stored fights for deck {deck}, config expects {n}")
+        self.split.update({r["fight_id"]: "val" if name == "monitor" else "train" for r in rows})
+        write_json(self.out / "split.json", self.split)
+        directory.mkdir(parents=True)
+        write_json(directory / "command.json", dict(reused=self.run["bootstrap_run"], source=stored))
+        with (directory / "results.jsonl").open("w") as journal:
+            journal.writelines(json.dumps(r) + "\n" for r in results.values())
+        completed = [x for x in results.values() if x["status"] == "completed"]
+        v4 = load("combat_v4")
+        pq.write_table(pa.Table.from_pylist([x["fight"] for x in completed], v4.FIGHTS), directory / "fights.parquet")
+        pq.write_table(pa.Table.from_pylist([q for x in completed for q in x.get("search", [])], v4.SEARCH),
+                       directory / "search.parquet")
+        log.info("%s: reused %d stored fights from %s/%s", directory.name, len(results), self.run["bootstrap_run"], stored)
+        return rows, results
+
     def play(self, directory, rows, model=None, collect=False):
         """Teacher if model is None, else network + search; returns {fight_id: result}."""
         r = self.run
@@ -167,6 +227,8 @@ class Experiment:
             command = [str(self.worker), "play", str(model / "model.onnx"), str(r["sims"])]
             if r["rollout_mix"]:
                 command += ["--rollout-mix", str(r["rollout_mix"])]
+            if r["root_halving"]:
+                command += ["--root-halving"]
             if collect:
                 command += ["--explore"] * r["explore"] + ["--sample-turns"] * r["sample_turns"]
         return play(directory, rows, command, r["workers"])
@@ -183,13 +245,13 @@ class Experiment:
                                               "--worker", self.worker, "--out", directory / "rows"])
         return directory / "rows/rows.parquet"
 
-    def train(self, directory, shards, fight_ids, init, epochs, lr):
+    def train(self, directory, shards, fight_ids, init, epochs, lr, states_per_fight=None):
         r = self.run
         write_json(directory / "train-fights.json", fight_ids)
         # Monitor rows give validation losses only; split.json marks them val, so they never train.
         command = [PY, "-m", "agents.combat.pv.train", "--data", *shards, self.validation_rows, "--split-manifest", self.out / "split.json",
-                   "--train-fights", directory / "train-fights.json", "--states-per-fight", r["states_per_fight"],
-                   "--flat-policy-weighting", "--width", r["width"], "--epochs", epochs, "--lr", lr, "--grad-clip", 1,
+                   "--train-fights", directory / "train-fights.json", "--states-per-fight", states_per_fight or r["states_per_fight"],
+                   *(["--flat-policy-weighting"] if r["flat_policy_weighting"] else []), "--width", r["width"], "--epochs", epochs, "--lr", lr, "--grad-clip", 1,
                    "--device", r["device"], "--stream", "--out", directory / "model"]
         command += ["--value-activation", "sigmoid"] if init is None else ["--init", init / "model.pt", "--resume-optimizer"]
         self.call(directory, "train", command)
@@ -231,16 +293,21 @@ def expert_iteration(config, config_path, out):
     run, decks = settings(config)
     snapshot(config_path, out, "config.toml")
     x = Experiment(run, decks, out)
-    bootstrap, monitor = x.starts("bootstrap", run["bootstrap_fights"]), x.starts("monitor", run["monitor_fights"])
-    log.info("bootstrap: teacher plays %d training fights and %d monitor fights", len(bootstrap), len(monitor))
-    teacher = x.play(out / "bootstrap/play", bootstrap)
-    reference = x.play(out / "monitor-teacher", monitor)
+    if "bootstrap_run" in run:
+        bootstrap, teacher = x.reuse(out / "bootstrap/play", "bootstrap", "bootstrap/play", run["bootstrap_fights"])
+        monitor, reference = x.reuse(out / "monitor-teacher", "monitor", "monitor-teacher", run["monitor_fights"])
+    else:
+        bootstrap, monitor = x.starts("bootstrap", run["bootstrap_fights"]), x.starts("monitor", run["monitor_fights"])
+        log.info("bootstrap: teacher plays %d training fights and %d monitor fights", len(bootstrap), len(monitor))
+        teacher = x.play(out / "bootstrap/play", bootstrap)
+        reference = x.play(out / "monitor-teacher", monitor)
     teacher_rows = x.encode(out / "bootstrap/play")
     x.validation_rows = x.encode(out / "monitor-teacher")
     teacher_ids = {d["name"]: [r["fight_id"] for r in bootstrap if deck_of(r["fight_id"]) == d["name"]
                                and teacher[r["fight_id"]]["status"] == "completed"] for d in decks}
     all_teacher = [k for ks in teacher_ids.values() for k in ks]
-    model = x.train(out / "bootstrap", [teacher_rows], all_teacher, None, run["bootstrap_epochs"], run["bootstrap_lr"])
+    model = x.train(out / "bootstrap", [teacher_rows], all_teacher, None, run["bootstrap_epochs"], run["bootstrap_lr"],
+                    run["bootstrap_states_per_fight"])
 
     curve, batches = [], []
 

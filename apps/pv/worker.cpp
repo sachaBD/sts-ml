@@ -33,10 +33,15 @@ bool root_halving_marked(const Json& x) {
 }
 
 void encode(const Json& fight, pv::ShardWriter& writer) {
-    if (root_halving_marked(fight) || (fight.contains("fight") && root_halving_marked(fight.at("fight"))))
-        throw std::runtime_error{"PV: root_halving records are evaluation-only and cannot be encoded as training rows"};
+    // Root-halving visit counts are allocations, not targets: every search row of a halving fight (and every
+    // halving-marked row) must carry its improved `policy`.
+    const bool halving_fight = root_halving_marked(fight) || (fight.contains("fight") && root_halving_marked(fight.at("fight")));
+    const auto has_policy = [](const Json& row) { return row.contains("policy") && !row.at("policy").is_null(); };
+    if (halving_fight && !(fight.contains("search") && !fight.at("search").empty()))
+        throw std::runtime_error{"PV: root_halving fight without search rows cannot be encoded as training rows"};
     if (fight.contains("search")) for (const auto& row : fight.at("search"))
-        if (root_halving_marked(row)) throw std::runtime_error{"PV: root_halving search rows cannot be encoded as training targets"};
+        if ((halving_fight || root_halving_marked(row)) && !has_policy(row))
+            throw std::runtime_error{"PV: root_halving search rows without an improved policy cannot be encoded as training targets"};
     if (fight.value("status", std::string{"completed"}) != "completed") return;
     const auto actions = fight.at("actions").get<std::vector<std::uint32_t>>();
     // Reject a desynced fight before emitting any rows. This is the canonical replay implementation.
@@ -57,7 +62,20 @@ void encode(const Json& fight, pv::ShardWriter& writer) {
         std::vector<float> visits(moves.size(), 0);
         double total = 0, matched = 0;
         const Json* row = searched.contains(step) ? searched.at(step) : nullptr;
-        if (row)
+        if (row && row->contains("policy") && !row->at("policy").is_null()) {
+            // Improved-policy target (Gumbel): a probability for every legal root action, in any order.
+            std::vector<bool> seen(moves.size(), false);
+            for (const auto& entry : row->at("policy")) {
+                const double p = entry.at("p");
+                if (!std::isfinite(p) || p < 0) throw std::runtime_error{"PV: invalid recorded policy probability"};
+                std::size_t a = 0;
+                while (a < bits.size() && bits[a] != entry.at("action").get<std::uint32_t>()) ++a;
+                if (a == bits.size() || seen[a]) throw std::runtime_error{"PV: recorded policy does not match legal actions"};
+                seen[a] = true; visits[a] = float(p); total += p; matched += p;
+            }
+            if (std::find(seen.begin(), seen.end(), false) != seen.end() || std::abs(total - 1) > 1e-3)
+                throw std::runtime_error{"PV: recorded policy must cover every legal action and sum to 1"};
+        } else if (row)
             for (const auto& child : row->at("children")) {
                 const double count = child.at("visits");
                 if (!std::isfinite(count) || count < 0) throw std::runtime_error{"PV: invalid recorded visit count"};
@@ -102,7 +120,8 @@ Json play(const Json& fight, pv::Evaluator& evaluator, std::int64_t simulations,
     sts::BattleContext state; state.init(stsrl::combat_v4::start_game(fight.at("start")));
     pv::SearchSettings settings;
     settings.root_halving = root_halving;
-    settings.noise_fraction = exploration ? 0.25 : 0;
+    settings.root_halving.gumbel_seed = fight.at("start").at("seed").get<std::uint64_t>();  // only used when gumbel_scale > 0
+    settings.noise_fraction = exploration && !root_halving.enabled ? 0.25 : 0;  // root halving explores with Gumbel noise
     settings.rollout_mix = rollout_mix;
     settings.oracle = oracle;
     std::unique_ptr<pv::Search<>> tree;
@@ -139,11 +158,11 @@ Json play(const Json& fight, pv::Evaluator& evaluator, std::int64_t simulations,
             const double n = tree->simulations();
             search.push_back({{"fight_id", fight.at("fight_id")}, {"step", actions.size()}, {"agent", agent},
                               {"root_value", value_sum / visits}, {"simulations", tree->simulations()}, {"children", children}});
-            if (root_halving.enabled) {  // evaluation-only provenance; visits here are halving allocations, not targets
+            if (root_halving.enabled) {  // visits here are halving allocations, not targets: the target is `policy`
                 Json improved = Json::array(); const auto pi = tree->improved_policy();
                 for (std::size_t i = 0; i < pi.size(); ++i) improved.push_back({{"action", tree->root().edges[i].action.bits}, {"p", pi[i]}});
                 search.back()["root_halving"] = true;
-                search.back()["improved_policy_eval_only"] = std::move(improved);
+                search.back()["policy"] = std::move(improved);  // Gumbel improved policy over every legal root action
                 search.back()["phase_flushes"] = d.phase_flushes;
             }
             stats.push_back({{"fight_id", fight.at("fight_id")}, {"step", actions.size()}, {"seconds", since(t)},
@@ -399,13 +418,13 @@ int main(int argc, char** argv) {
             pv::TurnSearchCaps caps; pv::RealTurnCaps real_caps;
             int particles = 4; bool particles_set = false;
             double c = pv::PuctScore{}.exploration, rollout_mix = 0;
-            pv::SearchSettings::RootHalving root_halving; bool halving_option = false;
+            pv::SearchSettings::RootHalving root_halving; bool halving_option = false, gumbel_set = false;
             for (int i = 4; i < argc; ++i) {
                 const std::string option = argv[i];
                 if (option == "--explore") exploration = true;
                 else if (option == "--root-halving") root_halving.enabled = true;
                 else if (option == "--halving-m" && i + 1 < argc) { root_halving.max_considered = std::stoi(argv[++i]); halving_option = true; }
-                else if (option == "--gumbel-scale" && i + 1 < argc) { root_halving.gumbel_scale = std::stod(argv[++i]); halving_option = true; }
+                else if (option == "--gumbel-scale" && i + 1 < argc) { root_halving.gumbel_scale = std::stod(argv[++i]); halving_option = gumbel_set = true; }
                 else if (option == "--oracle") oracle = true;
                 else if (option == "--real-turn") real_turn = true;
                 else if (option == "--real-turn-max-sequences" && i+1<argc) real_caps.max_sequences=std::stoull(argv[++i]);
@@ -425,8 +444,10 @@ int main(int argc, char** argv) {
                 else throw std::invalid_argument{"unknown play option " + option};
             }
             if (halving_option && !root_halving.enabled) throw std::invalid_argument{"--halving-m/--gumbel-scale require --root-halving"};
-            if (root_halving.enabled && (exploration || sample_turns || oracle || policy_only || turn_search || turn_targets || real_turn))
-                throw std::invalid_argument{"--root-halving is evaluation-only: no --explore/--sample-turns/--oracle/--policy-only/turn modes"};
+            if (root_halving.enabled && (sample_turns || oracle || policy_only || turn_search || turn_targets || real_turn))
+                throw std::invalid_argument{"--root-halving: no --sample-turns/--oracle/--policy-only/turn modes"};
+            // Gumbel self-play: --explore means Gumbel noise at the root (scale 1 unless set), never Dirichlet noise.
+            if (root_halving.enabled && exploration && !gumbel_set) root_halving.gumbel_scale = 1.0;
             if(real_turn && (oracle || turn_search || turn_targets || exploration || sample_turns || policy_only || rollout_mix!=0))
                 throw std::invalid_argument{"--real-turn requires real evaluation-only settings without --turn-search"};
             if(real_turn && !particles_set)particles=8;
@@ -442,7 +463,7 @@ int main(int argc, char** argv) {
             if (simulations < 1) throw std::invalid_argument{"PV needs at least one simulation"};
             std::string agent = "pv model=" + std::filesystem::path{argv[2]}.parent_path().filename().string() + "/" +
                 std::filesystem::path{argv[2]}.filename().string() + " sims=" + std::to_string(simulations) +
-                " explore=" + (exploration ? "0.25" : "0") + " c=" + std::to_string(c) + " q=minmax particles=" + (oracle ? "1" : (turn_search || real_turn) ? std::to_string(particles) : "8") + " batch=" +
+                " explore=" + (exploration ? (root_halving.enabled ? "gumbel" : "0.25") : "0") + " c=" + std::to_string(c) + " q=minmax particles=" + (oracle ? "1" : (turn_search || real_turn) ? std::to_string(particles) : "8") + " batch=" +
                 std::to_string(pv::SearchSettings{}.batch_size) +
                 (rollout_mix > 0 ? " rollout_mix=" + std::to_string(rollout_mix) : "") +
                 (oracle ? " oracle=1 reuse=1" : "") + (policy_only ? " policy_only=1" : "") +

@@ -7,7 +7,7 @@ nothing is published for a failed encode.
 
 Shard schema, one row per decision: fight_id, seed (start.seed), encounter, step, turn, won, final_hp, value_target
 (CombatObjective terminal value), root_value (teacher root value, null without search), moves list<uint32> (legal
-Action::bits, encoder order), policy_target list<float32> (normalized visits, aligned with moves), has_policy,
+Action::bits, encoder order), policy_target list<float32> (normalized visits, or the recorded improved `policy` when present; aligned with moves), has_policy,
 the six model inputs flattened as list<float32> (context, cards, monsters, potions, relics, actions; row widths in
 model.WIDTHS) and n_cards, n_monsters, n_potions, n_relics, n_actions row counts. File metadata pv_contract = model.CONTRACT.
 """
@@ -33,9 +33,13 @@ def collect(fights, searches, encounters, out, worker=WORKER):
     """Encode the selected fights into out/rows.parquet; returns the number of fights."""
     join = ''
     if searches:
-        # The search agent is carried through so evaluation-only root_halving records fail closed in collect and encode.
-        join = f"""left join (select fight_id, list({{'step': step, 'root_value': root_value, 'children': children, 'agent': agent}}
-                   order by step) as search from read_parquet({[str(s) for s in searches]!r}) group by fight_id) s using (fight_id)"""
+        # The search agent is carried through so root_halving records without an improved policy fail closed in
+        # collect and encode. `policy` (improved-policy target) is optional: files written before it have none.
+        has = [('policy' in pq.read_schema(s).names) for s in searches]
+        policy = 'policy' if any(has) else 'null'  # union_by_name fills files without the column with nulls
+        join = f"""left join (select fight_id, list({{'step': step, 'root_value': root_value, 'children': children, 'agent': agent,
+                   'policy': {policy}}} order by step) as search
+                   from read_parquet({[str(s) for s in searches]!r}, union_by_name=true) group by fight_id) s using (fight_id)"""
     db = duckdb.connect()
     db.execute("set memory_limit='2GB'; set threads=1")
     cursor = db.execute(f"""select f.fight_id, f.start, f.actions, f.won, f.final_hp, f.agent,
@@ -50,9 +54,10 @@ def collect(fights, searches, encounters, out, worker=WORKER):
     with subprocess.Popen([str(worker), 'encode', str(partial)], stdin=subprocess.PIPE, text=True) as proc:
         while batch := cursor.fetchmany(128):
             for fight_id, start, actions, won, hp, agent, search in batch:
-                if 'root_halving' in (agent or '') or any('root_halving' in (r.get('agent') or '') for r in search or []):
+                if 'root_halving' in (agent or '') and not search or any(
+                        'root_halving' in (r.get('agent') or '') and r.get('policy') is None for r in search or []):
                     proc.stdin.close(); proc.kill()
-                    raise RuntimeError(f'{fight_id}: root_halving records are evaluation-only, not training rows')
+                    raise RuntimeError(f'{fight_id}: root_halving records without an improved policy are not training rows')
                 proc.stdin.write(json.dumps(dict(fight_id=fight_id, start=start, actions=actions, won=won, final_hp=hp, agent=agent,
                                                  search=search or [])) + '\n')
                 count += 1

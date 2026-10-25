@@ -32,6 +32,7 @@ struct SearchSettings {
         bool enabled = false;
         int max_considered = 16;
         double gumbel_scale = 0.0;     // 0 (default): deterministic Sequential Halving on logits + sigma(completed Q); no RNG draws
+        std::uint64_t gumbel_seed = 0; // mixed into the Gumbel draws (e.g. the fight seed for self-play); 0 = observation only
         double value_scale = 0.1;      // mctx qtransform_completed_by_mix_value defaults
         double maxvisit_init = 50.0;
     } root_halving;
@@ -371,7 +372,7 @@ private:
     void init_root_halving(const sts::BattleContext& observed, const Prediction& root_prediction) {
         const auto& h = settings_.root_halving;
         if (settings_.oracle) throw std::invalid_argument{"PV: root halving is for public-particle search only"};
-        if (settings_.noise_fraction != 0) throw std::invalid_argument{"PV: root halving is evaluation-only (no root noise)"};
+        if (settings_.noise_fraction != 0) throw std::invalid_argument{"PV: root halving explores with Gumbel noise, not Dirichlet root noise"};
         if (root_prediction.logits.size() != root_.edges.size()) throw std::invalid_argument{"PV: root logits/menu mismatch"};
         if (h.max_considered < 1 || !(h.gumbel_scale >= 0) || !std::isfinite(h.gumbel_scale) || !(h.value_scale > 0) ||
             !std::isfinite(h.value_scale) || !(h.maxvisit_init >= 0) || !std::isfinite(h.maxvisit_init))
@@ -387,7 +388,7 @@ private:
         gumbel_.assign(root_.edges.size(), 0.0);
         if (h.gumbel_scale > 0) {
             // Public-observation seed only: reproducible, and independent of hidden particle contents and the tree's stream.
-            std::mt19937_64 gumbel_random{observation_key(observed) ^ 0x6a09e667f3bcc909ULL};
+            std::mt19937_64 gumbel_random{observation_key(observed) ^ 0x6a09e667f3bcc909ULL ^ (h.gumbel_seed * 0x9e3779b97f4a7c15ULL)};
             for (auto& g : gumbel_) {
                 const double u = (double(gumbel_random() >> 11) + 0.5) * 0x1.0p-53;  // strictly inside (0, 1)
                 g = h.gumbel_scale * -std::log(-std::log(u));

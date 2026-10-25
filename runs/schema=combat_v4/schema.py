@@ -91,6 +91,11 @@ CHILD = pa.struct([
     f("value", pa.float32(), "mean backed-up value (the search's own normalized objective)"),
 ])
 
+POLICY_ENTRY = pa.struct([
+    f("action", pa.uint32(), "Action::bits of a legal root move"),
+    f("p", pa.float32(), "target probability; entries sum to 1"),
+])
+
 FIGHTS = pa.schema([
     f("fight_id", pa.string(), "opaque, globally unique; overworld_v1 steps and search rows link to it"),
     f("version", pa.int8(), "VERSION of this layout"),
@@ -115,6 +120,9 @@ SEARCH = pa.schema([
     f("root_value", pa.float32(), "visit-weighted mean value at the root"),
     f("simulations", pa.uint32(), "simulations run for this decision"),
     f("children", pa.list_(CHILD), "visited root moves only, in any order"),
+    f("policy", pa.list_(POLICY_ENTRY),
+      "optional improved-policy training target over every legal root move (Gumbel root search); "
+      "null = the target is the normalized children visits. Absent in files written before 2026-10-25", nullable=True),
 ], metadata={b"schema": NAME.encode(), b"table": b"search"})
 
 TABLES = {"fights": FIGHTS, "search": SEARCH}

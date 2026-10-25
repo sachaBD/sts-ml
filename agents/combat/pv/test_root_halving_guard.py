@@ -10,11 +10,13 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 
 from . import data
+from apps.megacrit_dump.schema import load
 
 REPO = Path(__file__).resolve().parents[3]
 WORKER = Path(os.environ.get('PV_WORKER', REPO / 'build/expert-champ-halving/agents/combat/pv/pv_worker'))
 DEV = REPO / 'runs/schema=combat_v4/date=2026-10-06/id=demon-form-decoupled-policy-v1/out/main/baseline'
 HIVE = ('schema', 'date', 'id')
+MODEL = REPO / 'runs/schema=combat_v4/date=2026-10-09/id=champ-corpus-pilot-v1/out/round4/model/model.onnx'
 
 
 def line():
@@ -70,6 +72,38 @@ class RootHalvingGuard(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, 'root_halving'):
             data.collect([fp], [mp], [39], self.tmp / 'bad', worker=WORKER)
         self.assertFalse((self.tmp / 'bad' / 'rows.parquet').exists())
+
+    @unittest.skipUnless(MODEL.exists(), 'model unavailable')
+    def test_gumbel_collection_trains_on_improved_policy(self):
+        """--explore --root-halving: Gumbel-noise self-play whose `policy` rows survive parquet and become the targets."""
+        x = line(); fight = dict(fight_id=x['fight_id'], start=x['start'])
+        def play(*flags):
+            p = subprocess.run([str(WORKER), 'play', str(MODEL), '16', '--root-halving', *flags], input=json.dumps(fight) + '\n',
+                               text=True, capture_output=True)
+            self.assertEqual(p.returncode, 0, p.stderr); return json.loads(p.stdout)
+        r = play('--explore')
+        self.assertIn('explore=gumbel', r['fight']['agent'])
+        self.assertTrue(r['search'] and all(abs(sum(e['p'] for e in s['policy']) - 1) < 1e-6 for s in r['search']))
+        self.assertEqual(play('--explore')['fight']['actions'], r['fight']['actions'])  # reproducible per fight seed
+        bad = subprocess.run([str(WORKER), 'play', str(MODEL), '16', '--root-halving', '--sample-turns'], input='', text=True, capture_output=True)
+        self.assertNotEqual(bad.returncode, 0)
+        v4 = load('combat_v4')
+        fp, sp = self.tmp / 'fights.parquet', self.tmp / 'search.parquet'
+        pq.write_table(pa.Table.from_pylist([r['fight']], v4.FIGHTS), fp)
+        pq.write_table(pa.Table.from_pylist(r['search'], v4.SEARCH), sp)
+        if r['fight']['won'] is not None:
+            self.assertEqual(data.collect([fp], [sp], [r['fight']['start']['encounter']], self.tmp / 'g', worker=WORKER), 1)
+        out = {row['step']: row for row in rows(self.tmp / 'g' / 'rows.parquet')}
+        for s in r['search']:
+            row = out[s['step']]; want = {e['action']: e['p'] for e in s['policy']}
+            self.assertTrue(row['has_policy'])
+            for move, got in zip(row['moves'], row['policy_target']):
+                self.assertAlmostEqual(got, want[move], places=5)
+        # Without its policy, a halving row is still refused (visit counts are allocations, not targets).
+        stripped = [dict(q, policy=None) for q in r['search']]
+        pq.write_table(pa.Table.from_pylist(stripped, v4.SEARCH), sp)
+        with self.assertRaisesRegex(RuntimeError, 'root_halving'):
+            data.collect([fp], [sp], [r['fight']['start']['encounter']], self.tmp / 'bad', worker=WORKER)
 
 
 if __name__ == '__main__':
