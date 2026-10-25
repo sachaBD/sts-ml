@@ -1,0 +1,39 @@
+# Single-deck PUCT2k control for gumbel_panache.toml (registration: ../SINGLE_DECK.md): the champ-ten-rollout-v1
+# recipe exactly, on panache alone, with the same worker build and reused teacher fights. 6 updates.
+# ./apps/combat_expert_iteration/run.sh experiments/25-10-26/a-gumbel/config/puct_panache.toml
+[run]
+id = "a-puct-panache-v1"
+worker_run = "combat_v4/2026-10-05/human-combat-r01"   # lineage only; worker_path is the binary used
+worker_path = "build/a-gumbel/agents/combat/pv/pv_worker"
+bootstrap_run = "combat_v4/2026-10-09/champ-ten-rollout-v1"   # reuse its 300 panache MCTS20k + 50 monitor-teacher fights
+workers = 6
+device = "cuda"
+
+teacher_sims = 20000
+bootstrap_fights = 300
+bootstrap_epochs = 10
+bootstrap_lr = 0.001
+monitor_fights = 50
+
+updates = 6
+batch_fights = 200
+sims = 2000
+rollout_mix = 0.5
+root_halving = false
+explore = true             # Dirichlet root noise (original recipe)
+sample_turns = true
+flat_policy_weighting = true
+epochs = 3
+lr = 0.0003
+replay_batches = 10
+teacher_taper = 20
+states_per_fight = 64
+width = 64
+eval_every = 1
+
+[[deck]]
+name = "panache"
+starts = "runs/schema=combat_v4/date=2026-10-05/id=human-deck-corpus/splits/pool.parquet"
+deck_id = "3a7d5ed7-694c-48f1-b3e7-a034bc883010"
+hp = 43
+max_hp = 95

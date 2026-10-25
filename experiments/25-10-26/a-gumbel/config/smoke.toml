@@ -1,0 +1,37 @@
+# Pipeline smoke for gumbel_panache.toml (tiny budgets; results mean nothing). Run with --scratch --overwrite.
+[run]
+id = "a-gumbel-smoke"
+worker_run = "combat_v4/2026-10-05/human-combat-r01"   # lineage only; worker_path is the binary used
+worker_path = "build/a-gumbel/agents/combat/pv/pv_worker"
+bootstrap_run = "combat_v4/2026-10-09/champ-ten-rollout-v1"   # reuse its 300 panache MCTS20k + 50 monitor-teacher fights
+workers = 10
+device = "cuda"
+
+teacher_sims = 20000
+bootstrap_fights = 300
+bootstrap_epochs = 1
+bootstrap_lr = 0.001
+monitor_fights = 50
+
+updates = 2
+batch_fights = 4
+sims = 16
+rollout_mix = 0.5
+root_halving = true
+explore = true             # Gumbel noise (scale 1) at the root while collecting
+sample_turns = false
+flat_policy_weighting = false
+epochs = 1
+lr = 0.0003
+replay_batches = 10
+teacher_taper = 20
+states_per_fight = 64
+width = 64
+eval_every = 1
+
+[[deck]]
+name = "panache"
+starts = "runs/schema=combat_v4/date=2026-10-05/id=human-deck-corpus/splits/pool.parquet"
+deck_id = "3a7d5ed7-694c-48f1-b3e7-a034bc883010"
+hp = 43
+max_hp = 95
