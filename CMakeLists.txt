@@ -20,7 +20,7 @@ if(NOT DEFINED CMAKE_INTERPROCEDURAL_OPTIMIZATION)
 endif()
 
 # Shared simulator repo (also used by sts_ml).
-set(STS_LIGHTSPEED_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../sts_lightspeed" CACHE PATH "sts_lightspeed checkout")
+set(STS_LIGHTSPEED_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../lightspeed" CACHE PATH "sts_lightspeed checkout")
 add_subdirectory("${STS_LIGHTSPEED_DIR}" "${CMAKE_CURRENT_BINARY_DIR}/sts_lightspeed")
 
 add_library(combat_core STATIC

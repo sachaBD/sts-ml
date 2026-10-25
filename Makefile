@@ -9,7 +9,7 @@ python-env:
 	$(VENV) -m pip install -r requirements.txt
 
 # JAX stack for agents/combat/az; jaxsim from the sts-lightspeed checkout (same override as CMake).
-STS_LIGHTSPEED_DIR ?= ../sts_lightspeed
+STS_LIGHTSPEED_DIR ?= ../lightspeed
 jax-env:
 	STS_LIGHTSPEED_DIR=$(abspath $(STS_LIGHTSPEED_DIR)) $(VENV) -m pip install -r requirements-jax.txt
 

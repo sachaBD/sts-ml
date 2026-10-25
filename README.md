@@ -2,7 +2,7 @@
 
 Learned value models for Slay the Spire (Ironclad, Act 1) combat, built on
 [`sts_lightspeed`](https://github.com/gamerpuppy/sts_lightspeed) via the shared sibling checkout
-`../sts_lightspeed` (the `sts_ml` fork; override with `STS_LIGHTSPEED_DIR`). C++23 for the simulator,
+`../lightspeed` (the `sts_ml` fork; override with `STS_LIGHTSPEED_DIR`). C++23 for the simulator,
 search and native value net; Python (PyTorch, DuckDB) for training and analysis.
 
 The loop: a search teacher plays Act 1 fights and records every decision (`combat_v3` rows), a
