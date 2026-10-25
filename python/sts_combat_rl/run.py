@@ -32,8 +32,8 @@ If the job writes out/summary.json, it is merged into run.json as "summary".
 Exit code of the job is returned. Status ends as "done" (exit 0) or "failed".
 
 examples:
-  ./apps/bootstrap/run.sh apps/bootstrap/act1.toml [--scratch]
-  ./apps/value_train/run.sh apps/value_train/slime.toml [--scratch]
+  ./apps/bootstrap/run.sh apps/bootstrap/config/act1.toml [--scratch]
+  ./apps/value_train/run.sh apps/value_train/config/slime.toml [--scratch]
   PYTHONPATH=python .venv/bin/python -m sts_combat_rl.run episodes_v1 quick-check --scratch -- ...
 
 query with duckdb:

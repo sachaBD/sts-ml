@@ -59,9 +59,9 @@ Status: **accepted plan, not started.** 2026-09-24 UTC. Results go in `REPORT.md
 | where | change | baseline it differs from |
 |---|---|---|
 | gen0 | epochs 7 → 8 | slime-value-5 (lr 1e-3, batch 128, width 64, blend 0.5) |
-| gen k | starts from gen0's weights, not gen k-1 | `apps/value_train/slime-dagger-gen1.toml` (lr 1e-4, 7 epochs) |
+| gen k | starts from gen0's weights, not gen k-1 | `apps/value_train/config/slime-dagger-gen1.toml` (lr 1e-4, 7 epochs) |
 | gen1 | `correction_weight` tried at 0.25 and 0.5 | same file (0.5) |
-| DAgger | count: all eligible fights (100 before) | `apps/dagger/slime.toml` |
+| DAgger | count: all eligible fights (100 before) | `apps/dagger/config/slime.toml` |
 | eval | `random_move = false` | value_play default |
 
 ## Code change (impl-24)

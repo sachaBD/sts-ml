@@ -1,4 +1,4 @@
-# ./apps/value_play/run.sh apps/value_play/slime4-N.toml [--scratch]
+# ./apps/value_play/run.sh apps/value_play/config/slime4-N.toml [--scratch]
 # Pilot N: frozen slime-value-4, all 14 validation fights, value_net leaves, no random move.
 [run]
 id = "slime-value-4-play-n"

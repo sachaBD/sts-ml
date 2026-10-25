@@ -1,7 +1,7 @@
-# ./apps/value_train/run.sh apps/value_train/slime-dagger-gen1.toml [--scratch]
+# ./apps/value_train/run.sh apps/value_train/config/slime-dagger-gen1.toml [--scratch]
 # Corrective fine-tune (NOT a pure data ablation): slime-value-5's weights, its surviving bootstrap fights on
 # the same train/validation sides (validation = bootstrap only), plus the DAgger corrections
-# (apps/dagger/slime.toml), whose target is the teacher's root_value, never the learner's outcome.
+# (apps/dagger/config/slime.toml), whose target is the teacher's root_value, never the learner's outcome.
 # Run after the DAgger run finished complete.
 [run]
 id = "slime-value-5-dagger-gen1"

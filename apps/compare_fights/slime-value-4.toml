@@ -1,5 +1,5 @@
-# ./apps/compare_fights/run.sh apps/compare_fights/slime-value-4.toml [--scratch]
-# Value-net teacher (apps/value_play/slime.toml) vs its stored teacher fights.
+# ./apps/compare_fights/run.sh apps/compare_fights/config/slime-value-4.toml [--scratch]
+# Value-net teacher (apps/value_play/config/slime.toml) vs its stored teacher fights.
 [run]
 id = "slime-value-5-vs-teacher"
 # Each side is a query (sts_combat_rl.query); oracle = true allows oracle rows.

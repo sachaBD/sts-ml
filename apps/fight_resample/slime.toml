@@ -1,4 +1,4 @@
-# ./apps/fight_resample/run.sh apps/fight_resample/slime.toml [--scratch]
+# ./apps/fight_resample/run.sh apps/fight_resample/config/slime.toml [--scratch]
 # Every stored Slime Boss fight of the source runs, replayed to its start and played `samples` more times.
 [run]
 id = "slime-resample-x4"

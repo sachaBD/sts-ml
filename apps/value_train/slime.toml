@@ -1,4 +1,4 @@
-# ./apps/value_train/run.sh apps/value_train/slime.toml [--scratch]
+# ./apps/value_train/run.sh apps/value_train/config/slime.toml [--scratch]
 # Train a Slime Boss value net on the Slime Boss fights of a combat_v3 bootstrap run.
 [run]
 id = "slime-value-5"

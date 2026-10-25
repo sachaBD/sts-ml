@@ -1,4 +1,4 @@
-# ./apps/value_play/run.sh apps/value_play/slime.toml [--scratch]
+# ./apps/value_play/run.sh apps/value_play/config/slime.toml [--scratch]
 # Replays the value run's validation fights (from its one combat_v3 input run) with the value-net teacher.
 [run]
 id = "slime-value-5-play-ignore"

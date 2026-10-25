@@ -24,9 +24,9 @@ Every job is a run with a TOML config, launched through `apps/<app>/run.sh` and 
 for smoke runs.
 
 ```sh
-./apps/bootstrap/run.sh apps/bootstrap/act1.toml        # teacher self-play -> combat_v3
-./apps/value_train/run.sh apps/value_train/slime.toml   # train a value net -> value_net_v1
-./apps/value_play/run.sh apps/value_play/slime.toml     # play fights with a value net
+./apps/bootstrap/run.sh apps/bootstrap/config/act1.toml        # teacher self-play -> combat_v3
+./apps/value_train/run.sh apps/value_train/config/slime.toml   # train a value net -> value_net_v1
+./apps/value_play/run.sh apps/value_play/config/slime.toml     # play fights with a value net
 ```
 
 Query run outputs with DuckDB through `sts_combat_rl.query`.

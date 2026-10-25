@@ -1,4 +1,4 @@
-# ./apps/bootstrap/run.sh apps/bootstrap/act1.toml [--scratch]
+# ./apps/bootstrap/run.sh apps/bootstrap/config/act1.toml [--scratch]
 [run]
 id = "act1-a20-6"
 workers = 10

@@ -30,7 +30,7 @@ scratch/schema=<schema>/date=<YYYY-MM-DD>/id=<id>/   same layout; smoke / prefli
 
 ```bash
 PYTHONPATH=python .venv/bin/python -m sts_combat_rl.run --help
-./apps/bootstrap/run.sh apps/bootstrap/act1.toml [--scratch]
+./apps/bootstrap/run.sh apps/bootstrap/config/act1.toml [--scratch]
 ```
 
 The launcher creates the directory, writes `run.json` (`status: running`), sends the job's stdout/stderr to
