@@ -34,6 +34,12 @@ target_include_directories(nn_packing_test PRIVATE "${PROJECT_SOURCE_DIR}")
 target_link_libraries(nn_packing_test PRIVATE CUDA::cudart)
 add_test(NAME nn_packing_test COMMAND nn_packing_test)
 
+add_executable(nn_bench_inference bench_inference.cpp net.cpp gpu.cpp packing.cpp)
+target_include_directories(nn_bench_inference SYSTEM PRIVATE "${NN_ORT_INCLUDE}")
+target_link_libraries(nn_bench_inference PRIVATE combat_core "${NN_ORT_DIR}/libonnxruntime.so.1" CUDA::cudart)
+target_link_options(nn_bench_inference PRIVATE "-Wl,-rpath,${NN_ORT_DIR}")
+target_compile_options(nn_bench_inference PRIVATE -Wall -Wextra -Wpedantic)
+
 add_executable(nn_play play.cpp workers.cpp tokens.cpp net.cpp gpu.cpp packing.cpp gumbel.cpp)
 target_include_directories(nn_play SYSTEM PRIVATE "${NN_ORT_INCLUDE}")
 target_link_libraries(nn_play PRIVATE combat_core "${NN_ORT_DIR}/libonnxruntime.so.1" CUDA::cudart)
