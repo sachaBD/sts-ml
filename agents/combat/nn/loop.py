@@ -21,6 +21,7 @@ import torch
 
 from .data import read
 from .model import Net, export, export_static
+from .metrics import DeviceSampler
 from .train import train
 
 PLAY = Path(__file__).resolve().parents[3] / 'build/nn/agents/combat/nn/nn_play'
@@ -51,12 +52,14 @@ def fights(base, name, n):
 
 class Run:
     def __init__(self, out, gpu_batch=1024, gpu_tokens=48, gpu_bank=(), gpu_wait_us=1000,
-                 parallel=200, groups=2, scheduler='ordered', timeout_ms=60000, shutdown_timeout_ms=5000):
+                 parallel=200, groups=2, scheduler='ordered', timeout_ms=60000, shutdown_timeout_ms=5000,
+                 sample_devices=True):
         self.out = out
         self.gpu_batch, self.gpu_tokens = gpu_batch, gpu_tokens
         self.gpu_bank, self.gpu_wait_us = gpu_bank, gpu_wait_us
         self.parallel, self.groups, self.scheduler = parallel, groups, scheduler
         self.timeout_ms, self.shutdown_timeout_ms = timeout_ms, shutdown_timeout_ms
+        self.sample_devices = sample_devices
 
     def status(self, **fields):
         tmp = self.out / '.status.json'
@@ -90,7 +93,8 @@ class Run:
         env = dict(os.environ, LD_LIBRARY_PATH=':'.join(map(str, libs)) + ':' + os.environ.get('LD_LIBRARY_PATH', ''))
         results = []
         self.status(stage=stage, phase='play', done=0, total=len(games))
-        with starts.open() as source, (directory / 'results.jsonl').open('w') as journal, (directory / 'worker.log').open('w') as errors:
+        with DeviceSampler(directory / 'gpu.csv', enabled=self.sample_devices), \
+                starts.open() as source, (directory / 'results.jsonl').open('w') as journal, (directory / 'worker.log').open('w') as errors:
             with subprocess.Popen(command, stdin=source, stdout=subprocess.PIPE, stderr=errors, text=True, env=env) as process:
                 for line in process.stdout:
                     results.append(json.loads(line)); journal.write(line); journal.flush()

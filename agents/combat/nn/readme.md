@@ -99,7 +99,9 @@ RNG state restart sampling from seed 0 (not a bit-exact continuation). Keep chec
 The run writes `status.json` live, `log.jsonl` per iteration, and results and `worker.log` per play stage.
 Native `gpu_stats` JSON lines report exact real leaves, computed row capacity, engine usage, CPU fallback,
 packing/transfer/inference/scatter timings, queue latency, and token counts. These are host wall-time diagnostics,
-not GPU occupancy or percentage of peak FLOPs. With a shape bank, fill is `leaves / capacity`, not mean leaves divided by the largest shape. See the panache experiment dashboard under `experiments/25-10-26/a-gumbel/nn/`.
+not GPU occupancy or percentage of peak FLOPs. With a shape bank, fill is `leaves / capacity`, not mean leaves divided by the largest shape.
+
+Standard dashboard definitions live in [METRICS.md](METRICS.md). Native `play_stats`/`runtime_stats` add searched decisions/s and thread CPU counters. `Run.play` records optional NVML `gpu.csv`; absent hardware counters stay unavailable, never inferred from GPU-busy time. GPU peak bandwidth/compute percentages need profiling, and coordinator CPU/non-CPU percentages are not an I/O-bound classification. The [real-training snapshot](../../../experiments/25-10-26/a-gumbel/nn/LOCAL_TRAIN_REPORT.md) includes phase times, observed device activity and current packing bottleneck. See the panache experiment dashboard under `experiments/25-10-26/a-gumbel/nn/`.
 
 ### Binary samples
 

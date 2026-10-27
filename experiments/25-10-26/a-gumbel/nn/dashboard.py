@@ -10,6 +10,9 @@ import time
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[4]
+sys.path.insert(0, str(REPO))
+from agents.combat.nn.metrics import performance_header, performance_row, play_metrics, sampled_devices
+
 RUN = Path(sys.argv[1]) if len(sys.argv) > 1 else REPO / 'runs/schema=combat_v4/date=2026-10-25/id=nn-gumbel-panache-v1'
 STORED = REPO / 'runs/schema=combat_v4/date=2026-10-09/id=champ-ten-test-u6-v1/out'
 REFERENCES = (('2k-sim network', 'ten', 174), ('MCTS20k', 'mcts', 124))
@@ -50,6 +53,28 @@ def worker_metrics(directory):
                 busy=number(r'leaves, ([\d.]+) s busy'))
 
 
+def performance_table(updates, args):
+    print(performance_header())
+    for row in updates:
+        metrics = play_metrics(RUN / f'iter{row["iteration"]:03d}')
+        seconds = row.get('update_seconds') or row.get('play_seconds',0) + row.get('train_seconds',0)
+        if seconds:
+            metrics['games_per_hour_full_update'] = row['games'] * 3600 / seconds
+        start = metrics.get('gameplay_wall_start')
+        duration = metrics.get('gameplay_seconds')
+        csv = RUN / 'gpu.csv'
+        if not csv.exists():
+            csv = RUN / f'iter{row["iteration"]:03d}' / 'gpu.csv'
+        devices = sampled_devices(csv, start, start+duration if start is not None and duration else None,
+                                  args.get('gpu_memory_mib'))
+        metrics.update(devices['metrics'])
+        print(performance_row(row['iteration'], metrics))
+    print('* games/h includes collection, replay loading, training, saving/export; decisions/s = searched game decisions.')
+    print('CPU: allocated SimWorker capacity / one coordinator. GPUapi is wall time in GPU calls; overlaps CPU when driver spins.')
+    print('Pure I/O-bound time is unavailable; do not interpret CPU time as useful compute or non-CPU time as all I/O.')
+    print('GPUbusy = active time; VRAM = capacity occupancy. memBW/SMpeak require profiling; — = not collected.')
+
+
 def main():
     if not (RUN / 'status.json').exists():
         return print(f'{RUN.name}: not started')
@@ -57,6 +82,21 @@ def main():
     status = json.loads((RUN / 'status.json').read_text())
     log = jsonl(RUN / 'log.jsonl')
     iterations = [r for r in log if 'iteration' in r and r['iteration'] > 0]
+    if 'spec' in args:
+        print(f'{RUN.name}   {time.strftime("%H:%M:%S")}')
+        print(f'network {args["spec"]}; {args["sims"]} sims; {args["workers"]} SimWorkers + coordinator; '
+              f'{args.get("slots_per_worker")} slots/worker')
+        print(f'now: {status["stage"]} — {status["phase"]} {status.get("done", "")}/{status.get("total", "")}')
+        performance_table(iterations, args)
+        print('\nTraining phases:')
+        for phase in jsonl(RUN / 'phases.jsonl'):
+            if phase['phase'] in ('train','save_export','load_replay'):
+                devices=sampled_devices(RUN/'gpu.csv',phase['wall_start'],phase['wall_end'],args.get('gpu_memory_mib'))
+                gpu=devices['metrics']['gpu_busy_pct']
+                busy=f'{gpu:.0f}%' if gpu is not None else '—'
+                print(f'  iter {phase["iteration"]} {phase["phase"]}: {phase["seconds"]:.2f}s; '
+                      f'CPU {phase["cpu_logical_cores"]:.2f} cores; GPUbusy {busy}')
+        return
     total = int(args['iterations'])
     now = time.time()
 
@@ -92,6 +132,8 @@ def main():
                   f'   {rate:>12}   {fill:>8}')
     print('play s includes engine setup; gameplay g/h excludes setup; GPU fill = real leaves / computed row capacity.')
     print('Timing/strength varies with policy and game length; individual updates are not independent replicates.')
+    print()
+    performance_table(iterations, args)
     print()
     print(f'test: 300 fixed panache seeds, greedy Gumbel {args["sims"]} (stored: 2k-sim network 174/300, MCTS20k 124/300)')
     print('Differences: paired 95% normal-approximation CIs, conditional on one trained network per arm.')

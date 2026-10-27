@@ -40,6 +40,16 @@ class WorkerIntegrationTests(unittest.TestCase):
             result = subprocess.run(command, input='\n'.join(self.starts[:count])+'\n', text=True,
                                     stdout=subprocess.PIPE, stderr=errors, env=env, timeout=90, check=True)
         (directory / 'results.jsonl').write_text(result.stdout)
+        from agents.combat.nn.metrics import last_json
+        native_log=(directory/'worker.log').read_text()
+        stats=last_json(native_log,'play_stats')
+        self.assertEqual(stats['games'],count)
+        if 'local' in options:
+            runtime=last_json(native_log,'runtime_stats')
+            if runtime['cpu_timing_available']:
+                self.assertTrue(0 <= runtime['worker_cpu_pct'] <= 100.1)
+                self.assertTrue(0 <= runtime['coordinator_cpu_pct'] <= 100.1)
+                self.assertAlmostEqual(runtime['coordinator_cpu_pct']+runtime['coordinator_non_cpu_pct'],100,places=2)
         rows = [json.loads(line) for line in result.stdout.splitlines()]
         expected = {json.loads(line)['fight_id'] for line in self.starts[:count]}
         self.assertEqual(len(rows), count)

@@ -85,7 +85,7 @@ struct Shared {
     std::atomic<std::size_t> next{0};
     std::mutex output;
     std::ofstream samples;
-    std::atomic<std::size_t> completed{0};
+    std::atomic<std::size_t> completed{0}, searched_decisions{0};
 
     std::unique_ptr<Game> next_game() {
         const auto i = next++;
@@ -102,6 +102,7 @@ struct Shared {
                           {"decisions", g.decisions.size()}, {"seconds", seconds}}.dump() << std::endl;
         if (!samples || !std::cout) throw std::runtime_error{"failed to write game samples/results"};
         ++completed;
+        searched_decisions += g.decisions.size();
     }
 };
 
@@ -286,6 +287,7 @@ int main(int argc, char** argv) try {
     for (std::string line; std::getline(std::cin, line);)
         if (!line.empty()) shared.fights.push_back(Json::parse(line));
     const auto play_begin = Clock::now();
+    const double play_wall_start = std::chrono::duration<double>(std::chrono::system_clock::now().time_since_epoch()).count();
     if (local) {
         WorkerConfig config;
         config.workers = threads; config.slots = parallel; config.batch = gpu_batch;
@@ -302,8 +304,12 @@ int main(int argc, char** argv) try {
         pool.clear();
     }
     if (shared.completed != shared.fights.size()) throw std::runtime_error{"missing completed fights"};
-    std::cerr << "timing: gameplay "
-              << std::chrono::duration<double>(Clock::now() - play_begin).count() << " s\n";
+    const double gameplay_seconds = std::chrono::duration<double>(Clock::now() - play_begin).count();
+    std::cerr << "timing: gameplay " << gameplay_seconds << " s\n";
+    std::cerr << "play_stats: " << Json{{"seconds", gameplay_seconds}, {"wall_start_unix", play_wall_start}, {"games", shared.completed.load()},
+        {"searched_decisions", shared.searched_decisions.load()},
+        {"decisions_per_second", shared.searched_decisions.load() / gameplay_seconds},
+        {"games_per_hour", shared.completed.load() * 3600. / gameplay_seconds}}.dump() << '\n';
     return 0;
 } catch (const std::exception& e) {
     std::cerr << "nn_play: " << e.what() << "\n";

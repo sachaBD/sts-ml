@@ -1,4 +1,5 @@
 #include "agents/combat/nn/workers.hpp"
+#include <algorithm>
 #include <atomic>
 #include <cmath>
 #include <condition_variable>
@@ -10,12 +11,20 @@
 #include <optional>
 #include <stdexcept>
 #include <thread>
+#include <time.h>
 
 namespace stsrl::nn {
 namespace {
 using Clock = std::chrono::steady_clock;
 using namespace std::chrono_literals;
 long long now_ms() { return std::chrono::duration_cast<std::chrono::milliseconds>(Clock::now().time_since_epoch()).count(); }
+double thread_cpu_seconds() {
+#if defined(CLOCK_THREAD_CPUTIME_ID)
+    timespec value{};
+    if (::clock_gettime(CLOCK_THREAD_CPUTIME_ID, &value) == 0) return value.tv_sec + value.tv_nsec / 1e9;
+#endif
+    return std::nan(""); // unsupported platforms report missing CPU metrics, never invented zeroes
+}
 
 struct Request {
     std::size_t slot;
@@ -37,6 +46,7 @@ struct Mailbox {
     std::atomic<long long> heartbeat{now_ms()};
     std::atomic<int> current_slot{-1};
     std::atomic<bool> done{false};
+    double cpu_seconds = std::nan(""); // written by owner; read only after join
 };
 
 struct Runtime {
@@ -50,6 +60,8 @@ struct Runtime {
     std::mutex wake_mutex, error_mutex;
     std::condition_variable requested;
     std::exception_ptr error;
+    double coordinator_cpu_seconds = std::nan("");
+    double backend_wall_seconds = 0, backend_cpu_seconds = 0;
 
     Runtime(WorkerConfig c, NextSimulation n, Evaluate e) : config{c}, next{std::move(n)}, evaluate{std::move(e)} {
         for (int i = 0; i < config.workers; ++i) mailboxes.push_back(std::make_unique<Mailbox>());
@@ -202,7 +214,11 @@ class Coordinator {
     void dispatch(const std::vector<RoutedRequest>& batch) {
         std::vector<const Tokens*> tokens;
         for (const auto& item : batch) tokens.push_back(item.request.tokens);
+        const auto backend_begin = Clock::now();
+        const double cpu_begin = thread_cpu_seconds();
         auto predictions = runtime_.evaluate(std::move(tokens)); // one synchronous backend, on THIS thread
+        runtime_.backend_wall_seconds += std::chrono::duration<double>(Clock::now() - backend_begin).count();
+        runtime_.backend_cpu_seconds += thread_cpu_seconds() - cpu_begin;
         if (runtime_.stopped) return;
         if (predictions.size() != batch.size()) throw std::runtime_error{"inference result count mismatch"};
         // Validate before publishing anything: publication allows owners to mutate the pending tokens again.
@@ -264,6 +280,7 @@ void run_workers(const WorkerConfig& config, NextSimulation next, Evaluate evalu
     if (config.workers < 1 || config.slots < 1 || config.batch < 1 || config.batch_wait.count() < 0 ||
         config.timeout.count() <= 0 || config.shutdown_timeout.count() <= 0 || !next || !evaluate)
         throw std::invalid_argument{"invalid simulation worker configuration"};
+    const auto started = Clock::now();
     Runtime runtime{config, std::move(next), std::move(evaluate)};
     std::vector<std::unique_ptr<SimWorker>> workers;
     for (int i = 0; i < config.workers; ++i) workers.push_back(std::make_unique<SimWorker>(runtime, i));
@@ -272,11 +289,15 @@ void run_workers(const WorkerConfig& config, NextSimulation next, Evaluate evalu
     std::vector<std::jthread> threads;
     try {
         coordinator_thread = std::jthread{[&] {
+            const double cpu_begin = thread_cpu_seconds();
             try { coordinator.run(); } catch (...) { runtime.fail(std::current_exception()); }
+            runtime.coordinator_cpu_seconds = thread_cpu_seconds() - cpu_begin;
             runtime.coordinator_done = true;
         }};
         for (int i = 0; i < config.workers; ++i) threads.emplace_back([&, i] {
+            const double cpu_begin = thread_cpu_seconds();
             try { workers[i]->run(); } catch (...) { runtime.fail(std::current_exception()); }
+            runtime.mailboxes[i]->cpu_seconds = thread_cpu_seconds() - cpu_begin;
             runtime.mailboxes[i]->done = true;
             ++runtime.workers_done;
             runtime.notify();
@@ -315,6 +336,21 @@ void run_workers(const WorkerConfig& config, NextSimulation next, Evaluate evalu
     if (coordinator_thread.joinable()) coordinator_thread.join();
     threads.clear();
     coordinator.report();
+    const double seconds = std::chrono::duration<double>(Clock::now() - started).count();
+    double worker_cpu = 0;
+    for (const auto& mailbox : runtime.mailboxes) worker_cpu += mailbox->cpu_seconds;
+    const bool available = std::isfinite(worker_cpu) && std::isfinite(runtime.coordinator_cpu_seconds) &&
+                           std::isfinite(runtime.backend_cpu_seconds);
+    std::fprintf(stderr, "runtime_stats: {\"seconds\":%.6f,\"sim_workers\":%d,\"slots_per_worker\":%d,\"cpu_timing_available\":%s",
+                 seconds, config.workers, config.slots, available ? "true" : "false");
+    if (available) {
+        const double cpu_pct = 100 * runtime.coordinator_cpu_seconds / seconds;
+        std::fprintf(stderr, ",\"worker_cpu_seconds\":%.6f,\"worker_cpu_pct\":%.3f,\"coordinator_cpu_seconds\":%.6f,\"coordinator_cpu_pct\":%.3f,\"coordinator_non_cpu_pct\":%.3f,\"backend_wall_seconds\":%.6f,\"backend_cpu_seconds\":%.6f,\"backend_non_cpu_pct\":%.3f",
+            worker_cpu, 100 * worker_cpu / (config.workers * seconds), runtime.coordinator_cpu_seconds, cpu_pct,
+            std::max(0., 100 - cpu_pct), runtime.backend_wall_seconds, runtime.backend_cpu_seconds,
+            100 * std::max(0., runtime.backend_wall_seconds - runtime.backend_cpu_seconds) / seconds);
+    }
+    std::fprintf(stderr, "}\n");
     if (runtime.error) std::rethrow_exception(runtime.error);
 }
 } // namespace stsrl::nn
