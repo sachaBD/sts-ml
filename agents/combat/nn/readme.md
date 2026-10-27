@@ -96,6 +96,10 @@ may change. Archive any interrupted next-iteration directory first; partial samp
 Stop the old process before resuming. New checkpoints restore training RNG state; legacy checkpoints without
 RNG state restart sampling from seed 0 (not a bit-exact continuation). Keep checkpoints, samples, engines and generated inputs under `runs/` or `scratch/`.
 
+Opt-in update overhead flags (outputs unchanged; may be toggled on resume): `--replay-cache` reads each samples file
+once while it is in the window (`data.Replay`; keeps about one dense replay in memory between updates);
+`--export-reuse` runs the ONNX exporter once per shape and afterwards only rewrites weights (`graphs.Exporter`).
+
 The run writes `status.json` live, `log.jsonl` per iteration, and results and `worker.log` per play stage.
 Native `gpu_stats` JSON lines report exact real leaves, computed row capacity, engine usage, CPU fallback,
 packing/transfer/inference/scatter timings, queue latency, and token counts. These are host wall-time diagnostics,
