@@ -2,6 +2,8 @@
 
 Record: int32 tokens, int32 actions, float32 won, float32 tokens x WIDTH, float32 policy[actions] (the last tokens).
 """
+import os
+
 import numpy as np
 import torch
 
@@ -31,3 +33,23 @@ def read(paths):
         policy[i, len(t) - len(p):len(t)] = p
     won = np.array([w for _, _, w in records], np.float32)
     return torch.from_numpy(tokens), torch.from_numpy(policy), torch.from_numpy(won)
+
+
+class Replay:
+    """read() over a sliding window that reads each file once. A file is keyed by (path, size, mtime), so a changed
+    file is read again; files that leave the window are dropped."""
+    def __init__(self):
+        self.files = {}
+
+    def read(self, paths):
+        keys = [(str(p), os.stat(p).st_size, os.stat(p).st_mtime_ns) for p in paths]
+        self.files = {k: self.files[k] if k in self.files else read([k[0]]) for k in keys if k[1]}
+        parts = [self.files[k] for k in keys if k[1]]
+        longest = max(t.shape[1] for t, _, _ in parts)  # ValueError with no samples, like read()
+        tokens = torch.zeros(sum(len(w) for _, _, w in parts), longest, WIDTH, dtype=torch.float16)
+        policy = torch.zeros(len(tokens), longest)
+        i = 0
+        for t, p, w in parts:
+            tokens[i:i + len(w), :t.shape[1]], policy[i:i + len(w), :t.shape[1]] = t, p
+            i += len(w)
+        return tokens, policy, torch.cat([w for _, _, w in parts])
