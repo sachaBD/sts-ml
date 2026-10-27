@@ -27,10 +27,13 @@ struct WorkerConfig {
 
 using NextSimulation = std::function<std::unique_ptr<Simulation>()>; // thread-safe shared start queue
 using Evaluate = std::function<std::vector<Prediction>(std::vector<const Tokens*>)>; // synchronous
+using Prepare = std::function<void(const Tokens&, std::vector<std::uint16_t>&)>;
+using PreparedEvaluate = std::function<std::vector<Prediction>(std::vector<InferenceInput>)>;
 
 // Creates N SimWorkers + one Coordinator. The calling thread supervises timeouts.
 // Throws on failure; outstanding token owners survive until the coordinator exits.
 // If native inference/simulation cannot stop within shutdown_timeout, exits nonzero rather
 // than hanging forever or freeing state still in use. No timeout is turned into a game loss.
 void run_workers(const WorkerConfig&, NextSimulation, Evaluate);
+void run_workers(const WorkerConfig&, NextSimulation, PreparedEvaluate, Prepare);
 }  // namespace stsrl::nn

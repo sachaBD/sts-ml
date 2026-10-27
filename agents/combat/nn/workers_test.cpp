@@ -96,6 +96,26 @@ void tests() {
         check(counts.finished == 100 && counts.evaluated == expected, "lost/duplicated work");
         check(counts.alive == 0 && counts.maximum <= c.workers * c.slots && counts.max_local <= c.slots, "capacity exceeded");
     }
+    {
+        Counts counts;
+        run_workers(config(), games(counts, 40), [&](std::vector<InferenceInput> inputs) {
+            std::this_thread::sleep_for(1ms); // owners must retain buffers while inference is pending
+            std::vector<const Tokens*> tokens;
+            for (const auto& input : inputs) {
+                check(input.packed.size() == 2 && input.packed[0] == std::uint16_t(input.tokens->data[3]*1000+.5f) &&
+                      input.packed[1] == std::uint16_t(input.tokens->data[4]), "stale prepared input");
+                tokens.push_back(input.tokens);
+            }
+            return evaluate(std::move(tokens));
+        }, [&](const Tokens& tokens, std::vector<std::uint16_t>& packed) {
+            std::lock_guard lock{counts.mutex};
+            check(counts.local[std::this_thread::get_id()] > 0, "packing not on owner worker");
+            packed.resize(2);
+            packed[0] = std::uint16_t(tokens.data[3]*1000+.5f);
+            packed[1] = std::uint16_t(tokens.data[4]);
+        });
+        check(counts.finished == 40 && counts.alive == 0, "prepared games lost");
+    }
     { Counts counts; run_workers(config(), games(counts, 0), evaluate); check(counts.finished == 0, "empty job evaluated"); }
     { Counts counts; run_workers(config(), games(counts, 2), evaluate); check(counts.finished == 2, "idle workers failed to exit"); }
     {

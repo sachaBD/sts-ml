@@ -42,7 +42,7 @@ class DeviceSampler:
         binary = shutil.which('nvidia-smi') if self.enabled else None
         if binary:
             self.stream = self.path.open('w')
-            fields = 'timestamp,utilization.gpu,utilization.memory,memory.used,memory.total,power.draw'
+            fields = 'timestamp,utilization.gpu,utilization.memory,memory.used,memory.total'
             try:
                 self.process = subprocess.Popen([binary,'--id=0',f'--query-gpu={fields}','--format=csv,nounits','-lms','250'],
                                                 stdout=self.stream,stderr=subprocess.DEVNULL)
@@ -136,7 +136,7 @@ def sampled_devices(path, start, end, capacity_mib=None):
             except (KeyError,ValueError): continue
     telemetry = {}
     for label, field in dict(gpu_util='utilization.gpu [%]', memory_util='utilization.memory [%]',
-                             vram_mib='memory.used [MiB]',power_w='power.draw [W]').items():
+                             vram_mib='memory.used [MiB]').items():
         values = []
         for row in rows:
             try: values.append(float(row[field]))

@@ -56,3 +56,7 @@ Slot storage outlives BOTH worker and coordinator threads during cancellation. A
 - Existing frozen-model benchmark harness now accepts `--scheduler local`. Any future comparison must match total application-thread budget, slot count, frozen weights, starts and batch-bank settings; use new tags and stable-host trials.
 
 Reproduce the opt-in integration checks with explicit `NN_TEST_MODEL`, `NN_TEST_STARTS`, `NN_TEST_GPU`, `NN_TEST_GPU_BANK` paths and a NEW `NN_TEST_OUT` directory, then run `.venv/bin/python -m unittest agents.combat.nn.test_workers_integration -v`. Default CTest deliberately skips real-model tests rather than discovering recorded runs.
+
+## Worker-side packing v2
+
+SimWorker slots now retain reusable FP16 buffers. A prepare callback runs on the owner before publishing the immutable request. The coordinator passes input views to the synchronous backend; it does not convert inputs. Buffer lifetimes and generation/cancellation rules are unchanged. SIMD conversion has a scalar fallback. See `experiments/25-10-26/a-gumbel/nn/PACKING_REPORT.md` for the matched real-training measurement.

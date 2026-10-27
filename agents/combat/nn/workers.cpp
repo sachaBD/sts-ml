@@ -30,6 +30,7 @@ struct Request {
     std::size_t slot;
     std::uint64_t generation;
     const Tokens* tokens;
+    std::span<const std::uint16_t> packed;
 };
 struct Completion {
     std::size_t slot;
@@ -47,12 +48,14 @@ struct Mailbox {
     std::atomic<int> current_slot{-1};
     std::atomic<bool> done{false};
     double cpu_seconds = std::nan(""); // written by owner; read only after join
+    double pack_seconds = 0;
 };
 
 struct Runtime {
     const WorkerConfig config;
     NextSimulation next;
-    Evaluate evaluate;
+    PreparedEvaluate evaluate;
+    Prepare prepare;
     std::vector<std::unique_ptr<Mailbox>> mailboxes;
     std::atomic<bool> stopped{false}, coordinator_done{false};
     std::atomic<int> workers_done{0}, queued{0};
@@ -63,7 +66,8 @@ struct Runtime {
     double coordinator_cpu_seconds = std::nan("");
     double backend_wall_seconds = 0, backend_cpu_seconds = 0;
 
-    Runtime(WorkerConfig c, NextSimulation n, Evaluate e) : config{c}, next{std::move(n)}, evaluate{std::move(e)} {
+    Runtime(WorkerConfig c, NextSimulation n, PreparedEvaluate e, Prepare p)
+        : config{c}, next{std::move(n)}, evaluate{std::move(e)}, prepare{std::move(p)} {
         for (int i = 0; i < config.workers; ++i) mailboxes.push_back(std::make_unique<Mailbox>());
     }
     void notify() {
@@ -86,6 +90,7 @@ class SimWorker {
         Phase phase = Phase::finished;
         std::uint64_t generation = 0; // incremented for EVERY request, including after slot reuse
         Clock::time_point submitted;
+        std::vector<std::uint16_t> packed; // reused; immutable while waiting_for_nn
     };
     Runtime& runtime_;
     const int id_;
@@ -137,9 +142,13 @@ class SimWorker {
             if (tokens->count <= 0 || tokens->actions <= 0 || tokens->actions > tokens->count ||
                 tokens->data.size() != std::size_t(tokens->count) * width)
                 throw std::runtime_error{"invalid pending tokens"};
+            const auto pack_begin = Clock::now();
+            if (runtime_.prepare) runtime_.prepare(*tokens, slot.packed);
+            mailbox_.pack_seconds += std::chrono::duration<double>(Clock::now() - pack_begin).count();
+            if (runtime_.stopped) return;
             slot.phase = Phase::waiting_for_nn;
             slot.submitted = Clock::now();
-            const Request request{index, ++slot.generation, tokens};
+            const Request request{index, ++slot.generation, tokens, slot.packed};
             {
                 std::lock_guard lock{mailbox_.mutex};
                 // One outstanding request per slot makes overflow a bug, never a blocking push.
@@ -212,8 +221,8 @@ class Coordinator {
         return batch;
     }
     void dispatch(const std::vector<RoutedRequest>& batch) {
-        std::vector<const Tokens*> tokens;
-        for (const auto& item : batch) tokens.push_back(item.request.tokens);
+        std::vector<InferenceInput> tokens;
+        for (const auto& item : batch) tokens.push_back({item.request.tokens, item.request.packed});
         const auto backend_begin = Clock::now();
         const double cpu_begin = thread_cpu_seconds();
         auto predictions = runtime_.evaluate(std::move(tokens)); // one synchronous backend, on THIS thread
@@ -277,11 +286,20 @@ std::string error_message(std::exception_ptr error) {
 } // namespace
 
 void run_workers(const WorkerConfig& config, NextSimulation next, Evaluate evaluate) {
+    if (!evaluate) throw std::invalid_argument{"missing evaluator"};
+    run_workers(config, std::move(next), [evaluate = std::move(evaluate)](std::vector<InferenceInput> inputs) {
+        std::vector<const Tokens*> tokens;
+        for (const auto& input : inputs) tokens.push_back(input.tokens);
+        return evaluate(std::move(tokens));
+    }, {});
+}
+
+void run_workers(const WorkerConfig& config, NextSimulation next, PreparedEvaluate evaluate, Prepare prepare) {
     if (config.workers < 1 || config.slots < 1 || config.batch < 1 || config.batch_wait.count() < 0 ||
         config.timeout.count() <= 0 || config.shutdown_timeout.count() <= 0 || !next || !evaluate)
         throw std::invalid_argument{"invalid simulation worker configuration"};
     const auto started = Clock::now();
-    Runtime runtime{config, std::move(next), std::move(evaluate)};
+    Runtime runtime{config, std::move(next), std::move(evaluate), std::move(prepare)};
     std::vector<std::unique_ptr<SimWorker>> workers;
     for (int i = 0; i < config.workers; ++i) workers.push_back(std::make_unique<SimWorker>(runtime, i));
     Coordinator coordinator{runtime};
@@ -337,8 +355,8 @@ void run_workers(const WorkerConfig& config, NextSimulation next, Evaluate evalu
     threads.clear();
     coordinator.report();
     const double seconds = std::chrono::duration<double>(Clock::now() - started).count();
-    double worker_cpu = 0;
-    for (const auto& mailbox : runtime.mailboxes) worker_cpu += mailbox->cpu_seconds;
+    double worker_cpu = 0, worker_pack = 0;
+    for (const auto& mailbox : runtime.mailboxes) { worker_cpu += mailbox->cpu_seconds; worker_pack += mailbox->pack_seconds; }
     const bool available = std::isfinite(worker_cpu) && std::isfinite(runtime.coordinator_cpu_seconds) &&
                            std::isfinite(runtime.backend_cpu_seconds);
     std::fprintf(stderr, "runtime_stats: {\"seconds\":%.6f,\"sim_workers\":%d,\"slots_per_worker\":%d,\"cpu_timing_available\":%s",
@@ -350,7 +368,7 @@ void run_workers(const WorkerConfig& config, NextSimulation next, Evaluate evalu
             std::max(0., 100 - cpu_pct), runtime.backend_wall_seconds, runtime.backend_cpu_seconds,
             100 * std::max(0., runtime.backend_wall_seconds - runtime.backend_cpu_seconds) / seconds);
     }
-    std::fprintf(stderr, "}\n");
+    std::fprintf(stderr, ",\"worker_pack_seconds\":%.6f}\n", worker_pack);
     if (runtime.error) std::rethrow_exception(runtime.error);
 }
 } // namespace stsrl::nn

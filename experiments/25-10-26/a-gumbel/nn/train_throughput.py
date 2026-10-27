@@ -48,6 +48,7 @@ def main():
     parser.add_argument('--games', type=int, default=2000)
     parser.add_argument('--steps', type=int, default=100)
     parser.add_argument('--initial-model', type=Path, help='reuse matching initial model/engines; validated against checkpoint weights')
+    parser.add_argument('--fight-namespace', help='reuse a prior benchmark name for identical fight starts')
     args = parser.parse_args()
     if min(args.iterations, args.games, args.steps) <= 0:
         parser.error('iterations, games and training steps must be positive')
@@ -78,7 +79,7 @@ def main():
                 stream.write(json.dumps(row)+'\n')
             print('PHASE', json.dumps(row), flush=True)
 
-    fields = 'timestamp,utilization.gpu,utilization.memory,memory.used,power.draw,clocks.sm,temperature.gpu'
+    fields = 'timestamp,utilization.gpu,utilization.memory,memory.used,memory.total'
     telemetry = (args.out/'gpu.csv').open('w')
     sampler = subprocess.Popen(['nvidia-smi', '--id=0', f'--query-gpu={fields}', '--format=csv,nounits', '-lms', '250'],
                                stdout=telemetry, stderr=subprocess.DEVNULL)
@@ -103,6 +104,7 @@ def main():
                 del initial
             metadata = dict(benchmark_kind='play_train_export', source=str(SOURCE), spec=net.spec,
                             initial_model=str(args.initial_model) if args.initial_model else None,
+                            fight_namespace=args.fight_namespace or args.out.name,
                             gpu_name=torch.cuda.get_device_name(0),
                             gpu_memory_mib=torch.cuda.get_device_properties(0).total_memory/1024**2,
                             logical_cpus=os.cpu_count(), iterations=args.iterations, games=args.games,
@@ -137,7 +139,7 @@ def main():
             update_begin=time.monotonic()
             with phase('collect_including_engine_setup',iteration):
                 results=run.play(previous_model,
-                                 fights(base,f'{args.out.name}:{iteration}',args.games),directory,
+                                 fights(base,f'{args.fight_namespace or args.out.name}:{iteration}',args.games),directory,
                                  64,1.,.5,9,stage=f'iteration {iteration}')
             log=(directory/'worker.log').read_text()
             setup=float(re.search(r'timing: evaluator setup ([\d.]+)',log)[1])
@@ -185,7 +187,7 @@ def main():
         row['epoch']=datetime.strptime(row['timestamp'],'%Y/%m/%d %H:%M:%S.%f').timestamp()
         samples.append(row)
     metrics=dict(gpu_util='utilization.gpu [%]',memory_util='utilization.memory [%]',
-                 vram_mib='memory.used [MiB]',power_w='power.draw [W]')
+                 vram_mib='memory.used [MiB]')
     for p in phases:
         selected=[r for r in samples if p['wall_start']<=r['epoch']<=p['wall_end']]
         p['telemetry_samples']=len(selected)

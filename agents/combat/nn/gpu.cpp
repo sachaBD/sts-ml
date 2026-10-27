@@ -1,5 +1,6 @@
 // Shared TensorRT evaluator. CPU workers pack requests; the GPU thread chooses a fixed-shape engine.
 #include "agents/combat/nn/net.hpp"
+#include "agents/combat/nn/packing.hpp"
 #include <cuda_fp16.h>
 #include <cuda_runtime.h>
 #include <onnxruntime_cxx_api.h>
@@ -110,10 +111,25 @@ public:
         cudaFree(in_); cudaFree(value_); cudaFree(logits_);
     }
 
+    void prepare(const Tokens& tokens, std::vector<std::uint16_t>& packed) override {
+        if (tokens.count > tokens_) { packed.clear(); return; } // full CPU fallback, never truncate
+        packed.resize(std::size_t(tokens_) * width);
+        pack_half(tokens.data, packed);
+        std::fill(packed.begin() + tokens.data.size(), packed.end(), std::uint16_t{0});
+    }
+
     std::future<std::vector<Prediction>> submit(std::vector<const Tokens*> leaves) override {
-        if (std::ssize(leaves) > batch_) throw std::invalid_argument{"gpu: more leaves than the batch"};
+        std::vector<InferenceInput> inputs;
+        for (auto tokens : leaves) inputs.push_back({tokens, {}});
+        return submit_prepared(std::move(inputs));
+    }
+
+    std::future<std::vector<Prediction>> submit_prepared(std::vector<InferenceInput> inputs) override {
+        if (std::ssize(inputs) > batch_) throw std::invalid_argument{"gpu: more leaves than the batch"};
         auto r = std::make_shared<Request>();
-        r->leaves = std::move(leaves);
+        for (const auto& input : inputs) r->leaves.push_back(input.tokens);
+        const bool prepared = std::any_of(inputs.begin(), inputs.end(), [](const auto& input) { return !input.packed.empty(); });
+        if (prepared) r->prepared = std::move(inputs);
         r->out.resize(r->leaves.size());
         std::vector<const Tokens*> large;
         std::vector<std::size_t> large_at;
@@ -127,27 +143,32 @@ public:
         }
         auto future = r->done.get_future();
         if (r->gpu.empty()) { r->done.set_value(std::move(r->out)); return future; }
-        {
+        if (!prepared) {
             std::lock_guard lock{mutex_};
             if (failure_) { r->done.set_exception(failure_); return future; }
             if (!buffers_.empty()) { r->packed = std::move(buffers_.back()); buffers_.pop_back(); }
         }
         const auto pack_begin = Clock::now();
         const auto stride = std::size_t(tokens_) * width;
-        r->packed.resize(r->gpu.size() * stride);
+        if (!prepared) r->packed.resize(r->gpu.size() * stride);
         long token_sum = 0, over32 = 0, over40 = 0;
         int token_max = 0;
         for (std::size_t k = 0; k < r->gpu.size(); ++k) {
             const auto& t = *r->leaves[r->gpu[k]];
             token_sum += t.count; token_max = std::max(token_max, t.count);
             over32 += t.count > 32; over40 += t.count > 40;
-            auto* row = r->packed.data() + k * stride;
-            for (std::size_t j = 0; j < t.data.size(); ++j) row[j] = __float2half(t.data[j]);
-            std::fill(row + t.data.size(), row + stride, __float2half(0.f));
+            if (prepared) {
+                if (r->prepared[r->gpu[k]].packed.size() != stride)
+                    throw std::invalid_argument{"gpu: prepared input has wrong size"};
+            } else {
+                auto* row = r->packed.data() + k * stride;
+                pack_half(t.data, {reinterpret_cast<std::uint16_t*>(row), t.data.size()});
+                std::fill(row + t.data.size(), row + stride, __float2half(0.f));
+            }
         }
         token_sum_ += token_sum; over32_ += over32; over40_ += over40;
         for (int previous = token_max_.load(); previous < token_max && !token_max_.compare_exchange_weak(previous, token_max);) {}
-        pack_ns_ += std::chrono::duration_cast<std::chrono::nanoseconds>(Clock::now() - pack_begin).count();
+        if (!prepared) pack_ns_ += std::chrono::duration_cast<std::chrono::nanoseconds>(Clock::now() - pack_begin).count();
         r->enqueued = Clock::now();
         if (synchronous_) {
             // The caller is the coordinator: no second dispatch thread, queue or batching delay.
@@ -169,6 +190,7 @@ private:
         std::vector<std::size_t> gpu;
         std::vector<Prediction> out;
         std::vector<__half> packed;
+        std::vector<InferenceInput> prepared;
         std::promise<std::vector<Prediction>> done;
         Clock::time_point enqueued;
     };
@@ -224,8 +246,15 @@ private:
         for (const auto& r : taken) {
             const double wait = std::chrono::duration<double>(begin - r->enqueued).count();
             queue_leaf_seconds_ += wait * r->gpu.size(); queue_max_ = std::max(queue_max_, wait);
-            std::memcpy(host_in_ + std::size_t(n) * tokens_ * width, r->packed.data(), r->packed.size() * sizeof(__half));
-            n += int(r->gpu.size());
+            if (r->prepared.empty()) {
+                std::memcpy(host_in_ + std::size_t(n) * tokens_ * width, r->packed.data(), r->packed.size() * sizeof(__half));
+                n += int(r->gpu.size());
+            } else {
+                for (auto index : r->gpu) {
+                    const auto row = r->prepared[index].packed;
+                    std::memcpy(host_in_ + std::size_t(n++) * tokens_ * width, row.data(), row.size_bytes());
+                }
+            }
         }
         auto& engine = **std::find_if(engines_.begin(), engines_.end(), [n](const auto& e) { return e->batch >= n; });
         const auto packed = Clock::now();
@@ -246,7 +275,7 @@ private:
         }
         {
             std::lock_guard lock{mutex_};
-            for (const auto& r : taken) buffers_.push_back(std::move(r->packed));
+            for (const auto& r : taken) if (!r->packed.empty()) buffers_.push_back(std::move(r->packed));
         }
         for (const auto& r : taken) r->done.set_value(std::move(r->out));
         const auto done = Clock::now();

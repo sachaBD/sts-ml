@@ -1,6 +1,7 @@
 #pragma once
 // The network: tokens [B, T, width] -> value [B] (win probability) and logits [B, T] (used at action tokens).
 #include "agents/combat/nn/tokens.hpp"
+#include <cstdint>
 #include <filesystem>
 #include <future>
 #include <memory>
@@ -22,11 +23,23 @@ private:
     std::unique_ptr<Impl> impl_;
 };
 
+// Views remain owned/immutable on the SimWorker until its prediction returns.
+struct InferenceInput {
+    const Tokens* tokens;
+    std::span<const std::uint16_t> packed;
+};
+
 // Batched evaluation shared by the worker threads: submit() returns at once, the predictions arrive later.
 class Evaluator {
 public:
     virtual ~Evaluator() = default;
     virtual std::future<std::vector<Prediction>> submit(std::vector<const Tokens*> leaves) = 0;
+    virtual void prepare(const Tokens&, std::vector<std::uint16_t>& packed) { packed.clear(); }
+    virtual std::future<std::vector<Prediction>> submit_prepared(std::vector<InferenceInput> inputs) {
+        std::vector<const Tokens*> leaves;
+        for (const auto& input : inputs) leaves.push_back(input.tokens);
+        return submit(std::move(leaves));
+    }
 };
 
 // Evaluates on the calling thread (the future is ready on return).

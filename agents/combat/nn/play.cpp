@@ -297,7 +297,8 @@ int main(int argc, char** argv) try {
         run_workers(config, [&]() -> std::unique_ptr<Simulation> {
             auto game = shared.next_game();
             return game ? std::make_unique<CombatSimulation>(std::move(game), shared) : nullptr;
-        }, [&](std::vector<const Tokens*> tokens) { return shared.evaluator->submit(std::move(tokens)).get(); });
+        }, [&](std::vector<InferenceInput> inputs) { return shared.evaluator->submit_prepared(std::move(inputs)).get(); },
+        [&](const Tokens& tokens, std::vector<std::uint16_t>& packed) { shared.evaluator->prepare(tokens, packed); });
     } else {
         std::vector<std::jthread> pool;
         for (int t = 0; t < threads; ++t) pool.emplace_back(legacy_worker, std::ref(shared), parallel, groups, scheduler == "ready");
