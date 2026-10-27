@@ -5,8 +5,9 @@ A standalone transformer + Gumbel self-play pipeline. Python trains; C++ simulat
 ## Main files
 
 - `loop.py`: bootstrap from stored MCTS games, then play → train → export. Launches **one** C++ process.
-- `play.cpp`: `main()` starts CPU threads; `worker()` alternates two groups of games. While one group waits for inference, the thread advances the other.
-- `gpu.cpp`: one GPU thread collects leaves from every CPU worker and evaluates a fixed-size TensorRT batch. `submit()` pads/converts inputs on the calling CPU worker; `loop()` batches; `run()` transfers and evaluates.
+- `play.cpp`: combat simulation/output adapter and CLI. Legacy scheduling alternates groups; `--scheduler local` uses worker-local games and a coordinator.
+- `workers.hpp` / `workers.cpp`: bounded worker-local scheduler; `SimWorker::run()` advances owned games and `Coordinator::run()` batches/routes predictions. See [WORKERS.md](WORKERS.md) for ownership, timeouts, review and tests.
+- `gpu.cpp`: TensorRT engine bank. Legacy mode has its own GPU thread; local mode runs synchronously on the coordinator, without a second dispatch thread. `submit()` packs inputs; `run()` transfers and evaluates.
 - `gumbel.cpp`: search pauses at each unevaluated leaf. Root sequential halving with Gumbel noise; deterministic improved-policy selection inside the tree. Each simulation samples a public-belief particle.
 - `model.py`: 2-layer, width-64, 2-head transformer. Context token produces win probability; legal-action tokens produce policy logits.
 - `data.py`: binary self-play samples → dense padded tensors.
@@ -27,7 +28,10 @@ A standalone transformer + Gumbel self-play pipeline. Python trains; C++ simulat
 - Use **one GPU evaluator**, not one GPU session per CPU thread or process. Small independent GPU calls are slower than CPU inference.
 - Keep enough games in flight. Starting point: **10 CPU threads × 200 games/thread = 2,000 games**, split into two groups per thread.
 - A small job cannot fill these slots: 200 total games still means only 200 games in flight, regardless of `--parallel`.
-- GPU starting shape: **batch 1,024 × 48 tokens × 68 features**. Each batch is padded to this shape. Watch the exit summary's **mean leaves**: low fill wastes GPU work. States exceeding 48 tokens use the CPU model, never truncation.
+- Default-network GPU starting shape: **batch 1,024 × 48 tokens × 68 features**. Each batch is padded to this shape. Watch the exit summary's **mean leaves**: low fill wastes GPU work. States exceeding the configured token count use the CPU model, never truncation.
+- Fixed-size collections drain: 2,000 starts with 2,000 slots have no replacement reserve. More total games sustain occupancy longer but change games/update. Alternatively, an optional **fixed-shape bank** reduces padded work as the collection drains, without dropping long fights or changing search.
+- For the tested **128-wide / 4-layer panache network**, benchmark `--gpu-batch 512 --gpu-bank 256,32 --gpu-wait-us 100` (48 tokens). This exports three same-weight ONNX models; one shared evaluator chooses the smallest engine that fits each gathered batch. Bank engines must have identical weights, token count and feature schema. Extra export/build cost matters on short updates; this is not a universal default. See the [throughput investigation](../../../experiments/25-10-26/a-gumbel/nn/THROUGHPUT_REPORT.md).
+- CPU scheduling is explicit: `--parallel` slots/worker (default200), `--groups` (default2), and `--scheduler local|ordered|ready` (defaultordered). Local ignores groups and uses one coordinator plus the requested SimWorkers. More ready groups can raise CPU activity without increasing useful inference throughput; do not tune for CPU percentage alone.
 - Export `model-gpu.onnx` with **fixed shapes and fp16 input**. TensorRT uses fp16 internally; outputs stay fp32. Dynamic shape computations can fall back to CPU and prevent graph capture.
 - **TensorRT fusion** reduces kernel count and memory traffic. **CUDA graphs** reduce CPU launch overhead. They solve different problems; both are enabled.
 - Padding and fp16 conversion run on CPU workers. Reusable buffers avoid allocation every request; the GPU thread concatenates prepared chunks into pinned memory and transfers half as many input bytes as fp32.
@@ -82,9 +86,20 @@ cmake --build build/nn --target nn_play --parallel 6
     --gpu-batch 1024 --gpu-tokens 48 --sims 256
 ```
 
-This is an example, not a new approved experiment. `START.json` contains `{fight_id, start}`. Bootstrap JSON lines contain recorded `{fight, search}` results. Output directories must be new; no automatic resume/overwrite. Keep checkpoints, samples, engines and generated inputs under `runs/` or `scratch/`.
+Topology can be selected with `--dim`, `--layers`, and `--heads` (defaults: 64/2/2).
+New checkpoints include a `spec` dictionary; reconstruct with `Net(**checkpoint['spec'])` before loading weights.
+Legacy checkpoints without `spec` retain the default topology. `model-spec.json` also records the run's architecture.
 
-The run writes `status.json` live, `log.jsonl` per iteration, and results and `worker.log` per play stage. See the panache experiment dashboard under `experiments/25-10-26/a-gumbel/nn/`.
+This is an example, not a new approved experiment. `START.json` contains `{fight_id, start}`. Bootstrap JSON lines contain recorded `{fight, search}` results. Output directories must be new unless explicitly continuing with `--resume-from N`.
+Resume requires the latest completed iteration's checkpoint and existing replay; only `--games` and `--iterations`
+may change. Archive any interrupted next-iteration directory first; partial samples are never appended.
+Stop the old process before resuming. New checkpoints restore training RNG state; legacy checkpoints without
+RNG state restart sampling from seed 0 (not a bit-exact continuation). Keep checkpoints, samples, engines and generated inputs under `runs/` or `scratch/`.
+
+The run writes `status.json` live, `log.jsonl` per iteration, and results and `worker.log` per play stage.
+Native `gpu_stats` JSON lines report exact real leaves, computed row capacity, engine usage, CPU fallback,
+packing/transfer/inference/scatter timings, queue latency, and token counts. These are host wall-time diagnostics,
+not GPU occupancy or percentage of peak FLOPs. With a shape bank, fill is `leaves / capacity`, not mean leaves divided by the largest shape. See the panache experiment dashboard under `experiments/25-10-26/a-gumbel/nn/`.
 
 ### Binary samples
 

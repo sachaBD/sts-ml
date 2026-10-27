@@ -12,6 +12,9 @@ ACTION = 6
 class Net(nn.Module):
     def __init__(self, dim=64, layers=2, heads=2):
         super().__init__()
+        if dim <= 0 or layers <= 0 or heads <= 0 or dim % heads:
+            raise ValueError('positive dim/layers/heads required; dim must be divisible by heads')
+        self.spec = dict(dim=dim, layers=layers, heads=heads)
         self.kind = nn.Embedding(8, dim)
         self.id = nn.Embedding(8 * 1024, dim)   # per type: type * 1024 + id
         self.id2 = nn.Embedding(1024, dim)
@@ -54,7 +57,7 @@ class HalfInput(nn.Module):
 
 def export_static(net, path, batch, tokens):
     """Fixed-shape GPU model: fp16 tokens [batch, tokens, WIDTH], fp32 value/logits."""
-    net = HalfInput(net.cpu().eval())
+    net = HalfInput(net.cpu().eval()).eval()
     example = torch.zeros(batch, tokens, WIDTH, dtype=torch.float16)
     torch.onnx.export(net, (example,), str(path), dynamo=True,
                       input_names=['tokens'], output_names=['value', 'logits'])

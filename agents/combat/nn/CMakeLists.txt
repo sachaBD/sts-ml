@@ -1,3 +1,10 @@
+# Scheduling/ownership/failure tests need neither a GPU nor ONNX Runtime.
+add_executable(nn_workers_test workers_test.cpp workers.cpp)
+target_link_libraries(nn_workers_test PRIVATE combat_core)
+target_compile_options(nn_workers_test PRIVATE -Wall -Wextra -Wpedantic)
+add_test(NAME nn_workers_test COMMAND nn_workers_test)
+set_tests_properties(nn_workers_test PROPERTIES TIMEOUT 30)
+
 # nn_play: Gumbel self-play with the agents/combat/nn network. ONNX Runtime (GPU build) straight from the venv's
 # onnxruntime-gpu wheel: its CUDA provider libraries must sit next to libonnxruntime. Headers are prepared in build/deps/onnxruntime/include.
 execute_process(COMMAND "${STSRL_PYTHON}" -c "import onnxruntime, pathlib; print(pathlib.Path(onnxruntime.__file__).parent / 'capi', end='')"
@@ -22,7 +29,7 @@ if(NOT CUDAToolkit_FOUND)
     message(STATUS "nn_play not built: CUDA toolkit not found")
     return()
 endif()
-add_executable(nn_play play.cpp tokens.cpp net.cpp gpu.cpp gumbel.cpp)
+add_executable(nn_play play.cpp workers.cpp tokens.cpp net.cpp gpu.cpp gumbel.cpp)
 target_include_directories(nn_play SYSTEM PRIVATE "${NN_ORT_INCLUDE}")
 target_link_libraries(nn_play PRIVATE combat_core "${NN_ORT_DIR}/libonnxruntime.so.1" CUDA::cudart)
 target_link_options(nn_play PRIVATE "-Wl,-rpath,${NN_ORT_DIR}")

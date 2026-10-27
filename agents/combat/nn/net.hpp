@@ -34,6 +34,10 @@ std::unique_ptr<Evaluator> cpu_evaluator(const std::filesystem::path& onnx);
 
 // One GPU thread runs a captured CUDA graph of `fixed_onnx` (exported for exactly [batch, tokens, width] with fp16 input) on
 // leaves gathered from all submitters, padded to `batch`. Leaves with more than `tokens` tokens use `onnx` on the CPU.
+// With synchronous=true, submit() evaluates the already-batched request on its caller (the Coordinator);
+// no evaluator thread/queue is started. All calls must then come from that one owner.
 std::unique_ptr<Evaluator> gpu_evaluator(const std::filesystem::path& onnx, const std::filesystem::path& fixed_onnx,
-                                         int batch, int tokens);
+                                         int batch, int tokens,
+                                         const std::vector<std::filesystem::path>& smaller_models = {},
+                                         int wait_us = 1000, bool synchronous = false);
 }  // namespace stsrl::nn
