@@ -4,6 +4,10 @@ The project layout and quickstart are in the root README. Component contracts li
 
 `research/` preserves the former `slop_docs/` notes: proposals, explanations, and handoffs of mixed quality. Treat these as working research notes, not validated findings; their original caveats are retained. Historical references to removed experimental files may not be runnable.
 
+## Component documentation
+
+- [Combat NN pipeline and GPU performance](../agents/combat/nn/docs/README.md)
+
 ## Ownership
 
 - Environments own what can happen.

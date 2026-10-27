@@ -2,6 +2,8 @@
 
 A standalone transformer + Gumbel self-play pipeline. Python trains; C++ simulates fights and searches. No dependency on the old agent implementation.
 
+See the [documentation index](docs/README.md), [production inference benchmark](docs/INFERENCE_BENCHMARK.md), and [measured GPU settings and profiling findings](docs/GPU_PERFORMANCE.md).
+
 ## Main files
 
 - `loop.py`: bootstrap from stored MCTS games, then play → train → export. Launches **one** C++ process.
