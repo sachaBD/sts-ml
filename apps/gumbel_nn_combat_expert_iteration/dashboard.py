@@ -124,7 +124,7 @@ def main():
               f'{status["stage"]} / {status["phase"]} {progress} (updated {data["progress_age_seconds"]:.0f}s ago)')
     if data['state'] == 'stopping': print('Finishing current update and scheduled evaluation before stopping.')
     print(f'Last completed: {data["last_completed_iteration"]}; disk free: {data["disk_free_bytes"] / 1024**3:.1f} GiB')
-    print('\niter  collection wins    loaded rows   play s  train/export s')
+    print('\niter  collection wins  selected rows   play s  train/export s')
     for row in data['updates']:
         print(f'{row["iteration"]:4}  {row["wins"]:5}/{row["games"]:<5}  {row["states"]:11,} '
               f'{row["play_seconds"]:8} {row["train_seconds"]:15}')

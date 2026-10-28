@@ -143,3 +143,21 @@ setup. Initial GPU gameplay is therefore qualified across50decks; this is the
 warm-start agent, not evidence of learning yet. Broader states incur CPU fallback
 above48tokens; no truncation. First collection is active. Actual validation is
 slower than the early estimate; measured20% scheduling handles that automatically.
+
+### First full GPU update qualified — 09:25 UTC
+- Collection:5,000games,2,060wins;201,985native decision rows;1,072s including setup.
+- Training/save/export:12s; final value loss0.3098, policy1.2541 (finite).
+- All50decks sampled;204,800training draws total,4,091–4,100/deck.
+- Watcher sampled peak loopRSS3,545MiB and device-wide VRAM2,690MiB. One update;
+  sampled device peak is not an exact allocator maximum or long-run upper bound.
+  /proc loopVmHWM after update~3.50GiB. Native gameplay and Python training are staged,
+  so loopRSS alone does not describe total systemRAM. Newworker/model is completing
+  iteration2games successfully. No restart or recovery has been needed.
+- Proof:`scratch/champ-fifty-preflight/first-update-qualified.json`;
+  resource log:`scratch/champ-fifty-first-update-watch.log`.
+- Broader collection/validation is materially slower than the old ten-deck run;
+  do not assume the previous5–7minute update cadence. CPUfallback above48tokens is
+  visible in native gpu_stats. We keep transport/search settings fixed for this run,
+  rather than silently tune them mid-experiment. Wall-time validation budget adapts.
+- Continuing to watch the first scheduled post-training validation. Its comparison
+  against baseline0 is the first learning measurement; baseline42.52% alone is not one.
