@@ -1,19 +1,23 @@
 # Champ fifty-deck expansion — 2026-10-28
 
-## CURRENT STATUS — 10:24 UTC
-**NEW RUNNING**, iteration6 collecting after five completed updates and two successful
-5,000-game validations. Original run STOPPED cleanly atcheckpoint74; rollback ready.
-- Live URL: **http://localhost:8742**.
-- Config: `experiments/2026-10-28-champ-fifty/champ_fifty.toml`.
-- NEW: `runs/schema=gumbel_nn_combat_v1/date=2026-10-28/id=gumbel-nn-champ-fifty-20261028`.
-- Run/source commits: `978f154` implementation; `51764b3` pre-change snapshot.
-- Overall validation42.52→46.40%; added40improve; **original10regress4.4pp**.
-  See final section: retention alert must be checked at next validation. No runtime
-  failure or restart so far. Do not mistake historical comparisons for all50decks.
-- Qualified end-to-end: nativecollection → balancedminibatchGPUtraining → export →
-  nextmodelgameplay → post-trainingvalidation. All50sampled every update.
-- Recovery and stop commands below. No automatic restart daemon or hard run timer.
-
+## CURRENT REVIEW — 22:26 UTC
+**NEW RUNNING**,40completed updates/200,000new training games at review; latest
+completed validationcheckpoint38. Original run remains stopped atcheckpoint74.
+- Live URL:**http://localhost:8742**. Config:`champ_fifty.toml` in this folder.
+- NEW:`runs/schema=gumbel_nn_combat_v1/date=2026-10-28/id=gumbel-nn-champ-fifty-20261028`.
+- Onall5,000validationstarts:42.52→49.76%, paired+7.24pp[95%:+6.06,+8.42].
+- Original10(n=1000):51.1→52.0%,+0.9pp[-2.12,+3.92]. Early retention regression
+  is no longer evident at cohort level; this is not a formal non-inferiority guarantee.
+  Exhume recovered54→79/100 (initial79); Corruption14→24 (initial25).
+- Added40(n=4000):40.38→49.20%,+8.83pp[+7.56,+10.09].
+- Last five all50evaluations49.22,49.40,49.24,49.24,49.76%; recent gains small.
+- Same500originalstarts: MCTS35.0%,PUCT47.4%,Gumbel10checkpoint74=51.8%,
+  Gumbel50checkpoint38=53.4%. G50-G10+1.6pp[-2.73,+5.93]; G50-PUCT+6.0pp
+  [+1.63,+10.37]. Historical simulator confounding still applies.
+- Recordedphase validation share20.42%. Run has no automatic21:00 cutoff and was
+  still active when reviewed. No stop requested by this review.
+- Full review JSON/Markdown inNEW/out/analysis/comparison-20261028.*.
+- Source/implementation commits and recovery commands below remain unchanged.
 
 ## Goal and guardrails
 Expand the original ten Champ decks to fifty, warm-starting the working Gumbel agent.
@@ -220,3 +224,12 @@ To restart only the read-only web dashboard (leave training alone):
 nohup .venv/bin/python -m apps.gumbel_nn_combat_expert_iteration.web \
   "$NEW" --port 8742 >> scratch/champ-fifty-web.log 2>&1 &
 ```
+
+### Evening review — 22:26 UTC
+The original-ten retention alert fromcheckpoint5 has recovered atcheckpoint38;
+continue monitoring rather than treating early loss as permanent. Overalllearning
+is clear versus the initial model, but fromcheckpoint24to38 gain is only+0.54pp
+with paired95%[-0.56,+1.64] on5,000starts: no clear evidence of continued gains in
+that recent interval. Comparing checkpoint38 against historical teacher/PUCT must
+use their500matchedoriginalstarts, not the full5,000different task mix. Review is
+read-only; training was not stopped despite the daytime21:00planning endpoint.
