@@ -121,3 +121,18 @@ first scheduled post-training validation as well. If original-ten performance
 shows a sustained loss, report it with paired95%bounds; do not automatically change
 sampling weights or architecture. Stop at the user's daytime budget endpoint rather
 than assume that run-until-stopped imposes a timer.
+
+## Actual switchover — 08:48 UTC
+- Implementation commit:`978f154`; baseline snapshot:`51764b3`.
+- OLD stopped cleanly atcheckpoint74. All rollback inputs retained. Exact rollback
+  command also saved locally in `scratch/champ-fifty-preflight/rollback-command.json`.
+- NEW launched successfully; its frozen initial weights are OLDiter074, SHA256
+  `53b973a83d74a89cd86b95410d071c4de7b762acd6e7ee558450e68a4988a04a`.
+- Active pointer:`scratch/gumbel-nn-active-run.json` now points toNEW. Old pointer
+  preserved at`scratch/gumbel-nn-active-run-before-fifty.json`.
+- Launch:`scratch/champ-fifty-launch.log`; transition:`scratch/champ-fifty-transition.log`;
+  managed stdout/stderr inNEW/logs/.
+- Read-only web dashboard:`http://localhost:8742` (old dashboard8741 left untouched).
+  Web log:`scratch/champ-fifty-web.log`. CLI commands above useNEW.
+- At08:51UTC, baseline validation active; webAPI responsive; device used~975MiB VRAM.
+  First full training update and recurring validation still being watched.
