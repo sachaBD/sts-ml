@@ -122,6 +122,12 @@ class Run:
         return results
 
 
+def collection_stats(results):
+    times = sorted(r['finished_unix'] for r in results if 'finished_unix' in r)
+    return dict(capped=sum(r['capped'] for r in results) if all('capped' in r for r in results) else None,
+                tail95_seconds=times[-1] - times[int(.95 * (len(times) - 1))] if times else None)
+
+
 def main():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument('--start', type=Path, required=True)
@@ -136,6 +142,7 @@ def main():
     p.add_argument('--validation-share', type=float, default=0, help='evaluate when recorded validation wall share falls below this target; 0 disables')
     p.add_argument('--prune-replay', action='store_true', help='delete expired sample files and old TensorRT caches; retain models/results')
     p.add_argument('--max-train-rows', type=int, default=0, help='uniformly subsample loaded replay to this many rows; 0 = all')
+    p.add_argument('--min-free-gib', type=float, default=0, help='clean stop before collection if disk reserve is low; 0 disables')
     p.add_argument('--games', type=int, default=1000)
     p.add_argument('--steps', type=int, default=100)
     p.add_argument('--window', type=int, default=5, help='train on the last N iterations (iteration 0 = bootstrap games)')
@@ -154,7 +161,8 @@ def main():
                    help='local = worker-owned games + coordinator; threads count simulation workers')
     p.add_argument('--timeout-ms', type=int, default=60000, help='local scheduler request/worker stall deadline')
     p.add_argument('--shutdown-timeout-ms', type=int, default=5000, help='local scheduler forced-exit grace after cancellation')
-    p.add_argument('--test', type=Path, help='fights (JSON lines) to test on, greedy')
+    p.add_argument('--test', type=Path, help='primary validation fights (JSON lines), greedy')
+    p.add_argument('--test-in', type=Path, help='optional separate in-sample validation, not part of primary score')
     p.add_argument('--test-at', default='', help='iterations to test, e.g. 0,3,10')
     p.add_argument('--dim', type=int, default=64)
     p.add_argument('--layers', type=int, default=2)
@@ -214,6 +222,7 @@ def run_loop(a, args, gpu_bank):
     if isinstance(base, list):
         fights(base, 'validate', a.games)
     tests = [json.loads(line) for line in a.test.read_text().splitlines() if line.strip()] if a.test else []
+    tests_in = [json.loads(line) for line in a.test_in.read_text().splitlines() if line.strip()] if a.test_in else []
     test_at = {int(x) for x in a.test_at.split(',') if x}
 
     torch.manual_seed(0)
@@ -273,9 +282,14 @@ def run_loop(a, args, gpu_bank):
         t = time.time()
         results = run.play(iteration_dir(it) / 'model.onnx', tests, a.out / 'test' / f'iter{it:03d}', a.sims, 0.0,
                            a.rollout_mix, a.workers, stage=f'test iteration {it}')
-        run.log(test=it, games=len(results), wins=sum(r['won'] for r in results), seconds=round(time.time() - t))
+        in_results = []
+        if tests_in:
+            in_results = run.play(iteration_dir(it) / 'model.onnx', tests_in, a.out / 'test' / f'iter{it:03d}' / 'in-sample',
+                                  a.sims, 0.0, a.rollout_mix, a.workers, stage=f'test in-sample iteration {it}')
+        run.log(test=it, games=len(results), wins=sum(r['won'] for r in results), seconds=round(time.time() - t),
+                in_sample_games=len(in_results), in_sample_wins=sum(r['won'] for r in in_results), **collection_stats(results))
         if a.prune_replay:
-            for sample in (a.out / 'test' / f'iter{it:03d}').glob('samples-*.bin'):
+            for sample in (a.out / 'test' / f'iter{it:03d}').rglob('samples-*.bin'):
                 sample.unlink()
 
     if a.resume_from is not None:
@@ -321,13 +335,20 @@ def run_loop(a, args, gpu_bank):
             return
         if a.iterations and it > a.iterations:
             break
+        if a.min_free_gib:
+            previous_bytes = sum(p.stat().st_size for p in iteration_dir(it - 1).glob('samples-*.bin'))
+            reserve = a.min_free_gib * 1024**3 + max(3 * 1024**3, previous_bytes)
+            if shutil.disk_usage(a.out).free < reserve:
+                run.status(stage='stopped', phase='stopped', reason='disk reserve', last_completed=it - 1)
+                run.log(stopped='disk reserve', required_free_bytes=reserve)
+                return
         t0 = time.time()
         results = run.play(iteration_dir(it - 1) / 'model.onnx', fights(base, f'{a.fight_namespace or a.out.name}:{it}', a.games),
                            iteration_dir(it), a.sims, 1.0, a.rollout_mix, a.workers, stage=f'iteration {it}')
         t1 = time.time()
         states = fit(it, a.steps)
         run.log(iteration=it, games=len(results), wins=sum(r['won'] for r in results), states=states,
-                play_seconds=round(t1 - t0), train_seconds=round(time.time() - t1))
+                play_seconds=round(t1 - t0), train_seconds=round(time.time() - t1), **collection_stats(results))
         test(it)
         if a.prune_replay:
             # Keep exactly the replay window; checkpoints/results remain for analysis.

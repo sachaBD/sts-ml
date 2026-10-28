@@ -16,20 +16,23 @@ def train(net, optimizer, tokens, policy, won, steps, batch=512, device='cuda', 
     start, totals = time.time(), torch.zeros(2, device=device)
     for step in range(1, steps + 1):
         if replay is not None:
-            x, target, w = (t.to(device) for t in replay.batch(batch))
+            batches = replay.batches(batch)
         else:
             i = torch.randint(len(won), (batch,), device=device)
-            x, target, w = tokens[i], policy[i], won[i]
-        with torch.autocast(device, torch.bfloat16):  # bf16 halves memory traffic
-            value, logits = net(x.float())
-        v = value.float().clamp(1e-6, 1 - 1e-6)
-        value_loss = -(w * v.log() + (1 - w) * (1 - v).log()).mean()
-        policy_loss = -(target * logits.float().log_softmax(-1)).sum(-1).mean()
+            batches = [(tokens[i], policy[i], won[i])]
         optimizer.zero_grad(set_to_none=True)
-        (value_loss + policy_loss).backward()
-        torch.nn.utils.clip_grad_norm_(net.parameters(), 1.0)
+        for x, target, w in batches:
+            x, target, w = x.to(device), target.to(device), w.to(device)
+            with torch.autocast(device, torch.bfloat16):
+                value, logits = net(x.float())
+            v = value.float().clamp(1e-6, 1 - 1e-6)
+            value_loss = -(w * v.log() + (1 - w) * (1 - v).log()).mean()
+            policy_loss = -(target * logits.float().log_softmax(-1)).sum(-1).mean()
+            weight = len(w) / batch
+            ((value_loss + policy_loss) * weight).backward()
+            totals += weight * torch.stack((value_loss.detach(), policy_loss.detach()))
+        torch.nn.utils.clip_grad_norm_(net.parameters(), 1.0, error_if_nonfinite=True)
         optimizer.step()
-        totals += torch.stack((value_loss.detach(), policy_loss.detach()))
         if step % 500 == 0 or step == steps:
             v, p = (totals / ((step - 1) % 500 + 1)).tolist()
             log(f'step {step}/{steps}: value {v:.4f} policy {p:.4f} ({step * batch / (time.time() - start):.0f} states/s)')

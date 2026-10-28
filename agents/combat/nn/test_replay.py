@@ -4,6 +4,7 @@ from pathlib import Path
 import struct
 import tempfile
 import unittest
+from unittest.mock import patch
 
 import numpy as np
 import torch
@@ -71,6 +72,36 @@ class ReplayTests(unittest.TestCase):
             path.write_bytes(path.read_bytes()[:-1])
             with self.assertRaisesRegex(ValueError, 'truncated'): index(path)
             self.assertFalse(path.with_suffix('.index.npz').exists())
+
+    def test_attention_buckets_keep_every_row(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = samples(Path(tmp) / 'iter001', [('a', 4, 1, 1), ('b', 4, 2, 0)])
+            replay = Replay([path])
+            records = []
+            for i, length in enumerate([3] * 5 + [30] * 3):
+                t = np.zeros((length, WIDTH), dtype=np.float32)
+                t[0, :2] = [1, i]; t[-2:, 0] = 6
+                records.append((t, np.array([.5, .5], np.float32), float(i % 2)))
+            with patch.object(replay, 'sample', return_value=records):
+                chunks = list(replay.batches(8, attention_cells=900))
+            self.assertEqual(sum(len(w) for _, _, w in chunks), 8)
+            self.assertEqual(len(chunks), 4)
+            identities = []
+            for t, p, w in chunks:
+                self.assertLessEqual(len(w) * t.shape[1] ** 2, 900)
+                identities += t[:, 0, 1].int().tolist()
+                torch.testing.assert_close(p.sum(1), torch.ones(len(w)))
+            self.assertEqual(sorted(identities), list(range(8)))
+
+    def test_thousand_decks_in_every_effective_batch(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = samples(Path(tmp) / 'iter001', [(f'd{i}', 1, i % 100, i % 2) for i in range(1000)])
+            replay = Replay([path])
+            chunks = list(replay.batches(2048))
+            self.assertEqual(sum(len(w) for _, _, w in chunks), 2048)
+            self.assertEqual(len(replay.drawn), 1000)
+            self.assertEqual(set(replay.drawn.values()), {2, 3})
+            self.assertEqual(sum(replay.drawn.values()), 2048)
 
     def test_cpu_optimizer_uses_batches(self):
         torch.set_num_threads(1)

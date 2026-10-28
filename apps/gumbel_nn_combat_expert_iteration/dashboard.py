@@ -33,6 +33,12 @@ def running(training):
     return False
 
 
+def mean_bounds(values):
+    mean = sum(values) / len(values)
+    se = math.sqrt(sum((v - mean) ** 2 for v in values) / (len(values) * (len(values) - 1))) if len(values) > 1 else None
+    return mean, [mean - 1.96 * se, mean + 1.96 * se] if se is not None else None
+
+
 def score(results, baselines):
     n, wins = len(results), sum(results.values())
     comparisons = {}
@@ -44,9 +50,19 @@ def score(results, baselines):
         m = len(keys)
         gap = sum(differences) / m
         se = math.sqrt(sum((d - gap) ** 2 for d in differences) / (m * (m - 1))) if m > 1 else None
+        grouped = {}
+        for k in keys:
+            grouped.setdefault(deck_of(k), []).append(int(results[k]) - int(reference[k]))
+        macro, cluster_ci = mean_bounds([sum(v) / len(v) for v in grouped.values()])
         comparisons[name] = dict(n=m, wins=sum(results[k] for k in keys), baseline_wins=sum(reference[k] for k in keys),
-                                 gap=gap, gap_95=[gap - 1.96 * se, gap + 1.96 * se] if se is not None else None)
-    return dict(n=n, wins=wins, win_rate=wins / n, wilson_95=wilson(wins, n), comparisons=comparisons)
+                                 gap=gap, gap_95=[gap - 1.96 * se, gap + 1.96 * se] if se is not None else None,
+                                 families=len(grouped), macro_gap=macro, family_gap_95=cluster_ci)
+    grouped = {}
+    for k, won in results.items():
+        grouped.setdefault(deck_of(k), []).append(won)
+    macro, cluster_ci = mean_bounds([sum(v) / len(v) for v in grouped.values()])
+    return dict(n=n, wins=wins, win_rate=wins / n, wilson_95=wilson(wins, n), comparisons=comparisons,
+                families=len(grouped), macro_win_rate=macro, family_95=cluster_ci)
 
 
 def snapshot(out):
@@ -75,16 +91,19 @@ def snapshot(out):
     tested = sorted({r['test'] for r in rows if 'test' in r})
     if 0 in tested:
         baselines['initial'] = {r['fight_id']: r['won'] for r in jsonl(training / 'test/iter000/results.jsonl')}
+        baselines['initial'].update({r['fight_id']: r['won'] for r in jsonl(training / 'test/iter000/in-sample/results.jsonl')})
     cohort_path = out / 'inputs/cohorts.json'
     cohorts = json.loads(cohort_path.read_text()) if cohort_path.exists() else {}
     for it in tested[-3:]:
         results = {r['fight_id']: r['won'] for r in jsonl(training / f'test/iter{it:03d}/results.jsonl')}
         if not results:
             continue
-        decks = {name: score({k: v for k, v in results.items() if deck_of(k) == name}, baselines)
-                 for name in sorted({deck_of(k) for k in results})}
-        groups = {group: score({k: v for k, v in results.items() if cohorts.get(deck_of(k)) == group}, baselines)
-                  for group in sorted(set(cohorts.values())) if any(cohorts.get(deck_of(k)) == group for k in results)}
+        combined = dict(results)
+        combined.update({r['fight_id']: r['won'] for r in jsonl(training / f'test/iter{it:03d}/in-sample/results.jsonl')})
+        decks = {name: score({k: v for k, v in combined.items() if deck_of(k) == name}, baselines)
+                 for name in sorted({deck_of(k) for k in combined})}
+        groups = {group: score({k: v for k, v in combined.items() if cohorts.get(deck_of(k)) == group}, baselines)
+                  for group in sorted(set(cohorts.values())) if any(cohorts.get(deck_of(k)) == group for k in combined)}
         evaluations.append(dict(iteration=it, all=score(results, baselines), decks=decks, cohorts=groups))
     return dict(version=1, state=state, config=config, progress=progress,
                 progress_age_seconds=time.time() - progress['time'] if progress else None,
@@ -138,7 +157,13 @@ def main():
         if row is not data['evaluations'][-1]:
             continue
         for name, s in [*row['cohorts'].items(), *row['decks'].items()]:
-            print(f'  {name:23} {s["wins"]:4}/{s["n"]} [{100*s["wilson_95"][0]:.1f}, {100*s["wilson_95"][1]:.1f}]%')
+            ci = s['family_95'] if s['families'] > 1 else s['wilson_95']
+            print(f'  {name:23} {s["wins"]:4}/{s["n"]} [{100*ci[0]:.1f}, {100*ci[1]:.1f}]%')
+            if name in row['cohorts'] and 'initial' in s['comparisons']:
+                c = s['comparisons']['initial']; bounds = c['family_gap_95']
+                if bounds:
+                    print(f'    vs initial: {100*c["macro_gap"]:+.1f} pp [{100*bounds[0]:+.1f}, {100*bounds[1]:+.1f}], '
+                          f'family-clustered n={c["families"]}')
         for name, c in row['all']['comparisons'].items():
             ci = c['gap_95']
             print(f'  vs {name:12} {100*c["gap"]:+.1f} pp '

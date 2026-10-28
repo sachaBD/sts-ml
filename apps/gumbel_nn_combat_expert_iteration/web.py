@@ -58,6 +58,8 @@ def unpaired(new, old):
 
 
 def paired(new, old, keys):
+    if not keys:
+        return None  # training-only decks need not belong to the unseen validation panel
     diffs = [new[k] - old[k] for k in keys]
     n = len(diffs)
     d = sum(diffs) / n

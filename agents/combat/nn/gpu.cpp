@@ -107,6 +107,7 @@ public:
         if (thread_.joinable()) { thread_.request_stop(); wake_.notify_all(); thread_.join(); }
         std::fprintf(stderr, "gpu: %ld batches, mean %.0f leaves, %.1f s busy\n", runs_, runs_ ? double(leaves_) / runs_ : 0., busy_);
         report();
+        engines_.clear(); // sessions/captured graphs must die before their borrowed buffers
         cudaFreeHost(host_in_); cudaFreeHost(host_value_); cudaFreeHost(host_logits_);
         cudaFree(in_); cudaFree(value_); cudaFree(logits_);
     }

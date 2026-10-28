@@ -68,7 +68,7 @@ class Replay:
     def __len__(self):
         return sum(self.selected.values())
 
-    def batch(self, size):
+    def sample(self, size):
         """Equal deck quotas (difference <=1), then uniform rows within each deck."""
         n = len(self.groups)
         if size < n:
@@ -85,6 +85,11 @@ class Replay:
                 tokens = np.frombuffer(raw, dtype=np.float32, count=count * WIDTH, offset=at).reshape(count, WIDTH)
                 policy = np.frombuffer(raw, dtype=np.float32, count=actions, offset=at + count * WIDTH * 4)
                 records.append((tokens, policy, won))
+        return records
+
+    @staticmethod
+    def collate(records):
+        size = len(records)
         longest = max(len(t) for t, _, _ in records)
         tokens = np.zeros((size, longest, WIDTH), dtype=np.float16)
         policy = np.zeros((size, longest), dtype=np.float32)
@@ -94,3 +99,25 @@ class Replay:
             policy[i, len(t) - len(p):len(t)] = p
             won[i] = w
         return torch.from_numpy(tokens), torch.from_numpy(policy), torch.from_numpy(won)
+
+    def batch(self, size):
+        return self.collate(self.sample(size))
+
+    def batches(self, size, attention_cells=2048 * 64 * 64):
+        """Keep B*T*T bounded; rare long states never pad the entire effective batch.
+
+        All sampled rows are retained. The trainer accumulates weighted gradients
+        across these microbatches before one optimizer step.
+        """
+        records = sorted(self.sample(size), key=lambda r: len(r[0]))
+        chunk = []
+        for record in records:
+            length = len(record[0])
+            if length * length > attention_cells:
+                raise ValueError(f'single state of {length} tokens exceeds attention budget')
+            if chunk and (len(chunk) + 1) * length * length > attention_cells:
+                yield self.collate(chunk)
+                chunk = []
+            chunk.append(record)
+        if chunk:
+            yield self.collate(chunk)

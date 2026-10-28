@@ -18,6 +18,8 @@
 #include "sim/search/PublicBeliefCombatSearch.h"
 #include <atomic>
 #include <chrono>
+#include <cstdio>
+#include <cstdlib>
 #include <fstream>
 #include <iostream>
 #include <map>
@@ -98,8 +100,11 @@ struct Shared {
         std::lock_guard lock{output};
         for (const auto& [tokens, policy] : g.decisions) write(samples, tokens, policy, won);
         samples.flush();
+        const double finished = std::chrono::duration<double>(std::chrono::system_clock::now().time_since_epoch()).count();
         std::cout << Json{{"fight_id", g.fight.at("fight_id")}, {"won", won > 0}, {"hp", g.state.player.curHp},
-                          {"decisions", g.decisions.size()}, {"seconds", seconds}}.dump() << std::endl;
+                          {"decisions", g.decisions.size()}, {"seconds", seconds}, {"turns", g.state.turn},
+                          {"steps", g.steps}, {"capped", g.state.outcome == sts::Outcome::UNDECIDED},
+                          {"finished_unix", finished}}.dump() << std::endl;
         if (!samples || !std::cout) throw std::runtime_error{"failed to write game samples/results"};
         ++completed;
         searched_decisions += g.decisions.size();
@@ -238,6 +243,19 @@ void import(std::ofstream& samples) {
 }  // namespace
 
 int main(int argc, char** argv) try {
+    if (argc > 1 && std::string{argv[1]} == "check") {
+        // Capability/shape preflight only: no network, search, or game outcomes.
+        std::string line;
+        while (std::getline(std::cin, line)) {
+            if (line.empty()) continue;
+            const auto fight = Json::parse(line);
+            const auto state = start(fight.at("start"));
+            const auto tokens = encode(state, legal_actions(state));
+            std::cout << Json{{"fight_id", fight.at("fight_id")}, {"tokens", tokens.count},
+                              {"actions", tokens.actions}}.dump() << std::endl;
+        }
+        return 0;
+    }
     const std::string mode = argc > 1 ? argv[1] : "";
     if (mode == "import" && argc == 3) {
         std::ofstream samples{argv[2], std::ios::binary | std::ios::app};
@@ -307,11 +325,22 @@ int main(int argc, char** argv) try {
         config.batch_wait = std::chrono::microseconds{gpu_wait_us};
         config.timeout = std::chrono::milliseconds{timeout_ms};
         config.shutdown_timeout = std::chrono::milliseconds{shutdown_timeout_ms};
-        run_workers(config, [&]() -> std::unique_ptr<Simulation> {
-            auto game = shared.next_game();
-            return game ? std::make_unique<CombatSimulation>(std::move(game), shared) : nullptr;
-        }, [&](std::vector<InferenceInput> inputs) { return shared.evaluator->submit_prepared(std::move(inputs)).get(); },
-        [&](const Tokens& tokens, std::vector<std::uint16_t>& packed) { shared.evaluator->prepare(tokens, packed); });
+        try {
+            run_workers(config, [&]() -> std::unique_ptr<Simulation> {
+                auto game = shared.next_game();
+                return game ? std::make_unique<CombatSimulation>(std::move(game), shared) : nullptr;
+            }, [&](std::vector<InferenceInput> inputs) { return shared.evaluator->submit_prepared(std::move(inputs)).get(); },
+            [&](const Tokens& tokens, std::vector<std::uint16_t>& packed) { shared.evaluator->prepare(tokens, packed); });
+        } catch (const std::exception& e) {
+            if (std::string{e.what()}.find("CUDA") != std::string::npos) {
+                // A poisoned CUDA context cannot be recovered in-process. Workers have
+                // joined and each finished game's journal/samples are already flushed.
+                std::cerr << "nn_play: CUDA failure; exiting without GPU teardown: " << e.what() << '\n';
+                std::fflush(nullptr);
+                std::_Exit(1); // supervisor starts a fresh process from the committed checkpoint
+            }
+            throw;
+        }
     } else {
         std::vector<std::jthread> pool;
         for (int t = 0; t < threads; ++t) pool.emplace_back(legacy_worker, std::ref(shared), parallel, groups, scheduler == "ready");
