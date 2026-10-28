@@ -4,19 +4,27 @@ import time
 
 import torch
 
+from .replay import Replay
+
 
 def train(net, optimizer, tokens, policy, won, steps, batch=512, device='cuda', log=print):
     """tokens/policy/won from data.read (any device); trains net (already on `device`) in place."""
     net.train()
-    tokens, policy, won = tokens.to(device), policy.to(device), won.to(device)
+    replay = tokens if isinstance(tokens, Replay) else None
+    if replay is None:
+        tokens, policy, won = tokens.to(device), policy.to(device), won.to(device)
     start, totals = time.time(), torch.zeros(2, device=device)
     for step in range(1, steps + 1):
-        i = torch.randint(len(won), (batch,), device=device)
-        with torch.autocast(device, torch.bfloat16):  # bf16 halves memory traffic: ~2x on this small net
-            value, logits = net(tokens[i].float())
-        v, w = value.float().clamp(1e-6, 1 - 1e-6), won[i]
+        if replay is not None:
+            x, target, w = (t.to(device) for t in replay.batch(batch))
+        else:
+            i = torch.randint(len(won), (batch,), device=device)
+            x, target, w = tokens[i], policy[i], won[i]
+        with torch.autocast(device, torch.bfloat16):  # bf16 halves memory traffic
+            value, logits = net(x.float())
+        v = value.float().clamp(1e-6, 1 - 1e-6)
         value_loss = -(w * v.log() + (1 - w) * (1 - v).log()).mean()
-        policy_loss = -(policy[i] * logits.float().log_softmax(-1)).sum(-1).mean()
+        policy_loss = -(target * logits.float().log_softmax(-1)).sum(-1).mean()
         optimizer.zero_grad(set_to_none=True)
         (value_loss + policy_loss).backward()
         torch.nn.utils.clip_grad_norm_(net.parameters(), 1.0)

@@ -24,6 +24,7 @@ from pathlib import Path
 import torch
 
 from .data import read
+from .replay import Replay
 from .model import Net, export, export_static
 from .metrics import DeviceSampler
 from .train import train
@@ -127,9 +128,12 @@ def main():
     p.add_argument('--out', type=Path, required=True)
     p.add_argument('--play', type=Path, default=PLAY, help='native nn_play binary (may be a frozen app snapshot)')
     p.add_argument('--bootstrap', type=Path, help='recorded games to import and train on first')
+    p.add_argument('--initial-checkpoint', type=Path, help='warm-start a new run from compatible weights/optimizer/RNG; no old replay')
+    p.add_argument('--balanced-replay', action='store_true', help='deck-balanced disk replay; only minibatches go to GPU')
     p.add_argument('--bootstrap-steps', type=int, default=2000)
     p.add_argument('--iterations', type=int, default=10, help='updates; 0 = run until OUT/STOP exists')
     p.add_argument('--test-every', type=int, default=0, help='also evaluate every N updates; 0 disables')
+    p.add_argument('--validation-share', type=float, default=0, help='evaluate when recorded validation wall share falls below this target; 0 disables')
     p.add_argument('--prune-replay', action='store_true', help='delete expired sample files and old TensorRT caches; retain models/results')
     p.add_argument('--max-train-rows', type=int, default=0, help='uniformly subsample loaded replay to this many rows; 0 = all')
     p.add_argument('--games', type=int, default=1000)
@@ -169,8 +173,12 @@ def main():
         p.error('positive workers/parallel/gpu-batch/timeouts; nonnegative GPU wait')
     if a.scheduler != 'local' and (a.groups < 2 or a.parallel < a.groups or (a.parallel + a.groups - 1) // a.groups > a.gpu_batch):
         p.error('legacy scheduler requires parallel >= groups >= 2; each group must fit gpu-batch')
+    if not 0 <= a.validation_share < 1:
+        p.error('validation-share must be in [0,1)')
     if a.iterations < 0 or a.test_every < 0 or a.max_train_rows < 0 or a.window < 1:
         p.error('iterations/test-every/max-train-rows must be nonnegative; window must be positive')
+    if a.initial_checkpoint and a.bootstrap:
+        p.error('choose initial-checkpoint or bootstrap, not both')
     args = {k: str(v) for k, v in vars(a).items()}
     if a.resume_from is None:
         a.out.mkdir(parents=True, exist_ok=False)
@@ -186,7 +194,7 @@ def run_loop(a, args, gpu_bank):
         legacy_defaults = dict(gpu_bank='', gpu_wait_us=1000, parallel=200, groups=2, scheduler='ordered',
                                timeout_ms=60000, shutdown_timeout_ms=5000)
         changed |= {k for k, default in legacy_defaults.items() if previous.get(k, str(default)) != args[k]}
-        if changed - {'games', 'iterations', 'resume_from', 'test_every', 'prune_replay', 'max_train_rows'}:
+        if changed - {'games', 'iterations', 'resume_from', 'test_every', 'prune_replay', 'max_train_rows', 'validation_share'}:
             raise ValueError(f'resume changed incompatible settings: {changed}')
         rows = [json.loads(line) for line in (a.out / 'log.jsonl').read_text().splitlines()]
         completed = [r['iteration'] for r in rows if 'iteration' in r]
@@ -212,12 +220,28 @@ def run_loop(a, args, gpu_bank):
     net = Net(dim=a.dim, layers=a.layers, heads=a.heads).to(a.device)
     (a.out / 'model-spec.json').write_text(json.dumps(net.spec, indent=2))
     optimizer = torch.optim.AdamW(net.parameters(), lr=a.lr, weight_decay=1e-4)
+    if a.initial_checkpoint and a.resume_from is None:
+        warm = torch.load(a.initial_checkpoint, map_location='cpu', weights_only=True)
+        if warm.get('spec') != net.spec:
+            raise ValueError('initial checkpoint architecture differs from requested topology')
+        net.load_state_dict(warm['net'])
+        optimizer.load_state_dict(warm['optimizer'])
+        torch.set_rng_state(warm['rng'])
+        if warm.get('cuda_rng') and a.device.startswith('cuda'):
+            torch.cuda.set_rng_state_all(warm['cuda_rng'])
+        run.log(initial_checkpoint=str(a.initial_checkpoint), spec=net.spec)
     iteration_dir = lambda k: a.out / f'iter{k:03d}'
 
     def fit(it, steps):
         samples = [s for k in range(max(0, it - a.window + 1), it + 1) for s in sorted(iteration_dir(k).glob('samples-*.bin'))]
         run.status(stage=f'iteration {it}', phase='load', files=len(samples))
-        tokens, policy, won = read(samples, max_rows=a.max_train_rows)
+        if a.balanced_replay:
+            tokens, policy, won = Replay(samples, max_rows=a.max_train_rows), None, None
+            expected = {f['fight_id'] for f in base} if isinstance(base, list) else set(tokens.groups)
+            if set(tokens.groups) != expected:
+                raise ValueError('replay does not contain every configured deck')
+        else:
+            tokens, policy, won = read(samples, max_rows=a.max_train_rows)
         run.status(stage=f'iteration {it}', phase='train', done=0, total=steps)
         train(net, optimizer, tokens, policy, won, steps, a.batch, a.device,
               log=lambda s: (print(f'  {s}', flush=True), run.status(stage=f'iteration {it}', phase='train', detail=s)))
@@ -231,10 +255,21 @@ def run_loop(a, args, gpu_bank):
         for b in gpu_bank:
             export_static(net, iteration_dir(it) / f'model-gpu-b{b}.onnx', b, a.gpu_tokens)
         net.to(a.device)
-        return len(won)
+        if a.balanced_replay:
+            (iteration_dir(it) / 'replay.json').write_text(json.dumps(dict(
+                available=tokens.available, selected=tokens.selected, drawn=tokens.drawn), indent=2))
+        if a.device.startswith('cuda'):
+            torch.cuda.empty_cache()  # leave VRAM for the next native TensorRT worker
+        return len(tokens) if a.balanced_replay else len(won)
 
     def test(it):
-        if not tests or (it not in test_at and not (a.test_every and it % a.test_every == 0)): return
+        due = it in test_at or (a.test_every and it % a.test_every == 0)
+        if a.validation_share and it not in test_at:
+            history = [json.loads(s) for s in (a.out / 'log.jsonl').read_text().splitlines()]
+            validation = sum(r['seconds'] for r in history if 'test' in r)
+            learning = sum(r.get('play_seconds', 0) + r.get('train_seconds', 0) for r in history)
+            due = validation < a.validation_share * (learning + validation)
+        if not tests or not due: return
         t = time.time()
         results = run.play(iteration_dir(it) / 'model.onnx', tests, a.out / 'test' / f'iter{it:03d}', a.sims, 0.0,
                            a.rollout_mix, a.workers, stage=f'test iteration {it}')
@@ -300,6 +335,7 @@ def run_loop(a, args, gpu_bank):
                 if old.is_dir() and old.name[4:].isdigit() and int(old.name[4:]) <= it - a.window:
                     for sample in old.glob('samples-*.bin'):
                         sample.unlink()
+                        sample.with_suffix('.index.npz').unlink(missing_ok=True)
                     shutil.rmtree(old / 'tensorrt', ignore_errors=True)
     run.status(stage='done', phase='done')
 

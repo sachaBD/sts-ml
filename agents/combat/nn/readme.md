@@ -125,3 +125,13 @@ Each searched decision: int32 token count, int32 action count, float32 game outc
 ## Scope
 
 This is a simple Ironclad combat pipeline, not a learned simulator. It reuses the environment encoder, native simulator and public-belief particle sampler. Guided rollouts remain mixed into search values (default 0.5) because they helped the tested agents. Search settings, batch shape and model topology remain explicit. Unsupported states fail rather than silently dropping information.
+
+For broader deck sets, `--balanced-replay` uses native result counts to index the
+unchanged binary samples by deck. It selects at most `--max-train-rows` compact
+row addresses with equal deck quotas, samples every minibatch evenly across decks,
+and pads/transfers only that minibatch. Per-update `replay.json` records available,
+selected and actually drawn rows per deck. Index caches expire with their samples.
+`--initial-checkpoint` starts a new experiment from matching weights, optimizer and
+RNG without inheriting the old replay. `--validation-share 0.20` schedules validation
+at update boundaries when its cumulative recorded wall share falls below20%; the
+initial test is included. Explicit `--test-at` evaluations override this budget.

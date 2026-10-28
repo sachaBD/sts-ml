@@ -1,0 +1,400 @@
+# Authorized fifty-deck expansion. Run until stopped; original ten retained verbatim.
+# Historical monitoring scores are approximate references under older simulator rules.
+# Bootstrap is disabled: old teacher trajectories do not replay after correctness fixes.
+# No old PV training/inference or fresh teacher collection is launched.
+[run]
+warm_start_run = "gumbel_nn_combat_v1/2026-10-27/gumbel-nn-champ-ten-20261027-205535"
+id = "gumbel-nn-champ-fifty-20261028"
+worker = "build/nn/agents/combat/nn/nn_play"
+games_per_deck = 100 # 5,000 total/update across fifty decks
+seed_namespace = "gumbel-nn-champ-fifty-20261028"
+
+[loop]
+balanced_replay = true
+iterations = 0 # run until ./run.sh stop RUN_DIRECTORY; finish the active update cleanly
+test_every = 0
+validation_share = 0.20 # measured validation wall-time budget, checked at update boundaries
+prune_replay = true # keep five batches of samples, discard expired samples/engine caches
+steps = 100
+window = 5
+max_train_rows = 500000 # uniform replay subset bounds training memory on this 16 GiB host
+batch = 2048
+lr = 0.001
+sims = 256
+rollout_mix = 0.5
+workers = 9
+parallel = 224
+scheduler = "local"
+groups = 2 # ignored by local scheduler
+gpu_batch = 512
+gpu_tokens = 48
+gpu_bank = "256,32"
+gpu_wait_us = 100
+timeout_ms = 60000
+shutdown_timeout_ms = 5000
+dim = 64
+layers = 2
+heads = 2
+device = "cuda"
+
+[evaluation]
+source_run = "combat_v4/2026-10-09/champ-ten-rollout-v1"
+directory = "monitor-teacher"
+fights_per_deck = 50 # stored historical reference for original ten only
+generated_per_deck = 100
+at = [0] # then every test_every updates
+
+[[deck]]
+name = "apparition-block"   # 51a5aff9, 31 cards: 3x Apparition, Dark Embrace+, Reaper, Entrench (MCTS20k 13/20)
+starts = "runs/schema=combat_v4/date=2026-10-05/id=human-deck-corpus/splits/pool.parquet"
+deck_id = "51a5aff9-c3f6-496d-a2dd-b655cd9af6ff"
+hp = 27
+max_hp = 37
+
+[[deck]]
+name = "perfected-strike"   # 4f2c64a3: 4x Perfected Strike, Flex+, Offering (MCTS20k 6/20)
+starts = "runs/schema=combat_v4/date=2026-10-05/id=human-deck-corpus/splits/pool.parquet"
+deck_id = "4f2c64a3-f510-4ae6-9799-2f6c09a07b7c"
+hp = 56
+max_hp = 75
+
+[[deck]]
+name = "clash"              # 9308c94d: 3x Clash, 2x Twin Strike, Inflame+, Bludgeon (MCTS20k 5/20)
+starts = "runs/schema=combat_v4/date=2026-10-05/id=human-combat-r01/out/source/starts.parquet"
+deck_id = "9308c94d-6bad-4553-9de5-9163e86d7054"
+hp = 59
+max_hp = 89
+
+[[deck]]
+name = "corruption-fnp"     # 691c2b82: Corruption+, Feel No Pain, Limit Break, Whirlwind+ (MCTS20k 4/20)
+starts = "runs/schema=combat_v4/date=2026-10-05/id=human-deck-corpus/splits/pool.parquet"
+deck_id = "691c2b82-0250-4474-8ce3-6319a3d96f80"
+hp = 38
+max_hp = 82
+
+[[deck]]
+name = "fire-breathing"     # 35a58920, 12 cards: Fire Breathing+, Evolve+, Sword Boomerang, Flex (MCTS20k 4/20)
+starts = "runs/schema=combat_v4/date=2026-10-05/id=human-deck-corpus/splits/pool.parquet"
+deck_id = "35a58920-0e99-4632-978f-632c41e4fca5"
+hp = 48
+max_hp = 77
+
+[[deck]]
+name = "limit-break-rage"
+starts = "runs/schema=combat_v4/date=2026-10-05/id=human-deck-corpus/splits/pool.parquet"
+deck_id = "35084002-69c2-4c5b-92f3-aa937e521072"
+hp = 54
+max_hp = 75
+# 35084002: Limit Break+, Rage+, Rampage, Heavy Blade, Enlightenment+ (MCTS20k 7/20, hdc-screen-w1)
+
+[[deck]]
+name = "barricade-searing"
+starts = "runs/schema=combat_v4/date=2026-10-05/id=human-deck-corpus/splits/pool.parquet"
+deck_id = "879b437e-25ac-48cc-b37f-985061198ccc"
+hp = 44
+max_hp = 91
+# 879b437e, 12 cards: Barricade, Searing Blow+, Shrug It Off+, Second Wind (MCTS20k 8/20, hdc-screen-w1)
+
+[[deck]]
+name = "exhume-immolate"
+starts = "runs/schema=combat_v4/date=2026-10-05/id=human-deck-corpus/splits/pool.parquet"
+deck_id = "603cf664-714d-4be3-86be-9123054522ca"
+hp = 41
+max_hp = 109
+# 603cf664: Exhume+, Immolate+, Feed+, Hemokinesis, Disarm+ (MCTS20k 8/20, hdc-screen-w1)
+
+[[deck]]
+name = "demon-combust"
+starts = "runs/schema=combat_v4/date=2026-10-05/id=human-deck-corpus/splits/pool.parquet"
+deck_id = "168ec20d-9445-44e5-bac0-e0709ad9f6bf"
+hp = 62
+max_hp = 80
+# 168ec20d: Demon Form, Combust, Rupture, Flame Barrier, Searing Blow+ (MCTS20k 11/20, hdc-screen-w1)
+
+[[deck]]
+name = "panache"
+starts = "runs/schema=combat_v4/date=2026-10-05/id=human-deck-corpus/splits/pool.parquet"
+deck_id = "3a7d5ed7-694c-48f1-b3e7-a034bc883010"
+hp = 43
+max_hp = 95
+# 3a7d5ed7: Panache+, Dark Embrace+, 2x Battle Trance, Metallicize, Dark Shackles (MCTS20k 12/20, hdc-screen-w1)
+
+[[deck]]
+name = "block-ed4e64c8"
+starts = "runs/schema=combat_v4/date=2026-10-05/id=human-deck-corpus/splits/pool.parquet"
+deck_id = "ed4e64c8-142c-4e73-b1af-22d9361d3a0b"
+hp = 50
+max_hp = 77
+
+[[deck]]
+name = "block-f9d15a4e"
+starts = "runs/schema=combat_v4/date=2026-10-05/id=human-deck-corpus/splits/pool.parquet"
+deck_id = "f9d15a4e-76e0-4f45-8320-d7887aad764f"
+hp = 32
+max_hp = 40
+
+[[deck]]
+name = "block-be841bf9"
+starts = "runs/schema=combat_v4/date=2026-10-05/id=human-deck-corpus/splits/pool.parquet"
+deck_id = "be841bf9-124d-4995-abd9-11de4bbe0cec"
+hp = 34
+max_hp = 75
+
+[[deck]]
+name = "block-664a74cd"
+starts = "runs/schema=combat_v4/date=2026-10-05/id=human-deck-corpus/splits/pool.parquet"
+deck_id = "664a74cd-eb53-4523-94a7-81eadc793784"
+hp = 49
+max_hp = 75
+
+[[deck]]
+name = "block-0e9b6467"
+starts = "runs/schema=combat_v4/date=2026-10-05/id=human-deck-corpus/splits/pool.parquet"
+deck_id = "0e9b6467-5da9-4bc4-9c3b-cfb831ce020f"
+hp = 73
+max_hp = 75
+
+[[deck]]
+name = "block-25033259"
+starts = "runs/schema=combat_v4/date=2026-10-05/id=human-deck-corpus/splits/pool.parquet"
+deck_id = "25033259-a4d1-4b9f-8b4c-ecf3ddf579a3"
+hp = 28
+max_hp = 75
+
+[[deck]]
+name = "block-8c42ede3"
+starts = "runs/schema=combat_v4/date=2026-10-05/id=human-deck-corpus/splits/pool.parquet"
+deck_id = "8c42ede3-bffb-4e9f-bdce-ac9d0a588f90"
+hp = 54
+max_hp = 97
+
+[[deck]]
+name = "block-8aa90caa"
+starts = "runs/schema=combat_v4/date=2026-10-05/id=human-deck-corpus/splits/pool.parquet"
+deck_id = "8aa90caa-a99d-4562-8612-659b6ba71e12"
+hp = 83
+max_hp = 85
+
+[[deck]]
+name = "demon_form-5eec0213"
+starts = "runs/schema=combat_v4/date=2026-10-05/id=human-deck-corpus/splits/pool.parquet"
+deck_id = "5eec0213-387e-4cb9-a02b-3bddc9401b7a"
+hp = 51
+max_hp = 75
+
+[[deck]]
+name = "demon_form-84ccc8cc"
+starts = "runs/schema=combat_v4/date=2026-10-05/id=human-deck-corpus/splits/pool.parquet"
+deck_id = "84ccc8cc-d237-4026-a9ec-9df55e61d925"
+hp = 70
+max_hp = 82
+
+[[deck]]
+name = "demon_form-117b740a"
+starts = "runs/schema=combat_v4/date=2026-10-05/id=human-deck-corpus/splits/pool.parquet"
+deck_id = "117b740a-2a48-4133-99e1-1d493fe00c7a"
+hp = 34
+max_hp = 76
+
+[[deck]]
+name = "demon_form-a51826f3"
+starts = "runs/schema=combat_v4/date=2026-10-05/id=human-deck-corpus/splits/pool.parquet"
+deck_id = "a51826f3-f250-46a7-b410-00d977c3f1f2"
+hp = 58
+max_hp = 75
+
+[[deck]]
+name = "demon_form-2d5a2a8c"
+starts = "runs/schema=combat_v4/date=2026-10-05/id=human-deck-corpus/splits/pool.parquet"
+deck_id = "2d5a2a8c-116a-4c85-a282-9429752771bb"
+hp = 89
+max_hp = 89
+
+[[deck]]
+name = "demon_form-b582c5c3"
+starts = "runs/schema=combat_v4/date=2026-10-05/id=human-deck-corpus/splits/pool.parquet"
+deck_id = "b582c5c3-92ef-4cb2-8e80-920a39202428"
+hp = 38
+max_hp = 85
+
+[[deck]]
+name = "demon_form-249e5246"
+starts = "runs/schema=combat_v4/date=2026-10-05/id=human-deck-corpus/splits/pool.parquet"
+deck_id = "249e5246-153d-4030-bc11-598774146147"
+hp = 34
+max_hp = 52
+
+[[deck]]
+name = "demon_form-d4b7382e"
+starts = "runs/schema=combat_v4/date=2026-10-05/id=human-deck-corpus/splits/pool.parquet"
+deck_id = "d4b7382e-f9b4-4234-ad5a-208d8f8e548c"
+hp = 82
+max_hp = 82
+
+[[deck]]
+name = "exhaust-5d626798"
+starts = "runs/schema=combat_v4/date=2026-10-05/id=human-deck-corpus/splits/pool.parquet"
+deck_id = "5d626798-3013-43c7-9ee8-53f555bf1ead"
+hp = 37
+max_hp = 59
+
+[[deck]]
+name = "exhaust-411cd867"
+starts = "runs/schema=combat_v4/date=2026-10-05/id=human-deck-corpus/splits/pool.parquet"
+deck_id = "411cd867-c121-41ab-9bf4-7e0931fc1296"
+hp = 52
+max_hp = 52
+
+[[deck]]
+name = "exhaust-109137f1"
+starts = "runs/schema=combat_v4/date=2026-10-05/id=human-deck-corpus/splits/pool.parquet"
+deck_id = "109137f1-cf9f-4a03-948e-6e6c6f7b941a"
+hp = 33
+max_hp = 93
+
+[[deck]]
+name = "exhaust-a46fe1b5"
+starts = "runs/schema=combat_v4/date=2026-10-05/id=human-deck-corpus/splits/pool.parquet"
+deck_id = "a46fe1b5-bb7c-4bee-9791-fc865d5c2739"
+hp = 49
+max_hp = 96
+
+[[deck]]
+name = "exhaust-223c9fe4"
+starts = "runs/schema=combat_v4/date=2026-10-05/id=human-deck-corpus/splits/pool.parquet"
+deck_id = "223c9fe4-1b65-4403-a2a4-5d24c9588d81"
+hp = 71
+max_hp = 75
+
+[[deck]]
+name = "exhaust-3057129f"
+starts = "runs/schema=combat_v4/date=2026-10-05/id=human-deck-corpus/splits/pool.parquet"
+deck_id = "3057129f-5c77-4c64-b42a-affbd5a3ca79"
+hp = 26
+max_hp = 85
+
+[[deck]]
+name = "exhaust-b004e2be"
+starts = "runs/schema=combat_v4/date=2026-10-05/id=human-deck-corpus/splits/pool.parquet"
+deck_id = "b004e2be-9a25-4cfb-b139-684681f56b08"
+hp = 42
+max_hp = 75
+
+[[deck]]
+name = "exhaust-105f65b1"
+starts = "runs/schema=combat_v4/date=2026-10-05/id=human-deck-corpus/splits/pool.parquet"
+deck_id = "105f65b1-1ee7-4e53-9437-500a403827ef"
+hp = 64
+max_hp = 75
+
+[[deck]]
+name = "strength-3e6fbe1d"
+starts = "runs/schema=combat_v4/date=2026-10-05/id=human-deck-corpus/splits/pool.parquet"
+deck_id = "3e6fbe1d-097d-438e-a232-5fc4f1f6899c"
+hp = 41
+max_hp = 82
+
+[[deck]]
+name = "strength-00059bfb"
+starts = "runs/schema=combat_v4/date=2026-10-05/id=human-deck-corpus/splits/pool.parquet"
+deck_id = "00059bfb-c574-43eb-8dfe-e0a5a8155357"
+hp = 36
+max_hp = 43
+
+[[deck]]
+name = "strength-265331e5"
+starts = "runs/schema=combat_v4/date=2026-10-05/id=human-deck-corpus/splits/pool.parquet"
+deck_id = "265331e5-8620-4f82-8641-af470948b7b5"
+hp = 25
+max_hp = 75
+
+[[deck]]
+name = "strength-9c4baa6d"
+starts = "runs/schema=combat_v4/date=2026-10-05/id=human-deck-corpus/splits/pool.parquet"
+deck_id = "9c4baa6d-1c64-45ed-86e9-589a89577cf2"
+hp = 53
+max_hp = 75
+
+[[deck]]
+name = "strength-34e5f34f"
+starts = "runs/schema=combat_v4/date=2026-10-05/id=human-deck-corpus/splits/pool.parquet"
+deck_id = "34e5f34f-734e-4ec7-9520-ae2b7aba244b"
+hp = 75
+max_hp = 75
+
+[[deck]]
+name = "strength-7e320a2d"
+starts = "runs/schema=combat_v4/date=2026-10-05/id=human-deck-corpus/splits/pool.parquet"
+deck_id = "7e320a2d-cee9-42c1-8385-b53c62102809"
+hp = 47
+max_hp = 107
+
+[[deck]]
+name = "strength-06619d46"
+starts = "runs/schema=combat_v4/date=2026-10-05/id=human-deck-corpus/splits/pool.parquet"
+deck_id = "06619d46-e0fb-4c7d-8501-d4e359892a67"
+hp = 52
+max_hp = 75
+
+[[deck]]
+name = "strength-2692590e"
+starts = "runs/schema=combat_v4/date=2026-10-05/id=human-deck-corpus/splits/pool.parquet"
+deck_id = "2692590e-9e85-4487-bc0b-bb51a6210ced"
+hp = 78
+max_hp = 78
+
+[[deck]]
+name = "mixed-9a13e613"
+starts = "runs/schema=combat_v4/date=2026-10-05/id=human-deck-corpus/splits/pool.parquet"
+deck_id = "9a13e613-ead9-4fb0-b1b4-623fad74f9ee"
+hp = 63
+max_hp = 95
+
+[[deck]]
+name = "mixed-cc826f00"
+starts = "runs/schema=combat_v4/date=2026-10-05/id=human-deck-corpus/splits/pool.parquet"
+deck_id = "cc826f00-fa7f-4280-8271-aacab79240ca"
+hp = 76
+max_hp = 92
+
+[[deck]]
+name = "mixed-fa036ff3"
+starts = "runs/schema=combat_v4/date=2026-10-05/id=human-deck-corpus/splits/pool.parquet"
+deck_id = "fa036ff3-fcf0-4163-b2c2-0060bcc5efea"
+hp = 28
+max_hp = 87
+
+[[deck]]
+name = "mixed-acdd23cc"
+starts = "runs/schema=combat_v4/date=2026-10-05/id=human-deck-corpus/splits/pool.parquet"
+deck_id = "acdd23cc-e75c-4698-a142-66d9d9bc7377"
+hp = 50
+max_hp = 89
+
+[[deck]]
+name = "mixed-3434108a"
+starts = "runs/schema=combat_v4/date=2026-10-05/id=human-deck-corpus/splits/pool.parquet"
+deck_id = "3434108a-1a12-488d-9f21-d009ebb35091"
+hp = 66
+max_hp = 75
+
+[[deck]]
+name = "mixed-53f85a03"
+starts = "runs/schema=combat_v4/date=2026-10-05/id=human-deck-corpus/splits/pool.parquet"
+deck_id = "53f85a03-562f-4c45-9663-a28a884c24e7"
+hp = 21
+max_hp = 90
+
+[[deck]]
+name = "mixed-423b2638"
+starts = "runs/schema=combat_v4/date=2026-10-05/id=human-deck-corpus/splits/pool.parquet"
+deck_id = "423b2638-b56d-4429-8327-42f76ada35ab"
+hp = 50
+max_hp = 78
+
+[[deck]]
+name = "mixed-42fb626d"
+starts = "runs/schema=combat_v4/date=2026-10-05/id=human-deck-corpus/splits/pool.parquet"
+deck_id = "42fb626d-8b78-4bed-b6ab-b3c4c2e971d2"
+hp = 80
+max_hp = 80

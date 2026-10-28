@@ -65,3 +65,14 @@ One 5,000-fight batch used 1.24 GiB of replay. A GPU check with five copies and 
 peak reserved VRAM, over three optimizer steps. One repeated-batch workload—not
 a 24-hour validation. Future fight lengths/token counts can increase usage.
 Validation logs: `scratch/nn-24h-readiness/`.
+
+## Fifty-deck experiment
+
+See [`experiments/2026-10-28-champ-fifty/RUNBOOK.md`](../../experiments/2026-10-28-champ-fifty/RUNBOOK.md).
+Its config retains the original ten, adds forty capability-checked decks, warms from
+that run's latest complete checkpoint, and uses deck-balanced disk-indexed minibatches.
+Validation contains100fixedstarts/deck, including the original historical reference
+seeds. The dashboard reports Wilson95% win-rate bounds and paired95% differences
+against the starting checkpoint, plus historical MCTS20k/PUCT on their500matching
+starts only. Original/added cohorts are separate. `validation_share=0.20` budgets
+measured validation wall time instead of a fixed evaluation iteration interval.
