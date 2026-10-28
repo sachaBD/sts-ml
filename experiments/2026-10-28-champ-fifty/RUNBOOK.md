@@ -1,7 +1,8 @@
 # Champ fifty-deck expansion — 2026-10-28
 
-## CURRENT REVIEW — 22:26 UTC
-**NEW RUNNING**,40completed updates/200,000new training games at review; latest
+## CURRENT REVIEW — corrected22:36UTC
+**NEW INTERRUPTED**: nativeworker crashed20:17UTC duringiteration41 (4,418/5,000).
+Checkpoint40andall40completedupdates/200,000traininggames remainvalid; latest
 completed validationcheckpoint38. Original run remains stopped atcheckpoint74.
 - Live URL:**http://localhost:8742**. Config:`champ_fifty.toml` in this folder.
 - NEW:`runs/schema=gumbel_nn_combat_v1/date=2026-10-28/id=gumbel-nn-champ-fifty-20261028`.
@@ -15,7 +16,8 @@ completed validationcheckpoint38. Original run remains stopped atcheckpoint74.
   Gumbel50checkpoint38=53.4%. G50-G10+1.6pp[-2.73,+5.93]; G50-PUCT+6.0pp
   [+1.63,+10.37]. Historical simulator confounding still applies.
 - Recordedphase validation share20.42%. Run has no automatic21:00 cutoff and was
-  still active when reviewed. No stop requested by this review.
+  initially reported active from stale progress, incorrectly. LivePID/launcherchecks
+  nowconfirm it exited20:18UTC. No restart requested after the daytime budget.
 - Full review JSON/Markdown inNEW/out/analysis/comparison-20261028.*.
 - Source/implementation commits and recovery commands below remain unchanged.
 
@@ -233,3 +235,11 @@ with paired95%[-0.56,+1.64] on5,000starts: no clear evidence of continued gains 
 that recent interval. Comparing checkpoint38 against historical teacher/PUCT must
 use their500matchedoriginalstarts, not the full5,000different task mix. Review is
 read-only; training was not stopped despite the daytime21:00planning endpoint.
+
+### Status correction — 22:36UTC
+The evening review incorrectly described the job as running after reading a stale
+status file without checking the actual process/lock. Nativeworker exited-11 at
+20:17UTC with CUDA/TensorRT cleanup errors; managed launcher exited1 at20:18UTC.
+Latest complete checkpoint40is safe; incompleteiteration41mustnotbeusedfortraining.
+Completed-update/evaluation results and reportedcomparisonstatistics are unaffected.
+No late-nightrestartlaunched. Diagnose the original worker error before retrying.
