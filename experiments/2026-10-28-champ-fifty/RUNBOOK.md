@@ -1,5 +1,20 @@
 # Champ fifty-deck expansion — 2026-10-28
 
+## CURRENT STATUS — 10:24 UTC
+**NEW RUNNING**, iteration6 collecting after five completed updates and two successful
+5,000-game validations. Original run STOPPED cleanly atcheckpoint74; rollback ready.
+- Live URL: **http://localhost:8742**.
+- Config: `experiments/2026-10-28-champ-fifty/champ_fifty.toml`.
+- NEW: `runs/schema=gumbel_nn_combat_v1/date=2026-10-28/id=gumbel-nn-champ-fifty-20261028`.
+- Run/source commits: `978f154` implementation; `51764b3` pre-change snapshot.
+- Overall validation42.52→46.40%; added40improve; **original10regress4.4pp**.
+  See final section: retention alert must be checked at next validation. No runtime
+  failure or restart so far. Do not mistake historical comparisons for all50decks.
+- Qualified end-to-end: nativecollection → balancedminibatchGPUtraining → export →
+  nextmodelgameplay → post-trainingvalidation. All50sampled every update.
+- Recovery and stop commands below. No automatic restart daemon or hard run timer.
+
+
 ## Goal and guardrails
 Expand the original ten Champ decks to fifty, warm-starting the working Gumbel agent.
 Keep architecture fixed (64/2/2), 5,000 total games/update, five-update replay,
@@ -19,7 +34,7 @@ Latest completed checkpoint and retained replay must be preserved before switchi
 
 ## Progress
 - Preparation started. Initial working-tree snapshot will be committed before implementation.
-- No replacement training job launched; existing job not stopped.
+- At that initial stage no replacement was launched; superseded by the CURRENT STATUS above.
 
 ## Recovery
 Detailed verified launch/recovery commands and validation results will be added here
@@ -161,3 +176,47 @@ slower than the early estimate; measured20% scheduling handles that automaticall
   rather than silently tune them mid-experiment. Wall-time validation budget adapts.
 - Continuing to watch the first scheduled post-training validation. Its comparison
   against baseline0 is the first learning measurement; baseline42.52% alone is not one.
+
+### First post-training validation — checkpoint5, 10:24 UTC
+Full5,000paired validation games completed after five real updates (25,000training
+games). No runtime failures/restarts. Model5 is now collecting iteration6.
+
+| Cohort | Initial | Checkpoint5 | Paired improvement, pp [95%] |
+|---|---:|---:|---:|
+| All50 (n=5000) | 2126/5000=42.52% | 2320/5000=46.40% | +3.88 [+2.71,+5.05] |
+| Added40 (n=4000) | 1615/4000=40.38% | 1853/4000=46.33% | +5.95 [+4.72,+7.18] |
+| Original10 (n=1000) | 511/1000=51.10% | 467/1000=46.70% | -4.40 [-7.48,-1.32] |
+
+**Retention alert, not a runtime failure:** Exhume/Immolate fell79→54/100
+(-25pp[-36.3,-13.7]); Corruption/FNP25→14/100(-11pp[-19.3,-2.7]).
+Other original-deck differences have intervals including0. These are conditional,
+unadjusted95% intervals, not multiple-comparison-corrected or replicated training
+runs. Do not infer deck "mastery" or a capacity diagnosis from absolute win rates.
+
+Keep the run unchanged for the next scheduled evaluation: overall/new-cohort gains
+are positive, but original-ten retention is NOT established. If that cohort remains
+below its initial checkpoint with paired bounds excluding0, alert the user for
+retention/capacity/training-budget review. Do not silently reweight decks or change
+architecture. Runtime failures still follow the one-retry/rollback rule above.
+
+Historical500matchedstarts atcheckpoint5:245/500 wins vsMCTS20k175/500 andPUCT237/500;
+paired gaps+14.0pp[+9.2,+18.8] and+1.6pp[-2.7,+5.9], respectively. Historical simulator
+mismatch remains; these are NOT comparisons on all50decks.
+
+Validation wall share immediately after this large evaluation29.7%; this is the
+expected early chunk/startup overshoot, not an every-update29.7% target. The20% rule
+will wait for collection/training time to catch up; over a long run overshoot is
+bounded by one evaluation chunk plus update-boundary granularity.
+
+Full-window GPU recorder sampled3,774points through this checkpoint at requested
+250ms intervals: device-wide peak2,282MiB (not exact allocator peak, not just learner
+usage). Earlier first-update watcher saw2,690MiB. LoopVmHWM~8.12GiB includes clean
+memory-mapped replay pages; currentRSS~1.53GiB, systemMemAvailable~11GiB afterval.
+No OOM occurred. Source:`scratch/champ-fifty-preflight/first-post-validation.json`;
+telemetry:`scratch/champ-fifty-preflight/gpu-window.csv`. Future lengths can vary.
+
+To restart only the read-only web dashboard (leave training alone):
+```sh
+nohup .venv/bin/python -m apps.gumbel_nn_combat_expert_iteration.web \
+  "$NEW" --port 8742 >> scratch/champ-fifty-web.log 2>&1 &
+```
