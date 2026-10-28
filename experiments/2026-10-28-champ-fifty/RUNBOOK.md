@@ -136,3 +136,10 @@ than assume that run-until-stopped imposes a timer.
   Web log:`scratch/champ-fifty-web.log`. CLI commands above useNEW.
 - At08:51UTC, baseline validation active; webAPI responsive; device used~975MiB VRAM.
   First full training update and recurring validation still being watched.
+
+### First production validation
+All5,000baseline fights completed successfully:2,126wins (42.52%),992s including
+setup. Initial GPU gameplay is therefore qualified across50decks; this is the
+warm-start agent, not evidence of learning yet. Broader states incur CPU fallback
+above48tokens; no truncation. First collection is active. Actual validation is
+slower than the early estimate; measured20% scheduling handles that automatically.
