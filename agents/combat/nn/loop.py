@@ -2,13 +2,17 @@
 
   python -m agents.combat.nn.loop --start START.json --out DIR [--bootstrap GAMES.jsonl] [--test FIGHTS.jsonl --test-at 0,3,10]
 
-START.json: one fight {"fight_id", "start"} (combat_v4 start); training fights reuse it with new seeds.
+START.json: one fight {"fight_id", "start"}, or a list of named fights (combat_v4 starts).
+Training reuses the starts with new seeds; --games is the total, balanced across a list.
 GAMES.jsonl: recorded games for `nn_play import` (e.g. MCTS); trained on as iteration 0's samples.
 Writes DIR/iterNNN/{samples-*.bin, results.jsonl, model.pt, model.onnx}, DIR/test/iterNNN/results.jsonl,
 DIR/log.jsonl (one line per iteration or test) and DIR/status.json (live stage and progress).
 """
 import argparse
 import copy
+import fcntl
+import itertools
+import shutil
 import hashlib
 import json
 import subprocess
@@ -40,6 +44,15 @@ def rng_state(seed):
 
 def fights(base, name, n):
     """n copies of base with fresh seeds derived from name."""
+    if isinstance(base, list):
+        if not base or n % len(base):
+            raise ValueError('games must be a multiple of the nonempty start list length')
+        names = [f['fight_id'] for f in base]
+        if len(set(names)) != len(names):
+            raise ValueError('start list fight_ids must be unique')
+        # Interleave decks so collection/draining does not run one deck at a time.
+        decks = [fights(f, f'{name}:{f["fight_id"]}', n // len(base)) for f in base]
+        return [decks[d][i] for i in range(n // len(base)) for d in range(len(base))]
     out = []
     for i in range(n):
         seed = int.from_bytes(hashlib.sha256(f'{name}:{i}'.encode()).digest()[:8], 'little')
@@ -53,8 +66,9 @@ def fights(base, name, n):
 class Run:
     def __init__(self, out, gpu_batch=1024, gpu_tokens=48, gpu_bank=(), gpu_wait_us=1000,
                  parallel=200, groups=2, scheduler='ordered', timeout_ms=60000, shutdown_timeout_ms=5000,
-                 sample_devices=True):
+                 sample_devices=True, play_path=PLAY):
         self.out = out
+        self.play_path = play_path
         self.gpu_batch, self.gpu_tokens = gpu_batch, gpu_tokens
         self.gpu_bank, self.gpu_wait_us = gpu_bank, gpu_wait_us
         self.parallel, self.groups, self.scheduler = parallel, groups, scheduler
@@ -63,7 +77,7 @@ class Run:
 
     def status(self, **fields):
         tmp = self.out / '.status.json'
-        tmp.write_text(json.dumps(dict(time=time.time(), **fields)))
+        tmp.write_text(json.dumps(dict(time=time.time(), pid=os.getpid(), **fields)))
         tmp.replace(self.out / 'status.json')
 
     def log(self, **row):
@@ -79,7 +93,7 @@ class Run:
             raise FileExistsError(f'{sample}: refusing to append duplicate gameplay')
         starts = directory / 'starts.jsonl'
         starts.write_text(''.join(json.dumps(g) + '\n' for g in games))
-        command = [str(PLAY), 'play', str(model), str(sample), '--threads', str(workers), '--parallel', str(self.parallel),
+        command = [str(self.play_path), 'play', str(model), str(sample), '--threads', str(workers), '--parallel', str(self.parallel),
                    '--gpu-model', str(model.with_name('model-gpu.onnx')), '--gpu-batch', str(self.gpu_batch),
                    '--gpu-tokens', str(self.gpu_tokens), '--sims', str(sims), '--gumbel-scale', str(gumbel_scale),
                    '--rollout-mix', str(rollout_mix), '--gpu-wait-us', str(self.gpu_wait_us),
@@ -92,13 +106,14 @@ class Run:
         libs = [packages / 'tensorrt_libs', *sorted((packages / 'nvidia').glob('*/lib'))]
         env = dict(os.environ, LD_LIBRARY_PATH=':'.join(map(str, libs)) + ':' + os.environ.get('LD_LIBRARY_PATH', ''))
         results = []
-        self.status(stage=stage, phase='play', done=0, total=len(games))
+        self.status(stage=stage, phase='play', done=0, total=len(games), directory=str(directory))
         with DeviceSampler(directory / 'gpu.csv', enabled=self.sample_devices), \
                 starts.open() as source, (directory / 'results.jsonl').open('w') as journal, (directory / 'worker.log').open('w') as errors:
             with subprocess.Popen(command, stdin=source, stdout=subprocess.PIPE, stderr=errors, text=True, env=env) as process:
                 for line in process.stdout:
                     results.append(json.loads(line)); journal.write(line); journal.flush()
-                    self.status(stage=stage, phase='play', done=len(results), total=len(games))
+                    self.status(stage=stage, phase='play', done=len(results), total=len(games),
+                                child_pid=process.pid, directory=str(directory))
             if process.returncode:
                 raise RuntimeError(f'nn_play exited {process.returncode}; see {directory / "worker.log"}')
         if len(results) != len(games):
@@ -110,9 +125,13 @@ def main():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument('--start', type=Path, required=True)
     p.add_argument('--out', type=Path, required=True)
+    p.add_argument('--play', type=Path, default=PLAY, help='native nn_play binary (may be a frozen app snapshot)')
     p.add_argument('--bootstrap', type=Path, help='recorded games to import and train on first')
     p.add_argument('--bootstrap-steps', type=int, default=2000)
-    p.add_argument('--iterations', type=int, default=10)
+    p.add_argument('--iterations', type=int, default=10, help='updates; 0 = run until OUT/STOP exists')
+    p.add_argument('--test-every', type=int, default=0, help='also evaluate every N updates; 0 disables')
+    p.add_argument('--prune-replay', action='store_true', help='delete expired sample files and old TensorRT caches; retain models/results')
+    p.add_argument('--max-train-rows', type=int, default=0, help='uniformly subsample loaded replay to this many rows; 0 = all')
     p.add_argument('--games', type=int, default=1000)
     p.add_argument('--steps', type=int, default=100)
     p.add_argument('--window', type=int, default=5, help='train on the last N iterations (iteration 0 = bootstrap games)')
@@ -150,21 +169,29 @@ def main():
         p.error('positive workers/parallel/gpu-batch/timeouts; nonnegative GPU wait')
     if a.scheduler != 'local' and (a.groups < 2 or a.parallel < a.groups or (a.parallel + a.groups - 1) // a.groups > a.gpu_batch):
         p.error('legacy scheduler requires parallel >= groups >= 2; each group must fit gpu-batch')
+    if a.iterations < 0 or a.test_every < 0 or a.max_train_rows < 0 or a.window < 1:
+        p.error('iterations/test-every/max-train-rows must be nonnegative; window must be positive')
     args = {k: str(v) for k, v in vars(a).items()}
     if a.resume_from is None:
         a.out.mkdir(parents=True, exist_ok=False)
-    else:
+    with (a.out / '.lock').open('a') as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        run_loop(a, args, gpu_bank)
+
+
+def run_loop(a, args, gpu_bank):
+    if a.resume_from is not None:
         previous = json.loads((a.out / 'args.json').read_text())
         changed = {k for k in previous if previous[k] != args[k]}
         legacy_defaults = dict(gpu_bank='', gpu_wait_us=1000, parallel=200, groups=2, scheduler='ordered',
                                timeout_ms=60000, shutdown_timeout_ms=5000)
         changed |= {k for k, default in legacy_defaults.items() if previous.get(k, str(default)) != args[k]}
-        if changed - {'games', 'iterations', 'resume_from'}:
+        if changed - {'games', 'iterations', 'resume_from', 'test_every', 'prune_replay', 'max_train_rows'}:
             raise ValueError(f'resume changed incompatible settings: {changed}')
         rows = [json.loads(line) for line in (a.out / 'log.jsonl').read_text().splitlines()]
         completed = [r['iteration'] for r in rows if 'iteration' in r]
-        if not completed or a.resume_from != max(completed) or a.resume_from >= a.iterations:
-            raise ValueError('resume-from must be the latest completed iteration, below iterations')
+        if not completed or a.resume_from != max(completed) or (a.iterations and a.resume_from >= a.iterations):
+            raise ValueError('resume-from must be the latest completed iteration, below iterations (unless unlimited)')
         if (a.out / f'iter{a.resume_from + 1:03d}').exists():
             raise FileExistsError('archive the interrupted iteration before resuming; never append partial samples')
         checkpoint = torch.load(a.out / f'iter{a.resume_from:03d}' / 'model.pt', map_location='cpu', weights_only=True)
@@ -173,8 +200,11 @@ def main():
         (a.out / f'args-before-resume-{time.time_ns()}.json').write_text(json.dumps(previous, indent=1))
     (a.out / 'args.json').write_text(json.dumps(args, indent=1))
     run = Run(a.out, a.gpu_batch, a.gpu_tokens, gpu_bank, a.gpu_wait_us, a.parallel, a.groups, a.scheduler,
-              a.timeout_ms, a.shutdown_timeout_ms)
+              a.timeout_ms, a.shutdown_timeout_ms, play_path=a.play)
+    run.status(stage='initialization', phase='initialize')
     base = json.loads(a.start.read_text())
+    if isinstance(base, list):
+        fights(base, 'validate', a.games)
     tests = [json.loads(line) for line in a.test.read_text().splitlines() if line.strip()] if a.test else []
     test_at = {int(x) for x in a.test_at.split(',') if x}
 
@@ -186,7 +216,8 @@ def main():
 
     def fit(it, steps):
         samples = [s for k in range(max(0, it - a.window + 1), it + 1) for s in sorted(iteration_dir(k).glob('samples-*.bin'))]
-        tokens, policy, won = read(samples)
+        run.status(stage=f'iteration {it}', phase='load', files=len(samples))
+        tokens, policy, won = read(samples, max_rows=a.max_train_rows)
         run.status(stage=f'iteration {it}', phase='train', done=0, total=steps)
         train(net, optimizer, tokens, policy, won, steps, a.batch, a.device,
               log=lambda s: (print(f'  {s}', flush=True), run.status(stage=f'iteration {it}', phase='train', detail=s)))
@@ -194,6 +225,7 @@ def main():
                     'rng': torch.get_rng_state(),
                     'cuda_rng': torch.cuda.get_rng_state_all() if a.device.startswith('cuda') else []},
                    iteration_dir(it) / 'model.pt')
+        run.status(stage=f'iteration {it}', phase='export')
         export(net, iteration_dir(it) / 'model.onnx')
         export_static(net, iteration_dir(it) / 'model-gpu.onnx', a.gpu_batch, a.gpu_tokens)
         for b in gpu_bank:
@@ -202,11 +234,14 @@ def main():
         return len(won)
 
     def test(it):
-        if it not in test_at or not tests: return
+        if not tests or (it not in test_at and not (a.test_every and it % a.test_every == 0)): return
         t = time.time()
         results = run.play(iteration_dir(it) / 'model.onnx', tests, a.out / 'test' / f'iter{it:03d}', a.sims, 0.0,
                            a.rollout_mix, a.workers, stage=f'test iteration {it}')
         run.log(test=it, games=len(results), wins=sum(r['won'] for r in results), seconds=round(time.time() - t))
+        if a.prune_replay:
+            for sample in (a.out / 'test' / f'iter{it:03d}').glob('samples-*.bin'):
+                sample.unlink()
 
     if a.resume_from is not None:
         net.load_state_dict(checkpoint['net'])
@@ -216,6 +251,11 @@ def main():
             if checkpoint.get('cuda_rng') and a.device.startswith('cuda'):
                 torch.cuda.set_rng_state_all(checkpoint['cuda_rng'])
         run.log(resume_from=a.resume_from, games_per_update=a.games, rng_restored='rng' in checkpoint)
+        # A stop/crash between checkpoint commit and evaluation must not skip that evaluation.
+        if not any(r.get('test') == a.resume_from for r in rows):
+            if (partial_test := a.out / 'test' / f'iter{a.resume_from:03d}').exists():
+                partial_test.rename(partial_test.with_name(f'.{partial_test.name}-interrupted-{time.time_ns()}'))
+            test(a.resume_from)
         first = a.resume_from + 1
     else:
         # Iteration 0: the bootstrap games (or an untrained network).
@@ -224,7 +264,7 @@ def main():
         if a.bootstrap:
             run.status(stage='iteration 0', phase='import')
             with a.bootstrap.open() as games:
-                subprocess.run([str(PLAY), 'import', str(iteration_dir(0) / 'samples-bootstrap.bin')], stdin=games, check=True)
+                subprocess.run([str(a.play), 'import', str(iteration_dir(0) / 'samples-bootstrap.bin')], stdin=games, check=True)
             states = fit(0, a.bootstrap_steps)
         else:
             export(net, iteration_dir(0) / 'model.onnx')
@@ -232,11 +272,20 @@ def main():
             for b in gpu_bank:
                 export_static(net, iteration_dir(0) / f'model-gpu-b{b}.onnx', b, a.gpu_tokens)
             net.to(a.device); states = 0
+            torch.save({'net': net.state_dict(), 'optimizer': optimizer.state_dict(), 'spec': net.spec,
+                        'rng': torch.get_rng_state(),
+                        'cuda_rng': torch.cuda.get_rng_state_all() if a.device.startswith('cuda') else []},
+                       iteration_dir(0) / 'model.pt')
         run.log(iteration=0, states=states, train_seconds=round(time.time() - t))
         test(0)
         first = 1
 
-    for it in range(first, a.iterations + 1):
+    for it in itertools.count(first):
+        if (a.out / 'STOP').exists():
+            run.status(stage='stopped', phase='stopped', last_completed=it - 1)
+            return
+        if a.iterations and it > a.iterations:
+            break
         t0 = time.time()
         results = run.play(iteration_dir(it - 1) / 'model.onnx', fights(base, f'{a.fight_namespace or a.out.name}:{it}', a.games),
                            iteration_dir(it), a.sims, 1.0, a.rollout_mix, a.workers, stage=f'iteration {it}')
@@ -245,6 +294,13 @@ def main():
         run.log(iteration=it, games=len(results), wins=sum(r['won'] for r in results), states=states,
                 play_seconds=round(t1 - t0), train_seconds=round(time.time() - t1))
         test(it)
+        if a.prune_replay:
+            # Keep exactly the replay window; checkpoints/results remain for analysis.
+            for old in a.out.glob('iter[0-9]*'):
+                if old.is_dir() and old.name[4:].isdigit() and int(old.name[4:]) <= it - a.window:
+                    for sample in old.glob('samples-*.bin'):
+                        sample.unlink()
+                    shutil.rmtree(old / 'tensorrt', ignore_errors=True)
     run.status(stage='done', phase='done')
 
 

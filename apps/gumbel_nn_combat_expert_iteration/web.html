@@ -1,0 +1,293 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Training</title>
+<script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
+<style>
+  :root { --bg:#0e1013; --card:#161a1f; --line:#232830; --dim:#7d8590; --text:#e6e8eb;
+          --train:#6ea8fe; --test:#f0b46a; --good:#5fd39a; --bad:#ef6b6b; }
+  body { margin:0; background:var(--bg); color:var(--text); font:14px/1.4 ui-sans-serif, -apple-system, "Segoe UI", sans-serif; }
+  main { max-width:1200px; margin:0 auto; padding:32px 28px 60px; }
+  header { display:flex; align-items:baseline; gap:14px; margin-bottom:24px; }
+  h1 { font-size:18px; font-weight:600; margin:0; }
+  .muted { color:var(--dim); }
+  .dot { display:inline-block; width:8px; height:8px; border-radius:50%; background:var(--dim); margin-right:6px; }
+  .running .dot { background:var(--good); animation:pulse 1.6s infinite; }
+  .interrupted .dot { background:var(--bad); }
+  @keyframes pulse { 50% { box-shadow:0 0 0 6px #5fd39a00; } 0% { box-shadow:0 0 0 0 #5fd39a88; } }
+  .smooth { margin-left:auto; display:flex; align-items:center; gap:10px; font-size:12px; color:var(--dim); }
+  .smooth input { accent-color:var(--train); width:120px; }
+  .grid { display:grid; gap:14px; margin-top:14px; }
+  .g5 { grid-template-columns:repeat(5, 1fr); margin-top:0; }
+  .g3 { grid-template-columns:repeat(3, 1fr); }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:18px 20px; }
+  main > .card { margin-top:14px; }
+  .label { font-size:11px; text-transform:uppercase; letter-spacing:1.2px; color:var(--dim); margin-bottom:10px; }
+  .big { font-size:30px; font-weight:600; font-variant-numeric:tabular-nums; }
+  .sub { font-size:12px; color:var(--dim); font-variant-numeric:tabular-nums; min-height:17px; }
+  .bar { height:4px; background:var(--line); border-radius:2px; margin-top:10px; }
+  .bar div { height:100%; width:0; background:var(--train); border-radius:2px; }
+  table { width:100%; border-collapse:collapse; font-variant-numeric:tabular-nums; font-size:13px; }
+  th { font-weight:400; color:var(--dim); text-align:right; font-size:11px; padding:0 8px 8px; }
+  td { padding:5px 8px; text-align:right; border-top:1px solid var(--line); }
+  th:first-child, td:first-child { text-align:left; }
+  tr.all td { font-weight:600; }
+  .ci { position:relative; width:120px; height:14px; display:inline-block; vertical-align:middle; margin-left:8px; }
+  .ci .zero { position:absolute; left:50%; top:0; bottom:0; width:1px; background:var(--dim); }
+  .ci .span { position:absolute; top:6px; height:2px; border-radius:1px; }
+  .ci .pt { position:absolute; top:4px; width:6px; height:6px; border-radius:50%; margin-left:-3px; }
+  .up { color:var(--good); } .down { color:var(--bad); } .flat { color:var(--dim); }
+  .chips { display:flex; flex-wrap:wrap; gap:6px; margin-bottom:8px; }
+  .chip { border:1px solid var(--line); background:none; color:var(--dim); border-radius:14px; padding:3px 11px;
+          font:inherit; font-size:12px; cursor:pointer; }
+  .chip.on { color:var(--bg); }
+  .plot { height:240px; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1 id="run">—</h1>
+    <span class="muted" id="state"><span class="dot"></span><span id="stateText">connecting</span></span>
+    <span class="muted" id="stage"></span>
+    <label class="smooth">smoothing <input id="smooth" type="range" min="1" max="10" value="1"><span id="smoothVal">1</span></label>
+  </header>
+
+  <div class="grid g5">
+    <div class="card"><div class="label" id="progLabel">Games</div><div class="big" id="done">—</div>
+      <div class="sub" id="doneSub"></div><div class="bar"><div id="bar"></div></div></div>
+    <div class="card"><div class="label" id="liveLabel">Batch win rate</div><div class="big" id="liveWin">—</div>
+      <div class="sub" id="liveSub"></div></div>
+    <div class="card"><div class="label">Last evaluation</div><div class="big" id="evalWin" style="color:var(--test)">—</div>
+      <div class="sub" id="evalSub"></div></div>
+    <div class="card"><div class="label">Games / s</div><div class="big" id="rate">—</div>
+      <div class="sub" id="rateSub"></div></div>
+    <div class="card"><div class="label">GPU</div><div class="big" id="gpu">—</div>
+      <div class="sub" id="gpuSub"></div></div>
+  </div>
+
+  <div class="card"><div class="label">Still improving? · change with 95% CI</div><table id="trend"></table></div>
+  <div class="card"><div class="label">Win rate · 95% CI</div><div id="overall" style="height:300px"></div></div>
+  <div class="card"><div class="label">Per deck · training batches · 95% CI</div>
+    <div class="chips" id="chips"></div><div id="decks" style="height:360px"></div></div>
+  <div class="grid g3">
+    <div class="card"><div class="label">Loss</div><div id="loss" class="plot"></div></div>
+    <div class="card"><div class="label">Time per iteration</div><div id="time" class="plot"></div></div>
+    <div class="card"><div class="label">GPU per iteration</div><div id="gpuPlot" class="plot"></div></div>
+  </div>
+</main>
+
+<script>
+const $ = id => document.getElementById(id);
+const PALETTE = ['#6ea8fe', '#f0b46a', '#5fd39a', '#ef6b6b', '#c39bff', '#4fd1d9', '#ff8fc7', '#d6d36b', '#a0a8b8', '#ff9f5a',
+                 '#8be08b', '#9ab4ff'];
+const pct = x => x == null ? '—' : (100 * x).toFixed(1) + '%';
+const pp = x => (x >= 0 ? '+' : '−') + Math.abs(100 * x).toFixed(1);
+const int = x => Math.round(x).toLocaleString();
+const dur = s => s < 90 ? `${Math.round(s)} s` : `${Math.round(s / 60)} min`;
+
+// Displayed numbers ease toward their latest value.
+const tw = {};
+const T = (k, v) => { (tw[k] ??= { v, t: v }).t = v; };
+const V = k => tw[k] ? tw[k].v : 0;
+
+let data = null, chartKey = '', smooth = +(localStorage.getItem('smooth') || 1);
+let selected = JSON.parse(localStorage.getItem('decks') || 'null');
+const color = d => PALETTE[data.decks.indexOf(d) % PALETTE.length];
+
+async function poll() {
+  try {
+    const d = await (await fetch('api', { cache: 'no-store' })).json();
+    if (d.error) throw new Error(d.error);
+    update(d);
+  } catch (e) { $('stateText').textContent = 'offline'; $('state').className = 'muted interrupted'; }
+  setTimeout(poll, 2000);
+}
+
+function update(d) {
+  data = d;
+  const p = d.progress || {}, live = d.live, lt = d.test[d.test.length - 1], sys = d.system;
+  $('run').textContent = d.run;
+  $('stateText').textContent = d.state;
+  $('state').className = 'muted ' + d.state;
+  $('stage').textContent = [p.stage, p.phase, p.detail].filter(Boolean).join(' · ');
+  if (live) { T('done', live.done); T('live', live.rates.all.p || 0); }
+  if (lt) T('eval', lt.rates.all.p);
+  if (d.speed.stage != null) T('rate', d.speed.stage);
+  if (sys.gpu != null) { T('gpu', sys.gpu); T('vram', sys.vram); }
+  T('ram', sys.ram);
+  selected ??= d.decks.slice(0, 3);
+  trendTable();
+  const key = [d.train.length, d.test.length, selected, smooth].join('|');
+  if (key !== chartKey) { chartKey = key; charts(); }
+}
+
+function ciCell(x, scale) {
+  if (!x) return '<td class="flat">—</td>';
+  const cls = x.lo > 0 ? 'up' : x.hi < 0 ? 'down' : 'flat';
+  const pos = v => 50 + 50 * Math.max(-1, Math.min(1, v / scale));
+  return `<td class="${cls}" title="95% CI ${pp(x.lo)} … ${pp(x.hi)} pp">${pp(x.d)}<span class="ci"><span class="zero"></span>
+    <span class="span" style="left:${pos(x.lo)}%;width:${pos(x.hi) - pos(x.lo)}%;background:currentColor"></span>
+    <span class="pt" style="left:${pos(x.d)}%;background:currentColor"></span></span></td>`;
+}
+
+function trendTable() {
+  const d = data, [ne, oe] = d.windows.eval, w = d.windows.train;
+  const last = d.train.length ? d.train[d.train.length - 1].it : 0;
+  const scale = k => Math.max(0.02, ...d.trend.filter(r => r[k]).map(r => Math.max(-r[k].lo, r[k].hi)));
+  const ts = scale('train_d'), es = scale('eval_d');
+  $('trend').innerHTML = `<tr><th>deck</th><th>train ${last - w + 1}–${last}</th><th>vs ${last - 2 * w + 1}–${last - w}</th>
+      <th>eval ${ne ?? ''}</th><th>vs ${oe ?? ''} (paired)</th></tr>` +
+    d.trend.map(r => `<tr class="${r.deck}"><td>${r.deck}</td><td>${pct(r.train && r.train.p)}</td>${ciCell(r.train_d, ts)}
+      <td>${pct(r.eval && r.eval.p)}</td>${ciCell(r.eval_d, es)}</tr>`).join('');
+}
+
+// Smoothing: trailing window of `smooth` iterations. Win rates pool wins/games (exact Wilson CI); other series average.
+function wilson(w, n) {
+  if (!n) return [null, null];
+  const z = 1.96, p = w / n, d = 1 + z * z / n, c = (p + z * z / (2 * n)) / d;
+  const h = z * Math.sqrt(p * (1 - p) / n + z * z / (4 * n * n)) / d;
+  return [c - h, c + h];
+}
+function pooled(key) {
+  return data.train.map((_, i) => {
+    const win = data.train.slice(Math.max(0, i + 1 - smooth), i + 1).map(b => b.rates[key]).filter(Boolean);
+    const w = win.reduce((a, s) => a + s.w, 0), n = win.reduce((a, s) => a + s.n, 0);
+    return n ? { w, n, p: w / n, ci: wilson(w, n) } : null;
+  });
+}
+function rolling(f) {
+  const v = data.train.map(f);
+  return v.map((_, i) => {
+    const win = v.slice(Math.max(0, i + 1 - smooth), i + 1).filter(x => x != null);
+    return win.length ? win.reduce((a, x) => a + x, 0) / win.length : null;
+  });
+}
+
+const AXIS = { gridcolor: '#232830', zeroline: false };
+const LAYOUT = {
+  paper_bgcolor: 'rgba(0,0,0,0)', plot_bgcolor: 'rgba(0,0,0,0)', font: { color: '#7d8590', size: 11 },
+  margin: { l: 44, r: 8, t: 8, b: 30 }, hovermode: 'x unified', uirevision: 1,
+  legend: { orientation: 'h', y: 1.1, x: 0 }, hoverlabel: { bgcolor: '#161a1f', bordercolor: '#232830' },
+  xaxis: { ...AXIS, title: { text: 'iteration' } },
+  yaxis: { ...AXIS, tickformat: '.0%', rangemode: 'tozero' },
+};
+const SMALL = { ...LAYOUT, margin: { l: 40, r: 40, t: 4, b: 24 }, legend: { orientation: 'h', y: 1.14, x: 0 },
+                xaxis: AXIS, yaxis: { ...AXIS, rangemode: 'tozero' },
+                yaxis2: { ...AXIS, overlaying: 'y', side: 'right', showgrid: false, rangemode: 'tozero' } };
+const CONFIG = { displayModeBar: false, responsive: true };
+const alpha = (hex, a) => hex + Math.round(a * 255).toString(16).padStart(2, '0');
+const HOVER = '%{y:.1%} (%{customdata[0]}/%{customdata[1]}, %{customdata[2]:.1%}–%{customdata[3]:.1%})<extra>';
+
+function band(key, c, name) {
+  const xs = data.train.map(b => b.it), s = pooled(key);
+  return [
+    { x: xs, y: s.map(v => v && v.ci[1]), mode: 'lines', line: { width: 0 }, hoverinfo: 'skip', showlegend: false, legendgroup: name },
+    { x: xs, y: s.map(v => v && v.ci[0]), mode: 'lines', line: { width: 0 }, fill: 'tonexty', fillcolor: alpha(c, 0.15),
+      hoverinfo: 'skip', showlegend: false, legendgroup: name },
+    { x: xs, y: s.map(v => v && v.p), name, legendgroup: name, mode: 'lines', line: { color: c, width: 2 },
+      customdata: s.map(v => v && [v.w, v.n, v.ci[0], v.ci[1]]), hovertemplate: HOVER + name + '</extra>' },
+  ];
+}
+
+function evalPoints(key, c, name, bars) {
+  const s = data.test.map(r => r.rates[key]);
+  return { x: data.test.map(r => r.it), y: s.map(v => v && v.p), name, mode: 'markers', showlegend: bars,
+    marker: { color: bars ? c : 'rgba(0,0,0,0)', size: bars ? 7 : 6, line: { color: c, width: 1.5 } },
+    error_y: bars ? { type: 'data', symmetric: false, color: c, thickness: 1, width: 3,
+                      array: s.map(v => v && v.ci[1] - v.p), arrayminus: s.map(v => v && v.p - v.ci[0]) } : undefined,
+    customdata: s.map(v => v && [v.w, v.n, v.ci[0], v.ci[1]]), hovertemplate: HOVER + name + '</extra>' };
+}
+
+function line(y, name, c, extra = {}) {
+  return { x: data.train.map(b => b.it), y, name, mode: 'lines', line: { color: c, width: 2 }, ...extra };
+}
+
+function charts() {
+  Plotly.react('overall', [...band('all', '#6ea8fe', 'training'), evalPoints('all', '#f0b46a', 'evaluation', true)],
+               LAYOUT, CONFIG);
+
+  $('chips').innerHTML = data.decks.map(d => `<button class="chip ${selected.includes(d) ? 'on' : ''}" data-d="${d}"
+      style="${selected.includes(d) ? `background:${color(d)};border-color:${color(d)}` : ''}">${d}</button>`).join('') +
+    `<button class="chip" data-d="*all">all</button><button class="chip" data-d="*none">none</button>`;
+  const decks = selected.filter(d => data.decks.includes(d));
+  Plotly.react('decks', decks.flatMap(d => [...band(d, color(d), d), evalPoints(d, color(d), d + ' eval', false)]),
+               { ...LAYOUT, showlegend: false }, CONFIG);
+
+  Plotly.react('loss', [
+    line(rolling(b => b.loss && b.loss.value), 'value', '#6ea8fe', { hovertemplate: '%{y:.4f}' }),
+    line(rolling(b => b.loss && b.loss.policy), 'policy', '#c39bff', { yaxis: 'y2', hovertemplate: '%{y:.4f}' }),
+  ], { ...SMALL, yaxis: { ...SMALL.yaxis, rangemode: 'normal' }, yaxis2: { ...SMALL.yaxis2, rangemode: 'normal' } }, CONFIG);
+
+  const play = rolling(b => b.play && b.play / 60), fit = rolling(b => b.fit && b.fit / 60);
+  const typical = data.train.filter(b => b.play).map(b => (b.play + b.fit) / 60).sort((a, b) => a - b)[data.train.length >> 1] || 1;
+  Plotly.react('time', [
+    { x: data.train.map(b => b.it), y: play, name: 'play', type: 'bar', marker: { color: alpha('#6ea8fe', 0.55) },
+      hovertemplate: '%{y:.1f} min' },
+    { x: data.train.map(b => b.it), y: fit, name: 'train', type: 'bar', marker: { color: alpha('#c39bff', 0.55) },
+      hovertemplate: '%{y:.1f} min' },
+    line(rolling(b => b.gps), 'games/s', '#f0b46a', { yaxis: 'y2', hovertemplate: '%{y:.1f}' }),
+  ], { ...SMALL, barmode: 'stack', bargap: 0.25, yaxis: { ...SMALL.yaxis, range: [0, typical * 2], ticksuffix: ' m' } }, CONFIG);
+
+  Plotly.react('gpuPlot', [
+    line(rolling(b => b.gpu.util), 'util %', '#5fd39a', { hovertemplate: '%{y:.0f}%' }),
+    line(rolling(b => b.gpu.vram), 'VRAM peak', '#4fd1d9', { yaxis: 'y2', hovertemplate: '%{y:.1f} GiB' }),
+  ], { ...SMALL, yaxis: { ...SMALL.yaxis, range: [0, 100], ticksuffix: '%' },
+       yaxis2: { ...SMALL.yaxis2, ticksuffix: ' G', range: [0, data.system.vram_total || null] } }, CONFIG);
+}
+
+$('chips').onclick = e => {
+  const d = e.target.dataset.d; if (!d) return;
+  selected = d === '*all' ? [...data.decks] : d === '*none' ? [] :
+    selected.includes(d) ? selected.filter(x => x !== d) : [...selected, d];
+  localStorage.setItem('decks', JSON.stringify(selected));
+  chartKey = ''; charts();
+};
+$('smooth').value = smooth; $('smoothVal').textContent = smooth;
+$('smooth').oninput = e => {
+  smooth = +e.target.value; $('smoothVal').textContent = smooth;
+  localStorage.setItem('smooth', smooth);
+  if (data) { chartKey = ''; charts(); }
+};
+
+let last = performance.now();
+function frame(now) {
+  const k = 1 - Math.exp(-(now - last) / 350); last = now;
+  for (const t of Object.values(tw)) t.v += (t.t - t.v) * k;
+  if (data) {
+    const live = data.live, sp = data.speed, sys = data.system, lt = data.test[data.test.length - 1];
+    $('progLabel').textContent = live ? (live.test ? 'Evaluation games' : 'Training games') : 'Games';
+    $('done').textContent = live ? int(V('done')) : '—';
+    $('doneSub').textContent = live ? `of ${int(live.total)} · ${pct(V('done') / live.total)}` : '';
+    $('bar').style.width = live ? (100 * V('done') / live.total) + '%' : '0';
+    $('bar').style.background = live && live.test ? 'var(--test)' : 'var(--train)';
+    $('liveLabel').textContent = live && live.test ? 'Evaluation win rate' : 'Batch win rate';
+    const u = data.train[data.train.length - 1];
+    if (live && live.done) {
+      $('liveWin').textContent = pct(V('live'));
+      $('liveSub').textContent = `${live.rates.all.w} / ${live.rates.all.n}`;
+    } else if (u) {
+      $('liveWin').textContent = pct(u.rates.all.p);
+      $('liveSub').textContent = `iteration ${u.it} · ${u.rates.all.w} / ${u.rates.all.n}`;
+    }
+    if (lt) {
+      $('evalWin').textContent = pct(V('eval'));
+      $('evalSub').textContent = `iteration ${lt.it} · ${lt.rates.all.w} / ${lt.rates.all.n} · ` +
+        `${pct(lt.rates.all.ci[0])}–${pct(lt.rates.all.ci[1])}`;
+    }
+    $('rate').textContent = sp.stage != null ? V('rate').toFixed(1) : '—';
+    $('rateSub').textContent = [sp.typical && `typical ${sp.typical.toFixed(1)}`, u && u.play && `iteration ${dur(u.play + u.fit)}`,
+                                sp.eta != null && `${dur(sp.eta)} left`].filter(Boolean).join(' · ');
+    $('gpu').textContent = sys.gpu != null ? `${Math.round(V('gpu'))}%` : '—';
+    $('gpuSub').textContent = (sys.gpu != null ? `VRAM ${V('vram').toFixed(1)} / ${sys.vram_total.toFixed(0)} G · ` : '') +
+      `RAM ${V('ram').toFixed(1)} / ${sys.ram_total.toFixed(0)} G`;
+  }
+  requestAnimationFrame(frame);
+}
+
+poll();
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>

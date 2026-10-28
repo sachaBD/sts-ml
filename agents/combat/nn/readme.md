@@ -79,6 +79,13 @@ cmake --build build/nn --target nn_play --parallel 6
 
 ## Run
 
+For managed multi-deck Champ training, use
+[`apps/gumbel_nn_combat_expert_iteration`](../../../apps/gumbel_nn_combat_expert_iteration/README.md).
+It loads ten-deck starts and historical monitoring scores, copies inputs/the worker,
+and delegates training to this loop. `--start` also accepts a list of named starts;
+`--games` then means the total, divided equally and interleaved across those starts.
+`--play` can select a frozen native executable (default remains `build/nn/.../nn_play`).
+
 `loop.py` exports both CPU and GPU models and configures the installed TensorRT/CUDA library paths automatically.
 
 ```sh
@@ -93,10 +100,16 @@ New checkpoints include a `spec` dictionary; reconstruct with `Net(**checkpoint[
 Legacy checkpoints without `spec` retain the default topology. `model-spec.json` also records the run's architecture.
 
 This is an example, not a new approved experiment. `START.json` contains `{fight_id, start}`. Bootstrap JSON lines contain recorded `{fight, search}` results. Output directories must be new unless explicitly continuing with `--resume-from N`.
-Resume requires the latest completed iteration's checkpoint and existing replay; only `--games` and `--iterations`
-may change. Archive any interrupted next-iteration directory first; partial samples are never appended.
+Resume requires the latest completed iteration's checkpoint and existing replay. `--games`, `--iterations`,
+`--test-every`, `--prune-replay` and `--max-train-rows` may change. Archive any interrupted next-iteration directory first; partial samples are never appended.
 Stop the old process before resuming. New checkpoints restore training RNG state; legacy checkpoints without
 RNG state restart sampling from seed 0 (not a bit-exact continuation). Keep checkpoints, samples, engines and generated inputs under `runs/` or `scratch/`.
+
+For unattended runs, `--iterations 0` runs until `OUT/STOP` exists, finishing the active update and
+scheduled evaluation before exiting. `--test-every N` adds recurring evaluations. `--prune-replay`
+removes samples outside the replay window and old TensorRT caches, retaining models and results.
+`--max-train-rows N` bounds the loaded replay to a fresh uniform subset; 0 loads all rows.
+A process-held `.lock` prevents overlapping loops in one output directory.
 
 The run writes `status.json` live, `log.jsonl` per iteration, and results and `worker.log` per play stage.
 Native `gpu_stats` JSON lines report exact real leaves, computed row capacity, engine usage, CPU fallback,

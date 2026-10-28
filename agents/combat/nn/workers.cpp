@@ -369,6 +369,9 @@ void run_workers(const WorkerConfig& config, NextSimulation next, PreparedEvalua
             100 * std::max(0., runtime.backend_wall_seconds - runtime.backend_cpu_seconds) / seconds);
     }
     std::fprintf(stderr, ",\"worker_pack_seconds\":%.6f}\n", worker_pack);
-    if (runtime.error) std::rethrow_exception(runtime.error);
+    if (runtime.error) {
+        std::fprintf(stderr, "workers: failed: %s\n", error_message(runtime.error).c_str());
+        std::rethrow_exception(runtime.error);
+    }
 }
 } // namespace stsrl::nn

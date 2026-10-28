@@ -208,7 +208,20 @@ void import(std::ofstream& samples) {
                     const auto key = Public::publicActionKey(state, sts::search::Action{child.at("action").get<std::uint32_t>()});
                     std::size_t i = 0;
                     while (i < actions.size() && Public::publicActionKey(state, actions[i]) != key) ++i;
-                    if (i == actions.size()) throw std::runtime_error{"import: recorded action is not legal"};
+                    if (i == actions.size()) {
+                        std::string message = "import: recorded action is not legal; fight=" +
+                            fight.at("fight_id").get<std::string>() + " step=" + std::to_string(step) +
+                            " action=" + std::to_string(child.at("action").get<std::uint32_t>()) + " legal=";
+                        for (const auto a : actions) message += std::to_string(a.bits) + ",";
+                        message += " hand=" + std::to_string(state.cards.cardsInHand) +
+                            " energy=" + std::to_string(state.player.energy);
+                        for (int h = 0; h < state.cards.cardsInHand; ++h) {
+                            const auto& c = state.cards.hand[h];
+                            message += " " + std::to_string(h) + ":" + sts::getCardEnumName(c.id) +
+                                ":" + std::to_string(c.costForTurn);
+                        }
+                        throw std::runtime_error{message};
+                    }
                     policy[i] += child.at("visits").get<float>(); total += child.at("visits").get<float>();
                 }
                 if (actions.size() > 1 && total > 0) {

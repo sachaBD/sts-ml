@@ -26,6 +26,7 @@ entry-point reference.
 | `card_search` | Prototype model-based card-pick search | `search.py` |
 | `run_rl` | Real-run overworld learning | `loop.py`, `play.py`, `train.py` |
 | `combat_expert_iteration` | Expert iteration on fixed combat starts (one or more decks, one network) and head-to-head tests | `run.sh`, `evaluate.sh`, `combat_v4`; dashboard `python -m apps.combat_expert_iteration.status` |
+| `gumbel_nn_combat_expert_iteration` | Thin multi-deck launcher for the CPU/GPU combat NN, with historical teacher monitoring | `run.sh`; `gumbel_nn_combat_v1`; see app README |
 | `topology_report` | Offline selected-overworld architecture and interaction visualizations | `python -m apps.topology_report.generate` |
 | `export_save` | Export a stored fight as a Slay the Spire save | `export_save.py` |
 | `megacrit_dump` | List and pull a filtered slice of the public Mega Crit StS1 run-history dump; rebuild Champ start states | `megacrit_runs_v1`, `megacrit_champ_v1` |
