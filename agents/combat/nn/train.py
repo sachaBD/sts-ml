@@ -4,6 +4,7 @@ import time
 
 import torch
 
+from infra.workers.reader import prefetch
 from .replay import Replay
 
 
@@ -13,10 +14,12 @@ def train(net, optimizer, tokens, policy, won, steps, batch=512, device='cuda', 
     replay = tokens if isinstance(tokens, Replay) else None
     if replay is None:
         tokens, policy, won = tokens.to(device), policy.to(device), won.to(device)
+    # Readers build the next steps' microbatches on CPU threads while this thread trains on the GPU.
+    ready = prefetch(lambda _: list(replay.batches(batch)), steps) if replay is not None else None
     start, totals = time.time(), torch.zeros(2, device=device)
     for step in range(1, steps + 1):
         if replay is not None:
-            batches = replay.batches(batch)
+            batches = next(ready)
         else:
             i = torch.randint(len(won), (batch,), device=device)
             batches = [(tokens[i], policy[i], won[i])]

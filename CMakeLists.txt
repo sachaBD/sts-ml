@@ -79,6 +79,13 @@ add_executable(bench_reuse EXCLUDE_FROM_ALL experiments/reuse_probe/bench_reuse.
 target_link_libraries(bench_reuse PRIVATE combat_core)
 
 enable_testing()
+# GoogleTest for native unit tests, pinned and built with the project (no system install needed).
+include(FetchContent)
+FetchContent_Declare(googletest URL https://github.com/google/googletest/archive/refs/tags/v1.15.2.tar.gz
+    URL_HASH SHA256=7b42b4d6ed48810c5362c265a17faebe90dc2373c885e5216439d37927f02926 DOWNLOAD_EXTRACT_TIMESTAMP TRUE)
+set(INSTALL_GTEST OFF CACHE BOOL "" FORCE)
+FetchContent_MakeAvailable(googletest)
+include(GoogleTest)
 add_executable(encoding_test environments/combat/encoding_test.cpp)
 target_link_libraries(encoding_test PRIVATE combat_core)
 target_compile_features(encoding_test PRIVATE cxx_std_23)
@@ -161,7 +168,7 @@ add_test(NAME run_rl_worker_test COMMAND run_rl_worker_test)
 # runs/schema=*/ output trees: only runs/test_*.py is source-level test code.
 set(STSRL_PYTHON "${CMAKE_CURRENT_SOURCE_DIR}/.venv/bin/python3" CACHE FILEPATH "Python interpreter for tests")
 file(GLOB_RECURSE python_test_files CONFIGURE_DEPENDS RELATIVE "${CMAKE_CURRENT_SOURCE_DIR}"
-    "agents/test_*.py" "environments/test_*.py" "models/test_*.py" "apps/test_*.py" "gui/test_*.py")
+    "agents/test_*.py" "infra/test_*.py" "environments/test_*.py" "models/test_*.py" "apps/test_*.py" "gui/test_*.py")
 file(GLOB run_test_files CONFIGURE_DEPENDS RELATIVE "${CMAKE_CURRENT_SOURCE_DIR}" "runs/test_*.py")
 list(APPEND python_test_files ${run_test_files})
 file(RELATIVE_PATH python_test_build_dir "${CMAKE_CURRENT_SOURCE_DIR}/build" "${CMAKE_CURRENT_BINARY_DIR}")
@@ -222,6 +229,10 @@ else()
 endif()
 
 
+# Project-independent infrastructure (infra/workers/readme.md): workers depend on inference, never the reverse.
+add_subdirectory(infra/inference)
+add_subdirectory(infra/workers)
+add_subdirectory(infra/benchmarks)
 # Thin ONNX-backed policy/value combat agent.
 add_subdirectory(agents/combat/pv)
 add_subdirectory(agents/combat/nn)

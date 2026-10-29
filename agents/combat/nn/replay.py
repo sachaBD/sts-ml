@@ -1,11 +1,13 @@
-"""Disk-indexed, deck-balanced replay. Only the current minibatch is padded/materialized."""
+"""Disk-indexed, deck-balanced replay. Only the current minibatch is read and padded."""
 import json
+import os
 from pathlib import Path
 import struct
 
 import numpy as np
 import torch
 
+from infra.workers.reader import Reader
 from .model import WIDTH
 
 HEADER = struct.Struct('<iif')
@@ -43,14 +45,21 @@ def index(path):
 
 
 class Replay:
+    """Rows are read by parallel exact-size preads (infra Reader); close() (or `with`) releases the files."""
+
     def __init__(self, paths, max_rows=0):
-        self.files, groups = [], {}
-        for path in map(Path, paths):
-            file = len(self.files)
-            self.files.append(np.memmap(path, dtype=np.uint8, mode='r'))
-            for name, offsets in index(path).items():
-                entries = np.column_stack((np.full(len(offsets), file, dtype=np.uint64), offsets))
-                groups.setdefault(name, []).append(entries)
+        paths, groups = [Path(p) for p in paths], {}
+        for file, path in enumerate(paths):
+            decks = index(path)
+            if not decks:
+                continue
+            # Records are contiguous, so each one ends where the next begins (or at end of file).
+            starts = np.sort(np.concatenate(list(decks.values())))
+            ends = np.append(starts[1:], np.uint64(os.path.getsize(path)))
+            for name, offsets in decks.items():
+                sizes = ends[np.searchsorted(starts, offsets)] - offsets
+                groups.setdefault(name, []).append(
+                    np.column_stack((np.full(len(offsets), file, dtype=np.uint64), offsets, sizes)))
         self.groups = {name: np.concatenate(parts) for name, parts in sorted(groups.items())}
         if not self.groups:
             raise ValueError('no training decisions in replay')
@@ -64,6 +73,16 @@ class Replay:
                     self.groups[name] = rows[torch.randperm(len(rows))[:quota].numpy()]
         self.selected = {name: len(rows) for name, rows in self.groups.items()}
         self.drawn = {name: 0 for name in self.groups}
+        self.reader = Reader(paths)
+
+    def close(self):
+        self.reader.close()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        self.close()
 
     def __len__(self):
         return sum(self.selected.values())
@@ -74,17 +93,17 @@ class Replay:
         if size < n:
             raise ValueError('batch must be at least the number of decks')
         extra = set(torch.randperm(n)[:size % n].tolist())
-        records = []
+        picked = []
         for i, (name, rows) in enumerate(self.groups.items()):
             take = size // n + (i in extra)
             self.drawn[name] += take
-            for file, offset in rows[torch.randint(len(rows), (take,)).numpy()]:
-                raw, offset = self.files[int(file)], int(offset)
-                count, actions, won = HEADER.unpack_from(raw, offset)
-                at = offset + HEADER.size
-                tokens = np.frombuffer(raw, dtype=np.float32, count=count * WIDTH, offset=at).reshape(count, WIDTH)
-                policy = np.frombuffer(raw, dtype=np.float32, count=actions, offset=at + count * WIDTH * 4)
-                records.append((tokens, policy, won))
+            picked.append(rows[torch.randint(len(rows), (take,)).numpy()])
+        records = []
+        for raw in self.reader.read(np.concatenate(picked).tolist()):
+            count, actions, won = HEADER.unpack_from(raw)
+            tokens = np.frombuffer(raw, dtype=np.float32, count=count * WIDTH, offset=HEADER.size).reshape(count, WIDTH)
+            policy = np.frombuffer(raw, dtype=np.float32, count=actions, offset=HEADER.size + count * WIDTH * 4)
+            records.append((tokens, policy, won))
         return records
 
     @staticmethod
