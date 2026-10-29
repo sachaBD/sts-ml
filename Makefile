@@ -1,5 +1,5 @@
 .DEFAULT_GOAL := help
-.PHONY: help env env-onnx env-jax env-all build test clean
+.PHONY: help env env-onnx env-jax env-all build test clean infra-benchmark
 
 BUILD_DIR := build/main
 
@@ -29,6 +29,18 @@ build: ## Native build into build/main (all build dirs live under build/<name>/)
 
 test: build ## Build, then run native + Python tests through CTest
 	ctest --test-dir $(BUILD_DIR) --output-on-failure
+
+# infra-benchmark: inference always on the fixed panache 128x4 model (see its README); the Reader reads the
+# replay window of the newest training run, or RUN=.../out/training.
+BENCH_MODEL ?= runs/benchmark/panache-128x4
+RUN ?= $(lastword $(sort $(wildcard runs/schema=gumbel_nn_combat_v1/date=*/id=*/out/training)))
+
+infra-benchmark: ## Component benchmarks for infra/ (about 20 s)
+	@cmake -S . -B $(BUILD_DIR) -DCMAKE_BUILD_TYPE=Release > /dev/null
+	@cmake --build $(BUILD_DIR) --target infra_bench_inference infra_bench_actors --parallel > /dev/null
+	@echo "model:  $(BENCH_MODEL)"
+	@echo "replay: $(RUN)"
+	@.venv/bin/python -m infra.benchmarks "$(BENCH_MODEL)" $(wildcard $(RUN)/iter*/samples-0.bin) --build $(BUILD_DIR)
 
 clean: ## Remove build/main
 	cmake -E remove_directory $(BUILD_DIR)
