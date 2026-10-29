@@ -128,4 +128,14 @@ not same-rules controlled comparisons or optimal-play ceilings. No inference of 
 play/headroom from a low absolute win rate. JSON-only historical outputs are not exhaustively inventoried.
 
 ## Live state
-Qualified; launch pending final commit. Fill actual startup/first-update observations below.
+Launched **2026-10-29 07:57UTC** from project commit `0575496`, simulator `07b7cd4`.
+The earlier session stalled after qualification; no overnight thousand-deck run occurred.
+Managed launcher PID674601, supervisor/app674625, learner674659 (initial PIDs; retries change them).
+Warm checkpoint40 verified: source SHA256 `d0993c86d02ca70d5fa6f9e047c04575a41f041d8ea7f4174dce98ecebd4e3ae`.
+Checkpoint0 committed; native worker active on the initial2,000-start development baseline,
+then1,000retention starts before first5,000-game collection/update. First full live update
+and full-window resource use are not yet verified.
+Port8742 verified old fifty-deck web PID536851 and replaced only that listener;
+new web PID674878, HTTP200. Active pointer updated; previous pointer preserved as
+`scratch/gumbel-nn-active-run-before-1000.json`.
+
