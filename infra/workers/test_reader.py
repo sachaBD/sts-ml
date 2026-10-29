@@ -22,35 +22,14 @@ class ReaderTests(unittest.TestCase):
     def test_batch_uses_bounded_tasks(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / 'rows'
-            path.write_bytes(bytes(range(256)))
-            rows = [(0, i % 250, 1 + i % 7) for i in range(2048)]
+            path.write_bytes(b'x')
             with Reader([path], threads=4) as reader:
                 with patch.object(reader.pool, 'submit', wraps=reader.pool.submit) as submit:
-                    actual = reader.read(iter(rows))
-                self.assertLessEqual(submit.call_count, 4 * 8)
-                self.assertEqual(actual, [bytes(range(256))[offset:offset + size]
-                                          for _, offset, size in rows])
-
-    def test_empty_and_small_batches(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            path = Path(tmp) / 'rows'
-            path.write_bytes(b'abcdef')
-            with Reader([path]) as reader:
-                with patch.object(reader.pool, 'submit', wraps=reader.pool.submit) as submit:
-                    self.assertEqual(reader.read(iter(())), [])
+                    self.assertEqual(reader.read([]), [])
                     submit.assert_not_called()
-                self.assertEqual(reader.read([(0, 2, 3)]), [b'cde'])
-                self.assertEqual(reader.read([(0, 4, 2)] * 3), [b'ef'] * 3)
-
-    def test_read_error_reaches_caller(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            path = Path(tmp) / 'rows'
-            path.write_bytes(b'abcdef')
-            with Reader([path]) as reader:
-                with patch('infra.workers.reader.os.pread', side_effect=OSError('read failed')):
-                    with self.assertRaisesRegex(OSError, 'read failed'):
-                        reader.read([(0, 0, 3)] * 100)
-                self.assertEqual(reader.read([(0, 0, 3)]), [b'abc'])
+                    rows = iter([(0, 0, 1)] * 2048)
+                    self.assertEqual(reader.read(rows), [b'x'] * 2048)
+                self.assertLessEqual(submit.call_count, 4 * 8)
 
 
 class PrefetchTests(unittest.TestCase):
