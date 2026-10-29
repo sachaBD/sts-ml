@@ -111,6 +111,9 @@ scheduled evaluation before exiting. `--test-every N` adds recurring evaluations
 removes samples outside the replay window and old TensorRT caches, retaining models and results.
 `--max-train-rows N` bounds the loaded replay to a fresh uniform subset; 0 loads all rows.
 A process-held `.lock` prevents overlapping loops in one output directory.
+Opt-in update overhead flags (outputs unchanged; may be toggled on resume): `--replay-cache` reads each samples file
+once while it is in the window (`data.Replay`; keeps about one dense replay in memory between updates);
+`--export-reuse` runs the ONNX exporter once per shape and afterwards only rewrites weights (`graphs.Exporter`).
 
 The run writes `status.json` live, `log.jsonl` per iteration, and results and `worker.log` per play stage.
 Native `gpu_stats` JSON lines report exact real leaves, computed row capacity, engine usage, CPU fallback,

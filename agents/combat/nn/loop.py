@@ -23,7 +23,8 @@ from pathlib import Path
 
 import torch
 
-from .data import read
+from .data import Replay as DenseReplay, read
+from .graphs import Exporter
 from .replay import Replay
 from .model import Net, export, export_static
 from .metrics import DeviceSampler
@@ -170,6 +171,8 @@ def main():
     p.add_argument('--fight-namespace', help='seed namespace; reuse a prior run name for matching training starts')
     p.add_argument('--device', default='cuda')
     p.add_argument('--resume-from', type=int, help='resume a completed iteration; preserve replay and optimizer')
+    p.add_argument('--replay-cache', action='store_true', help='read each replay file once while it is in the window')
+    p.add_argument('--export-reuse', action='store_true', help='run the ONNX exporter once per shape, then rewrite weights')
     a = p.parse_args()
     try:
         gpu_bank = [int(b) for b in a.gpu_bank.split(',') if b]
@@ -187,6 +190,8 @@ def main():
         p.error('iterations/test-every/max-train-rows must be nonnegative; window must be positive')
     if a.initial_checkpoint and a.bootstrap:
         p.error('choose initial-checkpoint or bootstrap, not both')
+    if a.replay_cache and (a.balanced_replay or a.max_train_rows):
+        p.error('replay-cache is the dense loader: not with balanced-replay or max-train-rows')
     args = {k: str(v) for k, v in vars(a).items()}
     if a.resume_from is None:
         a.out.mkdir(parents=True, exist_ok=False)
@@ -200,9 +205,10 @@ def run_loop(a, args, gpu_bank):
         previous = json.loads((a.out / 'args.json').read_text())
         changed = {k for k in previous if previous[k] != args[k]}
         legacy_defaults = dict(gpu_bank='', gpu_wait_us=1000, parallel=200, groups=2, scheduler='ordered',
-                               timeout_ms=60000, shutdown_timeout_ms=5000)
+                               timeout_ms=60000, shutdown_timeout_ms=5000, replay_cache=False, export_reuse=False)
         changed |= {k for k, default in legacy_defaults.items() if previous.get(k, str(default)) != args[k]}
-        if changed - {'games', 'iterations', 'resume_from', 'test_every', 'prune_replay', 'max_train_rows', 'validation_share'}:
+        if changed - {'games', 'iterations', 'resume_from', 'test_every', 'prune_replay', 'max_train_rows', 'validation_share',
+                      'replay_cache', 'export_reuse'}:
             raise ValueError(f'resume changed incompatible settings: {changed}')
         rows = [json.loads(line) for line in (a.out / 'log.jsonl').read_text().splitlines()]
         completed = [r['iteration'] for r in rows if 'iteration' in r]
@@ -240,6 +246,9 @@ def run_loop(a, args, gpu_bank):
             torch.cuda.set_rng_state_all(warm['cuda_rng'])
         run.log(initial_checkpoint=str(a.initial_checkpoint), spec=net.spec)
     iteration_dir = lambda k: a.out / f'iter{k:03d}'
+    dense = DenseReplay() if a.replay_cache else None
+    exporter = Exporter() if a.export_reuse else None
+    export_dynamic, export_fixed = (exporter.export, exporter.export_static) if exporter else (export, export_static)
 
     def fit(it, steps):
         samples = [s for k in range(max(0, it - a.window + 1), it + 1) for s in sorted(iteration_dir(k).glob('samples-*.bin'))]
@@ -250,7 +259,7 @@ def run_loop(a, args, gpu_bank):
             if set(tokens.groups) != expected:
                 raise ValueError('replay does not contain every configured deck')
         else:
-            tokens, policy, won = read(samples, max_rows=a.max_train_rows)
+            tokens, policy, won = dense.read(samples) if dense else read(samples, max_rows=a.max_train_rows)
         run.status(stage=f'iteration {it}', phase='train', done=0, total=steps)
         train(net, optimizer, tokens, policy, won, steps, a.batch, a.device,
               log=lambda s: (print(f'  {s}', flush=True), run.status(stage=f'iteration {it}', phase='train', detail=s)))
@@ -259,10 +268,10 @@ def run_loop(a, args, gpu_bank):
                     'cuda_rng': torch.cuda.get_rng_state_all() if a.device.startswith('cuda') else []},
                    iteration_dir(it) / 'model.pt')
         run.status(stage=f'iteration {it}', phase='export')
-        export(net, iteration_dir(it) / 'model.onnx')
-        export_static(net, iteration_dir(it) / 'model-gpu.onnx', a.gpu_batch, a.gpu_tokens)
+        export_dynamic(net, iteration_dir(it) / 'model.onnx')
+        export_fixed(net, iteration_dir(it) / 'model-gpu.onnx', a.gpu_batch, a.gpu_tokens)
         for b in gpu_bank:
-            export_static(net, iteration_dir(it) / f'model-gpu-b{b}.onnx', b, a.gpu_tokens)
+            export_fixed(net, iteration_dir(it) / f'model-gpu-b{b}.onnx', b, a.gpu_tokens)
         net.to(a.device)
         if a.balanced_replay:
             (iteration_dir(it) / 'replay.json').write_text(json.dumps(dict(
@@ -316,10 +325,10 @@ def run_loop(a, args, gpu_bank):
                 subprocess.run([str(a.play), 'import', str(iteration_dir(0) / 'samples-bootstrap.bin')], stdin=games, check=True)
             states = fit(0, a.bootstrap_steps)
         else:
-            export(net, iteration_dir(0) / 'model.onnx')
-            export_static(net, iteration_dir(0) / 'model-gpu.onnx', a.gpu_batch, a.gpu_tokens)
+            export_dynamic(net, iteration_dir(0) / 'model.onnx')
+            export_fixed(net, iteration_dir(0) / 'model-gpu.onnx', a.gpu_batch, a.gpu_tokens)
             for b in gpu_bank:
-                export_static(net, iteration_dir(0) / f'model-gpu-b{b}.onnx', b, a.gpu_tokens)
+                export_fixed(net, iteration_dir(0) / f'model-gpu-b{b}.onnx', b, a.gpu_tokens)
             net.to(a.device); states = 0
             torch.save({'net': net.state_dict(), 'optimizer': optimizer.state_dict(), 'spec': net.spec,
                         'rng': torch.get_rng_state(),
