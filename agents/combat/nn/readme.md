@@ -6,10 +6,10 @@ See the [documentation index](docs/README.md), [production inference benchmark](
 
 ## Main files
 
-- `loop.py`: bootstrap from stored MCTS games, then play → train → export. Launches **one** C++ process.
-- `play.cpp`: combat simulation/output adapter and CLI. Legacy scheduling alternates groups; `--scheduler local` uses worker-local games and a coordinator.
-- `workers.hpp` / `workers.cpp`: bounded worker-local scheduler; `SimWorker::run()` advances owned games and `Coordinator::run()` batches/routes predictions. See [WORKERS.md](WORKERS.md) for ownership, timeouts, review and tests.
-- `gpu.cpp`: TensorRT engine bank. Legacy mode has its own GPU thread; local mode runs synchronously on the coordinator, without a second dispatch thread. `submit()` packs inputs; `run()` transfers and evaluates.
+- `loop.py`: play → train on disk-indexed replay → export. Launches **one** C++ process.
+- `play.cpp`: combat `infra::Episode` adapter and CLI. See [WORKERS.md](WORKERS.md).
+- `infra/workers`: actors, inference server, supervision, replay readers and prefetch.
+- `infra/inference`: CPU/GPU backends; no agent-specific inference implementation.
 - `gumbel.cpp`: search pauses at each unevaluated leaf. Root sequential halving with Gumbel noise; deterministic improved-policy selection inside the tree. Each simulation samples a public-belief particle.
 - `model.py`: 2-layer, width-64, 2-head transformer. Context token produces win probability; legal-action tokens produce policy logits.
 - `data.py`: binary self-play samples → dense padded tensors.
@@ -19,7 +19,7 @@ See the [documentation index](docs/README.md), [production inference benchmark](
 
 ### Training
 
-- Small legacy datasets may stay on GPU. Broad deck-balanced replay stays disk-indexed;
+- Disk-indexed replay stays disk-indexed;
   transfer only FP32 minibatches, with BF16 autocast and length-bounded gradient accumulation.
 - Use **bf16 mixed precision** and a substantial batch (default **2,048**). Tiny batches spend their time launching kernels, not doing useful work.
 - Keep diagnostics off the hot path: copy loss statistics to the host only when logging.
@@ -29,16 +29,16 @@ See the [documentation index](docs/README.md), [production inference benchmark](
 ### Self-play / inference
 
 - Use **one GPU evaluator**, not one GPU session per CPU thread or process. Small independent GPU calls are slower than CPU inference.
-- Keep enough games in flight. Starting point: **10 CPU threads × 200 games/thread = 2,000 games**, split into two groups per thread.
+- Keep enough games in flight. Starting point: **9 actors × 224 slots = 2,016 games**.
 - A small job cannot fill these slots: 200 total games still means only 200 games in flight, regardless of `--parallel`.
-- Default-network GPU starting shape: **batch 1,024 × 48 tokens × 68 features**. Each batch is padded to this shape. Watch the exit summary's **mean leaves**: low fill wastes GPU work. States exceeding the configured token count use the CPU model, never truncation.
+- Default-network GPU starting shape: **batch 512 × 48 tokens × 68 features**. Each batch is padded to this shape. Watch the exit summary's **mean leaves**: low fill wastes GPU work. States exceeding the configured token count use the CPU model, never truncation.
 - Fixed-size collections drain: 2,000 starts with 2,000 slots have no replacement reserve. More total games sustain occupancy longer but change games/update. Alternatively, an optional **fixed-shape bank** reduces padded work as the collection drains, without dropping long fights or changing search.
 - For the tested **128-wide / 4-layer panache network**, benchmark `--gpu-batch 512 --gpu-bank 256,32 --gpu-wait-us 100` (48 tokens). This exports three same-weight ONNX models; one shared evaluator chooses the smallest engine that fits each gathered batch. Bank engines must have identical weights, token count and feature schema. Extra export/build cost matters on short updates; this is not a universal default. See the [throughput investigation](../../../experiments/25-10-26/a-gumbel/nn/THROUGHPUT_REPORT.md).
-- CPU scheduling is explicit: `--parallel` slots/worker (default200), `--groups` (default2), and `--scheduler local|ordered|ready` (defaultordered). Local ignores groups and uses one coordinator plus the requested SimWorkers. More ready groups can raise CPU activity without increasing useful inference throughput; do not tune for CPU percentage alone.
+- Scheduling uses only infra actors: `--parallel` slots/actor (default 224), `--workers` actors (default 9), plus one inference server.
 - Export `model-gpu.onnx` with **fixed shapes and fp16 input**. TensorRT uses fp16 internally; outputs stay fp32. Dynamic shape computations can fall back to CPU and prevent graph capture.
 - **TensorRT fusion** reduces kernel count and memory traffic. **CUDA graphs** reduce CPU launch overhead. They solve different problems; both are enabled.
 - Padding and fp16 conversion run on CPU workers. Reusable buffers avoid allocation every request; the GPU thread concatenates prepared chunks into pinned memory and transfers half as many input bytes as fp32.
-- Build engines before gameplay starts, with no training running on the GPU. Engine cache lives beside each model (`tensorrt/`). **Kernel timing cache is shared** at `build/nn/tensorrt-timing/`, with builder optimization level **3**. This avoids repeated tactic measurement for each model. Timing caching reduces variability; it does not guarantee deterministic tactics. Level 5 was much slower to build and did not fix variability.
+- Build engines before gameplay starts, with no training running on the GPU. Engine cache lives beside each model (`tensorrt/`). **Kernel timing cache is shared** at `$XDG_CACHE_HOME/stsrl/tensorrt-timing` (default `~/.cache/stsrl/tensorrt-timing`), with builder optimization level **3**. This avoids repeated tactic measurement for each model. Timing caching reduces variability; it does not guarantee deterministic tactics. Level 5 was much slower to build and did not fix variability.
 - CPU usage need not be 100%: once simulation can feed the GPU, waiting for inference is expected. Judge **completed games per wall-clock second**, not utilisation percentages alone.
 
 ### Measurements on this RTX 3060 / WSL machine
@@ -91,16 +91,16 @@ and delegates training to this loop. `--start` also accepts a list of named star
 
 ```sh
 .venv/bin/python -m agents.combat.nn.loop \
-    --start START.json --bootstrap MCTS_GAMES.jsonl --out runs/YOUR_NEW_RUN \
-    --iterations 10 --games 2000 --steps 100 --batch 2048 --workers 10 \
-    --gpu-batch 1024 --gpu-tokens 48 --sims 256
+    --start START.json --out runs/YOUR_NEW_RUN \
+    --iterations 10 --games 2000 --steps 100 --batch 2048 --workers 9 \
+    --gpu-batch 512 --gpu-tokens 48 --sims 256
 ```
 
 Topology can be selected with `--dim`, `--layers`, and `--heads` (defaults: 64/2/2).
 New checkpoints include a `spec` dictionary; reconstruct with `Net(**checkpoint['spec'])` before loading weights.
 Legacy checkpoints without `spec` retain the default topology. `model-spec.json` also records the run's architecture.
 
-This is an example, not a new approved experiment. `START.json` contains `{fight_id, start}`. Bootstrap JSON lines contain recorded `{fight, search}` results. Output directories must be new unless explicitly continuing with `--resume-from N`.
+This is an example, not a new approved experiment. `START.json` contains `{fight_id, start}`. Output directories must be new unless explicitly continuing with `--resume-from N`.
 Resume requires the latest completed iteration's checkpoint and existing replay. `--games`, `--iterations`,
 `--test-every`, `--prune-replay` and `--max-train-rows` may change. Archive any interrupted next-iteration directory first; partial samples are never appended.
 Stop the old process before resuming. New checkpoints restore training RNG state; legacy checkpoints without
@@ -109,30 +109,29 @@ RNG state restart sampling from seed 0 (not a bit-exact continuation). Keep chec
 For unattended runs, `--iterations 0` runs until `OUT/STOP` exists, finishing the active update and
 scheduled evaluation before exiting. `--test-every N` adds recurring evaluations. `--prune-replay`
 removes samples outside the replay window and old TensorRT caches, retaining models and results.
-`--max-train-rows N` bounds the loaded replay to a fresh uniform subset; 0 loads all rows.
+`--max-train-rows N` caps uniformly selected indexed rows; 0 indexes all rows. Only minibatches are read.
 A process-held `.lock` prevents overlapping loops in one output directory.
-Opt-in update overhead flags (outputs unchanged; may be toggled on resume): `--replay-cache` reads each samples file
-once while it is in the window (`data.Replay`; keeps about one dense replay in memory between updates);
-`--export-reuse` runs the ONNX exporter once per shape and afterwards only rewrites weights (`graphs.Exporter`).
+`--export-reuse` runs the ONNX exporter once per shape and then rewrites weights.
 
 The run writes `status.json` live, `log.jsonl` per iteration, and results and `worker.log` per play stage.
 Native `gpu_stats` JSON lines report exact real leaves, computed row capacity, engine usage, CPU fallback,
-packing/transfer/inference/scatter timings, queue latency, and token counts. These are host wall-time diagnostics,
+transfer/inference timings. These are host wall-time diagnostics,
 not GPU occupancy or percentage of peak FLOPs. With a shape bank, fill is `leaves / capacity`, not mean leaves divided by the largest shape.
 
-Standard dashboard definitions live in [METRICS.md](METRICS.md). Native `play_stats`/`runtime_stats` add searched decisions/s and thread CPU counters. `Run.play` records optional NVML `gpu.csv`; absent hardware counters stay unavailable, never inferred from GPU-busy time. GPU peak bandwidth/compute percentages need profiling, and coordinator CPU/non-CPU percentages are not an I/O-bound classification. The [real-training snapshot](../../../experiments/25-10-26/a-gumbel/nn/LOCAL_TRAIN_REPORT.md) includes phase times, observed device activity and current packing bottleneck. See the panache experiment dashboard under `experiments/25-10-26/a-gumbel/nn/`.
+Standard dashboard definitions live in [METRICS.md](METRICS.md). Native `play_stats`/`actors_stats` add searched decisions/s and thread CPU counters. `Run.play` records optional NVML `gpu.csv`; absent hardware counters stay unavailable, never inferred from GPU-busy time. GPU peak bandwidth/compute percentages need profiling, and coordinator CPU/non-CPU percentages are not an I/O-bound classification. The [real-training snapshot](../../../experiments/25-10-26/a-gumbel/nn/LOCAL_TRAIN_REPORT.md) includes phase times, observed device activity and current packing bottleneck. See the panache experiment dashboard under `experiments/25-10-26/a-gumbel/nn/`.
 
 ### Binary samples
 
-Each searched decision: int32 token count, int32 action count, float32 game outcome, `tokens × 68` float32 features, then one float32 policy probability per action. Action tokens are last. The legacy full-dataset loader pads densely and stores tokens as fp16; broad balanced replay uses FP32 minibatches to preserve numeric range and exact token IDs. Forced moves are not training rows. Cap outcomes (50 turns / 512 actions) count as non-wins.
+Each searched decision: int32 token count, int32 action count, float32 game outcome, `tokens × 68` float32 features, then one float32 policy probability per action. Action tokens are last. Replay uses FP32 minibatches to preserve numeric range and exact token IDs. Forced moves are not training rows. Cap outcomes (50 turns / 512 actions) count as non-wins.
 
 ## Scope
 
 This is a simple Ironclad combat pipeline, not a learned simulator. It reuses the environment encoder, native simulator and public-belief particle sampler. Guided rollouts remain mixed into search values (default 0.5) because they helped the tested agents. Search settings, batch shape and model topology remain explicit. Unsupported states fail rather than silently dropping information.
 
-For broader deck sets, `--balanced-replay` uses native result counts to index the
+`--balanced-replay` selects equal deck quotas instead of uniform row sampling.
+Replay uses native result counts to index the
 unchanged binary samples by deck. It selects at most `--max-train-rows` compact
-row addresses with equal deck quotas, samples every minibatch evenly across decks,
+row addresses, samples uniformly (or evenly across decks with `--balanced-replay`),
 and pads/transfers only length-bounded FP32 microbatches. Their losses are weighted by
 row count and gradients accumulated before one effective-batch optimizer step; no rows
 are truncated or dropped. Per-update `replay.json` records available,
@@ -148,3 +147,14 @@ Native results now report explicit episode caps and completion timestamps. `nn_p
 validates/encodes starts without network inference, search, or game outcomes.
 Nonfinite GPU predictions are retried once against the original FP32 CPU model; invalid
 FP32 results still fail. Long CPU fallback batches also have bounded attention shapes.
+
+## Infrastructure cutover
+
+There is no legacy scheduler or dense/cached replay path in the loop. Old
+`--scheduler`, `--groups`, `--replay-cache` and bootstrap-loop
+options are rejected. Start a new run with `--initial-checkpoint` to reuse weights,
+optimizer and RNG; do not resume an old command with the new binary. Native
+`nn_play import` remains a standalone sample conversion tool, not a loop input.
+
+Historical performance reports describe the removed implementation; current
+component benchmarks live in `infra/benchmarks` (`make infra-benchmark`).

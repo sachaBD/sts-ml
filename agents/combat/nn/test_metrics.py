@@ -14,7 +14,7 @@ class MetricsTests(unittest.TestCase):
             p=Path(root)
             log='\n'.join([
                 'play_stats: '+json.dumps(dict(seconds=2,games=10,searched_decisions=100,wall_start_unix=1000)),
-                'runtime_stats: '+json.dumps(dict(worker_cpu_pct=25,coordinator_cpu_pct=40,coordinator_non_cpu_pct=60)),
+                'actors_stats: '+json.dumps(dict(actor_cpu_pct=25,server_cpu_pct=40,requests=10000)),
                 'gpu_stats: '+json.dumps(dict(leaves=10000,capacity=20000)),
                 'gpu_stats: {"leaves":'])
             (p/'worker.log').write_text(log)
@@ -31,6 +31,7 @@ class MetricsTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as root:
             p=Path(root)
             (p/'worker.log').write_text('play_stats: {"seconds":2,"games":1,"searched_decisions":1}\n'
+                                       'actors_stats: {"requests":100}\n'
                                        'gpu_stats: {"leaves":80,"cpu_leaves":20,"capacity":128}\n')
             self.assertEqual(play_metrics(p)['nn_evaluations_per_second'],50)
 

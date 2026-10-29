@@ -66,6 +66,23 @@ class ReplayTests(unittest.TestCase):
             self.assertEqual(sum(replay.drawn.values()), 10)
             self.assertLessEqual(abs(replay.drawn['a'] - replay.drawn['b']), 2)
 
+    def test_uniform_rows_do_not_rebalance_decks(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = samples(Path(tmp) / 'iter001', [('a', 3, 1, 1), ('b', 1, 2, 0)])
+            with Replay([path], balanced=False) as replay:
+                with patch('torch.randint', return_value=torch.arange(4)):
+                    rows = replay.sample(4)
+                self.assertEqual(len(rows), 4)
+                self.assertEqual(replay.drawn, {'a': 3, 'b': 1})
+
+    def test_uniform_cap_can_be_smaller_than_deck_count(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = samples(Path(tmp) / 'iter001', [('a', 3, 1, 1), ('b', 1, 2, 0)])
+            with Replay([path], max_rows=1, balanced=False) as replay:
+                self.assertEqual(len(replay), 1)
+                self.assertEqual(len(replay.sample(2)), 2)
+                self.assertEqual(sum(replay.drawn.values()), 2)
+
     def test_reject_incomplete_binary(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = samples(Path(tmp) / 'iter001', [('a', 3, 1, 1)])

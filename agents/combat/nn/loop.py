@@ -1,10 +1,9 @@
-"""Gumbel self-play loop: [bootstrap on recorded games] -> (play -> train on recent games -> export) x N, with tests.
+"""Gumbel self-play loop: (infra actors -> infra readers + learner -> export) x N, with tests.
 
-  python -m agents.combat.nn.loop --start START.json --out DIR [--bootstrap GAMES.jsonl] [--test FIGHTS.jsonl --test-at 0,3,10]
+  python -m agents.combat.nn.loop --start START.json --out DIR [--test FIGHTS.jsonl --test-at 0,3,10]
 
 START.json: one fight {"fight_id", "start"}, or a list of named fights (combat_v4 starts).
 Training reuses the starts with new seeds; --games is the total, balanced across a list.
-GAMES.jsonl: recorded games for `nn_play import` (e.g. MCTS); trained on as iteration 0's samples.
 Writes DIR/iterNNN/{samples-*.bin, results.jsonl, model.pt, model.onnx}, DIR/test/iterNNN/results.jsonl,
 DIR/log.jsonl (one line per iteration or test) and DIR/status.json (live stage and progress).
 """
@@ -23,7 +22,6 @@ from pathlib import Path
 
 import torch
 
-from .data import Replay as DenseReplay, read
 from .graphs import Exporter
 from .replay import Replay
 from .model import Net, export, export_static
@@ -66,14 +64,14 @@ def fights(base, name, n):
 
 
 class Run:
-    def __init__(self, out, gpu_batch=1024, gpu_tokens=48, gpu_bank=(), gpu_wait_us=1000,
-                 parallel=200, groups=2, scheduler='ordered', timeout_ms=60000, shutdown_timeout_ms=5000,
+    def __init__(self, out, gpu_batch=512, gpu_bank=(), gpu_wait_us=100,
+                 parallel=224, timeout_ms=60000, shutdown_timeout_ms=5000,
                  sample_devices=True, play_path=PLAY):
         self.out = out
         self.play_path = play_path
-        self.gpu_batch, self.gpu_tokens = gpu_batch, gpu_tokens
+        self.gpu_batch = gpu_batch
         self.gpu_bank, self.gpu_wait_us = gpu_bank, gpu_wait_us
-        self.parallel, self.groups, self.scheduler = parallel, groups, scheduler
+        self.parallel = parallel
         self.timeout_ms, self.shutdown_timeout_ms = timeout_ms, shutdown_timeout_ms
         self.sample_devices = sample_devices
 
@@ -97,9 +95,8 @@ class Run:
         starts.write_text(''.join(json.dumps(g) + '\n' for g in games))
         command = [str(self.play_path), 'play', str(model), str(sample), '--threads', str(workers), '--parallel', str(self.parallel),
                    '--gpu-model', str(model.with_name('model-gpu.onnx')), '--gpu-batch', str(self.gpu_batch),
-                   '--gpu-tokens', str(self.gpu_tokens), '--sims', str(sims), '--gumbel-scale', str(gumbel_scale),
+                   '--sims', str(sims), '--gumbel-scale', str(gumbel_scale),
                    '--rollout-mix', str(rollout_mix), '--gpu-wait-us', str(self.gpu_wait_us),
-                   '--groups', str(self.groups), '--scheduler', self.scheduler,
                    '--timeout-ms', str(self.timeout_ms), '--shutdown-timeout-ms', str(self.shutdown_timeout_ms)]
         if self.gpu_bank:
             command += ['--gpu-bank', ','.join(str(model.with_name(f'model-gpu-b{b}.onnx')) for b in self.gpu_bank)]
@@ -134,10 +131,8 @@ def main():
     p.add_argument('--start', type=Path, required=True)
     p.add_argument('--out', type=Path, required=True)
     p.add_argument('--play', type=Path, default=PLAY, help='native nn_play binary (may be a frozen app snapshot)')
-    p.add_argument('--bootstrap', type=Path, help='recorded games to import and train on first')
     p.add_argument('--initial-checkpoint', type=Path, help='warm-start a new run from compatible weights/optimizer/RNG; no old replay')
-    p.add_argument('--balanced-replay', action='store_true', help='deck-balanced disk replay; only minibatches go to GPU')
-    p.add_argument('--bootstrap-steps', type=int, default=2000)
+    p.add_argument('--balanced-replay', action='store_true', help='equal deck quotas instead of uniform decision-row sampling')
     p.add_argument('--iterations', type=int, default=10, help='updates; 0 = run until OUT/STOP exists')
     p.add_argument('--test-every', type=int, default=0, help='also evaluate every N updates; 0 disables')
     p.add_argument('--validation-share', type=float, default=0, help='evaluate when recorded validation wall share falls below this target; 0 disables')
@@ -146,22 +141,19 @@ def main():
     p.add_argument('--min-free-gib', type=float, default=0, help='clean stop before collection if disk reserve is low; 0 disables')
     p.add_argument('--games', type=int, default=1000)
     p.add_argument('--steps', type=int, default=100)
-    p.add_argument('--window', type=int, default=5, help='train on the last N iterations (iteration 0 = bootstrap games)')
+    p.add_argument('--window', type=int, default=5, help='train on the last N iterations')
     p.add_argument('--batch', type=int, default=2048)
     p.add_argument('--lr', type=float, default=1e-3)
     p.add_argument('--sims', type=int, default=256)
     p.add_argument('--rollout-mix', type=float, default=0.5)
-    p.add_argument('--workers', type=int, default=10)
-    p.add_argument('--gpu-batch', type=int, default=1024)
+    p.add_argument('--workers', type=int, default=9)
+    p.add_argument('--gpu-batch', type=int, default=512)
     p.add_argument('--gpu-tokens', type=int, default=48)
     p.add_argument('--gpu-bank', default='', help='smaller fixed GPU batches, e.g. 256,128,32; same weights/tokens')
-    p.add_argument('--gpu-wait-us', type=int, default=1000, help='arrival-stall wait before a partial batch; 0 dispatches immediately')
-    p.add_argument('--parallel', type=int, default=200, help='active game slots per CPU worker')
-    p.add_argument('--groups', type=int, default=2, help='independent inference groups per worker')
-    p.add_argument('--scheduler', choices=['local', 'ordered', 'ready'], default='ordered',
-                   help='local = worker-owned games + coordinator; threads count simulation workers')
-    p.add_argument('--timeout-ms', type=int, default=60000, help='local scheduler request/worker stall deadline')
-    p.add_argument('--shutdown-timeout-ms', type=int, default=5000, help='local scheduler forced-exit grace after cancellation')
+    p.add_argument('--gpu-wait-us', type=int, default=100, help='arrival-stall wait before a partial batch; 0 dispatches immediately')
+    p.add_argument('--parallel', type=int, default=224, help='active game slots per CPU worker')
+    p.add_argument('--timeout-ms', type=int, default=60000, help='Actor/request/server stall deadline')
+    p.add_argument('--shutdown-timeout-ms', type=int, default=5000, help='Actor/server forced-exit grace after cancellation')
     p.add_argument('--test', type=Path, help='primary validation fights (JSON lines), greedy')
     p.add_argument('--test-in', type=Path, help='optional separate in-sample validation, not part of primary score')
     p.add_argument('--test-at', default='', help='iterations to test, e.g. 0,3,10')
@@ -171,7 +163,6 @@ def main():
     p.add_argument('--fight-namespace', help='seed namespace; reuse a prior run name for matching training starts')
     p.add_argument('--device', default='cuda')
     p.add_argument('--resume-from', type=int, help='resume a completed iteration; preserve replay and optimizer')
-    p.add_argument('--replay-cache', action='store_true', help='read each replay file once while it is in the window')
     p.add_argument('--export-reuse', action='store_true', help='run the ONNX exporter once per shape, then rewrite weights')
     a = p.parse_args()
     try:
@@ -182,16 +173,10 @@ def main():
         p.error('gpu-bank batches must be distinct, positive, and smaller than gpu-batch')
     if a.parallel < 1 or a.workers < 1 or a.gpu_batch < 1 or a.gpu_wait_us < 0 or a.timeout_ms <= 0 or a.shutdown_timeout_ms <= 0:
         p.error('positive workers/parallel/gpu-batch/timeouts; nonnegative GPU wait')
-    if a.scheduler != 'local' and (a.groups < 2 or a.parallel < a.groups or (a.parallel + a.groups - 1) // a.groups > a.gpu_batch):
-        p.error('legacy scheduler requires parallel >= groups >= 2; each group must fit gpu-batch')
     if not 0 <= a.validation_share < 1:
         p.error('validation-share must be in [0,1)')
     if a.iterations < 0 or a.test_every < 0 or a.max_train_rows < 0 or a.window < 1:
         p.error('iterations/test-every/max-train-rows must be nonnegative; window must be positive')
-    if a.initial_checkpoint and a.bootstrap:
-        p.error('choose initial-checkpoint or bootstrap, not both')
-    if a.replay_cache and (a.balanced_replay or a.max_train_rows):
-        p.error('replay-cache is the dense loader: not with balanced-replay or max-train-rows')
     args = {k: str(v) for k, v in vars(a).items()}
     if a.resume_from is None:
         a.out.mkdir(parents=True, exist_ok=False)
@@ -203,12 +188,9 @@ def main():
 def run_loop(a, args, gpu_bank):
     if a.resume_from is not None:
         previous = json.loads((a.out / 'args.json').read_text())
-        changed = {k for k in previous if previous[k] != args[k]}
-        legacy_defaults = dict(gpu_bank='', gpu_wait_us=1000, parallel=200, groups=2, scheduler='ordered',
-                               timeout_ms=60000, shutdown_timeout_ms=5000, replay_cache=False, export_reuse=False)
-        changed |= {k for k, default in legacy_defaults.items() if previous.get(k, str(default)) != args[k]}
+        changed = {k for k in previous if previous[k] != args.get(k)}
         if changed - {'games', 'iterations', 'resume_from', 'test_every', 'prune_replay', 'max_train_rows', 'validation_share',
-                      'replay_cache', 'export_reuse'}:
+                      'export_reuse'}:
             raise ValueError(f'resume changed incompatible settings: {changed}')
         rows = [json.loads(line) for line in (a.out / 'log.jsonl').read_text().splitlines()]
         completed = [r['iteration'] for r in rows if 'iteration' in r]
@@ -221,7 +203,7 @@ def run_loop(a, args, gpu_bank):
             raise ValueError('checkpoint architecture does not match requested topology')
         (a.out / f'args-before-resume-{time.time_ns()}.json').write_text(json.dumps(previous, indent=1))
     (a.out / 'args.json').write_text(json.dumps(args, indent=1))
-    run = Run(a.out, a.gpu_batch, a.gpu_tokens, gpu_bank, a.gpu_wait_us, a.parallel, a.groups, a.scheduler,
+    run = Run(a.out, a.gpu_batch, gpu_bank, a.gpu_wait_us, a.parallel,
               a.timeout_ms, a.shutdown_timeout_ms, play_path=a.play)
     run.status(stage='initialization', phase='initialize')
     base = json.loads(a.start.read_text())
@@ -246,23 +228,22 @@ def run_loop(a, args, gpu_bank):
             torch.cuda.set_rng_state_all(warm['cuda_rng'])
         run.log(initial_checkpoint=str(a.initial_checkpoint), spec=net.spec)
     iteration_dir = lambda k: a.out / f'iter{k:03d}'
-    dense = DenseReplay() if a.replay_cache else None
     exporter = Exporter() if a.export_reuse else None
     export_dynamic, export_fixed = (exporter.export, exporter.export_static) if exporter else (export, export_static)
 
     def fit(it, steps):
         samples = [s for k in range(max(0, it - a.window + 1), it + 1) for s in sorted(iteration_dir(k).glob('samples-*.bin'))]
         run.status(stage=f'iteration {it}', phase='load', files=len(samples))
-        if a.balanced_replay:
-            tokens, policy, won = Replay(samples, max_rows=a.max_train_rows), None, None
-            expected = {f['fight_id'] for f in base} if isinstance(base, list) else set(tokens.groups)
-            if set(tokens.groups) != expected:
+        with Replay(samples, max_rows=a.max_train_rows, balanced=a.balanced_replay) as replay:
+            expected = {f['fight_id'] for f in base} if isinstance(base, list) else set(replay.groups)
+            if set(replay.groups) != expected:
                 raise ValueError('replay does not contain every configured deck')
-        else:
-            tokens, policy, won = dense.read(samples) if dense else read(samples, max_rows=a.max_train_rows)
-        run.status(stage=f'iteration {it}', phase='train', done=0, total=steps)
-        train(net, optimizer, tokens, policy, won, steps, a.batch, a.device,
-              log=lambda s: (print(f'  {s}', flush=True), run.status(stage=f'iteration {it}', phase='train', detail=s)))
+            run.status(stage=f'iteration {it}', phase='train', done=0, total=steps)
+            train(net, optimizer, replay, None, None, steps, a.batch, a.device,
+                  log=lambda s: (print(f'  {s}', flush=True), run.status(stage=f'iteration {it}', phase='train', detail=s)))
+            (iteration_dir(it) / 'replay.json').write_text(json.dumps(dict(
+                available=replay.available, selected=replay.selected, drawn=replay.drawn), indent=2))
+            states = len(replay)
         torch.save({'net': net.state_dict(), 'optimizer': optimizer.state_dict(), 'spec': net.spec,
                     'rng': torch.get_rng_state(),
                     'cuda_rng': torch.cuda.get_rng_state_all() if a.device.startswith('cuda') else []},
@@ -273,13 +254,9 @@ def run_loop(a, args, gpu_bank):
         for b in gpu_bank:
             export_fixed(net, iteration_dir(it) / f'model-gpu-b{b}.onnx', b, a.gpu_tokens)
         net.to(a.device)
-        if a.balanced_replay:
-            (iteration_dir(it) / 'replay.json').write_text(json.dumps(dict(
-                available=tokens.available, selected=tokens.selected, drawn=tokens.drawn), indent=2))
-            tokens.close()
         if a.device.startswith('cuda'):
             torch.cuda.empty_cache()  # leave VRAM for the next native TensorRT worker
-        return len(tokens) if a.balanced_replay else len(won)
+        return states
 
     def test(it):
         due = it in test_at or (a.test_every and it % a.test_every == 0)
@@ -317,24 +294,18 @@ def run_loop(a, args, gpu_bank):
             test(a.resume_from)
         first = a.resume_from + 1
     else:
-        # Iteration 0: the bootstrap games (or an untrained network).
+        # Iteration 0 is the initial (or warm-started) network, without old replay.
         iteration_dir(0).mkdir()
         t = time.time()
-        if a.bootstrap:
-            run.status(stage='iteration 0', phase='import')
-            with a.bootstrap.open() as games:
-                subprocess.run([str(a.play), 'import', str(iteration_dir(0) / 'samples-bootstrap.bin')], stdin=games, check=True)
-            states = fit(0, a.bootstrap_steps)
-        else:
-            export_dynamic(net, iteration_dir(0) / 'model.onnx')
-            export_fixed(net, iteration_dir(0) / 'model-gpu.onnx', a.gpu_batch, a.gpu_tokens)
-            for b in gpu_bank:
-                export_fixed(net, iteration_dir(0) / f'model-gpu-b{b}.onnx', b, a.gpu_tokens)
-            net.to(a.device); states = 0
-            torch.save({'net': net.state_dict(), 'optimizer': optimizer.state_dict(), 'spec': net.spec,
-                        'rng': torch.get_rng_state(),
-                        'cuda_rng': torch.cuda.get_rng_state_all() if a.device.startswith('cuda') else []},
-                       iteration_dir(0) / 'model.pt')
+        export_dynamic(net, iteration_dir(0) / 'model.onnx')
+        export_fixed(net, iteration_dir(0) / 'model-gpu.onnx', a.gpu_batch, a.gpu_tokens)
+        for b in gpu_bank:
+            export_fixed(net, iteration_dir(0) / f'model-gpu-b{b}.onnx', b, a.gpu_tokens)
+        net.to(a.device); states = 0
+        torch.save({'net': net.state_dict(), 'optimizer': optimizer.state_dict(), 'spec': net.spec,
+                    'rng': torch.get_rng_state(),
+                    'cuda_rng': torch.cuda.get_rng_state_all() if a.device.startswith('cuda') else []},
+                   iteration_dir(0) / 'model.pt')
         run.log(iteration=0, states=states, train_seconds=round(time.time() - t))
         test(0)
         first = 1

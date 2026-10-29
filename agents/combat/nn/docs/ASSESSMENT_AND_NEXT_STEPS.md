@@ -1,3 +1,6 @@
+> Historical measurements of the pre-infra implementation. Current backends and
+> component benchmarks are in `infra/`; the old native benchmark was removed.
+
 # Pipeline assessment and next steps
 
 Decision summary from the 27 October 2026 throughput discussion. Read alongside the [GPU measurements](GPU_PERFORMANCE.md), [benchmark instructions](INFERENCE_BENCHMARK.md), and historical experiment reports. These are workload-specific engineering judgments, not training-strength results.

@@ -1,3 +1,6 @@
+> Historical measurements of the pre-infra implementation. Current backends and
+> component benchmarks are in `infra/`; the old native benchmark was removed.
+
 # GPU inference: measured settings and interpretation
 
 ## Recommendation

@@ -1,6 +1,13 @@
 # Gumbel NN combat expert iteration
 
-Thin launcher for `agents/combat/nn/loop.py` on ten fixed Champ decks.
+Launcher for `agents/combat/nn/loop.py` on ten fixed Champ decks.
+
+The loop uses `infra` actors, inference backends, readers and prefetch exclusively.
+Combat/search, replay sampling, learning and model export remain agent-owned.
+This is a hard cutover: rebuild `nn_play` and start a new run. Old scheduler,
+groups, dense replay/cache and bootstrap-loop options are not supported. Reuse
+weights with `warm_start_run`, not by resuming an old command. See the
+[ownership boundary](../../agents/combat/nn/WORKERS.md).
 
 ## Run, monitor, stop
 
@@ -67,8 +74,9 @@ three updates. Starts untrained; old teacher traces cannot replay safely after
 simulator fixes. Historical scores are approximate references on fixed training-deck
 monitoring seeds, not controlled algorithm comparisons or unseen-deck tests.
 
-Keep five batches of training samples; load a fresh uniform subset of at most
-500,000 decision rows per update using memory-mapped input. Remove expired samples,
+Keep five batches of training samples; index a uniform subset of at most
+500,000 decision rows per update; infra readers prefetch exact row bytes into
+length-bounded minibatches. Remove expired samples,
 old TensorRT caches and committed evaluation sample binaries. Retain checkpoints,
 models, small fight summaries and telemetry. No full action traces.
 

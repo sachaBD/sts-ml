@@ -39,10 +39,10 @@ std::vector<sts::search::Action> legal_actions(const sts::BattleContext& state) 
     return actions;
 }
 
-Tokens encode(const sts::BattleContext& bc, std::span<const sts::search::Action> actions) {
+stsrl::infra::Tokens encode(const sts::BattleContext& bc, std::span<const sts::search::Action> actions) {
     if (bc.player.hasRelic<sts::RelicId::RUNIC_DOME>()) throw std::invalid_argument{"nn: Runic Dome hides intents"};
     const auto s = encode_state(bc, CardCoverage::ironclad_events);
-    Tokens t;
+    stsrl::infra::Tokens t;
     auto& out = t.data;
     {
         Row r{out, context, 0, 0};

@@ -1,3 +1,6 @@
+> Historical measurements of the pre-infra implementation. Current backends and
+> component benchmarks are in `infra/`; the old native benchmark was removed.
+
 # Production GPU throughput benchmark
 
 `nn_bench_inference` uses `gpu_evaluator` directly: production ONNX Runtime/TensorRT FP16 fusion, optimization, cached engines and CUDA graphs, synchronous coordinator-owned evaluation. It includes production pinned-buffer concatenation, transfers, result allocation/scatter and prediction validation. No simulator/search/training. The experimental staged-pipeline implementation was assessed separately and removed; this benchmark retains stable synchronous evaluation. This measures the backend, not a pure GPU-kernel ceiling.
