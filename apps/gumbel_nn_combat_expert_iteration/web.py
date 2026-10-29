@@ -52,6 +52,8 @@ def by_deck(results):
 
 
 def unpaired(new, old):
+    if not new['n'] or not old['n']:
+        return None  # held-out-only decks have no collection trend
     p1, n1, p2, n2 = new['p'], new['n'], old['p'], old['n']
     d, se = p1 - p2, math.sqrt(p1 * (1 - p1) / n1 + p2 * (1 - p2) / n2)
     return dict(d=d, lo=d - Z * se, hi=d + Z * se)

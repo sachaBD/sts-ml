@@ -28,7 +28,7 @@ struct Batch {
 };
 
 // Valid encoder schema/ranges, not a realistic combat-state distribution.
-void prepare(Batch& batch, Evaluator& evaluator, int count, unsigned& rng) {
+void prepare(Batch& batch, Evaluator& evaluator, int count, unsigned& rng, float scale) {
     auto random = [&] { rng = rng * 1664525u + 1013904223u; return rng; };
     for (auto& t : batch.tokens) {
         t.count = count;
@@ -39,7 +39,7 @@ void prepare(Batch& batch, Evaluator& evaluator, int count, unsigned& rng) {
             p[0] = row == 0 ? 1 : row >= count - t.actions ? 6 : 2 + random() % 4;
             p[1] = random() % 128;
             p[2] = random() % 128;
-            for (int j = 3; j < width; ++j) p[j] = float(random() % 1000) / 1000.f;
+            for (int j = 3; j < width; ++j) p[j] = float(random() % 1000) / 1000.f * scale;
         }
     }
     for (std::size_t i = 0; i < batch.tokens.size(); ++i)
@@ -60,17 +60,19 @@ void evaluate(Evaluator& evaluator, const Batch& batch) {
 int main(int argc, char** argv) try {
     if (argc < 3 || argc % 2 == 0) {
         std::cerr << "usage: nn_bench_inference CPU.onnx GPU.onnx [--batch 512] [--tokens 48] "
-                     "[--state-tokens 32] [--seconds 3] [--queue 3] [--limit-seconds 55] [--profile-prepared 0]\n";
+                     "[--state-tokens 32] [--seconds 3] [--queue 3] [--limit-seconds 55] [--profile-prepared 0] [--numeric-scale 1]\n";
         return 2;
     }
     int batch_size = 512, tokens = 48, state_tokens = 32, depth = 3, limit = 55;
     double seconds = 3;
+    float numeric_scale = 1;
     bool profile_prepared = false;
     for (int i = 3; i < argc; i += 2) {
         const std::string key = argv[i];
         if (key == "--batch") batch_size = std::stoi(argv[i + 1]);
         else if (key == "--tokens") tokens = std::stoi(argv[i + 1]);
         else if (key == "--state-tokens") state_tokens = std::stoi(argv[i + 1]);
+        else if (key == "--numeric-scale") numeric_scale = std::stof(argv[i + 1]);
         else if (key == "--seconds") seconds = std::stod(argv[i + 1]);
         else if (key == "--queue") depth = std::stoi(argv[i + 1]);
         else if (key == "--limit-seconds") limit = std::stoi(argv[i + 1]);
@@ -78,8 +80,8 @@ int main(int argc, char** argv) try {
         else throw std::invalid_argument{"unknown option: " + key};
     }
     if (batch_size < 1 || batch_size > 8192 || tokens < 2 || tokens > 512 ||
-        state_tokens < 2 || state_tokens > tokens || depth < 1 || depth > 16 ||
-        !std::isfinite(seconds) || seconds <= 0 || limit < 1 || limit > 60 || 2 * seconds + 2 >= limit)
+        state_tokens < 2 || state_tokens > 2048 || depth < 1 || depth > 16 ||
+        !std::isfinite(numeric_scale) || numeric_scale <= 0 || !std::isfinite(seconds) || seconds <= 0 || limit < 1 || limit > 60 || 2 * seconds + 2 >= limit)
         throw std::invalid_argument{"invalid sizes/duration; two measurements must fit within hard limit <=60s"};
 
     // Native engine setup/calls cannot be safely interrupted. Bound the entire process.
@@ -98,7 +100,7 @@ int main(int argc, char** argv) try {
     std::cout << "setup_seconds " << Seconds(Clock::now() - setup).count() << std::endl;
     unsigned rng = 1;
     Batch prepared(batch_size);
-    prepare(prepared, *evaluator, state_tokens, rng);
+    prepare(prepared, *evaluator, state_tokens, rng, numeric_scale);
     for (int i = 0; i < 3; ++i) evaluate(*evaluator, prepared);
 
     auto report = [&](const char* mode, long calls, double wall, double wait, double producer_wait) {
@@ -139,7 +141,7 @@ int main(int argc, char** argv) try {
                         if (stop.stop_requested()) return;
                         batch = std::move(free.front()); free.pop_front();
                     }
-                    prepare(*batch, *evaluator, state_tokens, rng);
+                    prepare(*batch, *evaluator, state_tokens, rng, numeric_scale);
                     { std::lock_guard lock{mutex}; ready.push_back(std::move(batch)); }
                     wake.notify_all();
                 }

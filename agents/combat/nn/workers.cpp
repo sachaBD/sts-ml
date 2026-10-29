@@ -10,6 +10,8 @@
 #include <mutex>
 #include <optional>
 #include <stdexcept>
+#include <sstream>
+#include <string_view>
 #include <thread>
 #include <time.h>
 
@@ -31,6 +33,7 @@ struct Request {
     std::uint64_t generation;
     const Tokens* tokens;
     std::span<const std::uint16_t> packed;
+    std::string_view label; // owning slot remains immutable until completion
 };
 struct Completion {
     std::size_t slot;
@@ -91,6 +94,7 @@ class SimWorker {
         std::uint64_t generation = 0; // incremented for EVERY request, including after slot reuse
         Clock::time_point submitted;
         std::vector<std::uint16_t> packed; // reused; immutable while waiting_for_nn
+        std::string label;
     };
     Runtime& runtime_;
     const int id_;
@@ -106,6 +110,7 @@ class SimWorker {
     void refill(std::size_t index) {
         auto& slot = slots_[index];
         slot.game = runtime_.next(); // shared start queue; construction happens on the owning worker
+        slot.label = slot.game ? slot.game->label() : std::string{};
         if (slot.game) { slot.phase = Phase::ready; ready_.push_back(index); ++active_; }
         else slot.phase = Phase::finished;
     }
@@ -148,7 +153,7 @@ class SimWorker {
             if (runtime_.stopped) return;
             slot.phase = Phase::waiting_for_nn;
             slot.submitted = Clock::now();
-            const Request request{index, ++slot.generation, tokens, slot.packed};
+            const Request request{index, ++slot.generation, tokens, slot.packed, slot.label};
             {
                 std::lock_guard lock{mailbox_.mutex};
                 // One outstanding request per slot makes overflow a bug, never a blocking push.
@@ -234,8 +239,16 @@ class Coordinator {
         for (std::size_t i = 0; i < batch.size(); ++i) {
             const auto& p = predictions[i];
             if (p.logits.size() != std::size_t(batch[i].request.tokens->actions) ||
-                !std::isfinite(p.value) || p.value < 0 || p.value > 1)
-                throw std::runtime_error{"invalid inference prediction"};
+                !std::isfinite(p.value) || p.value < 0 || p.value > 1) {
+                float largest = 0;
+                for (float x : batch[i].request.tokens->data) largest = std::max(largest, std::abs(x));
+                std::ostringstream message;
+                message.precision(9);
+                message << "invalid inference prediction: fight=" << batch[i].request.label << " value=" << p.value
+                        << " logits=" << p.logits.size() << " actions=" << batch[i].request.tokens->actions
+                        << " tokens=" << batch[i].request.tokens->count << " max_abs_input=" << largest;
+                throw std::runtime_error{message.str()};
+            }
             for (float logit : p.logits) if (!std::isfinite(logit)) throw std::runtime_error{"nonfinite policy logit"};
         }
         std::vector<std::deque<Completion>> replies(runtime_.config.workers);

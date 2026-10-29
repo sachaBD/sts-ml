@@ -8,6 +8,7 @@
 #include <array>
 #include <atomic>
 #include <chrono>
+#include <cmath>
 #include <condition_variable>
 #include <cstdio>
 #include <cstring>
@@ -229,8 +230,8 @@ private:
 
     void report() {
         const double seconds = std::chrono::duration<double>(Clock::now() - begin_).count();
-        std::fprintf(stderr, "gpu_stats: {\"seconds\":%.6f,\"batches\":%ld,\"leaves\":%ld,\"capacity\":%ld,\"busy\":%.6f,\"cpu_leaves\":%ld,\"shapes\":{",
-                     seconds, runs_, leaves_, capacity_, busy_, cpu_leaves_.load());
+        std::fprintf(stderr, "gpu_stats: {\"seconds\":%.6f,\"batches\":%ld,\"leaves\":%ld,\"capacity\":%ld,\"busy\":%.6f,\"cpu_leaves\":%ld,\"cpu_precision_retries\":%ld,\"shapes\":{",
+                     seconds, runs_, leaves_, capacity_, busy_, cpu_leaves_.load(), cpu_precision_retries_);
         bool first = true;
         for (const auto& [batch, count] : shape_runs_) {
             std::fprintf(stderr, "%s\"%d\":%ld", first ? "" : ",", batch, count);
@@ -272,6 +273,16 @@ private:
                 const auto& t = *r->leaves[i];
                 const float* row = host_logits_ + std::size_t(row_index) * tokens_;
                 r->out[i] = {host_value_[row_index++], {row + t.count - t.actions, row + t.count}};
+                const auto& p = r->out[i];
+                if (!std::isfinite(p.value) ||
+                    std::any_of(p.logits.begin(), p.logits.end(), [](float x) { return !std::isfinite(x); })) {
+                    // FP16 transport/internal tactics can overflow on large numeric features.
+                    // Recompute the SAME state in FP32 once; never truncate or discard a game.
+                    const std::array<const Tokens*, 1> retry{&t};
+                    r->out[i] = cpu_(retry).front(); // coordinator still rejects a bad FP32 prediction
+                    if (++cpu_precision_retries_ == 1)
+                        std::fprintf(stderr, "gpu: nonfinite FP16 prediction; retried original state through FP32 CPU model\n");
+                }
             }
         }
         {
@@ -304,7 +315,7 @@ private:
     std::vector<std::vector<__half>> buffers_;
     std::exception_ptr failure_;
     int pending_ = 0;
-    long runs_ = 0, leaves_ = 0, capacity_ = 0;
+    long runs_ = 0, leaves_ = 0, capacity_ = 0, cpu_precision_retries_ = 0;
     std::atomic<long> cpu_leaves_{0};
     std::atomic<long long> pack_ns_{0};
     std::atomic<long> token_sum_{0}, over32_{0}, over40_{0};

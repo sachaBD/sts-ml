@@ -33,14 +33,26 @@ Text and JSON use the same snapshot: actual running/stopping/stopped/interrupted
 state, current phase/progress and its age, latest completed checkpoint, last ten
 updates, last three per-deck evaluations and disk free. JSON contains `version: 1`.
 Full history stays in `out/training/log.jsonl`; native logs and GPU telemetry stay
-beside each stage. Besides the read-only `web.py` view: no warning framework or automatic recovery daemon.
+beside each stage. There is no general warning/recovery framework.
+`run.recovery_retries = 2` opts into a small supervisor for recognised CUDA failures:
+fresh process, latest committed checkpoint/optimizer/RNG, partial stage archived,
+15-second cooldown, persistent bounded allowance. STOP overrides recovery; unfamiliar
+errors and exhausted retries require an agent. Learner stderr is in `logs/learner-*.stderr.log`.
+For an inspected interrupted run: `.venv/bin/python -m apps.gumbel_nn_combat_expert_iteration.supervisor RUN`.
 
-The monitoring agent diagnoses failures and resumes through the existing NN loop:
+Without that option, the monitoring agent diagnoses failures and resumes through the existing NN loop:
 use `out/command.json` with `--resume-from N`, where N is the latest completed
 iteration. Stop any orphan native worker first; move partial `iterNNN` output out
 of the way and remove `out/training/STOP` before resuming. Do not append partial
 samples. The loop refuses simultaneous runs. See the NN README for recovery details.
-Dashboard liveness uses the loop lock, not the original launcher's historical status.
+Dashboard liveness uses the loop lock, not the original launcher's historical status;
+a verified live supervisor's brief cooldown is reported as `recovering`.
+
+External evaluation inputs (`evaluation.starts`, optional `train_starts`, `cohorts`,
+`baselines`, `final_starts`) support composition-held-out experiments. Primary and
+in-sample validation are separate; only primary results enter the main web curve.
+The reserved final starts are copied for later use but **never passed to the loop**.
+See `experiments/2026-10-28-champ-generalisation/RUNBOOK.md` for the thousand-deck recipe.
 
 Live browser view of the same snapshot (polls every 2 s, read-only):
 

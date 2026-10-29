@@ -2,6 +2,7 @@
 #include "environments/combat/scenarios/jaw_worm.hpp"
 #include "environments/combat/scenarios/slime_boss.hpp"
 #include "combat/BattleContext.h"
+#include "combat/Actions.h"
 #include "constants/Cards.h"
 #include "constants/CardPools.h"
 #include "constants/CharacterClasses.h"
@@ -13,6 +14,7 @@
 #include <algorithm>
 #include <array>
 #include <cstdlib>
+#include <limits>
 #include <set>
 
 namespace {
@@ -66,6 +68,19 @@ void compare_execution(sts::CardId id, bool damage) {
 }
 
 int main() {
+    {
+        auto capped = state();
+        capped.player.block = 990;
+        capped.player.gainBlock(capped, 100);
+        check(capped.player.block == 999);
+        capped.player.gainBlock(capped, std::numeric_limits<int>::max());
+        check(capped.player.block == 999);
+        capped.player.block = 600;
+        sts::Actions::EntrenchAction().actFunc(capped);
+        check(capped.player.block == 999);
+        for (int i = 0; i < 50; ++i) sts::Actions::EntrenchAction().actFunc(capped);
+        check(capped.player.block == 999);
+    }
     auto original = stsrl::scenarios::jaw_worm(1234);
     const auto expected = original.decision().encoding;
     check(expected.version == stsrl::combat_encoding_schema_version);

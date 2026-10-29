@@ -19,7 +19,8 @@ See the [documentation index](docs/README.md), [production inference benchmark](
 
 ### Training
 
-- Keep the replay on the GPU during each training phase; do not transfer every minibatch.
+- Small legacy datasets may stay on GPU. Broad deck-balanced replay stays disk-indexed;
+  transfer only FP32 minibatches, with BF16 autocast and length-bounded gradient accumulation.
 - Use **bf16 mixed precision** and a substantial batch (default **2,048**). Tiny batches spend their time launching kernels, not doing useful work.
 - Keep diagnostics off the hot path: copy loss statistics to the host only when logging.
 - Budget training by **steps**, not repeated full passes over an expanding replay. Current recipe is 100 steps × 2,048 states after 1,000 games, training on the last five iterations.
@@ -120,7 +121,7 @@ Standard dashboard definitions live in [METRICS.md](METRICS.md). Native `play_st
 
 ### Binary samples
 
-Each searched decision: int32 token count, int32 action count, float32 game outcome, `tokens × 68` float32 features, then one float32 policy probability per action. Action tokens are last. The loader pads densely and stores tokens as fp16. Forced moves are not training rows. Cap outcomes (50 turns / 512 actions) count as non-wins.
+Each searched decision: int32 token count, int32 action count, float32 game outcome, `tokens × 68` float32 features, then one float32 policy probability per action. Action tokens are last. The legacy full-dataset loader pads densely and stores tokens as fp16; broad balanced replay uses FP32 minibatches to preserve numeric range and exact token IDs. Forced moves are not training rows. Cap outcomes (50 turns / 512 actions) count as non-wins.
 
 ## Scope
 
@@ -129,9 +130,18 @@ This is a simple Ironclad combat pipeline, not a learned simulator. It reuses th
 For broader deck sets, `--balanced-replay` uses native result counts to index the
 unchanged binary samples by deck. It selects at most `--max-train-rows` compact
 row addresses with equal deck quotas, samples every minibatch evenly across decks,
-and pads/transfers only that minibatch. Per-update `replay.json` records available,
+and pads/transfers only length-bounded FP32 microbatches. Their losses are weighted by
+row count and gradients accumulated before one effective-batch optimizer step; no rows
+are truncated or dropped. Per-update `replay.json` records available,
 selected and actually drawn rows per deck. Index caches expire with their samples.
 `--initial-checkpoint` starts a new experiment from matching weights, optimizer and
 RNG without inheriting the old replay. `--validation-share 0.20` schedules validation
 at update boundaries when its cumulative recorded wall share falls below20%; the
 initial test is included. Explicit `--test-at` evaluations override this budget.
+`--test-in` adds separate in-sample validation under each test stage; both phases count
+against the wall budget, only `--test` is the primary score. `--min-free-gib` stops cleanly
+before collection when the reserve plus one estimated batch will not fit.
+Native results now report explicit episode caps and completion timestamps. `nn_play check`
+validates/encodes starts without network inference, search, or game outcomes.
+Nonfinite GPU predictions are retried once against the original FP32 CPU model; invalid
+FP32 results still fail. Long CPU fallback batches also have bounded attention shapes.

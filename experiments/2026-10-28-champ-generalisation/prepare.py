@@ -54,7 +54,11 @@ def main():
     train += sorted([r for comp, r in pool.items() if comp not in old_by_comp], key=lambda r: rank(r, 'train'))[:950]
     assert len(train) == 1000
     train_comps = {identity(r['start'])[1] for r in train}; train_ids = {r['deck_id'] for r in train}
-    held = [r for comp, r in source_rows.items() if comp not in train_comps and r['deck_id'] not in train_ids]
+    # Protect the entire historical training pool, including the few pool decks
+    # not selected tonight. This is stricter than just the current NN lineage.
+    pool_ids = {r['deck_id'] for r in pool.values()}
+    held = [r for comp, r in source_rows.items() if comp not in pool and comp not in train_comps
+            and r['deck_id'] not in train_ids | pool_ids]
     held = sorted(held, key=lambda r: rank(r, 'heldout'))
     assert len(held) >= 400
     dev, final = held[:200], held[200:400]
@@ -99,6 +103,7 @@ def main():
     dev_comps={identity(r['start'])[1] for r in dev};final_comps={identity(r['start'])[1] for r in final}
     assert not train_comps & dev_comps and not train_comps & final_comps and not dev_comps & final_comps
     assert not set(old_by_comp) & (dev_comps | final_comps)
+    assert not set(pool) & (dev_comps | final_comps)
     schema=pq.ParquetFile(POOL).schema_arrow
     pq.write_table(pa.Table.from_pylist(train,schema=schema),out/'train-starts.parquet')
     for filename, records in [('dev.jsonl',primary),('monitor.jsonl',insample),('final.jsonl',reserved)]:

@@ -42,7 +42,7 @@ class ReplayTests(unittest.TestCase):
             self.assertEqual(replay.selected, dict(long=8, short=8))
             tokens, policy, won = replay.batch(12)
             self.assertEqual(tokens.device.type, 'cpu')
-            self.assertEqual(tokens.dtype, torch.float16)
+            self.assertEqual(tokens.dtype, torch.float32)
             self.assertEqual(int((tokens[:, 0, 1] == 11).sum()), 6)
             self.assertEqual(int((tokens[:, 0, 1] == 22).sum()), 6)
             torch.testing.assert_close(policy.sum(1), torch.ones(12))
@@ -93,6 +93,14 @@ class ReplayTests(unittest.TestCase):
                 torch.testing.assert_close(p.sum(1), torch.ones(len(w)))
             self.assertEqual(sorted(identities), list(range(8)))
 
+    def test_replay_preserves_values_outside_fp16_range(self):
+        t = np.zeros((3, WIDTH), dtype=np.float32)
+        t[0, :4] = [1, 511, 0, 95144.78125]; t[-2:, 0] = 6
+        tokens, _, _ = Replay.collate([(t, np.array([.5, .5], np.float32), 1)])
+        self.assertTrue(torch.isfinite(tokens).all())
+        self.assertEqual(tokens[0, 0, 1].item(), 511)  # BF16 transport would corrupt odd IDs >256
+        self.assertEqual(tokens[0, 0, 3].item(), 95144.78125)
+
     def test_thousand_decks_in_every_effective_batch(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = samples(Path(tmp) / 'iter001', [(f'd{i}', 1, i % 100, i % 2) for i in range(1000)])
@@ -102,6 +110,28 @@ class ReplayTests(unittest.TestCase):
             self.assertEqual(len(replay.drawn), 1000)
             self.assertEqual(set(replay.drawn.values()), {2, 3})
             self.assertEqual(sum(replay.drawn.values()), 2048)
+
+    def test_unequal_microbatches_match_one_effective_update(self):
+        class Tiny(torch.nn.Module):
+            def __init__(self):
+                super().__init__(); self.scale = torch.nn.Parameter(torch.tensor(.2))
+            def forward(self, t):
+                return (self.scale * t[:, 0, 3]).sigmoid(), (self.scale * t[:, :, 3]).masked_fill(t[:, :, 0] != 6, -1e9)
+        with tempfile.TemporaryDirectory() as tmp:
+            path = samples(Path(tmp) / 'iter001', [('a', 4, 1, 1), ('b', 4, 2, 0)])
+            replay = Replay([path])
+            records = []
+            for i in range(8):
+                t = np.zeros((3, WIDTH), np.float32); t[0, 0] = 1; t[-2:, 0] = 6
+                t[:, 3] = [i / 8, i / 4, -i / 4]
+                records.append((t, np.array([.25, .75], np.float32), i % 2))
+            full = Replay.collate(records); a, b = Tiny(), Tiny()
+            with patch('torch.randint', return_value=torch.arange(8)):
+                train(a, torch.optim.SGD(a.parameters(), lr=.1), *full, 1, 8, 'cpu', log=lambda _: None)
+            chunks = [Replay.collate(records[:3]), Replay.collate(records[3:])]
+            with patch.object(replay, 'batches', return_value=iter(chunks)):
+                train(b, torch.optim.SGD(b.parameters(), lr=.1), replay, None, None, 1, 8, 'cpu', log=lambda _: None)
+            torch.testing.assert_close(a.scale, b.scale, rtol=1e-6, atol=1e-6)
 
     def test_cpu_optimizer_uses_batches(self):
         torch.set_num_threads(1)

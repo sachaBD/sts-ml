@@ -71,7 +71,8 @@ def launch(command, out, retries=2):
                      worker_log=str(worker_log), stderr=str(errors), resume_from=int(command[-1]), cooldown_seconds=15)
         with journal.open('a') as stream:
             stream.write(json.dumps(event) + '\n')
-        write_json(out / 'recovery.json', event)
+        write_json(out / '.recovery.json', event)
+        (out / '.recovery.json').replace(out / 'recovery.json')
         print('supervisor: ' + json.dumps(event), flush=True)
         time.sleep(15)
         if (out / 'training/STOP').exists():

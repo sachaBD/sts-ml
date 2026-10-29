@@ -91,7 +91,7 @@ class Replay:
     def collate(records):
         size = len(records)
         longest = max(len(t) for t, _, _ in records)
-        tokens = np.zeros((size, longest, WIDTH), dtype=np.float16)
+        tokens = np.zeros((size, longest, WIDTH), dtype=np.float32)
         policy = np.zeros((size, longest), dtype=np.float32)
         won = np.empty(size, dtype=np.float32)
         for i, (t, p, w) in enumerate(records):

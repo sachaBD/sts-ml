@@ -1,6 +1,7 @@
 #include "agents/combat/nn/net.hpp"
 #include <onnxruntime_cxx_api.h>
 #include <algorithm>
+#include <numeric>
 
 namespace stsrl::nn {
 struct Net::Impl {
@@ -20,6 +21,27 @@ Net::~Net() = default;
 std::vector<Prediction> Net::operator()(std::span<const Tokens* const> batch) {
     std::int64_t most = 0;
     for (const auto* t : batch) most = std::max<std::int64_t>(most, t->count);
+    constexpr std::size_t attention_cells = 2048 * 64 * 64;
+    if (batch.empty()) return {};
+    if (batch.size() > 1 && batch.size() * most * most > attention_cells) {
+        // One unusually large selection must not pad every CPU-fallback state.
+        std::vector<std::size_t> order(batch.size());
+        std::iota(order.begin(), order.end(), 0);
+        std::sort(order.begin(), order.end(), [&](auto a, auto b) { return batch[a]->count < batch[b]->count; });
+        std::vector<Prediction> out(batch.size());
+        for (std::size_t at = 0; at < order.size();) {
+            std::vector<const Tokens*> chunk;
+            for (std::size_t i = at; i < order.size(); ++i) {
+                const auto* t = batch[order[i]];
+                if (!chunk.empty() && (chunk.size() + 1) * t->count * t->count > attention_cells) break;
+                chunk.push_back(t);
+            }
+            auto predictions = (*this)(chunk);
+            for (std::size_t i = 0; i < chunk.size(); ++i) out[order[at + i]] = std::move(predictions[i]);
+            at += chunk.size();
+        }
+        return out;
+    }
     std::vector<float> input(batch.size() * most * width, 0.f);  // type 0 = padding
     for (std::size_t b = 0; b < batch.size(); ++b)
         std::copy(batch[b]->data.begin(), batch[b]->data.end(), input.begin() + b * most * width);

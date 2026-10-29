@@ -78,6 +78,15 @@ def snapshot(out):
         state = progress['phase']
     else:
         state = 'interrupted' if progress or record.get('status') == 'failed' else 'preparing'
+    recovery_path = out / 'recovery.json'
+    recovery = json.loads(recovery_path.read_text()) if recovery_path.exists() else None
+    if state == 'interrupted' and recovery and time.time() - recovery['time'] < 60:
+        command = Path(f'/proc/{recovery.get("supervisor_pid", 0)}/cmdline')
+        try:
+            if b'gumbel_nn_combat_expert_iteration' in command.read_bytes():
+                state = 'recovering'
+        except (FileNotFoundError, ProcessLookupError, PermissionError):
+            pass
     rows = jsonl(training / 'log.jsonl')
     completed = [r for r in rows if 'iteration' in r]
     latest = max((r['iteration'] for r in completed), default=None)
@@ -105,7 +114,7 @@ def snapshot(out):
         groups = {group: score({k: v for k, v in combined.items() if cohorts.get(deck_of(k)) == group}, baselines)
                   for group in sorted(set(cohorts.values())) if any(cohorts.get(deck_of(k)) == group for k in combined)}
         evaluations.append(dict(iteration=it, all=score(results, baselines), decks=decks, cohorts=groups))
-    return dict(version=1, state=state, config=config, progress=progress,
+    return dict(version=1, state=state, config=config, progress=progress, recovery=recovery,
                 progress_age_seconds=time.time() - progress['time'] if progress else None,
                 last_completed_iteration=latest,
                 checkpoint=str(checkpoint) if checkpoint and checkpoint.exists() else None,
@@ -148,12 +157,13 @@ def main():
         print(f'{row["iteration"]:4}  {row["wins"]:5}/{row["games"]:<5}  {row["states"]:11,} '
               f'{row["play_seconds"]:8} {row["train_seconds"]:15}')
     print(f'\nValidation wall share: {100 * data["validation_wall_fraction"]:.1f}% (includes initial baseline)')
-    print('Evaluation: Wilson win-rate / paired-difference 95% bounds; conditional on one run.')
-    print('MCTS20k/PUCT are historical, available only on original monitoring seeds; rules differ.')
+    print('Evaluation: family-clustered approximate 95% bounds; per-deck Wilson bounds. One training run, unadjusted.')
+    print('MCTS20k/PUCT are historical matched-start references; policy names and simulator rules differ.')
     for row in data['evaluations']:
         s = row['all']
+        ci = s['family_95'] or s['wilson_95']
         print(f'iter{row["iteration"]:03d}: {s["wins"]}/{s["n"]} = {100*s["win_rate"]:.1f}% '
-              f'[{100*s["wilson_95"][0]:.1f}, {100*s["wilson_95"][1]:.1f}]')
+              f'[{100*ci[0]:.1f}, {100*ci[1]:.1f}], {s["families"]} families')
         if row is not data['evaluations'][-1]:
             continue
         for name, s in [*row['cohorts'].items(), *row['decks'].items()]:
@@ -165,8 +175,9 @@ def main():
                     print(f'    vs initial: {100*c["macro_gap"]:+.1f} pp [{100*bounds[0]:+.1f}, {100*bounds[1]:+.1f}], '
                           f'family-clustered n={c["families"]}')
         for name, c in row['all']['comparisons'].items():
-            ci = c['gap_95']
-            print(f'  vs {name:12} {100*c["gap"]:+.1f} pp '
+            ci = c['family_gap_95'] or c['gap_95']
+            gap = c['macro_gap'] if c['family_gap_95'] else c['gap']
+            print(f'  vs {name:12} {100*gap:+.1f} pp '
                   f'[{100*ci[0]:+.1f}, {100*ci[1]:+.1f}], paired n={c["n"]}' if ci else f'  vs {name}: insufficient pairs')
     print(f'\nCheckpoint: {data["checkpoint"]}\nLogs: {data["logs"]}')
 
