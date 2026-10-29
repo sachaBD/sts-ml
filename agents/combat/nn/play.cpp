@@ -1,19 +1,6 @@
-// nn_play play MODEL.onnx SAMPLES.bin [--threads T] [--parallel G] [--gpu-model FIXED.onnx --gpu-batch B --gpu-tokens N]
-//                                      [--sims S] [--rollout-mix M] [--gumbel-scale G] [--particles P]
-//   Reads fights as JSON lines {"fight_id", "start"} on stdin and plays them with Gumbel search. T threads each keep
-//   G games in flight, in two groups whose leaves are evaluated in batches: on the CPU, or with --gpu-model on the GPU
-//   (FIXED.onnx = the same network exported for exactly [B, N, width]; see net.hpp).
-//   Optional --gpu-bank ONNX,... supplies smaller batches of the SAME network and token shape;
-//   --gpu-wait-us controls arrival-stall waiting. --groups / --scheduler control CPU overlap.
-//   Prints one JSON line per fight
-//   ({"fight_id", "won", "hp", "decisions", "seconds"}) and appends every searched decision to SAMPLES.bin.
-//   A fight still undecided after 50 turns / 512 actions is a loss.
-// nn_play import SAMPLES.bin
-//   Reads recorded fights as JSON lines {"fight": {"start", "actions", "won"}, "search": [{"step", "children":
-//   [{"action", "visits"}]}]} (e.g. MCTS games) and appends their searched decisions, policy = normalized visits.
-// SAMPLES.bin record: int32 tokens, int32 actions, float32 won, float32 tokens x width, float32 policy[actions].
+// Combat episodes own simulator/search state; infra owns scheduling and inference.
 #include "agents/combat/nn/gumbel.hpp"
-#include "agents/combat/nn/workers.hpp"
+#include "infra/workers/actors.hpp"
 #include "environments/combat/record_v4.hpp"
 #include "sim/search/PublicBeliefCombatSearch.h"
 #include <atomic>
@@ -39,7 +26,7 @@ sts::BattleContext start(const Json& start) {
     return state;
 }
 
-void write(std::ofstream& out, const Tokens& t, const std::vector<float>& policy, float won) {
+void write(std::ofstream& out, const stsrl::infra::Tokens& t, const std::vector<float>& policy, float won) {
     out.write(reinterpret_cast<const char*>(&t.count), 4);
     out.write(reinterpret_cast<const char*>(&t.actions), 4);
     out.write(reinterpret_cast<const char*>(&won), 4);
@@ -53,7 +40,7 @@ struct Game {
     std::mt19937_64 rng;
     int steps = 0;
     std::optional<Search> search;
-    std::vector<std::pair<Tokens, std::vector<float>>> decisions;  // (state, improved policy) per searched move
+    std::vector<std::pair<stsrl::infra::Tokens, std::vector<float>>> decisions;  // (state, improved policy) per searched move
     Clock::time_point begin = Clock::now();
 
     explicit Game(Json f) : fight(std::move(f)), state{start(fight.at("start"))},
@@ -81,7 +68,6 @@ struct Game {
 
 // Everything the worker threads share.
 struct Shared {
-    std::unique_ptr<Evaluator> evaluator;
     Settings settings;
     std::vector<Json> fights;
     std::atomic<std::size_t> next{0};
@@ -111,87 +97,19 @@ struct Shared {
     }
 };
 
-// Adapter keeps the real simulator/search and output on their owning SimWorker.
-class CombatSimulation final : public Simulation {
+// Adapter keeps the real simulator/search and output on their owning Actor.
+class CombatEpisode final : public stsrl::infra::Episode {
     std::unique_ptr<Game> game_;
     Shared& shared_;
 public:
-    CombatSimulation(std::unique_ptr<Game> game, Shared& shared) : game_{std::move(game)}, shared_{shared} {}
-    const Tokens* advance() override {
+    CombatEpisode(std::unique_ptr<Game> game, Shared& shared) : game_{std::move(game)}, shared_{shared} {}
+    const stsrl::infra::Tokens* advance() override {
         return game_->advance(shared_.settings) ? game_->search->pending() : nullptr;
     }
-    void evaluated(const Prediction& prediction) override { game_->search->evaluated(prediction); }
+    void evaluated(const stsrl::infra::Prediction& prediction) override { game_->search->evaluated(prediction); }
     void finish() override { shared_.finish(*game_); }
     std::string label() const override { return game_->fight.at("fight_id").get<std::string>(); }
 };
-
-// A group of games whose pending leaves are evaluated together.
-struct Group {
-    std::vector<std::unique_ptr<Game>> games;
-    std::vector<Game*> waiting;                       // games whose leaf is being evaluated, in batch order
-    std::future<std::vector<Prediction>> evaluating;
-
-    // Hand the evaluated leaves back to their searches.
-    void receive() {
-        if (!evaluating.valid()) return;
-        const auto predictions = evaluating.get();
-        for (std::size_t i = 0; i < waiting.size(); ++i) waiting[i]->search->evaluated(predictions[i]);
-    }
-
-    // Play every game on to its next leaf (finishing and replacing games that end) and submit the leaves.
-    // False once the group has no games left.
-    bool play_on(Shared& shared) {
-        waiting.clear();
-        std::vector<const Tokens*> leaves;
-        for (auto& g : games) {
-            while (g && !g->advance(shared.settings)) { shared.finish(*g); g = shared.next_game(); }
-            if (g) { waiting.push_back(g.get()); leaves.push_back(g->search->pending()); }
-        }
-        if (leaves.empty()) return false;
-        evaluating = shared.evaluator->submit(std::move(leaves));
-        return true;
-    }
-};
-
-// Several independent groups per worker overlap simulation with inference (two ordered groups by default).
-void legacy_worker(Shared& shared, int parallel, int group_count, bool ready_first) {
-    std::vector<Group> groups(group_count);
-    for (int k = 0; k < group_count; ++k)
-        for (int i = 0; i < parallel / group_count + (k < parallel % group_count); ++i)
-            groups[k].games.push_back(shared.next_game());
-    if (!ready_first) {
-        for (bool active = true; active;) {
-            active = false;
-            for (auto& group : groups) {
-                group.receive();
-                active |= group.play_on(shared);
-            }
-        }
-        return;
-    }
-    // Do not block on one group's future while another group already has usable predictions.
-    for (auto& group : groups) group.play_on(shared);
-    for (;;) {
-        bool pending = false, progressed = false;
-        for (auto& group : groups) {
-            if (!group.evaluating.valid()) continue;
-            pending = true;
-            if (group.evaluating.wait_for(std::chrono::seconds{0}) == std::future_status::ready) {
-                group.receive();
-                group.play_on(shared);
-                progressed = true;
-            }
-        }
-        if (!pending) return;
-        if (!progressed) {
-            // Bounded sleep rather than spinning a core while every group waits on inference.
-            for (auto& group : groups) if (group.evaluating.valid()) {
-                group.evaluating.wait_for(std::chrono::microseconds{50});
-                break;
-            }
-        }
-    }
-}
 
 void import(std::ofstream& samples) {
     using Public = sts::search::PublicBeliefCombatSearch;
@@ -264,23 +182,21 @@ int main(int argc, char** argv) try {
     }
     if (mode != "play" || argc < 4 || argc % 2) {
         std::cerr << "usage: nn_play play MODEL.onnx SAMPLES.bin [--threads T] [--parallel G] [--gpu-model FIXED.onnx\n"
-                     "                    --gpu-batch B --gpu-tokens N] [--gpu-bank SMALLER.onnx,...] [--gpu-wait-us U]\n"
-                     "                    [--groups G] [--scheduler local|ordered|ready] [--sims S] [--rollout-mix M]\n"
+                     "                    --gpu-batch B] [--gpu-bank SMALLER.onnx,...] [--gpu-wait-us U]\n"
+                     "                    [--sims S] [--rollout-mix M]\n"
                      "                    [--gumbel-scale G] [--particles P] [--timeout-ms M] [--shutdown-timeout-ms M]\n"
                      "       nn_play import SAMPLES.bin\n";
         return 2;
     }
-    int threads = 10, parallel = 64, groups = 2, gpu_batch = 1024, gpu_tokens = 48, gpu_wait_us = 1000;
+    int threads = 9, parallel = 224, gpu_batch = 512, gpu_wait_us = 100;
     int timeout_ms = 60'000, shutdown_timeout_ms = 5'000;
-    std::string gpu_model, scheduler = "ordered";
+    std::string gpu_model;
     std::vector<std::filesystem::path> gpu_bank;
     Settings settings;
     for (int i = 4; i + 1 < argc; i += 2) {
         const std::string k = argv[i], v = argv[i + 1];
         if (k == "--threads") threads = std::stoi(v);
         else if (k == "--parallel") parallel = std::stoi(v);
-        else if (k == "--groups") groups = std::stoi(v);
-        else if (k == "--scheduler") scheduler = v;
         else if (k == "--timeout-ms") timeout_ms = std::stoi(v);
         else if (k == "--shutdown-timeout-ms") shutdown_timeout_ms = std::stoi(v);
         else if (k == "--gpu-wait-us") gpu_wait_us = std::stoi(v);
@@ -294,57 +210,45 @@ int main(int argc, char** argv) try {
         }
         else if (k == "--gpu-model") gpu_model = v;
         else if (k == "--gpu-batch") gpu_batch = std::stoi(v);
-        else if (k == "--gpu-tokens") gpu_tokens = std::stoi(v);
         else if (k == "--sims") settings.simulations = std::stoi(v);
         else if (k == "--rollout-mix") settings.rollout_mix = std::stod(v);
         else if (k == "--gumbel-scale") settings.gumbel_scale = std::stod(v);
         else if (k == "--particles") settings.particles = std::stoi(v);
         else throw std::invalid_argument{"unknown option " + k};
     }
-    const bool local = scheduler == "local";
     if (threads < 1 || parallel < 1 || gpu_batch < 1 || gpu_wait_us < 0 || timeout_ms <= 0 || shutdown_timeout_ms <= 0 ||
         settings.simulations < 1 || settings.particles < 1 || settings.rollout_mix < 0 || settings.rollout_mix > 1 || settings.gumbel_scale < 0)
         throw std::invalid_argument{"positive threads/slots/batch/sims/particles/timeouts, rollout mix in [0,1], nonnegative noise/wait required"};
-    if (!local && scheduler != "ordered" && scheduler != "ready") throw std::invalid_argument{"scheduler must be local, ordered or ready"};
-    if (!local && (groups < 2 || parallel < groups)) throw std::invalid_argument{"legacy scheduler requires parallel >= groups >= 2"};
-    if (!local && !gpu_model.empty() && (parallel + groups - 1) / groups > gpu_batch)
-        throw std::invalid_argument{"each legacy worker group must fit within gpu-batch"};
     if (gpu_model.empty() && !gpu_bank.empty()) throw std::invalid_argument{"gpu-bank requires gpu-model"};
     const auto setup_begin = Clock::now();
-    auto evaluator = gpu_model.empty() ? cpu_evaluator(argv[2]) : gpu_evaluator(argv[2], gpu_model, gpu_batch, gpu_tokens, gpu_bank, gpu_wait_us, local);
+    if (!gpu_model.empty()) gpu_bank.push_back(gpu_model);
+    auto backend = gpu_model.empty() ? stsrl::infra::cpu_backend(argv[2]) : stsrl::infra::gpu_backend(argv[2], gpu_bank);
+    if (backend->width() != width) throw std::invalid_argument{"model token width does not match combat encoder"};
     std::cerr << "timing: evaluator setup "
               << std::chrono::duration<double>(Clock::now() - setup_begin).count() << " s\n";
-    Shared shared{std::move(evaluator), settings, {}, {}, {}, std::ofstream{argv[3], std::ios::binary | std::ios::app}};
+    Shared shared{settings, {}, {}, {}, std::ofstream{argv[3], std::ios::binary | std::ios::app}};
     for (std::string line; std::getline(std::cin, line);)
         if (!line.empty()) shared.fights.push_back(Json::parse(line));
     const auto play_begin = Clock::now();
     const double play_wall_start = std::chrono::duration<double>(std::chrono::system_clock::now().time_since_epoch()).count();
-    if (local) {
-        WorkerConfig config;
-        config.workers = threads; config.slots = parallel; config.batch = gpu_batch;
-        config.batch_wait = std::chrono::microseconds{gpu_wait_us};
-        config.timeout = std::chrono::milliseconds{timeout_ms};
-        config.shutdown_timeout = std::chrono::milliseconds{shutdown_timeout_ms};
-        try {
-            run_workers(config, [&]() -> std::unique_ptr<Simulation> {
-                auto game = shared.next_game();
-                return game ? std::make_unique<CombatSimulation>(std::move(game), shared) : nullptr;
-            }, [&](std::vector<InferenceInput> inputs) { return shared.evaluator->submit_prepared(std::move(inputs)).get(); },
-            [&](const Tokens& tokens, std::vector<std::uint16_t>& packed) { shared.evaluator->prepare(tokens, packed); });
-        } catch (const std::exception& e) {
-            if (std::string{e.what()}.find("CUDA") != std::string::npos) {
-                // A poisoned CUDA context cannot be recovered in-process. Workers have
-                // joined and each finished game's journal/samples are already flushed.
-                std::cerr << "nn_play: CUDA failure; exiting without GPU teardown: " << e.what() << '\n';
-                std::fflush(nullptr);
-                std::_Exit(1); // supervisor starts a fresh process from the committed checkpoint
-            }
-            throw;
+    stsrl::infra::ActorConfig config;
+    config.actors = threads; config.slots = parallel; config.batch = gpu_batch;
+    config.batch_wait = std::chrono::microseconds{gpu_wait_us};
+    config.timeout = std::chrono::milliseconds{timeout_ms};
+    config.shutdown_timeout = std::chrono::milliseconds{shutdown_timeout_ms};
+    try {
+        stsrl::infra::run_actors(config, [&]() -> std::unique_ptr<stsrl::infra::Episode> {
+            auto game = shared.next_game();
+            return game ? std::make_unique<CombatEpisode>(std::move(game), shared) : nullptr;
+        }, *backend);
+    } catch (const std::exception& e) {
+        if (std::string{e.what()}.find("CUDA") != std::string::npos) {
+            // A poisoned CUDA context requires a fresh process, not backend teardown.
+            std::cerr << "nn_play: CUDA failure; exiting without GPU teardown: " << e.what() << '\n';
+            std::fflush(nullptr);
+            std::_Exit(1);
         }
-    } else {
-        std::vector<std::jthread> pool;
-        for (int t = 0; t < threads; ++t) pool.emplace_back(legacy_worker, std::ref(shared), parallel, groups, scheduler == "ready");
-        pool.clear();
+        throw;
     }
     if (shared.completed != shared.fights.size()) throw std::runtime_error{"missing completed fights"};
     const double gameplay_seconds = std::chrono::duration<double>(Clock::now() - play_begin).count();

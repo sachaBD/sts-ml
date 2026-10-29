@@ -1,4 +1,4 @@
-"""Disk-indexed, deck-balanced replay. Only the current minibatch is read and padded."""
+"""Disk-indexed replay with uniform or deck-balanced sampling. Only the current minibatch is read and padded."""
 import json
 import os
 from pathlib import Path
@@ -47,7 +47,7 @@ def index(path):
 class Replay:
     """Rows are read by parallel exact-size preads (infra Reader); close() (or `with`) releases the files."""
 
-    def __init__(self, paths, max_rows=0):
+    def __init__(self, paths, max_rows=0, balanced=True):
         paths, groups = [Path(p) for p in paths], {}
         for file, path in enumerate(paths):
             decks = index(path)
@@ -64,13 +64,21 @@ class Replay:
         if not self.groups:
             raise ValueError('no training decisions in replay')
         self.available = {name: len(rows) for name, rows in self.groups.items()}
-        if max_rows:
+        self.balanced = balanced
+        if max_rows and balanced:
             quota = max_rows // len(self.groups)
             if quota < 1:
                 raise ValueError('max-train-rows must allow at least one row per deck')
             for name, rows in self.groups.items():
                 if len(rows) > quota:
                     self.groups[name] = rows[torch.randperm(len(rows))[:quota].numpy()]
+        if not balanced:
+            self.uniform_rows = np.concatenate(list(self.groups.values()))
+            self.uniform_decks = np.repeat(np.arange(len(self.groups)), [len(rows) for rows in self.groups.values()])
+            if max_rows and len(self.uniform_rows) > max_rows:
+                selected = torch.randperm(len(self.uniform_rows))[:max_rows].numpy()
+                self.uniform_rows, self.uniform_decks = self.uniform_rows[selected], self.uniform_decks[selected]
+            self.groups = {name: self.uniform_rows[self.uniform_decks == i] for i, name in enumerate(self.groups)}
         self.selected = {name: len(rows) for name, rows in self.groups.items()}
         self.drawn = {name: 0 for name in self.groups}
         self.reader = Reader(paths)
@@ -88,18 +96,26 @@ class Replay:
         return sum(self.selected.values())
 
     def sample(self, size):
-        """Equal deck quotas (difference <=1), then uniform rows within each deck."""
-        n = len(self.groups)
-        if size < n:
-            raise ValueError('batch must be at least the number of decks')
-        extra = set(torch.randperm(n)[:size % n].tolist())
-        picked = []
-        for i, (name, rows) in enumerate(self.groups.items()):
-            take = size // n + (i in extra)
-            self.drawn[name] += take
-            picked.append(rows[torch.randint(len(rows), (take,)).numpy()])
+        """Uniform rows, or equal deck quotas followed by uniform rows within each deck."""
+        if self.balanced:
+            n = len(self.groups)
+            if size < n:
+                raise ValueError('batch must be at least the number of decks')
+            extra = set(torch.randperm(n)[:size % n].tolist())
+            picked = []
+            for i, (name, rows) in enumerate(self.groups.items()):
+                take = size // n + (i in extra)
+                self.drawn[name] += take
+                picked.append(rows[torch.randint(len(rows), (take,)).numpy()])
+            picked = np.concatenate(picked)
+        else:
+            selected = torch.randint(len(self.uniform_rows), (size,)).numpy()
+            picked = self.uniform_rows[selected]
+            counts = np.bincount(self.uniform_decks[selected], minlength=len(self.groups))
+            for name, count in zip(self.groups, counts):
+                self.drawn[name] += int(count)
         records = []
-        for raw in self.reader.read(np.concatenate(picked).tolist()):
+        for raw in self.reader.read(picked.tolist()):
             count, actions, won = HEADER.unpack_from(raw)
             tokens = np.frombuffer(raw, dtype=np.float32, count=count * WIDTH, offset=HEADER.size).reshape(count, WIDTH)
             policy = np.frombuffer(raw, dtype=np.float32, count=actions, offset=HEADER.size + count * WIDTH * 4)

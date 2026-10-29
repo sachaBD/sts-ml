@@ -1,7 +1,7 @@
 """Standard performance metrics. Missing counters stay None, never inferred from unrelated utilization.
 
 Decisions = searched game decisions, NOT NN leaves. Worker CPU is normalized by all allocated
-SimWorkers and whole gameplay wall time (including the tail). Coordinator non-CPU time includes
+Actors and actor-runtime wall time (including the tail). InferenceServer non-CPU time includes
 waiting/descheduling; it is not proven I/O time. NVML GPU busy is active TIME, not peak compute.
 VRAM occupancy, memory-controller active time, bandwidth efficiency and SM throughput are distinct.
 """
@@ -19,8 +19,8 @@ METRIC_DEFINITIONS = {
     'nn_evaluations_per_second': 'real evaluated leaves (GPU + CPU fallback) / gameplay seconds; excludes padding',
     'games_per_hour_gameplay': 'completed games / gameplay seconds * 3600',
     'games_per_hour_full_update': 'completed games / full collect-load-train-save-export seconds * 3600',
-    'worker_cpu_pct': 'sum SimWorker thread CPU seconds / (SimWorkers * gameplay wall seconds) * 100',
-    'coordinator_cpu_pct': 'coordinator thread CPU seconds / gameplay wall seconds * 100',
+    'worker_cpu_pct': 'sum Actor thread CPU seconds / (Actors * actor runtime seconds) * 100',
+    'coordinator_cpu_pct': 'InferenceServer thread CPU seconds / actor runtime seconds * 100',
     'coordinator_non_cpu_pct': '100 - coordinator CPU%; includes waits/descheduling, not strict I/O-bound time',
     'coordinator_gpu_api_pct': 'wall time inside H2D/inference/D2H calls / gameplay seconds; overlaps CPU time when driver busy-spins',
     'coordinator_io_bound_pct': 'requires wait classification/tracing; not inferred from CPU time or GPU API time',
@@ -75,7 +75,7 @@ def play_metrics(directory):
     directory = Path(directory)
     path = directory/'worker.log'
     text = path.read_text(errors='replace') if path.exists() else ''
-    play, runtime, gpu = (last_json(text,p) for p in ('play_stats','runtime_stats','gpu_stats'))
+    play, runtime, gpu = (last_json(text,p) for p in ('play_stats','actors_stats','gpu_stats'))
     seconds = play.get('seconds')
     if not seconds:
         match = re.search(r'timing: gameplay ([\d.]+)',text)
@@ -88,16 +88,15 @@ def play_metrics(directory):
     decisions = play.get('searched_decisions',sum(r['decisions'] for r in rows))
     games = play.get('games',len(rows))
     result = {k:None for k in METRIC_DEFINITIONS}
-    nn_count = gpu['leaves'] + gpu.get('cpu_leaves',0) if 'leaves' in gpu else None
-    if nn_count is None:
-        match = re.search(r'coordinator: \d+ batches, (\d+) leaves',text)
-        nn_count = int(match[1]) if match else None
+    nn_count = runtime.get('requests')
     if seconds:
         result.update(decisions_per_second=decisions/seconds,
                       games_per_hour_gameplay=games*3600/seconds,
                       nn_evaluations_per_second=nn_count/seconds if nn_count is not None else None)
-    for key in ('worker_cpu_pct','coordinator_cpu_pct','coordinator_non_cpu_pct'):
-        result[key] = runtime.get(key)
+    result['worker_cpu_pct'] = runtime.get('actor_cpu_pct')
+    result['coordinator_cpu_pct'] = runtime.get('server_cpu_pct')
+    if result['coordinator_cpu_pct'] is not None:
+        result['coordinator_non_cpu_pct'] = 100 - result['coordinator_cpu_pct']
     if seconds and all(k in gpu for k in ('h2d_seconds','inference_seconds','d2h_seconds')):
         result['coordinator_gpu_api_pct'] = 100*sum(gpu[k] for k in ('h2d_seconds','inference_seconds','d2h_seconds'))/seconds
     result['batch_fill_pct'] = 100*gpu['leaves']/gpu['capacity'] if gpu.get('capacity') else None

@@ -44,12 +44,11 @@ class WorkerIntegrationTests(unittest.TestCase):
         native_log=(directory/'worker.log').read_text()
         stats=last_json(native_log,'play_stats')
         self.assertEqual(stats['games'],count)
-        if 'local' in options:
-            runtime=last_json(native_log,'runtime_stats')
-            if runtime['cpu_timing_available']:
-                self.assertTrue(0 <= runtime['worker_cpu_pct'] <= 100.1)
-                self.assertTrue(0 <= runtime['coordinator_cpu_pct'] <= 100.1)
-                self.assertAlmostEqual(runtime['coordinator_cpu_pct']+runtime['coordinator_non_cpu_pct'],100,places=2)
+        actors=last_json(native_log,'actors_stats')
+        self.assertEqual(actors['actors'], 2)
+        self.assertGreater(actors['requests'], 0)
+        self.assertTrue(0 <= actors['actor_cpu_pct'] <= 100.1)
+        self.assertTrue(0 <= actors['server_cpu_pct'] <= 100.1)
         rows = [json.loads(line) for line in result.stdout.splitlines()]
         expected = {json.loads(line)['fight_id'] for line in self.starts[:count]}
         self.assertEqual(len(rows), count)
@@ -71,22 +70,22 @@ class WorkerIntegrationTests(unittest.TestCase):
                 self.assertAlmostEqual(float(policy.sum()), 1., places=4)
                 samples += 1
         self.assertEqual(samples, sum(r['decisions'] for r in rows))
-        return {r['fight_id']: {k:v for k,v in r.items() if k != 'seconds'} for r in rows}
+        return {r['fight_id']: {k:v for k,v in r.items() if k not in {'seconds', 'finished_unix'}} for r in rows}
 
-    def test_cpu_scheduler_parity(self):
-        common = ['--threads', '2', '--parallel', '4', '--gpu-batch', '4', '--sims', '4']
-        legacy = self.play('cpu-ordered', 8, [*common, '--scheduler', 'ordered'])
-        local = self.play('cpu-local', 8, [*common, '--scheduler', 'local'])
-        self.assertEqual(local, legacy)
+    def test_cpu_actor_count_parity(self):
+        common = ['--threads', '2', '--gpu-batch', '4', '--sims', '4']
+        serial = self.play('cpu-one-slot', 8, [*common, '--parallel', '1'])
+        concurrent = self.play('cpu-four-slots', 8, [*common, '--parallel', '4'])
+        self.assertEqual(serial, concurrent)
 
     @unittest.skipUnless(os.environ.get('NN_TEST_GPU'), 'explicit GPU model required')
-    def test_gpu_local_full_games(self):
-        options = ['--scheduler', 'local', '--threads', '2', '--parallel', '16', '--sims', '64',
+    def test_gpu_actors_full_games(self):
+        options = ['--threads', '2', '--parallel', '16', '--sims', '64',
                    '--gpu-model', os.environ['NN_TEST_GPU'], '--gpu-batch', os.environ.get('NN_TEST_GPU_BATCH', '512'),
-                   '--gpu-tokens', '48', '--gpu-wait-us', '100']
+                   '--gpu-wait-us', '100']
         if os.environ.get('NN_TEST_GPU_BANK'):
             options += ['--gpu-bank', os.environ['NN_TEST_GPU_BANK']]
-        self.play('gpu-local', 32, options)
+        self.play('gpu-actors', 32, options)
 
 
 if __name__ == '__main__':

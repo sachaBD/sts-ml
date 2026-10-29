@@ -92,7 +92,7 @@ struct Search::Impl {
     Node* leaf = nullptr;
     sts::BattleContext leaf_state;
     std::vector<std::pair<Node*, std::size_t>> path;
-    Tokens tokens;
+    stsrl::infra::Tokens tokens;
 
     Impl(const sts::BattleContext& observed, const Settings& settings, std::uint64_t seed)
         : s{settings}, rng{seed}, particles{teacher::public_particles(observed, settings.particles)},
@@ -103,7 +103,7 @@ struct Search::Impl {
         tokens = encode(observed, actions);
     }
 
-    void evaluated(const Prediction& p) {
+    void evaluated(const stsrl::infra::Prediction& p) {
         expand(*leaf, leaf_state, p);
         if (leaf == &root) {
             std::extreme_value_distribution<double> g;
@@ -142,7 +142,7 @@ struct Search::Impl {
         ++simulation;
     }
 
-    void expand(Node& n, const sts::BattleContext& state, const Prediction& p) {
+    void expand(Node& n, const sts::BattleContext& state, const stsrl::infra::Prediction& p) {
         n.value = p.value;
         n.logits.assign(p.logits.begin(), p.logits.end());
         n.prior = softmax(n.logits);
@@ -190,7 +190,7 @@ struct Search::Impl {
 Search::Search(const sts::BattleContext& observed, const Settings& settings, std::uint64_t seed)
     : impl_{std::make_unique<Impl>(observed, settings, seed)} {}
 Search::~Search() = default;
-const Tokens* Search::pending() const { return impl_->leaf ? &impl_->tokens : nullptr; }
-void Search::evaluated(const Prediction& prediction) { impl_->evaluated(prediction); }
+const stsrl::infra::Tokens* Search::pending() const { return impl_->leaf ? &impl_->tokens : nullptr; }
+void Search::evaluated(const stsrl::infra::Prediction& prediction) { impl_->evaluated(prediction); }
 Result Search::result() const { return impl_->result(); }
 }  // namespace stsrl::nn

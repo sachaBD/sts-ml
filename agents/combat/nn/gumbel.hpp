@@ -6,9 +6,9 @@
 //
 // The search never calls the network itself, so many searches can share one batched evaluation:
 //   Search s{state, settings, seed};
-//   while (const Tokens* leaf = s.pending()) s.evaluated(net(*leaf));
+//   while (const stsrl::infra::Tokens* leaf = s.pending()) s.evaluated(net(*leaf));
 //   Result r = s.result();
-#include "agents/combat/nn/net.hpp"
+#include "agents/combat/nn/tokens.hpp"
 #include <memory>
 #include <random>
 
@@ -33,9 +33,9 @@ public:
     Search(const sts::BattleContext& observed, const Settings& settings, std::uint64_t seed);
     ~Search();
     // The tokens the search needs evaluated next; nullptr once every simulation is done.
-    const Tokens* pending() const;
+    const stsrl::infra::Tokens* pending() const;
     // The network's prediction for pending(); runs the search on to the next leaf that needs the network.
-    void evaluated(const Prediction& prediction);
+    void evaluated(const stsrl::infra::Prediction& prediction);
     Result result() const;
 private:
     struct Impl;

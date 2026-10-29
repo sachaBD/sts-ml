@@ -1,4 +1,4 @@
-"""Load fixed combat starts and launch the existing Gumbel NN loop. See README.md."""
+"""Load fixed combat starts and launch the infra-backed Gumbel NN loop. See README.md."""
 import json
 from pathlib import Path
 import subprocess

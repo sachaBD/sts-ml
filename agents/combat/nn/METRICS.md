@@ -8,8 +8,8 @@ Machine-readable definitions are in `metrics.py::METRIC_DEFINITIONS`. Missing co
 | NN evaluations/s | Real evaluated leaves (GPU + CPU fallback) / gameplay wall seconds. Padding excluded. |
 | Games/h, gameplay | Finished games / gameplay seconds ×3,600. |
 | Games/h, full update | Finished games / collection + replay loading + training + checkpoint/export wall time ×3,600. Includes per-update engine setup. Initial initialization/export is reported separately. |
-| Worker CPU % | Sum SimWorker **thread CPU time** / (allocated worker count ×whole gameplay wall time). Includes idle tail capacity in the denominator. |
-| Coordinator CPU % | Coordinator thread CPU time / gameplay wall time. Includes CPU consumed polling inside driver calls; not just useful CPU computation. |
+| Worker CPU % | Sum Actor **thread CPU time** / (allocated actor count ×actor runtime wall time). Includes idle tail capacity in the denominator. |
+| Coordinator CPU % | InferenceServer thread CPU time / actor runtime wall time. Includes CPU consumed polling inside driver calls; not just useful CPU computation. |
 | Coordinator GPU API % | Host wall time inside H2D + inference + D2H calls / gameplay wall time. Overlaps CPU time; the percentages need not add to100. |
 | Coordinator non-CPU % |100−CPU%. Includes descheduling/waits; **not an I/O-bound percentage**. Pure I/O-bound fraction requires tracing and is unavailable. |
 | GPU busy % | NVML percent **time** kernels were active. Not fraction of peak SM/Tensor FLOPs. |
@@ -23,7 +23,7 @@ Machine-readable definitions are in `metrics.py::METRIC_DEFINITIONS`. Missing co
 ## Capture and dashboard
 
 - Native `play_stats` reports searched decisions, completed games, gameplay seconds and start epoch.
-- Native `runtime_stats` reports worker/coordinator thread CPU counters (where `CLOCK_THREAD_CPUTIME_ID` is supported). Unsupported platforms omit CPU fields.
+- Native `actors_stats` reports actor/server thread CPU percentages and request counts; actor runtime excludes backend setup. Display keys remain worker/coordinator, but refer to infra actors/server.
 - `Run.play` captures `iterNNN/gpu.csv` with optional nvidia-smi sampling. Absent nvidia-smi leaves counters unavailable. The short training benchmark instead records one continuous sampler across all phases, avoiding duplicate samplers.
 - NVML is polled every250ms; its utilization windows overlap and are not independent observations. Means are approximate phase/time-activity estimates. Do not turn sample counts into statistical confidence intervals.
 - `dashboard.py RUN_DIR` reads the same metric definitions and stored counters. It supports both normal loop runs and the short training benchmark. Historical runs without these counters show missing values.

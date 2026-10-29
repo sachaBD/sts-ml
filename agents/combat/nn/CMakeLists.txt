@@ -1,47 +1,8 @@
-# Scheduling/ownership/failure tests need neither a GPU nor ONNX Runtime.
-add_executable(nn_workers_test workers_test.cpp workers.cpp)
-target_link_libraries(nn_workers_test PRIVATE combat_core)
-target_compile_options(nn_workers_test PRIVATE -Wall -Wextra -Wpedantic)
-add_test(NAME nn_workers_test COMMAND nn_workers_test)
-set_tests_properties(nn_workers_test PROPERTIES TIMEOUT 30)
-
-# nn_play: Gumbel self-play with the agents/combat/nn network. ONNX Runtime (GPU build) straight from the venv's
-# onnxruntime-gpu wheel: its CUDA provider libraries must sit next to libonnxruntime. Headers are prepared in build/deps/onnxruntime/include.
-execute_process(COMMAND "${STSRL_PYTHON}" -c "import onnxruntime, pathlib; print(pathlib.Path(onnxruntime.__file__).parent / 'capi', end='')"
-    OUTPUT_VARIABLE NN_ORT_LIB ERROR_QUIET)
-set(NN_ORT_INCLUDE "${PROJECT_SOURCE_DIR}/build/deps/onnxruntime/include")
-file(GLOB NN_ORT_SO "${NN_ORT_LIB}/libonnxruntime.so.*")
-if(NOT EXISTS "${NN_ORT_INCLUDE}/onnxruntime_cxx_api.h" OR NOT NN_ORT_SO)
-    message(STATUS "nn_play not built: need ONNX Runtime headers (${NN_ORT_INCLUDE}) and the onnxruntime wheel")
+# Combat owns episodes/search/encoding; infra owns workers and inference.
+if(NOT TARGET infra_inference)
+    message(STATUS "nn_play not built: infra_inference unavailable")
     return()
 endif()
-# The wheel ships a versioned library without its SONAME link: keep library and providers together.
-set(NN_ORT_DIR "${CMAKE_CURRENT_BINARY_DIR}/onnxruntime")
-file(MAKE_DIRECTORY "${NN_ORT_DIR}")
-file(CREATE_LINK "${NN_ORT_SO}" "${NN_ORT_DIR}/libonnxruntime.so.1" SYMBOLIC)
-file(GLOB NN_ORT_PROVIDERS "${NN_ORT_LIB}/libonnxruntime_providers_*.so")
-foreach(provider ${NN_ORT_PROVIDERS})
-    get_filename_component(name "${provider}" NAME)
-    file(CREATE_LINK "${provider}" "${NN_ORT_DIR}/${name}" SYMBOLIC)
-endforeach()
-find_package(CUDAToolkit QUIET)
-if(NOT CUDAToolkit_FOUND)
-    message(STATUS "nn_play not built: CUDA toolkit not found")
-    return()
-endif()
-add_executable(nn_packing_test packing_test.cpp packing.cpp)
-target_include_directories(nn_packing_test PRIVATE "${PROJECT_SOURCE_DIR}")
-target_link_libraries(nn_packing_test PRIVATE CUDA::cudart)
-add_test(NAME nn_packing_test COMMAND nn_packing_test)
-
-add_executable(nn_bench_inference bench_inference.cpp net.cpp gpu.cpp packing.cpp)
-target_include_directories(nn_bench_inference SYSTEM PRIVATE "${NN_ORT_INCLUDE}")
-target_link_libraries(nn_bench_inference PRIVATE combat_core "${NN_ORT_DIR}/libonnxruntime.so.1" CUDA::cudart)
-target_link_options(nn_bench_inference PRIVATE "-Wl,-rpath,${NN_ORT_DIR}")
-target_compile_options(nn_bench_inference PRIVATE -Wall -Wextra -Wpedantic)
-
-add_executable(nn_play play.cpp workers.cpp tokens.cpp net.cpp gpu.cpp packing.cpp gumbel.cpp)
-target_include_directories(nn_play SYSTEM PRIVATE "${NN_ORT_INCLUDE}")
-target_link_libraries(nn_play PRIVATE combat_core "${NN_ORT_DIR}/libonnxruntime.so.1" CUDA::cudart)
-target_link_options(nn_play PRIVATE "-Wl,-rpath,${NN_ORT_DIR}")
+add_executable(nn_play play.cpp tokens.cpp gumbel.cpp)
+target_link_libraries(nn_play PRIVATE combat_core infra_actors infra_inference)
 target_compile_options(nn_play PRIVATE -Wall -Wextra -Wpedantic)
