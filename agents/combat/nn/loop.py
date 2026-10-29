@@ -276,6 +276,7 @@ def run_loop(a, args, gpu_bank):
         if a.balanced_replay:
             (iteration_dir(it) / 'replay.json').write_text(json.dumps(dict(
                 available=tokens.available, selected=tokens.selected, drawn=tokens.drawn), indent=2))
+            tokens.close()
         if a.device.startswith('cuda'):
             torch.cuda.empty_cache()  # leave VRAM for the next native TensorRT worker
         return len(tokens) if a.balanced_replay else len(won)
