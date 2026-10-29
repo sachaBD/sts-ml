@@ -1,8 +1,8 @@
 // TensorRT (through ONNX Runtime) with captured CUDA graphs. Synchronous: evaluate() runs on its caller,
 // the InferenceServer, so there is no extra thread or queue here.
 #include "infra/inference/cpu.hpp"
-#include "infra/inference/half.hpp"
 #include <cuda_fp16.h>
+#include <immintrin.h>
 #include <cuda_runtime.h>
 #include <onnxruntime_cxx_api.h>
 #include <algorithm>
@@ -21,6 +21,23 @@ namespace stsrl::infra {
 namespace {
 using Clock = std::chrono::steady_clock;
 double since(Clock::time_point t) { return std::chrono::duration<double>(Clock::now() - t).count(); }
+// Vectorized float32 -> fp16 for the first multiple of 8 values; returns how many it converted.
+__attribute__((target("avx,f16c")))
+std::size_t to_fp16_f16c(std::span<const float> source, std::uint16_t* destination) {
+    std::size_t i = 0;
+    for (; i + 8 <= source.size(); i += 8)
+        _mm_storeu_si128(reinterpret_cast<__m128i*>(destination + i),
+            _mm256_cvtps_ph(_mm256_loadu_ps(source.data() + i), _MM_FROUND_TO_NEAREST_INT | _MM_FROUND_NO_EXC));
+    return i;
+}
+
+// float32 -> fp16 bits, round-to-nearest-even (as CUDA's __float2half). F16C when the CPU has it.
+void to_fp16(std::span<const float> source, std::uint16_t* destination) {
+    static const bool f16c = __builtin_cpu_supports("avx") && __builtin_cpu_supports("f16c");
+    for (std::size_t i = f16c ? to_fp16_f16c(source, destination) : 0; i < source.size(); ++i)
+        destination[i] = std::bit_cast<std::uint16_t>(__float2half(source[i]));
+}
+
 void check(cudaError_t e) { if (e != cudaSuccess) throw std::runtime_error{std::string{"CUDA: "} + cudaGetErrorString(e)}; }
 
 // Tactic timings depend on the GPU, not the model: one cache for every model makes rebuilding the
@@ -121,7 +138,7 @@ public:
     void prepare(const Tokens& tokens, std::vector<std::uint16_t>& packed) const override {
         if (tokens.count > tokens_) { packed.clear(); return; }  // too long: the CPU evaluates it whole
         packed.assign(std::size_t(tokens_) * width_, 0);
-        pack_half(tokens.data, packed);
+        to_fp16(tokens.data, packed.data());
     }
 
     std::vector<Prediction> evaluate(std::span<const Input> inputs) override {
