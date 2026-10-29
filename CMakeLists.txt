@@ -79,6 +79,13 @@ add_executable(bench_reuse EXCLUDE_FROM_ALL experiments/reuse_probe/bench_reuse.
 target_link_libraries(bench_reuse PRIVATE combat_core)
 
 enable_testing()
+# GoogleTest for native unit tests, pinned and built with the project (no system install needed).
+include(FetchContent)
+FetchContent_Declare(googletest URL https://github.com/google/googletest/archive/refs/tags/v1.15.2.tar.gz
+    URL_HASH SHA256=7b42b4d6ed48810c5362c265a17faebe90dc2373c885e5216439d37927f02926 DOWNLOAD_EXTRACT_TIMESTAMP TRUE)
+set(INSTALL_GTEST OFF CACHE BOOL "" FORCE)
+FetchContent_MakeAvailable(googletest)
+include(GoogleTest)
 add_executable(encoding_test environments/combat/encoding_test.cpp)
 target_link_libraries(encoding_test PRIVATE combat_core)
 target_compile_features(encoding_test PRIVATE cxx_std_23)
