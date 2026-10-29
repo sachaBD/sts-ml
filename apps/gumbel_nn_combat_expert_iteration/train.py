@@ -1,14 +1,28 @@
 """Load fixed combat starts and launch the infra-backed Gumbel NN loop. See README.md."""
 import json
+import re
 from pathlib import Path
 import subprocess
 import sys
 
 import pyarrow.parquet as pq
 
-from apps.common.app import main, snapshot, write_json
-from apps.combat_expert_iteration.expert_iteration import check_decks, deck_of
+from apps.common.app import check_keys, main, required, snapshot, write_json
+from apps.gumbel_nn_combat_expert_iteration.reporting import deck_of
 from runs.run import run_dir
+
+
+def check_decks(decks):
+    for deck in decks:
+        check_keys(deck, {"name", "starts", "deck_id", "hp", "max_hp"}, "deck")
+        for key in ("name", "starts", "deck_id"):
+            required(deck, key, "deck", str)
+        for key in ("hp", "max_hp"):
+            required(deck, key, "deck", int)
+        if not re.fullmatch(r"[a-z0-9_-]+", deck["name"]):
+            sys.exit(f"[[deck]].name {deck['name']!r}: use [a-z0-9_-]")
+    if len({d["name"] for d in decks}) != len(decks):
+        sys.exit("[[deck]] names must be unique")
 
 
 def inputs(config):

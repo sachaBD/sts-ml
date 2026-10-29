@@ -3,70 +3,21 @@ import argparse
 from functools import lru_cache
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
-import math
 import re
 import subprocess
 from pathlib import Path
 from statistics import median
 import time
 
-from apps.gumbel_nn_combat_expert_iteration.dashboard import jsonl, snapshot
+from .dashboard import snapshot
+from .reporting import by_deck, deck_of, jsonl, outcomes, paired, pool, rate, unpaired
 
 PAGE = Path(__file__).with_name('web.html')
 WINDOW = 5      # training trend: last WINDOW batches pooled vs the WINDOW before
 EVAL_BACK = 3   # evaluation trend: latest vs the evaluation EVAL_BACK earlier (same seeds, paired)
-Z = 1.96
-
-
-def deck_of(fight_id):
-    parts = fight_id.split(':')  # training: ns:iter:deck:i; evaluation: ns:deck:split:i
-    return parts[2] if parts[1].isdigit() else parts[1]
-
-
-def wilson(w, n):
-    if not n:
-        return [0, 0]
-    p, d = w / n, 1 + Z * Z / n
-    c, h = (p + Z * Z / (2 * n)) / d, Z * math.sqrt(p * (1 - p) / n + Z * Z / (4 * n * n)) / d
-    return [c - h, c + h]
-
-
-def rate(w, n):
-    return dict(w=w, n=n, p=w / n if n else None, ci=wilson(w, n))
-
-
-def outcomes(path):
-    return {r['fight_id']: bool(r['won']) for r in jsonl(path)}
 
 
 finished = lru_cache(maxsize=None)(outcomes)  # completed result files never change
-
-
-def by_deck(results):
-    decks = {}
-    for k, won in results.items():
-        decks.setdefault(deck_of(k), []).append(won)
-    out = {d: rate(sum(v), len(v)) for d, v in sorted(decks.items())}
-    out['all'] = rate(sum(results.values()), len(results))
-    return out
-
-
-def unpaired(new, old):
-    if not new['n'] or not old['n']:
-        return None  # held-out-only decks have no collection trend
-    p1, n1, p2, n2 = new['p'], new['n'], old['p'], old['n']
-    d, se = p1 - p2, math.sqrt(p1 * (1 - p1) / n1 + p2 * (1 - p2) / n2)
-    return dict(d=d, lo=d - Z * se, hi=d + Z * se)
-
-
-def paired(new, old, keys):
-    if not keys:
-        return None  # training-only decks need not belong to the unseen validation panel
-    diffs = [new[k] - old[k] for k in keys]
-    n = len(diffs)
-    d = sum(diffs) / n
-    se = math.sqrt(sum((x - d) ** 2 for x in diffs) / (n - 1) / n) if n > 1 else 0
-    return dict(d=d, lo=d - Z * se, hi=d + Z * se)
 
 
 def losses(logs):
@@ -107,12 +58,6 @@ def system():
     kib = lambda k: float(mem[k].split()[0]) / 1024 ** 2
     out.update(ram=kib('MemTotal') - kib('MemAvailable'), ram_total=kib('MemTotal'))
     return out
-
-
-def pool(batches, deck):
-    w = sum(b['rates'][deck]['w'] for b in batches if deck in b['rates'])
-    n = sum(b['rates'][deck]['n'] for b in batches if deck in b['rates'])
-    return rate(w, n)
 
 
 def api(out):
