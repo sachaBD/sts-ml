@@ -3,6 +3,7 @@ import tempfile
 import threading
 import time
 import unittest
+from unittest.mock import patch
 
 from .reader import Reader, prefetch
 
@@ -17,6 +18,18 @@ class ReaderTests(unittest.TestCase):
                 rows = [(1, 5, 3), (0, 0, 2), (0, 98, 2)] * 50
                 self.assertEqual(reader.read(rows), [bytes([105, 106, 107]), bytes([0, 1]), bytes([98, 99])] * 50)
             self.assertEqual(reader.files, [])
+
+    def test_batch_uses_bounded_tasks(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / 'rows'
+            path.write_bytes(b'x')
+            with Reader([path], threads=4) as reader:
+                with patch.object(reader.pool, 'submit', wraps=reader.pool.submit) as submit:
+                    self.assertEqual(reader.read([]), [])
+                    submit.assert_not_called()
+                    rows = iter([(0, 0, 1)] * 2048)
+                    self.assertEqual(reader.read(rows), [b'x'] * 2048)
+                self.assertLessEqual(submit.call_count, 4 * 8)
 
 
 class PrefetchTests(unittest.TestCase):

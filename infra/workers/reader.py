@@ -10,17 +10,30 @@ import threading
 
 
 class Reader:
-    """`threads` Readers over `paths`. os.pread releases the GIL, so the threads read in parallel."""
+    """Read batches with coarse tasks. os.pread releases the GIL for parallel reads.
 
-    def __init__(self, paths, threads=12):
+    Each batch uses at most eight chunks per thread: enough to balance uneven I/O
+    without creating a future for every row. Results retain the request order.
+    """
+
+    def __init__(self, paths, threads=4):
         self.files = [os.open(path, os.O_RDONLY) for path in paths]
         for fd in self.files:
             os.posix_fadvise(fd, 0, 0, os.POSIX_FADV_RANDOM)
         self.pool = ThreadPoolExecutor(threads, thread_name_prefix='reader')
+        self._chunks = threads * 8
+
+    def _read_chunk(self, rows):
+        return [os.pread(self.files[file], size, offset) for file, offset, size in rows]
 
     def read(self, rows):
         """rows: (file index, offset, size) triples -> their bytes, in the same order."""
-        return list(self.pool.map(lambda row: os.pread(self.files[row[0]], row[2], row[1]), rows, chunksize=64))
+        rows = list(rows)
+        if not rows:
+            return []
+        size = (len(rows) + self._chunks - 1) // self._chunks
+        chunks = (rows[start:start + size] for start in range(0, len(rows), size))
+        return [raw for chunk in self.pool.map(self._read_chunk, chunks) for raw in chunk]
 
     def close(self):
         self.pool.shutdown()
