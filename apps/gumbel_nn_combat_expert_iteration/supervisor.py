@@ -7,7 +7,8 @@ import subprocess
 import time
 
 from apps.common.app import write_json
-from .dashboard import jsonl, running
+from .dashboard import running
+from .reporting import jsonl
 
 CUDA_FAILURES = ('CUDA: unknown error', 'CUDA: unspecified launch failure',
                  'CUDA: an illegal memory access', 'CUDA failure', 'cudaErrorUnknown',

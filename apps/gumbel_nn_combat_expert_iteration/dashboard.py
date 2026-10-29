@@ -2,24 +2,12 @@
 import argparse
 import fcntl
 import json
-import math
 from pathlib import Path
 import shutil
 import time
 import tomllib
 
-from apps.combat_expert_iteration.expert_iteration import deck_of, wilson
-
-
-def jsonl(path):
-    rows = []
-    if path.exists():
-        for line in path.read_text().splitlines():
-            try:
-                rows.append(json.loads(line))
-            except json.JSONDecodeError:
-                continue  # live writer may be midway through its last line
-    return rows
+from .reporting import baselines, deck_of, jsonl, outcomes, score
 
 
 def running(training):
@@ -31,38 +19,6 @@ def running(training):
         except BlockingIOError:
             return True
     return False
-
-
-def mean_bounds(values):
-    mean = sum(values) / len(values)
-    se = math.sqrt(sum((v - mean) ** 2 for v in values) / (len(values) * (len(values) - 1))) if len(values) > 1 else None
-    return mean, [mean - 1.96 * se, mean + 1.96 * se] if se is not None else None
-
-
-def score(results, baselines):
-    n, wins = len(results), sum(results.values())
-    comparisons = {}
-    for name, reference in baselines.items():
-        keys = results.keys() & reference.keys()
-        if not keys:
-            continue
-        differences = [int(results[k]) - int(reference[k]) for k in keys]
-        m = len(keys)
-        gap = sum(differences) / m
-        se = math.sqrt(sum((d - gap) ** 2 for d in differences) / (m * (m - 1))) if m > 1 else None
-        grouped = {}
-        for k in keys:
-            grouped.setdefault(deck_of(k), []).append(int(results[k]) - int(reference[k]))
-        macro, cluster_ci = mean_bounds([sum(v) / len(v) for v in grouped.values()])
-        comparisons[name] = dict(n=m, wins=sum(results[k] for k in keys), baseline_wins=sum(reference[k] for k in keys),
-                                 gap=gap, gap_95=[gap - 1.96 * se, gap + 1.96 * se] if se is not None else None,
-                                 families=len(grouped), macro_gap=macro, family_gap_95=cluster_ci)
-    grouped = {}
-    for k, won in results.items():
-        grouped.setdefault(deck_of(k), []).append(won)
-    macro, cluster_ci = mean_bounds([sum(v) / len(v) for v in grouped.values()])
-    return dict(n=n, wins=wins, win_rate=wins / n, wilson_95=wilson(wins, n), comparisons=comparisons,
-                families=len(grouped), macro_win_rate=macro, family_95=cluster_ci)
 
 
 def snapshot(out):
@@ -92,28 +48,24 @@ def snapshot(out):
     latest = max((r['iteration'] for r in completed), default=None)
     checkpoint = training / f'iter{latest:03d}/model.pt' if latest is not None else None
     evaluations = []
-    baseline_path = out / 'inputs/baselines.json'
-    baselines = json.loads(baseline_path.read_text()) if baseline_path.exists() else {}
-    reference_path = out / 'inputs/reference.json'
-    if not baselines and reference_path.exists():
-        baselines['mcts20k'] = json.loads(reference_path.read_text())
+    references = baselines(out)
     tested = sorted({r['test'] for r in rows if 'test' in r})
     if 0 in tested:
-        baselines['initial'] = {r['fight_id']: r['won'] for r in jsonl(training / 'test/iter000/results.jsonl')}
-        baselines['initial'].update({r['fight_id']: r['won'] for r in jsonl(training / 'test/iter000/in-sample/results.jsonl')})
+        references['initial'] = outcomes(training / 'test/iter000/results.jsonl')
+        references['initial'].update(outcomes(training / 'test/iter000/in-sample/results.jsonl'))
     cohort_path = out / 'inputs/cohorts.json'
     cohorts = json.loads(cohort_path.read_text()) if cohort_path.exists() else {}
     for it in tested[-3:]:
-        results = {r['fight_id']: r['won'] for r in jsonl(training / f'test/iter{it:03d}/results.jsonl')}
+        results = outcomes(training / f'test/iter{it:03d}/results.jsonl')
         if not results:
             continue
         combined = dict(results)
-        combined.update({r['fight_id']: r['won'] for r in jsonl(training / f'test/iter{it:03d}/in-sample/results.jsonl')})
-        decks = {name: score({k: v for k, v in combined.items() if deck_of(k) == name}, baselines)
+        combined.update(outcomes(training / f'test/iter{it:03d}/in-sample/results.jsonl'))
+        decks = {name: score({k: v for k, v in combined.items() if deck_of(k) == name}, references)
                  for name in sorted({deck_of(k) for k in combined})}
-        groups = {group: score({k: v for k, v in combined.items() if cohorts.get(deck_of(k)) == group}, baselines)
+        groups = {group: score({k: v for k, v in combined.items() if cohorts.get(deck_of(k)) == group}, references)
                   for group in sorted(set(cohorts.values())) if any(cohorts.get(deck_of(k)) == group for k in combined)}
-        evaluations.append(dict(iteration=it, all=score(results, baselines), decks=decks, cohorts=groups))
+        evaluations.append(dict(iteration=it, all=score(results, references), decks=decks, cohorts=groups))
     return dict(version=1, state=state, config=config, progress=progress, recovery=recovery,
                 progress_age_seconds=time.time() - progress['time'] if progress else None,
                 last_completed_iteration=latest,
