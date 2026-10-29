@@ -21,7 +21,7 @@ used by the InferenceServer during play and by the Learner during train.
 | Loop | 1 | python `loop` | both | starts play, runs train, exports models, prunes old replay |
 | Actor | 9 (`--workers`) | native `nn_play` | play | plays K games each (`--parallel`): search + simulator, requests NN evals, writes samples |
 | InferenceServer | 1 | native `nn_play` | play | batches all Actors' requests, runs the GPU, routes replies |
-| Reader | 12 | python `loop` | train | `pread`s sampled rows from disk, builds padded batches |
+| Reader | 4 threads | python `loop` | train | reads sampled rows with coarse `pread` tasks; Replay builds padded batches |
 | Learner | 1 | python `loop` | train | takes ready batches, runs the GPU training step |
 
 ## Diagram
@@ -33,7 +33,7 @@ used by the InferenceServer during play and by the Learner during train.
              ┌──────────────────┴───────────────────┐
              ▼ PLAY  (nn_play process)              ▼ TRAIN  (loop process)
  ┌──────────────────────┐                ┌──────────────────────┐
- │ Actor x9  (CPU)      │                │ Reader x12  (CPU)    │
+ │ Actor x9  (CPU)      │                │ Reader x4   (CPU)    │
  │ games + search       │                │ pread rows -> batch  │
  └───┬─────────▲────┬───┘                └───▲─────────────┬────┘
      │ mailbox │    │ finished games         │ random rows  │ ready batches
@@ -68,6 +68,8 @@ used by the InferenceServer during play and by the Learner during train.
 
 - Readers stay ahead of the Learner by the queue depth; the GPU should never wait on disk.
 - Read exact row bytes (`pread`), never `mmap` random rows: WSL read-ahead is 8 MiB per fault.
+- Schedule at most eight chunks per reader thread per batch, not one task per row.
+  Chunks read rows sequentially; the returned rows preserve request order, including duplicates.
 - The replay window does not need to fit in RAM.
 
 ## Code
