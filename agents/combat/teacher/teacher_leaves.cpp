@@ -1,6 +1,6 @@
 #include "agents/combat/teacher/teacher_leaves.hpp"
+#include "environments/combat/public.hpp"
 
-#include "game/Random.h"
 
 #include <algorithm>
 #include <cstdlib>
@@ -21,29 +21,6 @@ std::uint64_t next_seed(std::uint64_t& state) {
     value = (value ^ (value >> 30)) * 0xBF58476D1CE4E5B9ULL;
     value = (value ^ (value >> 27)) * 0x94D049BB133111EBULL;
     return value ^ (value >> 31);
-}
-
-sts::BattleContext sample_particle(const sts::BattleContext& observed, std::uint64_t seed) {
-    sts::BattleContext sampled = observed;
-    const auto draw_seed = seed;
-    const auto next = [&] { return next_seed(seed); };
-    sampled.seed = next();
-    for (int i = 0; i < 14; ++i) next();
-    sampled.aiRng = sts::Random(next());
-    sampled.cardRandomRng = sts::Random(next());
-    sampled.miscRng = sts::Random(next());
-    sampled.monsterHpRng = sts::Random(next());
-    sampled.potionRng = sts::Random(next());
-    sampled.shuffleRng = sts::Random(next());
-    if (sampled.inputState != sts::InputState::CARD_SELECT) {
-        std::sort(sampled.cards.drawPile.begin(), sampled.cards.drawPile.end(), [](const auto& a, const auto& b) {
-            return std::tie(a.id, a.upgraded, a.specialData, a.cost, a.costForTurn, a.uniqueId)
-                 < std::tie(b.id, b.upgraded, b.specialData, b.cost, b.costForTurn, b.uniqueId);
-        });
-        java::Collections::shuffle(sampled.cards.drawPile.begin(), sampled.cards.drawPile.end(), java::Random(next()));
-    }
-    PublicBeliefCombatSearch::resampleDraw(sampled, observed, draw_seed);
-    return sampled;
 }
 
 // Most-visited root edge can no longer be caught with `left` simulations. Never under max backup:
@@ -68,12 +45,8 @@ std::uint64_t search_seed(const sts::BattleContext& observed) {
 
 std::vector<sts::BattleContext> root_particles(const sts::BattleContext& observed, bool oracle, int particles) {
     if (particles < 1) throw std::invalid_argument{"particles must be >= 1"};
-    auto stream = search_seed(observed);
-    std::vector<sts::BattleContext> states;
-    states.reserve(particles);
-    if (oracle) states.push_back(observed);
-    else for (int i = 0; i < particles; ++i) states.push_back(sample_particle(observed, next_seed(stream)));
-    return states;
+    if (oracle) return {observed};
+    return combat::particles(observed, particles, search_seed(observed));
 }
 
 }  // namespace
@@ -118,12 +91,7 @@ bool set_tweak(const std::string& key, const Json& value) {
 }
 
 std::vector<sts::BattleContext> public_particles(const sts::BattleContext& observed, int particles) {
-    if (particles < 1) throw std::invalid_argument{"particles must be >= 1"};
-    auto stream = PublicBeliefCombatSearch::publicObservation(observed);
-    std::vector<sts::BattleContext> states;
-    states.reserve(particles);
-    for (int i = 0; i < particles; ++i) states.push_back(sample_particle(observed, next_seed(stream)));
-    return states;  // independent of the legacy teacher's process-wide tweaks
+    return combat::particles(observed, particles);  // independent of the legacy teacher's process-wide tweaks
 }
 
 PublicBeliefCombatSearch make_search(const sts::BattleContext& observed, bool oracle, int particles) {

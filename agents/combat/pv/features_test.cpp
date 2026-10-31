@@ -1,7 +1,7 @@
 #include "agents/combat/pv/search.hpp"
 #include "environments/combat/environment.hpp"
 #include "environments/combat/record_v4.hpp"
-#include "agents/combat/teacher/teacher_leaves.hpp"
+#include "environments/combat/public.hpp"
 #include <algorithm>
 #include <fstream>
 #include <iostream>
@@ -45,7 +45,7 @@ int main() {
         SearchSettings settings;
         settings.batch_size = 8;
         settings.maximum_actions = 8;
-        Search<> search{state, stsrl::teacher::public_particles(state, 8), root_prediction, settings};
+        Search<> search{state, stsrl::combat::particles(state, 8), root_prediction, settings};
         int calls = 0;
         auto evaluate = [&](std::span<const Inputs> batch) {
             ++calls;
