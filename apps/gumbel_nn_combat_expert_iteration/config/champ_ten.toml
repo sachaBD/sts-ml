@@ -5,39 +5,50 @@
 [run]
 id = "gumbel-nn-champ-ten-v1"
 worker = "build/nn/agents/combat/nn/nn_play"
-games_per_deck = 500 # 5,000 total/update; replacement reserve beyond 9 x 224 active slots
 seed_namespace = "gumbel-nn-champ-ten-v1"
-
-[loop]
+games_per_deck = 500 # 5,000 total/update; replacement reserve beyond 9 x 224 active slots
 iterations = 0 # run until ./run.sh stop RUN_DIRECTORY; finish the active update cleanly
-test_every = 3
-prune_replay = true # keep five batches of samples, discard expired samples/engine caches
+
+[search] # self-play; evaluation plays the same search without noise
+sims = 256
+gumbel_scale = 1.0
+rollout_mix = 0.5
+particles = 8
+
+[training]
 steps = 100
-window = 5
-max_train_rows = 500000 # uniform replay subset; only prefetched minibatches enter RAM
 batch = 2048
 lr = 0.001
-sims = 256
-rollout_mix = 0.5
-test_sims = 256 # validation simulations; 0 = the network alone
-workers = 9
-parallel = 224
-gpu_batch = 512
-gpu_tokens = 48
-gpu_bank = "256,32"
-gpu_wait_us = 100
-timeout_ms = 60000
-shutdown_timeout_ms = 5000
+window = 5
+max_train_rows = 500000 # uniform replay subset; only prefetched minibatches enter RAM
+balanced_replay = false
+prune_replay = true # keep five batches of samples, discard expired samples/engine caches
+device = "cuda"
+
+[model]
 dim = 64
 layers = 2
 heads = 2
-device = "cuda"
+gpu_tokens = 48
+export_reuse = false
+
+[workers]
+actors = 9
+slots = 224
+gpu_batch = 512
+gpu_bank = [256, 32]
+gpu_wait_us = 100
+timeout_ms = 60000
+shutdown_timeout_ms = 5000
 
 [evaluation]
+sims = 256 # 0 = the network alone
+at = [0]
+every = 3
+wall_share = 0
 source_run = "combat_v4/2026-10-09/champ-ten-rollout-v1"
 directory = "monitor-teacher"
 fights_per_deck = 50
-at = [0] # then every test_every updates
 
 [[deck]]
 name = "apparition-block"   # 51a5aff9, 31 cards: 3x Apparition, Dark Embrace+, Reaper, Entrench (MCTS20k 13/20)

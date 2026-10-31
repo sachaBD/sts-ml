@@ -9,7 +9,7 @@ import tomllib
 import pyarrow as pa
 import pyarrow.parquet as pq
 
-from agents.combat.nn.loop import fights
+from environments.combat.starts import fights
 from apps.gumbel_nn_combat_expert_iteration.train import load_bases
 
 AUDIT = runpy.run_path('experiments/2026-10-28-champ-generalisation/inventory.py')

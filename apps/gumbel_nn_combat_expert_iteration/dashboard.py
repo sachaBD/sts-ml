@@ -93,11 +93,11 @@ def main():
         print(json.dumps(data))
         return
     config, status = data['config'], data['progress']
-    r, settings = config['run'], config['loop']
+    r, model, training = config['run'], config['model'], config['training']
     print(f'{r["id"]}   {time.strftime("%H:%M:%S")}   {data["state"].upper()}')
     print(f'{len(config["deck"])} decks; {r["games_per_deck"] * len(config["deck"]):,} games/update; '
-          f'{settings["sims"]} sims; NN {settings["dim"]}x{settings["layers"]}; '
-          f'{settings["steps"]} train steps x {settings["batch"]} rows')
+          f'{config["search"]["sims"]} sims ({config["evaluation"]["sims"]} evaluation); '
+          f'NN {model["dim"]}x{model["layers"]}; {training["steps"]} train steps x {training["batch"]} rows')
     if status:
         progress = f'{status["done"]}/{status["total"]}' if 'total' in status else status.get('detail', '')
         print(f'{"Now" if data["state"] in {"running", "stopping"} else "Last progress"}: '
