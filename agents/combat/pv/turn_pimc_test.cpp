@@ -1,6 +1,6 @@
 #include "agents/combat/pv/turn_pimc.hpp"
 #include "agents/combat/pv/search.hpp"
-#include "agents/combat/teacher/teacher_leaves.hpp"
+#include "environments/combat/public.hpp"
 #include "environments/combat/record_v4.hpp"
 #include <fstream>
 #include <iostream>
@@ -38,7 +38,7 @@ int main() {
         auto grouped=turn_first_action_values(state,root,12);
         require(grouped.best.size()==1 && grouped.best.begin()->second==70, "not max Q over semantic first actions");
         state.monsters.arr[0].curHp=1;
-        auto particles=stsrl::teacher::public_particles(state,2);
+        auto particles=stsrl::combat::particles(state,2);
         auto evaluate=[](std::span<const Inputs> batch) {
             std::vector<Prediction> result;
             for (const auto& input:batch) result.push_back({80,std::vector<float>(input[5].size()/widths[5],0)});
@@ -56,7 +56,7 @@ int main() {
         auto timeout=decide_turn_particles(state,particles,2,evaluate,timed);
         require(timeout.time_fallback_count==2 && timeout.time_overshoot_count==2, "time-cap particles not separately counted");
         auto hidden=state; hidden.shuffleRng=sts::Random{712}; std::swap(hidden.aiRng, hidden.miscRng);
-        auto alternate=stsrl::teacher::public_particles(hidden,2);
+        auto alternate=stsrl::combat::particles(hidden,2);
         require(observation_key(hidden)==observation_key(state), "fixture private mutation changed public state");
         require(alternate[0].seed==particles[0].seed, "belief uses true private seed");
         require(decide_turn_particles(hidden,alternate,2,evaluate,caps).action.bits==fallback.action.bits,

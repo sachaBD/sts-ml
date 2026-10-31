@@ -1,24 +1,37 @@
-#include "agents/combat/nn/gumbel.hpp"
-#include "agents/combat/teacher/teacher_leaves.hpp"
-#include "sim/search/BattleScumSearcher2.h"
-#include "sim/search/PublicBeliefCombatSearch.h"
+#include "agents/combat/search/gumbel/gumbel.hpp"
+#include "environments/combat/public.hpp"
 #include <algorithm>
 #include <cmath>
 #include <map>
+#include <random>
+#include <stdexcept>
 
-namespace stsrl::nn {
+namespace stsrl::search {
 namespace {
-using sts::search::Action;
-using Public = sts::search::PublicBeliefCombatSearch;
-
 struct Node {
-    std::vector<std::uint64_t> keys;  // edges, by public action key (legal_actions order at expansion)
+    std::vector<std::uint64_t> keys;  // edges, by public action key
     std::vector<double> logits, prior, value_sum;
     std::vector<int> visits;
-    std::vector<std::map<std::uint64_t, std::unique_ptr<Node>>> children;  // per edge, by public observation
-    double value = 0;                  // network value at expansion
+    std::vector<std::map<std::uint64_t, std::unique_ptr<Node>>> children;  // per edge, by Chance::child_key
+    double value = 0;
     int total = 0;
 };
+
+// How the tree meets hidden information and chance: where a simulation starts, and which children
+// a move can lead to. Particles: every simulation plays out in one sampled world, and children are
+// told apart by what the player can see, so all worlds share one tree.
+class Particles {
+public:
+    Particles(const sts::BattleContext& observed, int count) : worlds_{combat::particles(observed, count)} {}
+    sts::BattleContext start(std::mt19937_64& rng) const {
+        return worlds_[std::uniform_int_distribution<std::size_t>{0, worlds_.size() - 1}(rng)];
+    }
+    static std::uint64_t child_key(const sts::BattleContext& state) { return combat::observation_key(state); }
+
+private:
+    std::vector<sts::BattleContext> worlds_;
+};
+using Chance = Particles;
 
 std::vector<double> softmax(std::vector<double> x) {
     const double top = *std::max_element(x.begin(), x.end());
@@ -29,7 +42,7 @@ std::vector<double> softmax(std::vector<double> x) {
 }
 
 // mctx qtransform_completed_by_mix_value: completed Q (unvisited = mixed value), min-max rescaled, scaled.
-std::vector<double> sigma(const Node& n, const Settings& s) {
+std::vector<double> sigma(const Node& n, const Gumbel::Settings& s) {
     double prior_visited = 0, weighted = 0;
     int most = 0;
     for (std::size_t i = 0; i < n.keys.size(); ++i)
@@ -46,7 +59,7 @@ std::vector<double> sigma(const Node& n, const Settings& s) {
     return q;
 }
 
-std::vector<double> improved_policy(const Node& n, const Settings& s) {
+std::vector<double> improved_policy(const Node& n, const Gumbel::Settings& s) {
     auto z = sigma(n, s);
     for (std::size_t i = 0; i < z.size(); ++i) z[i] += n.logits[i];
     return softmax(z);
@@ -69,56 +82,49 @@ std::vector<int> halving_schedule(int m, int simulations) {
     return out;
 }
 
-// The action with public key `key` in this particle's state (card slots can differ between particles).
+// Edges are public keys because card slots can differ between worlds.
 void play(sts::BattleContext& state, std::uint64_t key) {
-    for (const auto a : legal_actions(state))
-        if (Public::publicActionKey(state, a) == key) { a.execute(state); return; }
-    throw std::runtime_error{"nn: action missing in a particle"};
+    for (const auto a : combat::legal_actions(state))
+        if (combat::action_key(state, a) == key) { a.execute(state); return; }
+    throw std::runtime_error{"gumbel: action missing in a particle"};
 }
 }  // namespace
 
-struct Search::Impl {
-    const Settings& s;
+struct Gumbel::Impl {
+    Settings s;
     std::mt19937_64 rng;
-    std::vector<sts::BattleContext> particles;
-    sts::search::BattleScumSearcher2 rollout;
-    std::vector<Action> actions;  // root legal actions
+    Chance chance;
+    std::vector<Action> actions;
     Node root;
     std::vector<double> gumbel;
     std::vector<int> schedule;
     int simulation = 0;
 
-    // The leaf waiting for the network: its node, state (for the rollout), path to back up, and tokens.
     Node* leaf = nullptr;
     sts::BattleContext leaf_state;
+    std::vector<Action> leaf_actions;
     std::vector<std::pair<Node*, std::size_t>> path;
-    stsrl::infra::Tokens tokens;
 
     Impl(const sts::BattleContext& observed, const Settings& settings, std::uint64_t seed)
-        : s{settings}, rng{seed}, particles{teacher::public_particles(observed, settings.particles)},
-          rollout{observed}, actions{legal_actions(observed)} {
-        rollout.rolloutMode = 2;
-        leaf = &root;  // the root is the first evaluation
-        leaf_state = observed;
-        tokens = encode(observed, actions);
-    }
+        : s{settings}, rng{seed}, chance{observed, settings.particles}, actions{combat::legal_actions(observed)},
+          leaf{&root}, leaf_state{observed}, leaf_actions{actions} {}
 
-    void evaluated(const stsrl::infra::Prediction& p) {
-        expand(*leaf, leaf_state, p);
+    void evaluated(const Evaluation& e) {
+        expand(*leaf, e);
         if (leaf == &root) {
             std::extreme_value_distribution<double> g;
             for (std::size_t i = 0; i < actions.size(); ++i) gumbel.push_back(s.gumbel_scale * g(rng));
-            schedule = halving_schedule(std::min<int>(s.considered, int(actions.size())), s.simulations);
+            schedule = halving_schedule(std::min<int>(s.considered_actions, int(actions.size())), s.simulations);
         } else {
-            backup(leaf_value(*leaf, leaf_state));
+            backup(e.value);
         }
         leaf = nullptr;
         while (!leaf && simulation < s.simulations) simulate();
     }
 
-    // One simulation: descend from the root until a terminal state (backed up now) or a new node (left pending).
+    // Descends until a finished fight (backed up now) or a new node (left pending for the evaluator).
     void simulate() {
-        auto state = particles[std::uniform_int_distribution<std::size_t>{0, particles.size() - 1}(rng)];
+        auto state = chance.start(rng);
         path.clear();
         Node* node = &root;
         for (;;) {
@@ -126,11 +132,12 @@ struct Search::Impl {
             path.emplace_back(node, edge);
             play(state, node->keys[edge]);
             if (state.outcome != sts::Outcome::UNDECIDED) { backup(state.outcome == sts::Outcome::PLAYER_VICTORY); return; }
-            auto& child = node->children[edge][Public::observationKey(state)];
+            auto& child = node->children[edge][Chance::child_key(state)];
             if (!child) {
                 child = std::make_unique<Node>();
-                leaf = child.get(); leaf_state = state;
-                tokens = encode(state, legal_actions(state));
+                leaf = child.get();
+                leaf_state = state;
+                leaf_actions = combat::legal_actions(state);
                 return;
             }
             node = child.get();
@@ -142,20 +149,12 @@ struct Search::Impl {
         ++simulation;
     }
 
-    void expand(Node& n, const sts::BattleContext& state, const stsrl::infra::Prediction& p) {
-        n.value = p.value;
-        n.logits.assign(p.logits.begin(), p.logits.end());
+    void expand(Node& n, const Evaluation& e) {
+        n.value = e.value;
+        n.logits.assign(e.logits.begin(), e.logits.end());
         n.prior = softmax(n.logits);
-        for (const auto a : legal_actions(state)) n.keys.push_back(Public::publicActionKey(state, a));
+        for (const auto a : leaf_actions) n.keys.push_back(combat::action_key(leaf_state, a));
         n.value_sum.assign(n.keys.size(), 0); n.visits.assign(n.keys.size(), 0); n.children.resize(n.keys.size());
-    }
-
-    double leaf_value(const Node& n, sts::BattleContext state) {
-        if (s.rollout_mix == 0) return n.value;
-        rollout.randGen.seed(rng());
-        sts::search::BattleScumSearcher2::Node scratch;
-        for (int i = 0; i < 512 && state.outcome == sts::Outcome::UNDECIDED; ++i) rollout.rolloutAction(scratch, state).execute(state);
-        return (1 - s.rollout_mix) * n.value + s.rollout_mix * (state.outcome == sts::Outcome::PLAYER_VICTORY);
     }
 
     // Root: argmax of gumbel + logits + sigma among actions with exactly `considered` visits.
@@ -181,16 +180,24 @@ struct Search::Impl {
 
     Result result() const {
         const int most = *std::max_element(root.visits.begin(), root.visits.end());
-        Result r{actions[root_choice(most)], actions, {}};
+        double value_sum = 0;
+        for (double v : root.value_sum) value_sum += v;
+        Result r{actions[root_choice(most)], actions, {},
+                 float(root.total ? value_sum / root.total : root.value)};
         for (double p : improved_policy(root, s)) r.policy.push_back(float(p));
         return r;
     }
 };
 
-Search::Search(const sts::BattleContext& observed, const Settings& settings, std::uint64_t seed)
+Gumbel::Gumbel(const sts::BattleContext& observed, const Settings& settings, std::uint64_t seed)
     : impl_{std::make_unique<Impl>(observed, settings, seed)} {}
-Search::~Search() = default;
-const stsrl::infra::Tokens* Search::pending() const { return impl_->leaf ? &impl_->tokens : nullptr; }
-void Search::evaluated(const stsrl::infra::Prediction& prediction) { impl_->evaluated(prediction); }
-Result Search::result() const { return impl_->result(); }
-}  // namespace stsrl::nn
+Gumbel::~Gumbel() = default;
+
+std::optional<Query> Gumbel::pending() const {
+    if (!impl_->leaf) return std::nullopt;
+    return Query{impl_->leaf_state, impl_->leaf_actions};
+}
+
+void Gumbel::evaluated(const Evaluation& evaluation) { impl_->evaluated(evaluation); }
+Result Gumbel::result() const { return impl_->result(); }
+}  // namespace stsrl::search
