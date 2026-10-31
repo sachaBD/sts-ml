@@ -1,6 +1,6 @@
 # NN100 simulation sweep
 
-Approved: 16, 32, 64 and 128 simulations, once each on the same 500 starts (50/deck).
+Completed: see [results](RESULTS.md). 16, 32, 64 and 128 simulations, once each on the same 500 starts (50/deck).
 Checkpoint 132, NN-only leaves, eight particles, zero noise; frozen worker and input
 hashes from `../2026-10-31-combat-leaf-mix/protocol.toml`. No training or baseline replay.
 
