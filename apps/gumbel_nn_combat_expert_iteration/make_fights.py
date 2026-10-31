@@ -4,20 +4,20 @@
   python -m apps.gumbel_nn_combat_expert_iteration.make_fights decks DECKS.toml OUT.jsonl
       Training fights: one per [[deck]] (name, starts parquet, deck_id, hp, max_hp); fight_id is the deck name.
 
-  python -m apps.gumbel_nn_combat_expert_iteration.make_fights teacher TRAINING.jsonl SOURCE_RUN DIRECTORY OUT_DIR
-          --fights-per-deck N [--generated-per-deck M --namespace NS]
-      Evaluation on an old teacher run's starts, for paired comparison: OUT_DIR/fights.jsonl, baselines.json
-      (the teacher's result per fight, plus PUCT where recorded) and cohorts.json (decks with teacher fights are
-      `original`, generated-only decks `added`).
+  python -m apps.gumbel_nn_combat_expert_iteration.make_fights teacher TRAINING.jsonl RUN:DIRECTORY OUT_DIR
+          --name NAME --fights-per-deck N [--generated-per-deck M --namespace NS] [--baseline NAME=RUN:DIRECTORY ...]
+      Evaluation on a teacher run's fights, for paired comparison: OUT_DIR/fights.jsonl, baselines.json (each
+      player's result per fight it completed) and cohorts.json (decks with teacher fights are `original`,
+      generated-only decks `added`). A player's results are RUN's out/DIRECTORY/results.jsonl.
 """
 import argparse
 import json
 from pathlib import Path
-import re
 import tomllib
 
 import pyarrow.parquet as pq
 
+from apps.common.app import read_jsonl
 from environments.combat.starts import fights
 from runs.run import run_dir
 
@@ -39,43 +39,45 @@ def load_bases(decks):
 
 
 def deck_fights(decks):
-    names = [d['name'] for d in decks]
-    if len(set(names)) != len(names) or not all(re.fullmatch(r'[a-z0-9_-]+', n) for n in names):
-        raise ValueError('deck names must be unique and use [a-z0-9_-]')
     return [dict(fight_id=name, start=row['start']) for name, row in load_bases(decks).items()]
 
 
-def teacher_fights(training, source_run, directory, fights_per_deck, generated_per_deck=0, namespace=None):
-    """(fights, baselines, cohorts) on the teacher's starts for the training decks."""
+def results(player):
+    """RUN:DIRECTORY -> that run's results rows."""
+    run, directory = player.split(':', 1)
+    return read_jsonl(run_dir(run) / 'out' / directory / 'results.jsonl')
+
+
+def teacher_fights(training, teacher, name, fights_per_deck, generated_per_deck=0, namespace=None, baselines=()):
+    """(fights, baselines, cohorts): the teacher's fights for the training decks, topped up to
+    generated_per_deck per deck with fresh seeds; baselines {name: {fight_id: won}} over those fights."""
     starts = {f['fight_id']: f['start'] for f in training}
-    source = run_dir(source_run) / 'out' / directory / 'results.jsonl'
-    reference = [row for row in map(json.loads, source.read_text().splitlines()) if deck_of(row['fight_id']) in starts]
+    reference = [row for row in results(teacher) if deck_of(row['fight_id']) in starts]
     stable = lambda start: {k: v for k, v in start.items() if k not in {'seed', 'misc_rng', 'potion_rng'}}
-    for name, start in starts.items():
-        rows = [row for row in reference if deck_of(row['fight_id']) == name]
+    for deck, start in starts.items():
+        rows = [row for row in reference if deck_of(row['fight_id']) == deck]
         if not rows and generated_per_deck:
-            continue  # added decks have no teacher reference
+            continue  # added decks have no teacher fights
         if len(rows) != fights_per_deck or any(row['status'] != 'completed' for row in rows):
-            raise ValueError(f'{name}: expected {fights_per_deck} completed reference fights')
+            raise ValueError(f'{deck}: expected {fights_per_deck} completed teacher fights')
         if any(stable(row['fight']['start']) != stable(start) for row in rows):
-            raise ValueError(f'{name}: reference loadout differs from training start')
+            raise ValueError(f'{deck}: teacher loadout differs from training start')
     out = [dict(fight_id=row['fight_id'], start=row['fight']['start']) for row in reference]
     originals = {deck_of(row['fight_id']) for row in reference}
     if generated_per_deck:
-        for name, start in starts.items():
-            count = generated_per_deck - sum(deck_of(f['fight_id']) == name for f in out)
+        for deck, start in starts.items():
+            count = generated_per_deck - sum(deck_of(f['fight_id']) == deck for f in out)
             if count < 0:
-                raise ValueError('generated_per_deck must include the teacher reference starts')
-            out += fights(dict(fight_id=name, start=start), f'{namespace}:{name}:validation', count)
+                raise ValueError('generated_per_deck must include the teacher fights')
+            out += fights(dict(fight_id=deck, start=start), f'{namespace}:{deck}:validation', count)
         if len({f['start']['seed'] for f in out}) != len(out):
             raise ValueError('validation seed collision')
-    baselines = dict(mcts20k={row['fight_id']: row['fight']['won'] for row in reference})
-    puct = run_dir(source_run) / 'out/update006/monitor/results.jsonl'
-    if puct.exists():
-        baselines['puct'] = {row['fight_id']: row['fight']['won'] for row in map(json.loads, puct.read_text().splitlines())
-                             if row['fight_id'] in baselines['mcts20k'] and row['status'] == 'completed'}
-    cohorts = {name: 'original' if name in originals else 'added' for name in starts}
-    return out, baselines, cohorts
+    won = {name: {row['fight_id']: row['fight']['won'] for row in reference}}
+    for other, player in baselines:
+        won[other] = {row['fight_id']: row['fight']['won'] for row in results(player)
+                      if row['fight_id'] in won[name] and row['status'] == 'completed'}
+    cohorts = {deck: 'original' if deck in originals else 'added' for deck in starts}
+    return out, won, cohorts
 
 
 def write_fights(path, rows):
@@ -90,21 +92,23 @@ def main():
     d.add_argument('out', type=Path)
     t = sub.add_parser('teacher')
     t.add_argument('training', type=Path)
-    t.add_argument('source_run')
-    t.add_argument('directory')
+    t.add_argument('teacher', help='RUN:DIRECTORY of the teacher results')
     t.add_argument('out', type=Path)
+    t.add_argument('--name', required=True, help="the teacher's baseline name")
     t.add_argument('--fights-per-deck', type=int, required=True)
     t.add_argument('--generated-per-deck', type=int, default=0)
     t.add_argument('--namespace', help='seed namespace of generated fights (required with --generated-per-deck)')
+    t.add_argument('--baseline', action='append', default=[], metavar='NAME=RUN:DIRECTORY',
+                   help='another player on the same fights (repeatable)')
     a = p.parse_args()
     if a.command == 'decks':
         write_fights(a.out, deck_fights(tomllib.loads(a.decks.read_text())['deck']))
         return
     if a.generated_per_deck and not a.namespace:
         p.error('--generated-per-deck needs --namespace')
-    training = [json.loads(line) for line in a.training.read_text().splitlines() if line.strip()]
-    rows, baselines, cohorts = teacher_fights(training, a.source_run, a.directory, a.fights_per_deck,
-                                              a.generated_per_deck, a.namespace)
+    rows, baselines, cohorts = teacher_fights(read_jsonl(a.training), a.teacher, a.name, a.fights_per_deck,
+                                              a.generated_per_deck, a.namespace,
+                                              [b.split('=', 1) for b in a.baseline])
     a.out.mkdir(parents=True, exist_ok=True)
     write_fights(a.out / 'fights.jsonl', rows)
     (a.out / 'baselines.json').write_text(json.dumps(baselines, indent=2) + '\n')

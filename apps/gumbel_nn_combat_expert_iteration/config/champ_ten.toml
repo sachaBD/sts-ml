@@ -20,7 +20,7 @@ fights = "runs/benchmark/champ-ten/decks.jsonl" # make_fights decks config/champ
 steps = 100
 batch = 2048
 lr = 0.001
-window = 5
+replay_window = 5
 max_train_rows = 500000 # uniform replay subset; only prefetched minibatches enter RAM
 balanced_replay = false
 prune_replay = true # keep five batches of samples, discard expired samples/engine caches
@@ -47,7 +47,8 @@ sims = 256 # 0 = the network alone
 at = [0]
 every = 3
 wall_share = 0
-# make_fights teacher <decks.jsonl> combat_v4/2026-10-09/champ-ten-rollout-v1 monitor-teacher <dir> --fights-per-deck 50
+# make_fights teacher <decks.jsonl> combat_v4/2026-10-09/champ-ten-rollout-v1:monitor-teacher <dir> --name mcts20k
+#   --fights-per-deck 50 --baseline puct=combat_v4/2026-10-09/champ-ten-rollout-v1:update006/monitor
 fights = "runs/benchmark/champ-ten/teacher/fights.jsonl"
 baselines = "runs/benchmark/champ-ten/teacher/baselines.json"
 cohorts = "runs/benchmark/champ-ten/teacher/cohorts.json"

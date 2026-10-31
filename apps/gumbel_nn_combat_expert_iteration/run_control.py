@@ -14,6 +14,8 @@ import os
 import shutil
 import time
 
+from apps.common.app import read_jsonl
+
 
 class RunControl:
     def __init__(self, directory):
@@ -39,8 +41,7 @@ class RunControl:
         print(json.dumps(row), flush=True)
 
     def history(self):
-        path = self.directory / 'log.jsonl'
-        return [json.loads(line) for line in path.read_text().splitlines()] if path.exists() else []
+        return read_jsonl(self.directory / 'log.jsonl')
 
     def stop_requested(self):
         return (self.directory / 'STOP').exists()
@@ -58,11 +59,13 @@ class RunControl:
         if directory.exists():
             directory.rename(directory.with_name(f'.{directory.name}-interrupted-{time.time_ns()}'))
 
-    def disk_reserve(self, min_free_gib, previous):
-        """Bytes needed before the next iteration: the reserve plus room for one more iteration like `previous`."""
+    def disk_needed(self, min_free_gib, previous):
+        """Free bytes to start another iteration: the reserve plus room for one like `previous`."""
         samples = sum(p.stat().st_size for p in previous.glob('samples-*.bin'))
-        needed = min_free_gib * 1024**3 + max(3 * 1024**3, samples)
-        return needed if shutil.disk_usage(self.directory).free < needed else None
+        return int(min_free_gib * 1024**3 + max(3 * 1024**3, samples))
+
+    def disk_free(self):
+        return shutil.disk_usage(self.directory).free
 
     def prune(self, keep_from):
         """Deletes samples and TensorRT caches of iterations before `keep_from`; checkpoints and results stay."""
@@ -73,7 +76,7 @@ class RunControl:
                     samples.with_suffix('.index.npz').unlink(missing_ok=True)
                 shutil.rmtree(old / 'tensorrt', ignore_errors=True)
 
-    @staticmethod
-    def delete_samples(directory):
-        for samples in directory.rglob('samples-*.bin'):
-            samples.unlink()
+
+def delete_samples(directory):
+    for samples in directory.rglob('samples-*.bin'):
+        samples.unlink()

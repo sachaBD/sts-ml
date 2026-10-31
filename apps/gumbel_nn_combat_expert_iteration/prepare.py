@@ -2,13 +2,12 @@
 
 Everything the run reads is copied into OUT once: config.toml and inputs/{nn_play, starts.json, test.jsonl, ...}.
 """
-import json
 from pathlib import Path
 import re
 import subprocess
 import sys
 
-from apps.common.app import main, snapshot, write_json
+from apps.common.app import main, read_jsonl, snapshot, write_json
 from apps.gumbel_nn_combat_expert_iteration.config import load
 
 # Where the recipe and dashboards find each optional evaluation input.
@@ -24,13 +23,9 @@ def inputs(raw):
     return sorted(p for p in paths if p)
 
 
-def read_fights(path):
-    return [json.loads(line) for line in Path(path).read_text().splitlines() if line.strip()]
-
-
 def run(_raw, config_path, out):
     config = load(config_path.read_text())
-    decks = read_fights(config.training.fights)
+    decks = read_jsonl(config.training.fights)
     names = [f['fight_id'] for f in decks]
     if not decks or len(set(names)) != len(names) or not all(re.fullmatch(r'[a-z0-9_-]+', n) for n in names):
         sys.exit('training fights: at least one, with unique fight_ids (deck names) in [a-z0-9_-]')

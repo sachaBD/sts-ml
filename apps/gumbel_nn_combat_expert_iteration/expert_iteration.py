@@ -15,14 +15,11 @@ import time
 from agents.combat.nn.learner import Learner
 from agents.combat.nn.play import play
 from agents.combat.nn.replay import Replay
+from apps.common.app import read_jsonl
 from environments.combat.starts import fights
 
-from .config import Config, changed, load
-from .run_control import RunControl
-
-
-def jsonl(path):
-    return [json.loads(line) for line in path.read_text().splitlines() if line.strip()] if path.exists() else []
+from .config import experiment_changes, load
+from .run_control import RunControl, delete_samples
 
 
 def collection_stats(results):
@@ -36,7 +33,7 @@ class ExpertIteration:
         self.config, self.control = config, control
         self.inputs = out / 'inputs'
         self.starts = json.loads((self.inputs / 'starts.json').read_text())
-        self.tests, self.tests_in = jsonl(self.inputs / 'test.jsonl'), jsonl(self.inputs / 'test-in.jsonl')
+        self.tests, self.tests_in = read_jsonl(self.inputs / 'test.jsonl'), read_jsonl(self.inputs / 'test-in.jsonl')
         m, t = config.model, config.training
         self.learner = Learner(dict(dim=m.dim, layers=m.layers, heads=m.heads), t.lr, t.device, m.export_reuse)
         self.games = config.run.games_per_deck * len(self.starts)
@@ -51,8 +48,8 @@ class ExpertIteration:
                 return
             if self.config.run.iterations and it > self.config.run.iterations:
                 break
-            if self.config.run.min_free_gib and (needed := self.control.disk_reserve(
-                    self.config.run.min_free_gib, self.control.iteration(it - 1))):
+            needed = self.control.disk_needed(self.config.run.min_free_gib, self.control.iteration(it - 1))
+            if self.config.run.min_free_gib and self.control.disk_free() < needed:
                 self.control.status(stage='stopped', phase='stopped', reason='disk reserve', last_completed=it - 1)
                 self.control.log(stopped='disk reserve', required_free_bytes=needed)
                 return
@@ -65,7 +62,7 @@ class ExpertIteration:
                              **collection_stats(results))
             self.evaluate(it)
             if self.config.training.prune_replay:
-                self.control.prune(keep_from=it - self.config.training.window + 1)
+                self.control.prune(keep_from=it - self.config.training.replay_window + 1)
         self.control.status(stage='done', phase='done')
 
     def start(self):
@@ -88,8 +85,8 @@ class ExpertIteration:
         if self.config.run.iterations and completed >= self.config.run.iterations:
             raise ValueError(f'iteration {completed} already reached run.iterations')
         recorded = self.control.directory / 'config.toml'
-        if fixed := changed(load(recorded.read_text()), self.config) - Config.RESUMABLE:
-            raise ValueError(f'resume changed settings that define the experiment: {sorted(fixed)}')
+        if fixed := experiment_changes(load(recorded.read_text()), self.config):
+            raise ValueError(f'resume changed settings that define the experiment: {fixed}')
         recorded.rename(recorded.with_name(f'config-before-resume-{time.time_ns()}.toml'))
         recorded.write_text((self.inputs.parent / 'config.toml').read_text())
         self.learner.load(self.control.iteration(completed) / 'model.pt')
@@ -107,7 +104,7 @@ class ExpertIteration:
 
     def train(self, it):
         t = self.config.training
-        stage, window = f'iteration {it}', range(max(0, it - t.window + 1), it + 1)
+        stage, window = f'iteration {it}', range(max(0, it - t.replay_window + 1), it + 1)
         samples = [s for k in window for s in sorted(self.control.iteration(k).glob('samples-*.bin'))]
         self.control.status(stage=stage, phase='load', files=len(samples))
         with Replay(samples, max_rows=t.max_train_rows, balanced=t.balanced_replay) as replay:
@@ -140,7 +137,7 @@ class ExpertIteration:
                          seconds=round(time.time() - begin), in_sample_games=len(in_sample),
                          in_sample_wins=sum(r['won'] for r in in_sample), **collection_stats(results))
         if self.config.training.prune_replay:
-            self.control.delete_samples(directory)
+            delete_samples(directory)
 
     def evaluation_due(self, it):
         e = self.config.evaluation

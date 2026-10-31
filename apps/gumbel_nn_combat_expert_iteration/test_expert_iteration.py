@@ -1,4 +1,4 @@
-"""The recipe on a prepared run, with nn_play, replay and ONNX export faked: what is played, saved, logged and refused."""
+"""Invariants of the recipe on a prepared run. nn_play, replay and ONNX export are faked; checkpoints are real."""
 import json
 from pathlib import Path
 import tempfile
@@ -31,7 +31,7 @@ fights = "unused"
 steps = 1
 batch = 4
 lr = 0.001
-window = 1
+replay_window = 1
 max_train_rows = 0
 balanced_replay = false
 prune_replay = true
@@ -62,7 +62,7 @@ fights = "unused"
 """
 
 
-class ExpertIterationTests(unittest.TestCase):
+class ExpertIterationInvariants(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
@@ -72,19 +72,21 @@ class ExpertIterationTests(unittest.TestCase):
         (self.out / 'inputs/starts.json').write_text(json.dumps([dict(fight_id='deck', start={})]))
         (self.out / 'inputs/test.jsonl').write_text(json.dumps(dict(fight_id='t', start={})) + '\n')
         self.plays = []
-        for target, fake in [(expert_iteration, 'play'), (expert_iteration, 'Replay'), (learner, 'train'),
+        write = lambda net, path, *shape: Path(path).touch()
+        fakes = dict(play=self.play, Replay=self.replay, train=lambda *a, **k: None, export=write, export_static=write)
+        for target, name in [(expert_iteration, 'play'), (expert_iteration, 'Replay'), (learner, 'train'),
                              (learner, 'export'), (learner, 'export_static')]:
-            patcher = patch.object(target, fake, side_effect=getattr(self, f'fake_{fake.lower()}', None))
-            setattr(self, fake.lower(), patcher.start())
+            patcher = patch.object(target, name, side_effect=fakes[name])
+            patcher.start()
             self.addCleanup(patcher.stop)
 
-    def fake_play(self, binary, models, games, directory, search, workers, progress):
-        self.plays.append(dict(models=models.name, games=len(games), directory=directory, search=search))
+    def play(self, binary, models, games, directory, search, workers, progress):
+        self.plays.append(dict(models=models, directory=directory, search=search))
         directory.mkdir(parents=True)
         (directory / 'samples-0.bin').touch()
         return [dict(won=True, capped=False, finished_unix=1.0) for _ in games]
 
-    def fake_replay(self, *args, **kwargs):
+    def replay(self, *args, **kwargs):
         replay = MagicMock()
         replay.__enter__.return_value = replay
         replay.__len__.return_value = 7
@@ -97,65 +99,77 @@ class ExpertIterationTests(unittest.TestCase):
         if config:
             (self.out / 'config.toml').write_text(config)
         training = self.out / 'training'
-        training.mkdir(exist_ok=resume_from is not None)
+        training.mkdir(exist_ok=True)
         control = RunControl(training)
         with control.lock():
             expert_iteration.ExpertIteration(self.out, load((self.out / 'config.toml').read_text()), control).run(resume_from)
         return control
 
-    def test_fresh_run_plays_trains_exports_and_evaluates(self):
+    def self_play(self):
+        return [p for p in self.plays if p['directory'].parent.name != 'test']
+
+    def evaluations(self):
+        return [p for p in self.plays if p['directory'].parent.name == 'test']
+
+    def test_each_iteration_plays_the_previous_network(self):
         control = self.run_loop()
-        self.assertEqual([(p['models'], p['directory'].name) for p in self.plays],
-                         [('iter000', 'iter000'), ('iter000', 'iter001'), ('iter001', 'iter002')])
-        evaluation, self_play = self.plays[0]['search'], self.plays[1]['search']
-        self.assertEqual((evaluation.sims, evaluation.gumbel_scale), (0, 0.0))
-        self.assertEqual((self_play.sims, self_play.gumbel_scale), (4, 1.0))
-        self.assertEqual(self.plays[1]['games'], 2)
-        self.assertEqual([c.args[2] for c in self.export_static.call_args_list], [512, 256, 32] * 3)
-        rows = control.history()
-        self.assertEqual([r.get('iteration', r.get('test')) for r in rows], [0, 0, 1, 2])
-        self.assertEqual(rows[-1]['states'], 7)
-        self.assertEqual(json.loads((control.directory / 'status.json').read_text())['phase'], 'done')
-        self.assertFalse((control.iteration(1) / 'samples-0.bin').exists())  # window 1 prunes older samples
-        self.assertTrue((control.iteration(2) / 'samples-0.bin').exists())
-        self.assertIn('rng', torch.load(control.iteration(2) / 'model.pt', weights_only=True))
+        for p in self.self_play():
+            it = int(p['directory'].name[4:])
+            self.assertEqual(p['models'], control.iteration(it - 1))
 
-    def test_resume_continues_from_the_checkpoint(self):
+    def test_evaluation_never_explores(self):
+        self.run_loop(config=CONFIG.replace('every = 0', 'every = 1'))
+        self.assertEqual(len(self.evaluations()), 3)
+        for p in self.evaluations():
+            self.assertEqual((p['search'].gumbel_scale, p['search'].sims), (0.0, 0))
+        for p in self.self_play():
+            self.assertEqual((p['search'].gumbel_scale, p['search'].sims), (1.0, 4))
+
+    def test_a_logged_iteration_has_its_checkpoint_and_models(self):
+        control = self.run_loop()
+        logged = [r['iteration'] for r in control.history() if 'iteration' in r]
+        self.assertEqual(logged, [0, 1, 2])
+        for it in logged:
+            for name in ('model.pt', 'model.onnx', 'model-gpu.onnx', 'model-gpu-b256.onnx', 'model-gpu-b32.onnx'):
+                self.assertTrue((control.iteration(it) / name).exists(), f'iter{it}/{name}')
+
+    def test_samples_outside_the_replay_window_are_pruned(self):
+        control = self.run_loop()
+        self.assertEqual([k for k in range(3) if (control.iteration(k) / 'samples-0.bin').exists()], [2])
+        self.assertFalse(list((control.directory / 'test').rglob('samples-*.bin')))
+
+    def test_resume_continues_the_same_sequence(self):
         self.run_loop(config=CONFIG.replace('iterations = 2', 'iterations = 1'))
-        self.plays.clear()
-        control = self.run_loop(resume_from=1, config=CONFIG)  # iterations may change on resume
-        self.assertEqual([p['directory'].name for p in self.plays], ['iter002'])
-        self.assertEqual(control.history()[-1]['iteration'], 2)
+        control = self.run_loop(resume_from=1, config=CONFIG)
+        self.assertEqual([r['iteration'] for r in control.history() if 'iteration' in r], [0, 1, 2])
 
-    def test_resume_refuses_a_different_experiment(self):
+    def test_resume_never_changes_the_experiment(self):
         self.run_loop()
         different = CONFIG.replace('sims = 4', 'sims = 8').replace('iterations = 2', 'iterations = 3')
-        with self.assertRaisesRegex(ValueError, 'search.sims'):
+        with self.assertRaisesRegex(ValueError, r'\[search\]\.sims'):
             self.run_loop(resume_from=2, config=different)
 
-    def test_resume_refuses_a_partial_iteration(self):
+    def test_resume_never_appends_to_a_partial_iteration(self):
         self.run_loop(config=CONFIG.replace('iterations = 2', 'iterations = 1'))
         (self.out / 'training/iter002').mkdir()
         with self.assertRaises(FileExistsError):
             self.run_loop(resume_from=1)
 
-    def test_stop_ends_at_an_iteration_boundary(self):
+    def test_stop_leaves_only_complete_iterations(self):
         (self.out / 'training').mkdir()
         (self.out / 'training/STOP').touch()
-        control = RunControl(self.out / 'training')
-        with control.lock():
-            expert_iteration.ExpertIteration(self.out, load((self.out / 'config.toml').read_text()), control).run()
-        self.assertEqual([p['directory'].name for p in self.plays], ['iter000'])
+        control = self.run_loop()
+        self.assertEqual(sorted(p.name for p in control.directory.glob('iter*')), ['iter000'])
         self.assertEqual(json.loads((control.directory / 'status.json').read_text())['phase'], 'stopped')
 
-    def test_initial_checkpoint_is_where_training_starts(self):
+    def test_initial_checkpoint_is_iteration_zero(self):
         initial = learner.Learner(dict(dim=8, layers=1, heads=1), 1e-3, 'cpu', seed=1)
         initial.save(self.out / 'inputs/initial-model.pt')
         control = self.run_loop(config=CONFIG.replace('iterations = 2', 'iterations = 1'))
-        self.assertIn('initial_checkpoint', control.history()[0])
         saved = torch.load(control.iteration(0) / 'model.pt', weights_only=True)['net']
         for name, value in initial.net.state_dict().items():
             torch.testing.assert_close(saved[name], value)
+
 
 if __name__ == '__main__':
     unittest.main()

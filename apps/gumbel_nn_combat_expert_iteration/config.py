@@ -1,7 +1,12 @@
-"""The run's settings, typed and validated once when the config loads. Settings have no defaults, except the
-optional run features (initial checkpoint, recovery, disk reserve) and the optional evaluation inputs.
-Fights files (JSON lines of {fight_id, start}) and baselines are built offline by make_fights.py."""
-from dataclasses import MISSING, dataclass, fields
+"""The run's settings, typed and validated once when the config loads.
+
+Settings have no defaults, except optional features. A count of 0 means unlimited or off (iterations,
+max_train_rows, evaluation every and wall_share); evaluation sims 0 plays the network alone.
+Training fights are one per deck, fight_id = deck name. Evaluation plays [search] without noise; final_fights
+are copied with the run, never played. Fights files and baselines are built offline by make_fights.py.
+A run may resume with different `resumable()` settings; any other change would be a different experiment.
+"""
+from dataclasses import MISSING, dataclass, field, fields
 import sys
 import tomllib
 import types
@@ -11,28 +16,32 @@ from agents.combat.nn.play import Search, Workers
 from apps.common.app import check_keys, required
 
 
+def resumable(**kwargs):
+    return field(metadata=dict(resumable=True), **kwargs)
+
+
 @dataclass(frozen=True)
 class Run:
     id: str
     worker: str
     seed_namespace: str
     games_per_deck: int
-    iterations: int                 # 0: until stopped
-    initial_checkpoint: str | None = None  # model.pt to start from: weights, optimizer and RNG, no replay
-    recovery_retries: int = 0
-    min_free_gib: float = 0
+    iterations: int = resumable()
+    initial_checkpoint: str | None = None
+    recovery_retries: int = resumable(default=0)
+    min_free_gib: float = resumable(default=0)
 
 
 @dataclass(frozen=True)
 class Training:
-    fights: str                     # one fight per deck; fight_id is the deck name
+    fights: str
     steps: int
     batch: int
     lr: float
-    window: int                     # train on the last `window` iterations' samples
-    max_train_rows: int             # 0: all
+    replay_window: int
+    max_train_rows: int = resumable()
     balanced_replay: bool
-    prune_replay: bool              # keep only the window's samples and TensorRT caches
+    prune_replay: bool = resumable()
     device: str
 
 
@@ -41,35 +50,31 @@ class Model:
     dim: int
     layers: int
     heads: int
-    gpu_tokens: int                 # token count of the fixed-shape GPU models
-    export_reuse: bool
+    gpu_tokens: int
+    export_reuse: bool = resumable()
 
 
 @dataclass(frozen=True)
 class Evaluation:
-    sims: int                       # 0: the network alone
+    sims: int
     at: tuple[int, ...]
-    every: int                      # 0: only `at`
-    wall_share: float               # also evaluate while validation is below this share of wall time; 0: off
-    fights: str                     # the primary score
-    in_sample_fights: str | None = None  # training decks, reported separately
-    final_fights: str | None = None      # reserved: copied, never played
-    baselines: str | None = None         # {name: {fight_id: won}}, compared paired
-    cohorts: str | None = None           # {deck: group}, reported per group
+    every: int = resumable()
+    wall_share: float = resumable()
+    fights: str
+    in_sample_fights: str | None = None
+    final_fights: str | None = None
+    baselines: str | None = None
+    cohorts: str | None = None
 
 
 @dataclass(frozen=True)
 class Config:
     run: Run
-    search: Search                  # self-play; evaluation plays without noise
+    search: Search
     training: Training
     model: Model
     workers: Workers
     evaluation: Evaluation
-
-    # Settings a resumed run may change; anything else would make it a different experiment.
-    RESUMABLE = frozenset({'run.iterations', 'run.min_free_gib', 'run.recovery_retries', 'training.prune_replay',
-                           'training.max_train_rows', 'model.export_reuse', 'evaluation.every', 'evaluation.wall_share'})
 
 
 def section(cls, table, name):
@@ -95,12 +100,8 @@ def section(cls, table, name):
 
 def load(text):
     raw = tomllib.loads(text)
-    check_keys(raw, {'run', 'search', 'training', 'model', 'workers', 'evaluation'}, 'config')
-    tables = {name: raw.get(name, {}) for name in ('run', 'search', 'training', 'model', 'workers', 'evaluation')}
-    config = Config(run=section(Run, tables['run'], 'run'), search=section(Search, tables['search'], 'search'),
-                    training=section(Training, tables['training'], 'training'), model=section(Model, tables['model'], 'model'),
-                    workers=section(Workers, tables['workers'], 'workers'),
-                    evaluation=section(Evaluation, tables['evaluation'], 'evaluation'))
+    check_keys(raw, {f.name for f in fields(Config)}, 'config')
+    config = Config(**{f.name: section(f.type, raw.get(f.name, {}), f.name) for f in fields(Config)})
     validate(config)
     return config
 
@@ -114,8 +115,8 @@ def validate(c):
          'positive games_per_deck; nonnegative iterations, recovery_retries, min_free_gib')
     need(s.sims >= 0 and s.gumbel_scale >= 0 and 0 <= s.rollout_mix <= 1 and s.particles > 0,
          'search: nonnegative sims and gumbel_scale, rollout_mix in [0, 1], positive particles')
-    need(t.steps > 0 and t.batch > 0 and t.lr > 0 and t.window > 0 and t.max_train_rows >= 0,
-         'training: positive steps, batch, lr, window; nonnegative max_train_rows')
+    need(t.steps > 0 and t.batch > 0 and t.lr > 0 and t.replay_window > 0 and t.max_train_rows >= 0,
+         'training: positive steps, batch, lr, replay_window; nonnegative max_train_rows')
     need(m.dim > 0 and m.layers > 0 and m.heads > 0 and m.dim % m.heads == 0 and m.gpu_tokens > 0,
          'model: positive dim, layers, heads, gpu_tokens; dim divisible by heads')
     need(w.actors > 0 and w.slots > 0 and w.gpu_batch > 0 and w.gpu_wait_us >= 0 and w.timeout_ms > 0
@@ -126,11 +127,7 @@ def validate(c):
          'evaluation: nonnegative sims, every and at; wall_share in [0, 1)')
 
 
-def changed(old, new):
-    """Dotted names of the settings that differ between two configs."""
-    def flat(c):
-        return {f'{name}.{f.name}': getattr(getattr(c, name), f.name)
-                for name in ('run', 'search', 'training', 'model', 'workers', 'evaluation')
-                for f in fields(getattr(c, name))}
-    a, b = flat(old), flat(new)
-    return {k for k in a if a[k] != b[k]}
+def experiment_changes(old, new):
+    """Settings that differ between two configs and may not change on resume, as [section].name."""
+    return sorted(f'[{part.name}].{f.name}' for part in fields(Config) for f in fields(part.type)
+                  if not f.metadata.get('resumable') and getattr(getattr(old, part.name), f.name) != getattr(getattr(new, part.name), f.name))
