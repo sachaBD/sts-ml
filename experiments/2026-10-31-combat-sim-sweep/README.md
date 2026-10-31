@@ -22,5 +22,6 @@ Zero simulations is excluded because the frozen worker rejects it.
 Approved extension: `--sim-sweep 512 1024 --run runs/benchmark/sim-sweep-high-132-approved`;
 same inputs/settings, one sequential run per budget. No lower-budget replays.
 
-Approved extension: `--sim-sweep 2048 4096 --run runs/benchmark/sim-sweep-2k4k-132-approved`;
-same 500 starts and NN100 settings, sequentially, no baseline replay.
+Approved extension: 2048 simulations on the same 500 starts and NN100 settings;
+artifacts in `runs/benchmark/sim-sweep-2k4k-132-approved`. The originally queued 4096
+run was cancelled by the user before launch; no baseline replay.
