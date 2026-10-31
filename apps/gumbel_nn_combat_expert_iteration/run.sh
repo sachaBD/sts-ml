@@ -15,5 +15,5 @@ case ${1:-} in
             exec .venv/bin/python -m apps.gumbel_nn_combat_expert_iteration.dashboard "$out" "${@:3}"
         fi
         ;;
-    *) exec "$root/apps/common/launch.sh" gumbel_nn_combat_v1 apps/gumbel_nn_combat_expert_iteration/train.py -- "$@" ;;
+    *) exec "$root/apps/common/launch.sh" gumbel_nn_combat_v1 apps/gumbel_nn_combat_expert_iteration/prepare.py -- "$@" ;;
 esac

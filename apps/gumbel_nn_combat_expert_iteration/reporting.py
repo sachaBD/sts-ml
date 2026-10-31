@@ -2,18 +2,14 @@
 import json
 import math
 
+from apps.common.app import read_jsonl
+
 Z = 1.96
 
 
 def jsonl(path):
-    rows = []
-    if path.exists():
-        for line in path.read_text().splitlines():
-            try:
-                rows.append(json.loads(line))
-            except json.JSONDecodeError:
-                continue  # live writer may be midway through its last line
-    return rows
+    """A live run file: its writer may be midway through the last line."""
+    return read_jsonl(path, live=True)
 
 
 def deck_of(fight_id):
@@ -93,11 +89,8 @@ def score(results, baselines):
 
 
 def baselines(out):
-    path, reference = out / 'inputs/baselines.json', out / 'inputs/reference.json'
-    values = json.loads(path.read_text()) if path.exists() else {}
-    if not values and reference.exists():
-        values['mcts20k'] = json.loads(reference.read_text())
-    return values
+    path = out / 'inputs/baselines.json'
+    return json.loads(path.read_text()) if path.exists() else {}
 
 
 def pool(batches, deck):

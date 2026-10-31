@@ -1,13 +1,34 @@
 # Gumbel NN combat expert iteration
 
-Launcher for `agents/combat/nn/loop.py` on ten fixed Champ decks.
+Expert iteration on fixed Champ decks: Gumbel self-play, train on the replay window, export, evaluate.
+Hard cutover from the old `agents/combat/nn/loop.py`: its runs cannot be resumed; start from one of their
+checkpoints with `[run].initial_checkpoint`.
 
-The loop uses `infra` actors, inference backends, readers and prefetch exclusively.
-Combat/search, replay sampling, learning and model export remain agent-owned.
-This is a hard cutover: rebuild `nn_play` and start a new run. Old scheduler,
-groups, dense replay/cache and bootstrap-loop options are not supported. Reuse
-weights with `warm_start_run`, not by resuming an old command. See the
-[ownership boundary](../../agents/combat/nn/WORKERS.md).
+## Structure
+
+| File | Owns |
+|---|---|
+| `make_fights.py` | Offline: builds fights files and baselines from a deck corpus or an old teacher run |
+| `prepare.py` | Freezes the run's inputs once (config, `nn_play`, fights files, baselines), then launches the recipe |
+| `expert_iteration.py` | The recipe: self-play → train → export → evaluate, per iteration |
+| `run_control.py` | The run's life on disk: lock, status, log, STOP, resume checks, disk reserve, pruning |
+| `config.py` | Typed, validated settings; which ones a resume may change |
+| `supervisor.py` | Optional bounded restart after recognised CUDA failures |
+| `dashboard.py`, `web.py`, `reporting.py` | Read-only views of the run's outputs |
+
+The recipe calls the agent (`agents/combat/nn`: `play()`, `Replay`, `Learner`); `nn_play` runs as a separate
+process per play or evaluation stage, so a CUDA failure is recoverable and PyTorch never shares GPU state with TensorRT.
+
+Config sections follow the owners: `[run]` (identity, length, optional initial checkpoint / recovery / disk
+reserve), `[search]` (self-play), `[training]` (its fights file, one fight per deck), `[model]`, `[workers]`
+(nn_play), `[evaluation]` (schedule, simulations, fights files, baselines, cohorts). Settings have no defaults;
+a typo or missing key stops the run before it starts.
+
+The run only reads files. A **fights file** is JSON lines, one playable fight per line: `{"fight_id", "start"}`
+(a combat_v4 start). Build them once with `make_fights.py`: `decks` turns `[[deck]]` tables (see
+`config/champ_ten_decks.toml`) into training fights; `teacher` turns an old teacher run into evaluation fights
+plus `baselines.json` and `cohorts.json` for paired comparison. The preset reads files generated this way
+under `runs/benchmark/champ-ten/`.
 
 ## Run, monitor, stop
 
@@ -47,18 +68,18 @@ fresh process, latest committed checkpoint/optimizer/RNG, partial stage archived
 errors and exhausted retries require an agent. Learner stderr is in `logs/learner-*.stderr.log`.
 For an inspected interrupted run: `.venv/bin/python -m apps.gumbel_nn_combat_expert_iteration.supervisor RUN`.
 
-Without that option, the monitoring agent diagnoses failures and resumes through the existing NN loop:
+Without that option, the monitoring agent diagnoses failures and resumes the recipe:
 use `out/command.json` with `--resume-from N`, where N is the latest completed
 iteration. Stop any orphan native worker first; move partial `iterNNN` output out
 of the way and remove `out/training/STOP` before resuming. Do not append partial
-samples. The loop refuses simultaneous runs. See the NN README for recovery details.
-Dashboard liveness uses the loop lock, not the original launcher's historical status;
+samples. A run refuses a second process (`run_control` lock), and a resume refuses settings that define the experiment.
+Dashboard liveness uses the run lock, not the original launcher's historical status;
 a verified live supervisor's brief cooldown is reported as `recovering`.
 
-External evaluation inputs (`evaluation.starts`, optional `train_starts`, `cohorts`,
-`baselines`, `final_starts`) support composition-held-out experiments. Primary and
+Evaluation inputs (`fights`, optional `in_sample_fights`, `baselines`, `cohorts`, `final_fights`) support
+composition-held-out experiments. Primary and
 in-sample validation are separate; only primary results enter the main web curve.
-The reserved final starts are copied for later use but **never passed to the loop**.
+The reserved final starts are copied for later use but **never passed to the recipe**.
 See `experiments/2026-10-28-champ-generalisation/RUNBOOK.md` for the thousand-deck recipe.
 
 Live browser view of the same snapshot (polls every 2 s, read-only):
@@ -69,8 +90,8 @@ Live browser view of the same snapshot (polls every 2 s, read-only):
 
 ## Search
 
-Gumbel (`agents/combat/search/gumbel`), with leaf values blended with a guided rollout (`[loop] rollout_mix`).
-`[loop] test_sims` sets the validation simulations (default `sims`); 0 plays the network alone.
+Gumbel (`agents/combat/search/gumbel`), with leaf values blended with a guided rollout (`[search] rollout_mix`).
+Evaluation plays the same search without noise; `[evaluation] sims` sets its simulations, 0 plays the network alone.
 
 ## Recipe / storage
 
@@ -99,5 +120,5 @@ that run's latest complete checkpoint, and uses deck-balanced disk-indexed minib
 Validation contains100fixedstarts/deck, including the original historical reference
 seeds. The dashboard reports Wilson95% win-rate bounds and paired95% differences
 against the starting checkpoint, plus historical MCTS20k/PUCT on their500matching
-starts only. Original/added cohorts are separate. `validation_share=0.20` budgets
+starts only. Original/added cohorts are separate. `[evaluation] wall_share = 0.20` budgets
 measured validation wall time instead of a fixed evaluation iteration interval.

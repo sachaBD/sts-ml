@@ -8,8 +8,8 @@ import sys
 import time
 import tomllib
 
-from agents.combat.nn.loop import fights
-from apps.gumbel_nn_combat_expert_iteration.train import load_bases
+from environments.combat.starts import fights
+from apps.gumbel_nn_combat_expert_iteration.make_fights import load_bases
 
 
 def main():

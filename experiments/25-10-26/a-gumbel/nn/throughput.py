@@ -79,7 +79,7 @@ def trial(args, batch, repeat):
     rows = starts.read_text().splitlines()
     if args.games != len(rows):
         # Larger jobs deterministically extend the same prefix with fresh starts, never repeat identical games.
-        from agents.combat.nn.loop import fights
+        from environments.combat.starts import fights
         base = json.loads(rows[0])
         if args.games > len(rows):
             rows += [json.dumps(f) for f in fights(base, 'throughput-reserve', args.games - len(rows))]
