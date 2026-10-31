@@ -2,14 +2,14 @@
 
 500 paired starts, 50 per training deck; checkpoint 132. One run per new variant.
 
-| NN / rollout | Wins / 500 | Win rate | Difference vs NN50, percentage points [95% CI] | Process wall |
-|---|---:|---:|---|---:|
-| 50 / 50 (cached) | 288 | 57.6% | reference | historical; not comparable |
-| 75 / 25 | 294 | 58.8% | +1.2 [−2.9, +5.3] | 116.046 s |
-| 100 / 0 | 298 | 59.6% | +2.0 [−1.8, +5.8] | 113.076 s |
+| NN / rollout | Wins / 500 | Win rate [95% CI] | Difference vs NN50, percentage points [95% CI] | Process wall |
+|---|---:|---|---|---:|
+| 50 / 50 (cached) | 288 | 57.6% [53.2, 61.9] | reference | historical; not comparable |
+| 75 / 25 | 294 | 58.8% [54.4, 63.0] | +1.2 [−2.9, +5.3] | 116.046 s |
+| 100 / 0 | 298 | 59.6% [55.2, 63.8] | +2.0 [−1.8, +5.8] | 113.076 s |
 
-Intervals are approximate paired-normal 95% intervals over 500 fights, not unseen-deck
-uncertainty. Gains/losses vs NN50: NN75 57/51; NN100 51/41. Neither difference excludes zero.
+Win rates use Wilson 95% intervals; differences use approximate paired-normal 95%
+intervals over 500 fights. Neither measures unseen-deck uncertainty. Gains/losses vs NN50: NN75 57/51; NN100 51/41. Neither difference excludes zero.
 Timing includes native-process setup; n=1 per variant, timing variability unknown.
 
 | Deck | NN50 | NN75 | NN100 |
