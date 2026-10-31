@@ -90,7 +90,6 @@ From the benchmark worktree root, use the dependency-managed existing environmen
 ```sh
 PY=/home/sborowsk/project/sts/combat_rl/.venv/bin/python
 EXP=experiments/2026-10-31-combat-leaf-mix
-$PY "$EXP/test_benchmark.py"       # synthetic fixtures only
 $PY "$EXP/benchmark.py"            # read-only hash/coverage preflight; no GPU or fights
 
 # ONLY after execution approval, with clean committed source and a new output directory:
@@ -107,7 +106,7 @@ Do not overlap benchmark execution with other GPU workloads.
 
 ## Verification before PR
 
-- Four synthetic unit tests pass (command contract, invalid results, paired statistics,
-  input hashes/coverage); no combat/GPU processes launched.
-- Read-only preflight passes against the pinned local artifacts (500 matching fight IDs).
+- The default invocation is the small, read-only preflight: verify pinned artifact hashes,
+  exactly 500 unique fights (50 per deck), and matching baseline IDs with valid outcomes.
+- Preflight passes against the pinned local artifacts; no combat/GPU processes launched.
 - Native execution and end-to-end GPU compatibility remain deliberately unverified pending approval.
