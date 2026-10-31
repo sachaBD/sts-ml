@@ -19,7 +19,7 @@ batch = 2048
 lr = 0.001
 sims = 256
 rollout_mix = 0.5
-test_search = "gumbel" # validation player: gumbel, or network_policy for the network without search
+test_sims = 256 # validation simulations; 0 = the network alone
 workers = 9
 parallel = 224
 gpu_batch = 512

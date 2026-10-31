@@ -69,9 +69,8 @@ Live browser view of the same snapshot (polls every 2 s, read-only):
 
 ## Search
 
-Self-play always uses Gumbel (`agents/combat/search/gumbel`) with leaf values blended with a guided rollout
-(`[loop] rollout_mix`). `[loop] test_search` picks the validation player: `gumbel`, or `network_policy` to
-measure the network without search.
+Gumbel (`agents/combat/search/gumbel`), with leaf values blended with a guided rollout (`[loop] rollout_mix`).
+`[loop] test_sims` sets the validation simulations (default `sims`); 0 plays the network alone.
 
 ## Recipe / storage
 

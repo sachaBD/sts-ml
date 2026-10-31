@@ -1,7 +1,6 @@
 // Combat episodes own simulator/search state; infra owns scheduling and inference.
 #include "agents/combat/nn/tokens.hpp"
 #include "agents/combat/search/gumbel/gumbel.hpp"
-#include "agents/combat/search/network_policy/network_policy.hpp"
 #include "agents/combat/search/rollout_blend/rollout_blend.hpp"
 #include "environments/combat/public.hpp"
 #include "infra/workers/actors.hpp"
@@ -12,7 +11,6 @@
 #include <cstdio>
 #include <cstdlib>
 #include <fstream>
-#include <functional>
 #include <iostream>
 #include <map>
 #include <mutex>
@@ -25,8 +23,6 @@ using Json = nlohmann::json;
 using Clock = std::chrono::steady_clock;
 
 namespace {
-using MakeSearch = std::function<std::unique_ptr<stsrl::search::CombatSearch>(const sts::BattleContext&, std::uint64_t seed)>;
-
 sts::BattleContext start(const Json& start) {
     sts::BattleContext state;
     state.init(stsrl::combat_v4::start_game(start));
@@ -60,7 +56,7 @@ struct Game {
     bool over() const { return state.outcome != sts::Outcome::UNDECIDED || state.turn >= 50 || steps >= 512; }
 
     // Play on until the search needs the network (its query) or the game is over (nullptr).
-    const stsrl::infra::Tokens* advance(const MakeSearch& make_search) {
+    const stsrl::infra::Tokens* advance(const stsrl::search::Gumbel::Settings& settings) {
         for (;;) {
             if (search) {
                 if (const auto pending = search->pending()) {
@@ -75,7 +71,7 @@ struct Game {
             if (over()) return nullptr;
             const auto actions = stsrl::combat::legal_actions(state);
             if (actions.size() == 1) { actions[0].execute(state); ++steps; continue; }  // forced: nothing to learn
-            search = make_search(state, rng());
+            search = std::make_unique<stsrl::search::Gumbel>(state, settings, rng());
         }
     }
 
@@ -88,7 +84,7 @@ struct Game {
 
 // Everything the worker threads share.
 struct Shared {
-    MakeSearch make_search;
+    stsrl::search::Gumbel::Settings settings;
     double rollout_mix = 0;
     std::vector<Json> fights;
     std::atomic<std::size_t> next{0};
@@ -125,7 +121,7 @@ class CombatEpisode final : public stsrl::infra::Episode {
 public:
     CombatEpisode(std::unique_ptr<Game> game, Shared& shared) : game_{std::move(game)}, shared_{shared} {}
     const stsrl::infra::Tokens* advance() override {
-        return game_->advance(shared_.make_search);
+        return game_->advance(shared_.settings);
     }
     void evaluated(const stsrl::infra::Prediction& prediction) override { game_->evaluated(prediction); }
     void finish() override { shared_.finish(*game_); }
@@ -204,7 +200,7 @@ int main(int argc, char** argv) try {
     if (mode != "play" || argc < 4 || argc % 2) {
         std::cerr << "usage: nn_play play MODEL.onnx SAMPLES.bin [--threads T] [--parallel G] [--gpu-model FIXED.onnx\n"
                      "                    --gpu-batch B] [--gpu-bank SMALLER.onnx,...] [--gpu-wait-us U]\n"
-                     "                    [--search gumbel|network_policy] [--sims S] [--rollout-mix M]\n"
+                     "                    [--sims S] [--rollout-mix M]\n"
                      "                    [--gumbel-scale G] [--particles P] [--timeout-ms M] [--shutdown-timeout-ms M]\n"
                      "       nn_play import SAMPLES.bin\n";
         return 2;
@@ -214,7 +210,6 @@ int main(int argc, char** argv) try {
     std::string gpu_model;
     std::vector<std::filesystem::path> gpu_bank;
     stsrl::search::Gumbel::Settings settings;
-    std::string search = "gumbel";
     double rollout_mix = 0.5;
     for (int i = 4; i + 1 < argc; i += 2) {
         const std::string k = argv[i], v = argv[i + 1];
@@ -237,12 +232,11 @@ int main(int argc, char** argv) try {
         else if (k == "--rollout-mix") rollout_mix = std::stod(v);
         else if (k == "--gumbel-scale") settings.gumbel_scale = std::stod(v);
         else if (k == "--particles") settings.particles = std::stoi(v);
-        else if (k == "--search") search = v;
         else throw std::invalid_argument{"unknown option " + k};
     }
     if (threads < 1 || parallel < 1 || gpu_batch < 1 || gpu_wait_us < 0 || timeout_ms <= 0 || shutdown_timeout_ms <= 0 ||
-        settings.simulations < 1 || settings.particles < 1 || rollout_mix < 0 || rollout_mix > 1 || settings.gumbel_scale < 0)
-        throw std::invalid_argument{"positive threads/slots/batch/sims/particles/timeouts, rollout mix in [0,1], nonnegative noise/wait required"};
+        settings.simulations < 0 || settings.particles < 1 || rollout_mix < 0 || rollout_mix > 1 || settings.gumbel_scale < 0)
+        throw std::invalid_argument{"positive threads/slots/batch/particles/timeouts, nonnegative sims, rollout mix in [0,1], nonnegative noise/wait required"};
     if (gpu_model.empty() && !gpu_bank.empty()) throw std::invalid_argument{"gpu-bank requires gpu-model"};
     const auto setup_begin = Clock::now();
     if (!gpu_model.empty()) gpu_bank.push_back(gpu_model);
@@ -250,17 +244,7 @@ int main(int argc, char** argv) try {
     if (backend->width() != width) throw std::invalid_argument{"model token width does not match combat encoder"};
     std::cerr << "timing: evaluator setup "
               << std::chrono::duration<double>(Clock::now() - setup_begin).count() << " s\n";
-    MakeSearch make_search;
-    if (search == "gumbel")
-        make_search = [settings](const sts::BattleContext& state, std::uint64_t seed) {
-            return std::make_unique<stsrl::search::Gumbel>(state, settings, seed);
-        };
-    else if (search == "network_policy")
-        make_search = [](const sts::BattleContext& state, std::uint64_t) {
-            return std::make_unique<stsrl::search::NetworkPolicy>(state);
-        };
-    else throw std::invalid_argument{"unknown search " + search};
-    Shared shared{std::move(make_search), rollout_mix, {}, {}, {}, std::ofstream{argv[3], std::ios::binary | std::ios::app}};
+    Shared shared{settings, rollout_mix, {}, {}, {}, std::ofstream{argv[3], std::ios::binary | std::ios::app}};
     for (std::string line; std::getline(std::cin, line);)
         if (!line.empty()) shared.fights.push_back(Json::parse(line));
     const auto play_begin = Clock::now();

@@ -85,7 +85,7 @@ class Run:
             f.write(json.dumps(row) + '\n')
         print(json.dumps(row), flush=True)
 
-    def play(self, model, games, directory, sims, gumbel_scale, rollout_mix, workers, stage, search='gumbel'):
+    def play(self, model, games, directory, sims, gumbel_scale, rollout_mix, workers, stage):
         """One process: CPU worker threads feed the shared GPU. Results are journaled as games finish."""
         directory.mkdir(parents=True, exist_ok=True)
         sample = directory / 'samples-0.bin'
@@ -95,7 +95,7 @@ class Run:
         starts.write_text(''.join(json.dumps(g) + '\n' for g in games))
         command = [str(self.play_path), 'play', str(model), str(sample), '--threads', str(workers), '--parallel', str(self.parallel),
                    '--gpu-model', str(model.with_name('model-gpu.onnx')), '--gpu-batch', str(self.gpu_batch),
-                   '--search', search, '--sims', str(sims), '--gumbel-scale', str(gumbel_scale),
+                   '--sims', str(sims), '--gumbel-scale', str(gumbel_scale),
                    '--rollout-mix', str(rollout_mix), '--gpu-wait-us', str(self.gpu_wait_us),
                    '--timeout-ms', str(self.timeout_ms), '--shutdown-timeout-ms', str(self.shutdown_timeout_ms)]
         if self.gpu_bank:
@@ -146,8 +146,7 @@ def main():
     p.add_argument('--lr', type=float, default=1e-3)
     p.add_argument('--sims', type=int, default=256)
     p.add_argument('--rollout-mix', type=float, default=0.5)
-    p.add_argument('--test-search', choices=['gumbel', 'network_policy'], default='gumbel',
-                   help='validation player; network_policy plays the network without search')
+    p.add_argument('--test-sims', type=int, help='validation simulations (default --sims); 0 = the network alone')
     p.add_argument('--workers', type=int, default=9)
     p.add_argument('--gpu-batch', type=int, default=512)
     p.add_argument('--gpu-tokens', type=int, default=48)
@@ -167,6 +166,9 @@ def main():
     p.add_argument('--resume-from', type=int, help='resume a completed iteration; preserve replay and optimizer')
     p.add_argument('--export-reuse', action='store_true', help='run the ONNX exporter once per shape, then rewrite weights')
     a = p.parse_args()
+    test_sims = a.sims if a.test_sims is None else a.test_sims
+    if test_sims < 0:
+        p.error('test-sims must be >= 0')
     try:
         gpu_bank = [int(b) for b in a.gpu_bank.split(',') if b]
     except ValueError:
@@ -269,13 +271,12 @@ def run_loop(a, args, gpu_bank):
             due = validation < a.validation_share * (learning + validation)
         if not tests or not due: return
         t = time.time()
-        results = run.play(iteration_dir(it) / 'model.onnx', tests, a.out / 'test' / f'iter{it:03d}', a.sims, 0.0,
-                           a.rollout_mix, a.workers, stage=f'test iteration {it}', search=a.test_search)
+        results = run.play(iteration_dir(it) / 'model.onnx', tests, a.out / 'test' / f'iter{it:03d}', test_sims, 0.0,
+                           a.rollout_mix, a.workers, stage=f'test iteration {it}')
         in_results = []
         if tests_in:
             in_results = run.play(iteration_dir(it) / 'model.onnx', tests_in, a.out / 'test' / f'iter{it:03d}' / 'in-sample',
-                                  a.sims, 0.0, a.rollout_mix, a.workers, stage=f'test in-sample iteration {it}',
-                                  search=a.test_search)
+                                  test_sims, 0.0, a.rollout_mix, a.workers, stage=f'test in-sample iteration {it}')
         run.log(test=it, games=len(results), wins=sum(r['won'] for r in results), seconds=round(time.time() - t),
                 in_sample_games=len(in_results), in_sample_wins=sum(r['won'] for r in in_results), **collection_stats(results))
         if a.prune_replay:

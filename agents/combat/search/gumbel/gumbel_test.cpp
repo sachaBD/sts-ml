@@ -7,6 +7,7 @@
 #include "game/GameContext.h"
 #include <gtest/gtest.h>
 #include <algorithm>
+#include <cmath>
 #include <numeric>
 #include <random>
 
@@ -118,6 +119,25 @@ TEST(Gumbel, WinningMoveBeatsAWrongPrior) {
         return e;
     });
     EXPECT_TRUE(wins_now(root, r.action));
+}
+
+TEST(Gumbel, ZeroSimulationsIsTheNetwork) {
+    const auto root = jaw_worm();
+    auto s = settings();
+    s.simulations = 0;
+    Gumbel search{root, s, 1};
+    auto answer = noisy();
+    std::optional<Evaluation> network;
+    const auto r = run(search, [&](const Query& q) { return *(network = answer(q)); });
+
+    const auto& logits = network->logits;
+    const auto best = std::ranges::max_element(logits) - logits.begin();
+    EXPECT_EQ(r.action, r.actions[best]);
+    double sum = 0;
+    for (float l : logits) sum += std::exp(double(l) - logits[best]);
+    for (std::size_t i = 0; i < logits.size(); ++i)
+        EXPECT_NEAR(r.policy[i], std::exp(double(logits[i]) - logits[best]) / sum, 1e-6);
+    EXPECT_EQ(r.value, network->value);
 }
 
 TEST(Gumbel, ForcedMoveIsCertain) {
