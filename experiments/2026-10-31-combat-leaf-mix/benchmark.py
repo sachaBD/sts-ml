@@ -1,4 +1,4 @@
-"""Check frozen inputs; --run OUT explicitly runs the two leaf mixes. Standard library only."""
+"""Check frozen inputs; --run OUT runs leaf mixes, or --sim-sweep runs NN100 at 16/32/64/128 sims."""
 import argparse
 from collections import Counter
 import hashlib
@@ -50,6 +50,7 @@ def preflight(config):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--run', type=Path, metavar='OUT', help='launch fights into a new directory under runs/')
+    parser.add_argument('--sim-sweep', action='store_true', help='sweep simulation budgets instead of leaf mixes')
     args = parser.parse_args()
     root, starts, ids = preflight(tomllib.loads(PROTOCOL.read_text()))
     if args.run is None:
@@ -67,7 +68,9 @@ def main():
     libs = [packages / 'tensorrt_libs', *sorted((packages / 'nvidia').glob('*/lib'))]
     env = dict(os.environ, LD_LIBRARY_PATH=':'.join(map(str, libs)) + ':' + os.environ.get('LD_LIBRARY_PATH', ''))
     model = root / 'out/training/iter132'
-    for name, mix in [('nn75', '0.25'), ('nn100', '0')]:
+    variants = ([(f'sims{s}', str(s), '0') for s in (16, 32, 64, 128)] if args.sim_sweep
+                else [('nn75', '256', '0.25'), ('nn100', '256', '0')])
+    for name, sims, mix in variants:
         stage = out / name
         stage.mkdir()
         command = [str(root / 'out/inputs/nn_play'), 'play', str(model / 'model.onnx'), str(stage / 'samples.bin'),
@@ -75,7 +78,7 @@ def main():
                    '--gpu-bank', ','.join(str(model / f'model-gpu-b{b}.onnx') for b in (256, 32)),
                    '--threads', '9', '--parallel', '224', '--gpu-wait-us', '100',
                    '--timeout-ms', '60000', '--shutdown-timeout-ms', '5000',
-                   '--sims', '256', '--particles', '8', '--gumbel-scale', '0', '--rollout-mix', mix]
+                   '--sims', sims, '--particles', '8', '--gumbel-scale', '0', '--rollout-mix', mix]
         (stage / 'command.txt').write_text(shlex.join(command) + '\n')
         with starts.open() as source, (stage / 'results.jsonl').open('w') as results, (stage / 'worker.log').open('w') as log:
             before = time.monotonic()
