@@ -1,7 +1,5 @@
 #include "agents/combat/nn/tokens.hpp"
 #include "environments/combat/environment.hpp"
-#include "sim/search/PublicBeliefCombatSearch.h"
-#include <set>
 #include <stdexcept>
 
 namespace stsrl::nn {
@@ -29,15 +27,6 @@ std::array<float, 17> card_features(const CardToken& c) {
     return f;
 }
 }  // namespace
-
-std::vector<sts::search::Action> legal_actions(const sts::BattleContext& state) {
-    std::vector<sts::search::Action> actions;
-    std::set<std::uint64_t> keys;
-    for (const auto a : sts::search::Action::getAllActionsInState(state))
-        if (keys.insert(sts::search::PublicBeliefCombatSearch::publicActionKey(state, a)).second) actions.push_back(a);
-    if (actions.empty()) throw std::runtime_error{"nn: no legal actions"};
-    return actions;
-}
 
 stsrl::infra::Tokens encode(const sts::BattleContext& bc, std::span<const sts::search::Action> actions) {
     if (bc.player.hasRelic<sts::RelicId::RUNIC_DOME>()) throw std::invalid_argument{"nn: Runic Dome hides intents"};

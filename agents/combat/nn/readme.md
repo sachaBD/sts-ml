@@ -10,7 +10,7 @@ See the [documentation index](docs/README.md), [production inference benchmark](
 - `play.cpp`: combat `infra::Episode` adapter and CLI. See [WORKERS.md](WORKERS.md).
 - `infra/workers`: actors, inference server, supervision, replay readers and prefetch.
 - `infra/inference`: CPU/GPU backends; no agent-specific inference implementation.
-- `gumbel.cpp`: search pauses at each unevaluated leaf. Root sequential halving with Gumbel noise; deterministic improved-policy selection inside the tree. Each simulation samples a public-belief particle.
+- `agents/combat/search`: the Gumbel search `play.cpp` drives (`--sims 0` = the network alone) and the rollout blend (`--rollout-mix`).
 - `model.py`: 2-layer, width-64, 2-head transformer. Context token produces win probability; legal-action tokens produce policy logits.
 - `data.py`: binary self-play samples → dense padded tensors.
 - `train.py`: outcome BCE + improved-policy cross-entropy, AdamW, bf16 training.

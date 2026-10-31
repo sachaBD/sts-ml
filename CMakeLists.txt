@@ -23,6 +23,11 @@ endif()
 set(STS_LIGHTSPEED_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../lightspeed" CACHE PATH "sts_lightspeed checkout")
 add_subdirectory("${STS_LIGHTSPEED_DIR}" "${CMAKE_CURRENT_BINARY_DIR}/sts_lightspeed")
 
+add_library(combat_public STATIC environments/combat/public.cpp)
+target_include_directories(combat_public PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
+target_link_libraries(combat_public PUBLIC sts_lightspeed)
+target_compile_options(combat_public PRIVATE -Wall -Wextra -Wpedantic)
+
 add_library(combat_core STATIC
     agents/combat/teacher/teacher_leaves.cpp
     agents/combat/teacher/teacher_search.cpp
@@ -35,7 +40,7 @@ add_library(combat_core STATIC
     environments/combat/scenarios/jaw_worm.cpp
     environments/combat/scenarios/slime_boss.cpp)
 target_include_directories(combat_core PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
-target_link_libraries(combat_core PUBLIC sts_lightspeed)
+target_link_libraries(combat_core PUBLIC sts_lightspeed combat_public)
 target_compile_features(combat_core PUBLIC cxx_std_23)
 target_compile_options(combat_core PRIVATE -Wall -Wextra -Wpedantic)
 
@@ -235,6 +240,7 @@ add_subdirectory(infra/workers)
 add_subdirectory(infra/benchmarks)
 # Thin ONNX-backed policy/value combat agent.
 add_subdirectory(agents/combat/pv)
+add_subdirectory(agents/combat/search)
 add_subdirectory(agents/combat/nn)
 
 # Champ viewer sandbox (gui/web/champ/): rebuild an edited Champ battle per request, PV priors, teacher search.

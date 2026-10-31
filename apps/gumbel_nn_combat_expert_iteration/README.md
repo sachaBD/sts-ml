@@ -67,6 +67,11 @@ Live browser view of the same snapshot (polls every 2 s, read-only):
 .venv/bin/python -m apps.gumbel_nn_combat_expert_iteration.web "$RUN"   # http://127.0.0.1:8740/
 ```
 
+## Search
+
+Gumbel (`agents/combat/search/gumbel`), with leaf values blended with a guided rollout (`[loop] rollout_mix`).
+`[loop] test_sims` sets the validation simulations (default `sims`); 0 plays the network alone.
+
 ## Recipe / storage
 
 5,000 fights/update, 100 optimizer steps x 2,048 rows, evaluation initially and every
