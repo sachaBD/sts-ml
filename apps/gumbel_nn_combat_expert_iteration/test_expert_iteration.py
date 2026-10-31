@@ -27,6 +27,7 @@ rollout_mix = 0.5
 particles = 2
 
 [training]
+fights = "unused"
 steps = 1
 batch = 4
 lr = 0.001
@@ -57,14 +58,7 @@ sims = 0
 at = [0]
 every = 0
 wall_share = 0
-starts = "unused"
-
-[[deck]]
-name = "deck"
-starts = "unused"
-deck_id = "id"
-hp = 1
-max_hp = 1
+fights = "unused"
 """
 
 
@@ -154,7 +148,7 @@ class ExpertIterationTests(unittest.TestCase):
         self.assertEqual([p['directory'].name for p in self.plays], ['iter000'])
         self.assertEqual(json.loads((control.directory / 'status.json').read_text())['phase'], 'stopped')
 
-    def test_warm_start_begins_from_the_initial_checkpoint(self):
+    def test_initial_checkpoint_is_where_training_starts(self):
         initial = learner.Learner(dict(dim=8, layers=1, heads=1), 1e-3, 'cpu', seed=1)
         initial.save(self.out / 'inputs/initial-model.pt')
         control = self.run_loop(config=CONFIG.replace('iterations = 2', 'iterations = 1'))

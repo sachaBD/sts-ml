@@ -114,7 +114,7 @@ FP32 results still fail. Long CPU fallback batches also have bounded attention s
 ## Cutover
 
 The command-line loop (`loop.py`) is gone: the app owns the recipe and its typed config. Runs started
-by it cannot be resumed; start a new run with `[run].warm_start_run` to reuse weights, optimizer and RNG.
+by it cannot be resumed; start a new run with `[run].initial_checkpoint` to reuse weights, optimizer and RNG.
 Native `nn_play import` remains a standalone sample conversion tool.
 
 Historical performance reports describe the removed implementation; current

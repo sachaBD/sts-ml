@@ -17,7 +17,7 @@ class ConfigTests(unittest.TestCase):
 
     def test_preset_loads(self):
         config = load(PRESET.read_text())
-        self.assertEqual(len(config.decks), 10)
+        self.assertEqual(config.training.fights, 'runs/benchmark/champ-ten/decks.jsonl')
         self.assertEqual(config.workers.gpu_bank, (256, 32))
 
     def test_typos_missing_and_mistyped_settings(self):

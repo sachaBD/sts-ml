@@ -1,14 +1,15 @@
 # Gumbel NN combat expert iteration
 
 Expert iteration on fixed Champ decks: Gumbel self-play, train on the replay window, export, evaluate.
-Hard cutover from the old `agents/combat/nn/loop.py`: its runs cannot be resumed; reuse their weights
-with `[run].warm_start_run`.
+Hard cutover from the old `agents/combat/nn/loop.py`: its runs cannot be resumed; start from one of their
+checkpoints with `[run].initial_checkpoint`.
 
 ## Structure
 
 | File | Owns |
 |---|---|
-| `prepare.py` | Freezes the run's inputs once (config, `nn_play`, starts, test fights, baselines), then launches the recipe |
+| `make_fights.py` | Offline: builds fights files and baselines from a deck corpus or an old teacher run |
+| `prepare.py` | Freezes the run's inputs once (config, `nn_play`, fights files, baselines), then launches the recipe |
 | `expert_iteration.py` | The recipe: self-play → train → export → evaluate, per iteration |
 | `run_control.py` | The run's life on disk: lock, status, log, STOP, resume checks, disk reserve, pruning |
 | `config.py` | Typed, validated settings; which ones a resume may change |
@@ -18,9 +19,16 @@ with `[run].warm_start_run`.
 The recipe calls the agent (`agents/combat/nn`: `play()`, `Replay`, `Learner`); `nn_play` runs as a separate
 process per play or evaluation stage, so a CUDA failure is recoverable and PyTorch never shares GPU state with TensorRT.
 
-Config sections follow the owners: `[run]` (identity, length, optional warm start / recovery / disk reserve),
-`[search]` (self-play), `[training]`, `[model]`, `[workers]` (nn_play), `[evaluation]` (schedule, simulations,
-test fights), `[[deck]]`. Settings have no defaults; a typo or missing key stops the run before it starts.
+Config sections follow the owners: `[run]` (identity, length, optional initial checkpoint / recovery / disk
+reserve), `[search]` (self-play), `[training]` (its fights file, one fight per deck), `[model]`, `[workers]`
+(nn_play), `[evaluation]` (schedule, simulations, fights files, baselines, cohorts). Settings have no defaults;
+a typo or missing key stops the run before it starts.
+
+The run only reads files. A **fights file** is JSON lines, one playable fight per line: `{"fight_id", "start"}`
+(a combat_v4 start). Build them once with `make_fights.py`: `decks` turns `[[deck]]` tables (see
+`config/champ_ten_decks.toml`) into training fights; `teacher` turns an old teacher run into evaluation fights
+plus `baselines.json` and `cohorts.json` for paired comparison. The preset reads files generated this way
+under `runs/benchmark/champ-ten/`.
 
 ## Run, monitor, stop
 
@@ -68,8 +76,8 @@ samples. A run refuses a second process (`run_control` lock), and a resume refus
 Dashboard liveness uses the run lock, not the original launcher's historical status;
 a verified live supervisor's brief cooldown is reported as `recovering`.
 
-External evaluation inputs (`evaluation.starts`, optional `train_starts`, `cohorts`,
-`baselines`, `final_starts`) support composition-held-out experiments. Primary and
+Evaluation inputs (`fights`, optional `in_sample_fights`, `baselines`, `cohorts`, `final_fights`) support
+composition-held-out experiments. Primary and
 in-sample validation are separate; only primary results enter the main web curve.
 The reserved final starts are copied for later use but **never passed to the recipe**.
 See `experiments/2026-10-28-champ-generalisation/RUNBOOK.md` for the thousand-deck recipe.

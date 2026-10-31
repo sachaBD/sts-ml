@@ -1,7 +1,7 @@
 """The run's settings, typed and validated once when the config loads. Settings have no defaults, except the
-optional run features (warm start, recovery, disk reserve) and the evaluation's input sources."""
+optional run features (initial checkpoint, recovery, disk reserve) and the optional evaluation inputs.
+Fights files (JSON lines of {fight_id, start}) and baselines are built offline by make_fights.py."""
 from dataclasses import MISSING, dataclass, fields
-import re
 import sys
 import tomllib
 import types
@@ -18,13 +18,14 @@ class Run:
     seed_namespace: str
     games_per_deck: int
     iterations: int                 # 0: until stopped
-    warm_start_run: str | None = None
+    initial_checkpoint: str | None = None  # model.pt to start from: weights, optimizer and RNG, no replay
     recovery_retries: int = 0
     min_free_gib: float = 0
 
 
 @dataclass(frozen=True)
 class Training:
+    fights: str                     # one fight per deck; fight_id is the deck name
     steps: int
     batch: int
     lr: float
@@ -50,24 +51,11 @@ class Evaluation:
     at: tuple[int, ...]
     every: int                      # 0: only `at`
     wall_share: float               # also evaluate while validation is below this share of wall time; 0: off
-    source_run: str | None = None
-    directory: str | None = None
-    fights_per_deck: int | None = None
-    generated_per_deck: int | None = None
-    starts: str | None = None
-    train_starts: str | None = None
-    cohorts: str | None = None
-    baselines: str | None = None
-    final_starts: str | None = None
-
-
-@dataclass(frozen=True)
-class Deck:
-    name: str
-    starts: str
-    deck_id: str
-    hp: int
-    max_hp: int
+    fights: str                     # the primary score
+    in_sample_fights: str | None = None  # training decks, reported separately
+    final_fights: str | None = None      # reserved: copied, never played
+    baselines: str | None = None         # {name: {fight_id: won}}, compared paired
+    cohorts: str | None = None           # {deck: group}, reported per group
 
 
 @dataclass(frozen=True)
@@ -78,7 +66,6 @@ class Config:
     model: Model
     workers: Workers
     evaluation: Evaluation
-    decks: tuple[Deck, ...]
 
     # Settings a resumed run may change; anything else would make it a different experiment.
     RESUMABLE = frozenset({'run.iterations', 'run.min_free_gib', 'run.recovery_retries', 'training.prune_replay',
@@ -108,13 +95,12 @@ def section(cls, table, name):
 
 def load(text):
     raw = tomllib.loads(text)
-    check_keys(raw, {'run', 'search', 'training', 'model', 'workers', 'evaluation', 'deck'}, 'config')
+    check_keys(raw, {'run', 'search', 'training', 'model', 'workers', 'evaluation'}, 'config')
     tables = {name: raw.get(name, {}) for name in ('run', 'search', 'training', 'model', 'workers', 'evaluation')}
     config = Config(run=section(Run, tables['run'], 'run'), search=section(Search, tables['search'], 'search'),
                     training=section(Training, tables['training'], 'training'), model=section(Model, tables['model'], 'model'),
                     workers=section(Workers, tables['workers'], 'workers'),
-                    evaluation=section(Evaluation, tables['evaluation'], 'evaluation'),
-                    decks=tuple(section(Deck, d, 'deck') for d in raw.get('deck', [])))
+                    evaluation=section(Evaluation, tables['evaluation'], 'evaluation'))
     validate(config)
     return config
 
@@ -123,10 +109,6 @@ def validate(c):
     def need(ok, message):
         if not ok:
             sys.exit(f'config: {message}')
-    need(c.decks, 'at least one [[deck]]')
-    need(len({d.name for d in c.decks}) == len(c.decks), '[[deck]] names must be unique')
-    for d in c.decks:
-        need(re.fullmatch(r'[a-z0-9_-]+', d.name), f'[[deck]].name {d.name!r}: use [a-z0-9_-]')
     r, s, t, m, w, e = c.run, c.search, c.training, c.model, c.workers, c.evaluation
     need(r.games_per_deck > 0 and r.iterations >= 0 and r.recovery_retries >= 0 and r.min_free_gib >= 0,
          'positive games_per_deck; nonnegative iterations, recovery_retries, min_free_gib')
@@ -142,8 +124,6 @@ def validate(c):
          'workers.gpu_bank: distinct batches, each positive and below gpu_batch')
     need(e.sims >= 0 and e.every >= 0 and 0 <= e.wall_share < 1 and all(i >= 0 for i in e.at),
          'evaluation: nonnegative sims, every and at; wall_share in [0, 1)')
-    need(bool(e.starts) != bool(e.source_run), 'evaluation: exactly one of starts or source_run')
-    need(not e.source_run or (e.directory and e.fights_per_deck), 'evaluation.source_run needs directory and fights_per_deck')
 
 
 def changed(old, new):
@@ -151,6 +131,6 @@ def changed(old, new):
     def flat(c):
         return {f'{name}.{f.name}': getattr(getattr(c, name), f.name)
                 for name in ('run', 'search', 'training', 'model', 'workers', 'evaluation')
-                for f in fields(getattr(c, name))} | {'decks': c.decks}
+                for f in fields(getattr(c, name))}
     a, b = flat(old), flat(new)
     return {k for k in a if a[k] != b[k]}

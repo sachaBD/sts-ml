@@ -95,7 +95,8 @@ def main():
     config, status = data['config'], data['progress']
     r, model, training = config['run'], config['model'], config['training']
     print(f'{r["id"]}   {time.strftime("%H:%M:%S")}   {data["state"].upper()}')
-    print(f'{len(config["deck"])} decks; {r["games_per_deck"] * len(config["deck"]):,} games/update; '
+    decks = len(json.loads((out / 'inputs/starts.json').read_text()))
+    print(f'{decks} decks; {r["games_per_deck"] * decks:,} games/update; '
           f'{config["search"]["sims"]} sims ({config["evaluation"]["sims"]} evaluation); '
           f'NN {model["dim"]}x{model["layers"]}; {training["steps"]} train steps x {training["batch"]} rows')
     if status:

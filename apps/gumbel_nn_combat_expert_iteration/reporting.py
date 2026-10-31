@@ -93,11 +93,8 @@ def score(results, baselines):
 
 
 def baselines(out):
-    path, reference = out / 'inputs/baselines.json', out / 'inputs/reference.json'
-    values = json.loads(path.read_text()) if path.exists() else {}
-    if not values and reference.exists():
-        values['mcts20k'] = json.loads(reference.read_text())
-    return values
+    path = out / 'inputs/baselines.json'
+    return json.loads(path.read_text()) if path.exists() else {}
 
 
 def pool(batches, deck):
