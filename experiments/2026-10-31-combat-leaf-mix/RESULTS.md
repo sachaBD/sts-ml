@@ -30,6 +30,8 @@ Launcher log: adjacent `leaf-mix-132-approved.log`. Source revision: `d7ae7d0`.
 Both processes succeeded with all 500 matching unique fight IDs and no capped fights.
 GPU: RTX 3060; idle at launch. Input hashes and exact commands are in the artifacts.
 
-**Conclusion:** NN100 has the highest observed win count and lowest measured wall time,
-but this sample does not establish a strength advantage. Historical simulator and
-training-set caveats remain as described in the README.
+**Decision: use NN100 as the provisional default for subsequent search experiments.**
+It removes guided-rollout work and has the highest observed win count and lowest measured
+wall time. This is the preferred configuration so far, not a proven strength improvement:
+the paired 95% interval includes zero, and each new variant has only one timing observation.
+Historical simulator and training-set caveats remain as described in the README.
