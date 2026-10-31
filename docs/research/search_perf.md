@@ -10,7 +10,7 @@ Every row these write is byte-for-byte what the old code wrote. Checks:
 - `bench_search` traces: every row of 3 Slime Boss fights, value-net teacher at 20k.
 - `fight_resample_worker` `result.msgpack`: 15/15 identical on real act1-a20-8 decks with the value-net
   teacher (15k), plus one fight with the guided-rollout teacher.
-- `agents/combat/search/search_perf_test.cpp`: 12k states, including search leaves.
+- `agents/combat/teacher/search_perf_test.cpp`: 12k states, including search leaves.
 
 | change | where | effect |
 |---|---|---|

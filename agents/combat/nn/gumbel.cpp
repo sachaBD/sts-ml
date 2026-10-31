@@ -1,5 +1,5 @@
 #include "agents/combat/nn/gumbel.hpp"
-#include "agents/combat/search/teacher_leaves.hpp"
+#include "agents/combat/teacher/teacher_leaves.hpp"
 #include "sim/search/BattleScumSearcher2.h"
 #include "sim/search/PublicBeliefCombatSearch.h"
 #include <algorithm>

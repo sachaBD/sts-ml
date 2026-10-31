@@ -9,7 +9,7 @@
 // Output: OUTPUT_DIR/result.msgpack = {episode_id, teacher, rows (combat_v3 rows of that fight),
 //         search_seconds (teacher::search_seconds: the fight's move choosing only)};
 // teacher = teacher::settings(leaf, oracle, budget) + random_move.
-#include "agents/combat/search/teacher_search.hpp"
+#include "agents/combat/teacher/teacher_search.hpp"
 #include "environments/overworld/fight_replay.hpp"
 #include "apps/common/teacher_request.hpp"
 #include "apps/common/worker.hpp"

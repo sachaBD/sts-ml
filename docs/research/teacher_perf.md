@@ -6,7 +6,7 @@ workload is `apps/card_marginals`, which plays thousands of fights and keeps onl
 ## Background
 
 - **What the teacher is.** At every decision of a fight it runs a Monte Carlo tree search
-  (`PublicBeliefCombatSearch` in sts_lightspeed, driven by `agents/combat/search/teacher_*.cpp`).
+  (`PublicBeliefCombatSearch` in sts_lightspeed, driven by `agents/combat/teacher/teacher_*.cpp`).
 - **Simulations.** Each simulation walks down the tree, then plays the fight to the end with a cheap heuristic
   policy (a "guided rollout"). The number of simulations per decision is the budget.
 - **Budgets.** Easy fights get 500, hard 2k, elite 5k, and boss 15k.
@@ -35,8 +35,8 @@ home-made sampling profiler (`scratch/profile_teacher/`; the machine has no `per
 |---|---|---|---|
 | **LTO** (link-time optimization). Lets the compiler inline sts_lightspeed's many tiny getters across files. On by default. | `CMakeLists.txt` | 0.67–0.69 | Yes (166/166 fights) |
 | **Lazy rollout.** The rollout listed every legal action even though 80% of the time it plays the heuristic's move. Now it lists them only when it needs the fallback random move. The random draws are unchanged. | sts_lightspeed `BattleScumSearcher2::rolloutAction` | ~0.87 (boss and elite) | Yes (172/172) |
-| **No-record fight** (`play_fight` overload without rows). It skips state encoding and row building, and plays a forced move (only one legal move) without searching it. | `agents/combat/search/teacher_search.cpp`; used by card_marginals | Easy fights 0.65 together with the lazy rollout; small on boss fights | Yes |
-| **Tree reuse with a top-up budget** (teacher setting `tree_reuse = true`) | `agents/combat/search/teacher_leaves.cpp` | ~0.7 of search time on boss fights (see below) | No, the policy changes slightly |
+| **No-record fight** (`play_fight` overload without rows). It skips state encoding and row building, and plays a forced move (only one legal move) without searching it. | `agents/combat/teacher/teacher_search.cpp`; used by card_marginals | Easy fights 0.65 together with the lazy rollout; small on boss fights | Yes |
+| **Tree reuse with a top-up budget** (teacher setting `tree_reuse = true`) | `agents/combat/teacher/teacher_leaves.cpp` | ~0.7 of search time on boss fights (see below) | No, the policy changes slightly |
 
 The first three together: boss fights ~0.61× CPU (1.65× throughput), easy fights ~0.44× (2.25×).
 
@@ -65,7 +65,7 @@ about 3%. Fight results were compared field for field.
   - Absolute win rate and HP may shift slightly.
 - **Status.** Off in the card_marginals configs (user's call): the policy change is unmeasured. Run a paired
   quality A/B before turning it back on.
-- **Bug (fixed).** With reuse, `legal_index` (`agents/combat/search/teacher_leaves.cpp`) mapped the chosen root edge through
+- **Bug (fixed).** With reuse, `legal_index` (`agents/combat/teacher/teacher_leaves.cpp`) mapped the chosen root edge through
   `particles.front()`, which after a rebase is a different particle. A draw-pile selection (Secret Technique /
   Weapon) then named the wrong card, or crashed with `public draw-selection action has no semantic match`. It now
   matches the edge's `semanticKey`; other actions are unchanged.

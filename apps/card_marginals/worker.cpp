@@ -27,7 +27,7 @@
 //           removes, upgrades, hp, max_hp, floor, deck, relics, potions, candidates: [{card, source}]}
 //   pre: the persistent state right before BattleContext::init (environments/overworld/game_state.hpp); post: after exitBattle
 //   (end-of-combat relics such as Burning Blood applied). battle_final_hp: in-battle HP before exitBattle (0 if lost).
-#include "agents/combat/search/teacher_search.hpp"
+#include "agents/combat/teacher/teacher_search.hpp"
 #include "environments/overworld/game_state.hpp"
 #include "apps/common/teacher_request.hpp"
 #include "apps/common/worker.hpp"

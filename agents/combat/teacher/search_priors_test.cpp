@@ -1,6 +1,6 @@
 // PublicBeliefCombatSearch policy-prior mode: expand at evaluation, per-node priors, PUCT with
 // first-play urgency. (Mode off is checked bit-for-bit against the historical search separately.)
-#include "agents/combat/search/teacher_search.hpp"
+#include "agents/combat/teacher/teacher_search.hpp"
 #include "environments/combat/scenarios/slime_boss.hpp"
 
 #include "combat/BattleContext.h"

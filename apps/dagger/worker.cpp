@@ -8,7 +8,7 @@
 //   status completed: rows = the fight's combat_v3 decision rows; capped (max_decisions) / turn_limit
 //   (max_turns reached): no rows.
 //   start: decision 0's row without outcome columns; diagnostics: per-decision learner/teacher moves and counters.
-#include "agents/combat/search/teacher_search.hpp"
+#include "agents/combat/teacher/teacher_search.hpp"
 #include "environments/overworld/fight_replay.hpp"
 #include "apps/common/worker.hpp"
 

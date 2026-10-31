@@ -1,7 +1,7 @@
 #include "agents/combat/pv/search.hpp"
 #include "environments/combat/environment.hpp"
 #include "environments/combat/record_v4.hpp"
-#include "agents/combat/search/teacher_leaves.hpp"
+#include "agents/combat/teacher/teacher_leaves.hpp"
 #include <algorithm>
 #include <fstream>
 #include <iostream>

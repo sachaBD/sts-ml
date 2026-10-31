@@ -12,7 +12,7 @@
 // Known gaps: which card a bottled relic holds is not recorded (no card is bottled), relic counters are
 // whatever the macro state recorded. After init the player's HP is set to hp_before (battle-start HP of the
 // original fight, i.e. after start-of-combat heals such as Pantograph), if given.
-#include "agents/combat/search/teacher_search.hpp"
+#include "agents/combat/teacher/teacher_search.hpp"
 #include "constants/CharacterClasses.h"
 #include "constants/MonsterEncounters.h"
 #include "constants/Rooms.h"

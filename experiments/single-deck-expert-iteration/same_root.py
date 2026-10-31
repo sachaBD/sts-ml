@@ -53,8 +53,8 @@ def cmd_freeze(out):
     meta = dict(binary_sha=sha(d / 'pv_continuation'), binary_mtime=datetime.datetime.fromtimestamp(BUILD.stat().st_mtime).isoformat(),
                 frozen_at=now(), sources={s: sha(s) for s in ['apps/continuation/continuation.cpp', 'apps/continuation/CMakeLists.txt']},
                 pv_sources={s: sha(s) for s in ['agents/combat/pv/search.cpp', 'agents/combat/pv/search.hpp', 'agents/combat/pv/features.cpp',
-                                                'agents/combat/pv/evaluator.cpp', 'agents/combat/search/teacher_leaves.cpp',
-                                                'agents/combat/search/teacher_search.cpp', 'environments/combat/environment.cpp']},
+                                                'agents/combat/pv/evaluator.cpp', 'agents/combat/teacher/teacher_leaves.cpp',
+                                                'agents/combat/teacher/teacher_search.cpp', 'environments/combat/environment.cpp']},
                 head=T.git('.', 'rev-parse', 'HEAD'), sts_lightspeed_head=T.git(T.LS, 'rev-parse', 'HEAD'),
                 model=str(MODEL), model_sha=sha(MODEL), model_data_sha=sha(str(MODEL) + '.data'),
                 teacher_run_eligible_sha=sha(TEACHER_RUN / 'eligible.json'))

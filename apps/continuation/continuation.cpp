@@ -28,7 +28,7 @@
 #include "agents/combat/pv/search.hpp"
 #include "agents/combat/pv/objective.hpp"
 #include "apps/pv/shard.hpp"
-#include "agents/combat/search/teacher_search.hpp"
+#include "agents/combat/teacher/teacher_search.hpp"
 #include "environments/combat/record_v4.hpp"
 #include "sim/search/Action.h"
 

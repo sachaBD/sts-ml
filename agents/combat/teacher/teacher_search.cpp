@@ -1,4 +1,4 @@
-#include "agents/combat/search/teacher_search.hpp"
+#include "agents/combat/teacher/teacher_search.hpp"
 
 #include <chrono>
 #include <optional>

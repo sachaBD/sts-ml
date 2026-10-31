@@ -1,5 +1,5 @@
-// Teacher leaf strategies (agents/combat/search/teacher_leaves.hpp) and the play_fight exploration toggle.
-#include "agents/combat/search/teacher_search.hpp"
+// Teacher leaf strategies (agents/combat/teacher/teacher_leaves.hpp) and the play_fight exploration toggle.
+#include "agents/combat/teacher/teacher_search.hpp"
 #include "environments/combat/scenarios/jaw_worm.hpp"
 
 #include "combat/BattleContext.h"

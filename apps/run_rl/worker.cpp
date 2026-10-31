@@ -43,7 +43,7 @@
 //   All asks carry the real seed, including inside lookahead samples. All logged steps carry their act's boss.
 //   path: one option per next map node (only when there are >= 2). After-state = this state with only the remaining
 //         routes that start at that node (macro_sim paths, first_xs); nothing is simulated.
-#include "agents/combat/search/teacher_search.hpp"
+#include "agents/combat/teacher/teacher_search.hpp"
 #include "environments/combat/battle_snapshot.hpp"
 #include "environments/combat/environment.hpp"
 #include "environments/combat/record_v4.hpp"

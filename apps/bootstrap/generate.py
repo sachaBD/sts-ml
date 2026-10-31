@@ -102,7 +102,7 @@ class Run:
     boss: bool  # reached the act 1 boss fight
     rows: int
     seconds: float
-    teacher: dict  # search settings (agents/combat/search/teacher_search.cpp)
+    teacher: dict  # search settings (agents/combat/teacher/teacher_search.cpp)
 
     def __str__(self):
         return f"seed {self.seed}: {self.status} on floor {self.floor}, {self.fights} fights, {self.rows} rows, {self.seconds:.1f}s"

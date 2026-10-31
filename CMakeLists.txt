@@ -24,8 +24,8 @@ set(STS_LIGHTSPEED_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../lightspeed" CACHE PATH "s
 add_subdirectory("${STS_LIGHTSPEED_DIR}" "${CMAKE_CURRENT_BINARY_DIR}/sts_lightspeed")
 
 add_library(combat_core STATIC
-    agents/combat/search/teacher_leaves.cpp
-    agents/combat/search/teacher_search.cpp
+    agents/combat/teacher/teacher_leaves.cpp
+    agents/combat/teacher/teacher_search.cpp
     agents/combat/value/value_net.cpp
     environments/combat/environment.cpp
     environments/combat/encoding_v4.cpp
@@ -104,19 +104,19 @@ target_compile_features(slime_boss_test PRIVATE cxx_std_23)
 target_compile_options(slime_boss_test PRIVATE -Wall -Wextra -Wpedantic)
 add_test(NAME slime_boss_test COMMAND slime_boss_test)
 
-add_executable(teacher_leaves_test agents/combat/search/teacher_leaves_test.cpp)
+add_executable(teacher_leaves_test agents/combat/teacher/teacher_leaves_test.cpp)
 target_link_libraries(teacher_leaves_test PRIVATE combat_core)
 target_compile_features(teacher_leaves_test PRIVATE cxx_std_23)
 target_compile_options(teacher_leaves_test PRIVATE -Wall -Wextra -Wpedantic)
 add_test(NAME teacher_leaves_test COMMAND teacher_leaves_test)
 
-add_executable(search_perf_test agents/combat/search/search_perf_test.cpp)
+add_executable(search_perf_test agents/combat/teacher/search_perf_test.cpp)
 target_link_libraries(search_perf_test PRIVATE combat_core)
 target_compile_features(search_perf_test PRIVATE cxx_std_23)
 target_compile_options(search_perf_test PRIVATE -Wall -Wextra -Wpedantic)
 add_test(NAME search_perf_test COMMAND search_perf_test)
 
-add_executable(search_priors_test agents/combat/search/search_priors_test.cpp)
+add_executable(search_priors_test agents/combat/teacher/search_priors_test.cpp)
 target_link_libraries(search_priors_test PRIVATE combat_core)
 target_compile_features(search_priors_test PRIVATE cxx_std_23)
 target_compile_options(search_priors_test PRIVATE -Wall -Wextra -Wpedantic)

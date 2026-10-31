@@ -22,7 +22,7 @@ class DeepSetsV3(nn.Module):
 
     Pools (and counts): card zones 0-3 (hand, draw, discard, exhaust), monsters, interactions, potions, relics.
 
-    Output: the expected terminal value of combat_v3 (agents/combat/search/teacher_search.cpp outcome_columns),
+    Output: the expected terminal value of combat_v3 (agents/combat/teacher/teacher_search.cpp outcome_columns),
         terminal = won * (score_hp_offset + final_hp + score_potion_hp * final_potions)
                        / (score_max_hp_offset + max_hp),
     factored into three heads, each conditional on winning so that the product is exact:

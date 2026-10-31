@@ -24,7 +24,7 @@ Background: `experiments/act-1-combat/2026-09-28-elite-specialist/`, `experiment
 - **Fights:** `bench_fights.csv`, 600 per elite from buckets 0–1 of `act1-all-bosses-a20-scaled-search` (no v3 net
   trained on them), hash-selected (`make_fights.py`). `bench_subset.csv` = the first 200 per elite in the same order.
   About 5% of the replays diverge on the current simulator; all arms skip the same ones (`skip_diverged`).
-- **Seeds:** new teacher setting `search_salt` (agents/combat/search/teacher_leaves.cpp): 0 = historical seeds, bit-identical
+- **Seeds:** new teacher setting `search_salt` (agents/combat/teacher/teacher_leaves.cpp): 0 = historical seeds, bit-identical
   (verified on 11 stored fights); other values reseed particles and rollouts. Run ids end in `-s<salt>`.
 - **Arms:** `make_configs.py` writes every config into `configs/` (id = file name). MCTS = guided rollouts;
   v3 = `elite-v3-t2`, leaf policy_net, c_puct 1.0, fpu 0.05, prior floor 0.03; 8 particles; no random move.

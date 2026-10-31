@@ -1,7 +1,7 @@
 // The teacher's search and its leaf strategies: PublicBeliefCombatSearch (8 particles, rollout mode 2)
 // with the teacher budget (forced moves, early stop). Leaves are scored by guided rollout (bootstrap),
 // by the value net (immediate), or by a bounded guided rollout then the value net (hybrid).
-// Recording a fight: agents/combat/search/teacher_search.hpp.
+// Recording a fight: agents/combat/teacher/teacher_search.hpp.
 #pragma once
 
 #include "environments/combat/environment.hpp"

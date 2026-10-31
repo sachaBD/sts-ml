@@ -9,7 +9,7 @@
 #include "agents/combat/pv/turn_pimc.hpp"
 #include "agents/combat/pv/turn_targets.hpp"
 #include "agents/combat/pv/real_turn.hpp"
-#include "agents/combat/search/teacher_search.hpp"
+#include "agents/combat/teacher/teacher_search.hpp"
 #include "apps/pv/shard.hpp"
 #include "apps/pv/turns.hpp"
 #include "environments/combat/environment.hpp"

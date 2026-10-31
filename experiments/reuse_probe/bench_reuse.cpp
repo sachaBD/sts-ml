@@ -2,7 +2,7 @@
 //   bench_reuse first count
 // Plays the fresh-search teacher. At every decision the same state is also searched with the reused tree
 // (rebased along the played moves) and, as a noise control, by a fresh search with a reseeded search RNG.
-#include "agents/combat/search/teacher_search.hpp"
+#include "agents/combat/teacher/teacher_search.hpp"
 #include "environments/combat/scenarios/slime_boss.hpp"
 
 #include <chrono>

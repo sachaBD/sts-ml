@@ -8,7 +8,7 @@
 //                random_potions, samples: [{episode_id, starting_hp}], teacher: apps/common/teacher_request.hpp}
 //   random_potions: each potion the player holds is replaced by a random potion drop (potion RNG seeded as above).
 // Output: OUTPUT_DIR/result.msgpack = {teacher, rows} (combat_v3 rows of every sample, in sample order).
-#include "agents/combat/search/teacher_search.hpp"
+#include "agents/combat/teacher/teacher_search.hpp"
 #include "environments/overworld/fight_replay.hpp"
 #include "apps/common/teacher_request.hpp"
 #include "apps/common/worker.hpp"

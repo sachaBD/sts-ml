@@ -1,9 +1,9 @@
 // The teacher playing and recording one fight. Search and leaf strategies (guided rollout, value net,
-// hybrid): agents/combat/search/teacher_leaves.hpp, re-exported here. Shared by apps/bootstrap (guided-rollout
+// hybrid): agents/combat/teacher/teacher_leaves.hpp, re-exported here. Shared by apps/bootstrap (guided-rollout
 // leaves) and apps/value_play. Row columns: runs/README.md.
 #pragma once
 
-#include "agents/combat/search/teacher_leaves.hpp"
+#include "agents/combat/teacher/teacher_leaves.hpp"
 
 #include <cstdint>
 #include <string>

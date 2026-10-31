@@ -57,7 +57,7 @@ double diagnosticWinOnlyValue(const BattleContext& state, int rootMaxHp) {
     worker=(ROOT/'apps/pv/worker.cpp').read_text()
     result=worker[worker.index('Json result('):worker.index('// PV plays directly')]
     teach=worker[worker.index('Json teach('):worker.index('int main(int argc')]
-    prefix='''#include "agents/combat/search/teacher_search.hpp"
+    prefix='''#include "agents/combat/teacher/teacher_search.hpp"
 #include "environments/combat/record_v4.hpp"
 #include <chrono>
 #include <iostream>

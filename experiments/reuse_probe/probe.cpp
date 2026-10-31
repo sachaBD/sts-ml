@@ -1,6 +1,6 @@
 // Probe: after END_TURN, does the true next observation appear among the particles' next observations?
 // Compares ordered-hand observation (current publicObservation) vs hand-sorted observation.
-#include "agents/combat/search/teacher_search.hpp"
+#include "agents/combat/teacher/teacher_search.hpp"
 #include "environments/combat/scenarios/slime_boss.hpp"
 
 #include <algorithm>

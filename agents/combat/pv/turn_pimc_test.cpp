@@ -1,6 +1,6 @@
 #include "agents/combat/pv/turn_pimc.hpp"
 #include "agents/combat/pv/search.hpp"
-#include "agents/combat/search/teacher_leaves.hpp"
+#include "agents/combat/teacher/teacher_leaves.hpp"
 #include "environments/combat/record_v4.hpp"
 #include <fstream>
 #include <iostream>

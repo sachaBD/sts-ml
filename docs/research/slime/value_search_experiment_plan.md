@@ -2,7 +2,7 @@
 
 ## Approved implementation / pilot revision
 
-User approved the first implementation slice after design review: light separation into `agents/combat/search/teacher_leaves.*` (strategies) and `teacher_search.*` (recording), shared hybrid/immediate NN evaluation loop, exploration toggle with unchanged bootstrap defaults, explicit validation-episode subsets, safe isolated build and per-run binary snapshots, backward-compatible worker CLI. No simulation-budget override or external-cohort support in this first slice. Implementation: impl-agent; builds/execution: terminal-agent.
+User approved the first implementation slice after design review: light separation into `agents/combat/teacher/teacher_leaves.*` (strategies) and `teacher_search.*` (recording), shared hybrid/immediate NN evaluation loop, exploration toggle with unchanged bootstrap defaults, explicit validation-episode subsets, safe isolated build and per-run binary snapshots, backward-compatible worker CLI. No simulation-budget override or external-cohort support in this first slice. Implementation: impl-agent; builds/execution: terminal-agent.
 
 **This supersedes Stage 1 below:** the pilot will compare fresh R/N/H on all 14 validation fights with exploration OFF for every arm. First run episode 707 for each arm as a smoke test, then obtain coordinator go-ahead for the remaining fights. No exploratory stored teacher is used as the clean baseline. This adds 14 baseline evaluations to the original resource envelope (about 262 total if every later stage proceeds); actual cohort counts/timing will be frozen before later approval. Stages 2–3 remain future proposals, not current implementation authorization.
 
@@ -34,7 +34,7 @@ SQL agent's snapshot: `scratch/slime_boss_explore_report.md`; reproducible queri
 ## Current implementation constraints
 
 Relevant files:
-- `agents/combat/search/teacher_search.{hpp,cpp}`: shared search/recording, 15,000 simulations, 8 particles, neural batch 64, max_actions 512, early stop; one exploratory move in decision indices [0,24) if reached.
+- `agents/combat/teacher/teacher_search.{hpp,cpp}`: shared search/recording, 15,000 simulations, 8 particles, neural batch 64, max_actions 512, early stop; one exploratory move in decision indices [0,24) if reached.
 - `apps/value_play/{play.py,worker.cpp,run.sh,job.sh}`: currently only checkpoint validation fights from its sole training-source run; shared recorder injects exploration here too.
 - `apps/compare_fights/compare.py`: terminal_value primary, paired bootstrap CI, Wilcoxon, exact McNemar for wins. Currently candidate-driven pairing can silently omit unsuccessful candidate jobs unless an external expected cohort check is added.
 - `../sts_lightspeed/src/sim/search/PublicBeliefCombatSearch.cpp`: bounded rollout support exists; neural wrapper currently calls `requestBatch(batch, budget, 0, 0)`.

@@ -10,7 +10,7 @@
 // every fight with SIMULATIONS per decision; forced moves are played without a search. Every fight is rebuilt
 // with combat_v4::replay (sts_lightspeed only) and checked against the played fight's complete final battle state
 // before it is printed.
-#include "agents/combat/search/teacher_search.hpp"
+#include "agents/combat/teacher/teacher_search.hpp"
 #include "environments/combat/battle_snapshot.hpp"
 #include "environments/combat/environment.hpp"
 #include "environments/combat/record_v4.hpp"

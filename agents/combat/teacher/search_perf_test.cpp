@@ -2,7 +2,7 @@
 //   observationKey (tree node keys)  == the equality of publicObservation
 //   encode_state                      == CombatEnvironment::decision().encoding without legal_actions
 // States: random playouts and search leaves of Slime Boss fights.
-#include "agents/combat/search/teacher_search.hpp"
+#include "agents/combat/teacher/teacher_search.hpp"
 #include "environments/combat/environment.hpp"
 #include "environments/combat/scenarios/slime_boss.hpp"
 

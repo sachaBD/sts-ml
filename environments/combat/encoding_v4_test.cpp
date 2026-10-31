@@ -5,7 +5,7 @@
 //                                           decisions (the Python / C++ parity test, agents/combat/value/test_deep_sets_v3.py)
 //   encoding_v4_test WEIGHTS OUT.json search  one leaf policy_net search (400 simulations, 8 particles) per sample
 //                                           decision: [{legal, used, chosen, root_visits}]
-#include "agents/combat/search/teacher_leaves.hpp"
+#include "agents/combat/teacher/teacher_leaves.hpp"
 #include "environments/combat/encoding_v4.hpp"
 #include "environments/combat/environment.hpp"
 #include "agents/combat/value/value_net.hpp"

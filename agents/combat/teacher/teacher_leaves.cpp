@@ -1,4 +1,4 @@
-#include "agents/combat/search/teacher_leaves.hpp"
+#include "agents/combat/teacher/teacher_leaves.hpp"
 
 #include "game/Random.h"
 

@@ -35,8 +35,8 @@ EXP = 'demon-form-continuation-v1'
 OUT = C.DATE / f'id={EXP}/out'
 BINARY = Path('build/champ-viewer/champ_session')
 LS = Path('../sts_lightspeed')
-SOURCES = ['apps/champ_viewer/session.cpp', 'agents/combat/search/teacher_search.cpp', 'agents/combat/search/teacher_search.hpp',
-           'agents/combat/search/teacher_leaves.cpp', 'agents/combat/search/teacher_leaves.hpp',
+SOURCES = ['apps/champ_viewer/session.cpp', 'agents/combat/teacher/teacher_search.cpp', 'agents/combat/teacher/teacher_search.hpp',
+           'agents/combat/teacher/teacher_leaves.cpp', 'agents/combat/teacher/teacher_leaves.hpp',
            'environments/combat/environment.cpp', 'agents/combat/pv/evaluator.cpp', 'agents/combat/pv/search.cpp',
            'apps/pv/worker.cpp']
 LS_SOURCES = ['src/sim/search/PublicBeliefCombatSearch.cpp', 'include/sim/search/PublicBeliefCombatSearch.h']

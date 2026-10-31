@@ -1,5 +1,5 @@
 #include "environments/combat/battle_snapshot.hpp"
-#include "agents/combat/search/teacher_search.hpp"
+#include "agents/combat/teacher/teacher_search.hpp"
 #include "constants/CharacterClasses.h"
 #include "constants/Rooms.h"
 #include "game/GameContext.h"

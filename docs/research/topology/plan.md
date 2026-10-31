@@ -19,7 +19,7 @@ the architecture.
 ## Guiding rules
 
 - **Backward compatible.** v1 checkpoints and `value_weights.bin` files must keep loading and
-  evaluating bit-identically: `agents/combat/search/search_perf_test.cpp` compares against `tests/original_value_net.hpp`.
+  evaluating bit-identically: `agents/combat/teacher/search_perf_test.cpp` compares against `tests/original_value_net.hpp`.
   v2 is chosen by `architecture.kind = "deep_sets_v2"` in the checkpoint config. A missing `kind` means
   v1.
 - **Change one thing at a time** in the experiments. Each change is a config flag; the code can land

@@ -20,7 +20,7 @@
 //   playout SIMS FROM N  win/HP of teacher fights from public-belief particles FROM..FROM+N-1 of this state
 //                        (the hidden draw order / RNG resampled per playout; search salt = particle index + 1)
 #include "agents/combat/pv/search.hpp"
-#include "agents/combat/search/teacher_search.hpp"
+#include "agents/combat/teacher/teacher_search.hpp"
 #include "environments/combat/environment.hpp"
 #include "environments/combat/record_v4.hpp"
 #include "constants/Cards.h"

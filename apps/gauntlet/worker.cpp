@@ -14,7 +14,7 @@
 //     Per option: take it, make `picks` SimpleAgent picks from fresh monster card rewards (card RNG = seed),
 //     then play `encounter` (elite or boss room; every combat RNG from seed) from the reward state's HP, relics and
 //     potions. Every option shares the seed, so the offers and the fight's RNG streams start identical.
-#include "agents/combat/search/teacher_search.hpp"
+#include "agents/combat/teacher/teacher_search.hpp"
 #include "environments/overworld/fight_replay.hpp"
 #include "environments/overworld/game_state.hpp"
 #include "apps/common/teacher_request.hpp"

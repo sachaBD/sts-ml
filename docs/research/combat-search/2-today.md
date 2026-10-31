@@ -3,7 +3,7 @@
 This describes the teacher, not the new dedicated [PV search](../../../agents/combat/pv/README.md).
 
 Guided-rollout MCTS (`PublicBeliefCombatSearch` in sts_lightspeed; settings in
-`agents/combat/search/teacher_leaves.hpp`). Terms: [1-tree-search-basics.md](1-tree-search-basics.md).
+`agents/combat/teacher/teacher_leaves.hpp`). Terms: [1-tree-search-basics.md](1-tree-search-basics.md).
 
 - **Selection:** UCB1, no prior. A move never tried is always tried first, so every node spends its first
   visits on every legal move once.
