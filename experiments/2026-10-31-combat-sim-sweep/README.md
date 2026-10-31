@@ -16,4 +16,8 @@ SHA-256 `72eae4bd11baad16789eb3ab23a418700daae150faac74e343ef4b066308dc56`.
 
 Run sequentially without other GPU work. Record paired differences vs 256, per-deck
 wins and process wall time. One timing observation/budget; training-monitored starts,
-not held out. Zero simulations is excluded because the frozen worker rejects it.
+not held out. Report Wilson 95% win-rate intervals and paired 95% difference intervals.
+Zero simulations is excluded because the frozen worker rejects it.
+
+Approved extension: `--sim-sweep 512 1024 --run runs/benchmark/sim-sweep-high-132-approved`;
+same inputs/settings, one sequential run per budget. No lower-budget replays.
