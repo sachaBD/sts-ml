@@ -1,83 +1,19 @@
-# Frozen checkpoint-132 sweep; no training, export or baseline replay.
-# Paths are local artifacts; hashes make substitution explicit.
-[search]
-sims = 256
-particles = 8
-gumbel_scale = 0.0
+# Frozen artifacts from the checkpoint-132 training run.
+run = "/home/sborowsk/project/sts/worktrees/nn-topologies/runs/schema=gumbel_nn_combat_v1/date=2026-10-30/id=gumbel-nn-champ-entity-ten"
 
-[workers]
-actors = 9
-slots = 224
-gpu_batch = 512
-gpu_bank = [256, 32]
-gpu_wait_us = 100
-timeout_ms = 60000
-shutdown_timeout_ms = 5000
-
-[variants]
-nn75 = 0.25
-nn100 = 0.0
-
-[artifacts."worker"]
-path = "/home/sborowsk/project/sts/worktrees/nn-topologies/runs/schema=gumbel_nn_combat_v1/date=2026-10-30/id=gumbel-nn-champ-entity-ten/out/inputs/nn_play"
-sha256 = "471141a2fb2bf442a45987fb99198d55f5b44093e78046a20eccd25981921ee5"
-
-[artifacts."checkpoint"]
-path = "/home/sborowsk/project/sts/worktrees/nn-topologies/runs/schema=gumbel_nn_combat_v1/date=2026-10-30/id=gumbel-nn-champ-entity-ten/out/training/iter132/model.pt"
-sha256 = "4e0bdc320723122666b8fde29ce6e6cab8aac10869f8b34aabc16d2aa8107a6b"
-
-[artifacts."fights"]
-path = "/home/sborowsk/project/sts/worktrees/nn-topologies/runs/schema=gumbel_nn_combat_v1/date=2026-10-30/id=gumbel-nn-champ-entity-ten/out/training/test/iter132/starts.jsonl"
-sha256 = "dff278fee3ec94052f9e34987ebc1a9b3e5b287f3ea8bfca049a83b081ea8ef8"
-
-[artifacts."nn50"]
-path = "/home/sborowsk/project/sts/worktrees/nn-topologies/runs/schema=gumbel_nn_combat_v1/date=2026-10-30/id=gumbel-nn-champ-entity-ten/out/training/test/iter132/results.jsonl"
-sha256 = "8695716c7d25329ee3b8c7278d5f1b68a1f955b937e35df10205114ec2f042c7"
-
-[artifacts."historical"]
-path = "/home/sborowsk/project/sts/worktrees/nn-topologies/runs/schema=gumbel_nn_combat_v1/date=2026-10-30/id=gumbel-nn-champ-entity-ten/out/inputs/baselines.json"
-sha256 = "8d843baf7f93ab25620b393ca1661590f48987711d941b50fa7b44014c6db1de"
-
-[artifacts."baseline_log"]
-path = "/home/sborowsk/project/sts/worktrees/nn-topologies/runs/schema=gumbel_nn_combat_v1/date=2026-10-30/id=gumbel-nn-champ-entity-ten/out/training/test/iter132/worker.log"
-sha256 = "c2925b367703203d0f41bd3aec4d055557df43c8675171dbe6a616fc7fdcd8f4"
-
-[artifacts."training_args"]
-path = "/home/sborowsk/project/sts/worktrees/nn-topologies/runs/schema=gumbel_nn_combat_v1/date=2026-10-30/id=gumbel-nn-champ-entity-ten/out/training/args.json"
-sha256 = "522bc1661d3f87b13bae7f21a17bf099b11fd5bf5b745e8f378b62289ba56fff"
-
-[artifacts."training_run"]
-path = "/home/sborowsk/project/sts/worktrees/nn-topologies/runs/schema=gumbel_nn_combat_v1/date=2026-10-30/id=gumbel-nn-champ-entity-ten/run.json"
-sha256 = "1c47359e1f45e15769afa84725b6ac3e3e1d9ad2d881744216338fbc79aca948"
-
-[artifacts."model-gpu-b256.onnx"]
-path = "/home/sborowsk/project/sts/worktrees/nn-topologies/runs/schema=gumbel_nn_combat_v1/date=2026-10-30/id=gumbel-nn-champ-entity-ten/out/training/iter132/model-gpu-b256.onnx"
-sha256 = "0bc5a41fd068375e0c2143f74085282f4292768391f3025c8fc971e34ed5c18c"
-
-[artifacts."model-gpu-b256.onnx.data"]
-path = "/home/sborowsk/project/sts/worktrees/nn-topologies/runs/schema=gumbel_nn_combat_v1/date=2026-10-30/id=gumbel-nn-champ-entity-ten/out/training/iter132/model-gpu-b256.onnx.data"
-sha256 = "4bcaea8dd3520bd89480d99457c7d96ccdf6be466333faaa95b03e6e1cba3f9a"
-
-[artifacts."model-gpu-b32.onnx"]
-path = "/home/sborowsk/project/sts/worktrees/nn-topologies/runs/schema=gumbel_nn_combat_v1/date=2026-10-30/id=gumbel-nn-champ-entity-ten/out/training/iter132/model-gpu-b32.onnx"
-sha256 = "f95187f49cd6cb025926614a3c43592fa41ac8bf4779c655a191dd2f74429bfe"
-
-[artifacts."model-gpu-b32.onnx.data"]
-path = "/home/sborowsk/project/sts/worktrees/nn-topologies/runs/schema=gumbel_nn_combat_v1/date=2026-10-30/id=gumbel-nn-champ-entity-ten/out/training/iter132/model-gpu-b32.onnx.data"
-sha256 = "ccd188517580717aa3a559c33c002e758af9cde8a01500b0840d56bdc07d345b"
-
-[artifacts."model-gpu.onnx"]
-path = "/home/sborowsk/project/sts/worktrees/nn-topologies/runs/schema=gumbel_nn_combat_v1/date=2026-10-30/id=gumbel-nn-champ-entity-ten/out/training/iter132/model-gpu.onnx"
-sha256 = "793d541e19ed789fa556a07831ae3cc80438b2d7261dac902825e8614dc92647"
-
-[artifacts."model-gpu.onnx.data"]
-path = "/home/sborowsk/project/sts/worktrees/nn-topologies/runs/schema=gumbel_nn_combat_v1/date=2026-10-30/id=gumbel-nn-champ-entity-ten/out/training/iter132/model-gpu.onnx.data"
-sha256 = "dff1a48418a5b5f5682ff4fb7d9ab1837f6a6f89571925f7bffaed513f740935"
-
-[artifacts."model.onnx"]
-path = "/home/sborowsk/project/sts/worktrees/nn-topologies/runs/schema=gumbel_nn_combat_v1/date=2026-10-30/id=gumbel-nn-champ-entity-ten/out/training/iter132/model.onnx"
-sha256 = "ffd27de0717555b2000390aa110521b09e8a3aeece729685add72b05b6b1fddb"
-
-[artifacts."model.onnx.data"]
-path = "/home/sborowsk/project/sts/worktrees/nn-topologies/runs/schema=gumbel_nn_combat_v1/date=2026-10-30/id=gumbel-nn-champ-entity-ten/out/training/iter132/model.onnx.data"
-sha256 = "8eb642e42bf110157244e703b6abe87e0dc2643ef386acc7e2b81604b92506f3"
+[sha256]
+"out/inputs/nn_play" = "471141a2fb2bf442a45987fb99198d55f5b44093e78046a20eccd25981921ee5"
+"out/training/iter132/model.pt" = "4e0bdc320723122666b8fde29ce6e6cab8aac10869f8b34aabc16d2aa8107a6b"
+"out/training/test/iter132/starts.jsonl" = "dff278fee3ec94052f9e34987ebc1a9b3e5b287f3ea8bfca049a83b081ea8ef8"
+"out/training/test/iter132/results.jsonl" = "8695716c7d25329ee3b8c7278d5f1b68a1f955b937e35df10205114ec2f042c7"
+"out/inputs/baselines.json" = "8d843baf7f93ab25620b393ca1661590f48987711d941b50fa7b44014c6db1de"
+"out/training/test/iter132/worker.log" = "c2925b367703203d0f41bd3aec4d055557df43c8675171dbe6a616fc7fdcd8f4"
+"run.json" = "1c47359e1f45e15769afa84725b6ac3e3e1d9ad2d881744216338fbc79aca948"
+"out/training/iter132/model-gpu-b256.onnx" = "0bc5a41fd068375e0c2143f74085282f4292768391f3025c8fc971e34ed5c18c"
+"out/training/iter132/model-gpu-b256.onnx.data" = "4bcaea8dd3520bd89480d99457c7d96ccdf6be466333faaa95b03e6e1cba3f9a"
+"out/training/iter132/model-gpu-b32.onnx" = "f95187f49cd6cb025926614a3c43592fa41ac8bf4779c655a191dd2f74429bfe"
+"out/training/iter132/model-gpu-b32.onnx.data" = "ccd188517580717aa3a559c33c002e758af9cde8a01500b0840d56bdc07d345b"
+"out/training/iter132/model-gpu.onnx" = "793d541e19ed789fa556a07831ae3cc80438b2d7261dac902825e8614dc92647"
+"out/training/iter132/model-gpu.onnx.data" = "dff1a48418a5b5f5682ff4fb7d9ab1837f6a6f89571925f7bffaed513f740935"
+"out/training/iter132/model.onnx" = "ffd27de0717555b2000390aa110521b09e8a3aeece729685add72b05b6b1fddb"
+"out/training/iter132/model.onnx.data" = "8eb642e42bf110157244e703b6abe87e0dc2643ef386acc7e2b81604b92506f3"
