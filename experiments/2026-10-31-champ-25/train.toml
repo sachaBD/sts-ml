@@ -1,0 +1,53 @@
+[run]
+id = "gumbel-nn-champ25-64s-mix50-20261031"
+worker = "/home/sborowsk/project/sts/combat_rl/build/search-interface/agents/combat/nn/nn_play"
+seed_namespace = "gumbel-nn-champ25-64s-mix50-20261031"
+games_per_deck = 200
+iterations = 0
+initial_checkpoint = "/home/sborowsk/project/sts/worktrees/nn-topologies/runs/schema=gumbel_nn_combat_v1/date=2026-10-30/id=gumbel-nn-champ-entity-ten/out/training/iter132/model.pt"
+recovery_retries = 2
+min_free_gib = 10
+
+[search]
+sims = 64
+particles = 8
+gumbel_scale = 1.0
+rollout_mix = 0.5
+
+[training]
+fights = "runs/benchmark/champ-25-inputs/training.jsonl"
+steps = 100
+batch = 2048
+lr = 0.001
+replay_window = 5
+max_train_rows = 500000
+balanced_replay = true
+prune_replay = true
+device = "cuda"
+
+[model]
+kind = "entity"
+dim = 192
+layers = 4
+heads = 6
+gpu_tokens = 96
+gpu_attended = 32
+export_reuse = false
+
+[workers]
+actors = 9
+slots = 224
+gpu_batch = 512
+gpu_bank = [256, 32]
+gpu_wait_us = 100
+timeout_ms = 60000
+shutdown_timeout_ms = 5000
+
+[evaluation]
+sims = 64
+at = [0]
+every = 3
+wall_share = 0
+fights = "runs/benchmark/champ-25-inputs/validation.jsonl"
+baselines = "runs/benchmark/champ-25-inputs/baselines.json"
+cohorts = "runs/benchmark/champ-25-inputs/cohorts.json"
