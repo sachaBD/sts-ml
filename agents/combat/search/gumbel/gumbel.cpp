@@ -66,20 +66,22 @@ std::vector<double> improved_policy(const Node& n, const Gumbel::Settings& s) {
     return softmax(z);
 }
 
-// mctx seq_halving.get_sequence_of_considered_visits.
+// mctx seq_halving.get_sequence_of_considered_visits, stopping before a partial pass so every round
+// visits its considered actions equally.
 std::vector<int> halving_schedule(int m, int simulations) {
+    if (simulations <= 0) return {};
+    m = std::min(m, std::max(1, simulations / 2));
     std::vector<int> out;
     if (m <= 1) { for (int i = 0; i < simulations; ++i) out.push_back(i); return out; }
     const int log2m = int(std::ceil(std::log2(double(m))));
     std::vector<int> visits(m, 0);
-    for (int considered = m; int(out.size()) < simulations; considered = std::max(2, considered / 2)) {
+    for (int considered = m; int(out.size()) + considered <= simulations; considered = std::max(2, considered / 2)) {
         const int extra = std::max(1, int(double(simulations) / (log2m * considered)));
-        for (int r = 0; r < extra; ++r) {
+        for (int r = 0; r < extra && int(out.size()) + considered <= simulations; ++r) {
             for (int i = 0; i < considered; ++i) out.push_back(visits[i]);
             for (int i = 0; i < considered; ++i) ++visits[i];
         }
     }
-    out.resize(simulations);
     return out;
 }
 
@@ -120,7 +122,7 @@ struct Gumbel::Impl {
             backup(e.value);
         }
         leaf = nullptr;
-        while (!leaf && simulation < s.simulations) simulate();
+        while (!leaf && simulation < int(schedule.size())) simulate();
     }
 
     // Descends until a finished fight (backed up now) or a new node (left pending for the evaluator).
