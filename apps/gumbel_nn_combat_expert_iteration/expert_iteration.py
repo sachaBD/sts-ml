@@ -22,6 +22,10 @@ from environments.combat.starts import fights
 from .config import experiment_changes, load
 from .run_control import RunControl, delete_samples
 
+# Rows of an iteration's own samples scored before training on them: a few seconds, and enough to compare
+# with the training loss.
+HELDOUT_ROWS = 50_000
+
 
 def collection_stats(results):
     finished = sorted(r['finished_unix'] for r in results)
@@ -60,8 +64,8 @@ class ExpertIteration:
             begin = time.time()
             results = self.self_play(it)
             played = time.time()
-            states = self.train(it)
-            self.control.log(iteration=it, games=len(results), wins=sum(r['won'] for r in results), states=states,
+            states, loss = self.train(it)
+            self.control.log(iteration=it, games=len(results), wins=sum(r['won'] for r in results), states=states, **loss,
                              rollout_mix=self.config.search.at(it).rollout_mix,
                              play_seconds=round(played - begin), train_seconds=round(time.time() - played),
                              **collection_stats(results))
@@ -111,12 +115,16 @@ class ExpertIteration:
         t = self.config.training
         stage, window = f'iteration {it}', range(max(0, it - t.replay_window + 1), it + 1)
         samples = [s for k in window for s in sorted(self.control.iteration(k).glob('samples-*.bin'))]
+        # The network has never trained on the samples it just played: their loss is a held-out loss.
+        self.control.status(stage=stage, phase='score')
+        with Replay(sorted(self.control.iteration(it).glob('samples-*.bin')), balanced=t.balanced_replay) as fresh:
+            heldout = self.learner.score(fresh, HELDOUT_ROWS, t.batch)
         self.control.status(stage=stage, phase='load', files=len(samples))
         with Replay(samples, max_rows=t.max_train_rows, balanced=t.balanced_replay) as replay:
             if set(replay.groups) != {f['fight_id'] for f in self.starts}:
                 raise ValueError('replay does not contain every configured deck')
             self.control.status(stage=stage, phase='train', done=0, total=t.steps)
-            self.learner.fit(replay, t.steps, t.batch, log=lambda line: (
+            trained = self.learner.fit(replay, t.steps, t.batch, log=lambda line: (
                 print(f'  {line}', flush=True), self.control.status(stage=stage, phase='train', detail=line)))
             (self.control.iteration(it) / 'replay.json').write_text(json.dumps(dict(
                 available=replay.available, selected=replay.selected, drawn=replay.drawn), indent=2))
@@ -124,7 +132,9 @@ class ExpertIteration:
         self.learner.save(self.control.iteration(it) / 'model.pt')
         self.control.status(stage=stage, phase='export')
         self.export(self.control.iteration(it))
-        return states
+        loss = dict(heldout_value_loss=heldout[0], heldout_policy_loss=heldout[1],
+                    train_value_loss=trained[0], train_policy_loss=trained[1])
+        return states, {k: round(v, 4) for k, v in loss.items()}
 
     def export(self, directory):
         w = self.config.workers

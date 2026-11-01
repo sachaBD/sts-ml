@@ -12,7 +12,7 @@ import torch
 from .model import ModelSpec, build_model
 from .tokens import WIDTH
 from .replay import Replay, index
-from .train import train
+from .train import score, train
 
 
 def samples(directory, decks):
@@ -162,6 +162,22 @@ class ReplayTests(unittest.TestCase):
             train(net, optimizer, replay, None, None, 2, 4, 'cpu', log=lambda _: None)
             self.assertFalse(torch.equal(before, net.value.weight))
             self.assertEqual(replay.drawn, dict(a=4, b=4))
+
+    def test_score_is_the_training_loss_without_the_update(self):
+        torch.set_num_threads(1)
+        with tempfile.TemporaryDirectory() as tmp:
+            path = samples(Path(tmp) / 'iter001', [('a', 4, 1, 1), ('b', 4, 2, 0)])
+            replay = Replay([path])
+            chunks = [Replay.collate(replay.sample(3)), Replay.collate(replay.sample(5))]
+            net = build_model(ModelSpec('transformer', 8, 1, 1))
+            optimizer = torch.optim.AdamW(net.parameters())
+            before = {k: v.clone() for k, v in net.state_dict().items()}
+            with patch.object(replay, 'batches', side_effect=lambda _: iter(chunks)):
+                scored = score(net, replay, 8, 8, 'cpu')
+                self.assertTrue(all(torch.equal(v, before[k]) for k, v in net.state_dict().items()))
+                self.assertEqual(optimizer.state, {})
+                trained = train(net, optimizer, replay, None, None, 1, 8, 'cpu', log=lambda _: None)
+            torch.testing.assert_close(scored, trained)
 
 
 if __name__ == '__main__':
