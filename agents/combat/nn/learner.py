@@ -4,7 +4,7 @@ from dataclasses import asdict
 import torch
 
 from .model import build_model
-from .train import train
+from .train import score, train
 
 
 class Learner:
@@ -15,7 +15,10 @@ class Learner:
         self.device = device
 
     def fit(self, replay, steps, batch, log=print):
-        train(self.net, self.optimizer, replay, None, None, steps, batch, self.device, log=log)
+        return train(self.net, self.optimizer, replay, None, None, steps, batch, self.device, log=log)
+
+    def score(self, replay, rows, batch):
+        return score(self.net, replay, rows, batch, self.device)
 
     def save(self, path):
         cuda = self.device.startswith('cuda')

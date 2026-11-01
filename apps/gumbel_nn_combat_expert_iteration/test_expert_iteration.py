@@ -76,7 +76,8 @@ class ExpertIterationInvariants(unittest.TestCase):
         (self.out / 'inputs/test.jsonl').write_text(json.dumps(dict(fight_id='t', start={})) + '\n')
         self.plays = []
         fakes = [(expert_iteration, 'play', self.play), (expert_iteration, 'Replay', self.replay),
-                 (learner.Learner, 'fit', lambda *a, **k: None),
+                 (learner.Learner, 'fit', lambda *a, **k: (.1, .2)),
+                 (learner.Learner, 'score', lambda *a: (.3, .4)),
                  (expert_iteration.ModelExporter, 'export', self.export)]
         for target, name, fake in fakes:
             patcher = patch.object(target, name, side_effect=fake)
