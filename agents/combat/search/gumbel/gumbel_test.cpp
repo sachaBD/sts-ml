@@ -176,13 +176,43 @@ TEST(GumbelTree, AgreesWithTheSearch) {
         Gumbel search{jaw_worm(), s, seed};
         const auto r = run(search, noisy());
         const auto tree = search.tree();
-        EXPECT_EQ(tree.nodes[0].total, s.simulations);
+        EXPECT_LE(tree.nodes[0].total, s.simulations);
         ASSERT_EQ(tree.nodes[0].edges.size(), r.policy.size());
         for (std::size_t i = 0; i < r.policy.size(); ++i) EXPECT_FLOAT_EQ(tree.nodes[0].edges[i].improved, r.policy[i]);
         for (const auto& node : tree.nodes) {
             int visits = 0;
             for (const auto& edge : node.edges) visits += edge.visits;
             EXPECT_EQ(visits, node.total);
+        }
+    }
+}
+
+TEST(Gumbel, HalvingRoundsAllocateEqually) {
+    const auto root = jaw_worm();
+    const int A = int(legal_actions(root).size());
+    ASSERT_GE(A, 5);
+    for (const int sims : {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 15, 16, 17, 32, 64, 100, 256}) {
+        for (const int considered : {2, 3, 5, 16}) {
+            auto s = settings(1);
+            s.simulations = sims;
+            s.considered_actions = considered;
+            Gumbel search{root, s, 1};
+            run(search, noisy());
+            const auto tree = search.tree();
+            const auto& edges = tree.nodes[0].edges;
+
+            const int k = std::min({considered, A, std::max(1, sims / 2)});
+            std::vector<int> v;
+            for (const auto& e : edges) v.push_back(e.visits);
+            std::ranges::sort(v, std::greater{});
+            EXPECT_EQ(std::ranges::count_if(v, [](int n) { return n > 0; }), k);
+
+            for (int m = k; m >= 2; m = (m + 1) / 2) {
+                const int survivors = m == 2 ? 0 : (m + 1) / 2;
+                for (int i = survivors; i < m; ++i)
+                    EXPECT_EQ(v[i], v[m - 1]) << "sims=" << sims << " considered=" << considered << " m=" << m;
+                if (m == 2) break;
+            }
         }
     }
 }
