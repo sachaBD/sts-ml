@@ -30,7 +30,10 @@ class PooledTransformer(CombatModel):
         self.policy = nn.Linear(dim, 1)
 
     def forward(self, tokens):
-        return self.predict(tokens)
+        # Attend over the longest retained row rather than the padded length: identical predictions, and
+        # ~4x fewer encoder positions on real replay (pooling leaves ~16 of ~66). Export uses predict directly.
+        _, keep = self._group_masks(TokenRows(tokens))
+        return self.predict(tokens, int(keep.sum(dim=1).max()))
 
     def predict(self, tokens: Tensor, slots: int | None = None) -> tuple[Tensor, Tensor]:
         """Evaluate an optional bounded attention view; overflow returns a NaN value."""
