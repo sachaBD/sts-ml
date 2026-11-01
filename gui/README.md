@@ -36,6 +36,56 @@ rm -rf /tmp/pages && cp -r gui/site /tmp/pages && cd /tmp/pages && git init -b g
 
 Pages serves the `gh-pages` branch of sachaBD/sts-ml. The live site only changes when you republish.
 
+## Frozen Gumbel viewer (browser-only prototype)
+
+The Gumbel viewer can also be built as a standalone static site. It reuses the C++ simulator, encoder,
+search, rollouts, and explanation code via Emscripten; ONNX Runtime Web 1.23.2 evaluates the frozen ONNX model.
+Both run in a single Web Worker, without a backend, CUDA, WebGPU, or cross-origin-isolation headers.
+The first search downloads the runtime and model. All dependencies are served from the site itself.
+
+```sh
+# From the repository root, with Emscripten 4.0.23 activated (source /path/to/emsdk/emsdk_env.sh):
+emcmake cmake -S gui/wasm -B build/gumbel-wasm -DCMAKE_BUILD_TYPE=Release \
+  -DSTS_LIGHTSPEED_DIR=/path/to/lightspeed
+cmake --build build/gumbel-wasm --target gumbel -j4
+npm install --prefix build/web-deps --ignore-scripts --no-audit --no-fund --save-exact onnxruntime-web@1.23.2
+
+RUN=/path/to/runs/schema=gumbel_nn_combat_v1/date=YYYY-MM-DD/id=chosen-run
+.venv/bin/python gui/export_gumbel.py --checkpoint "$RUN/out/training/iterNNN" \
+  --fights "$RUN/out/inputs/test.jsonl" --fight-count 8
+python3 -m http.server 8734 --directory build/gumbel-site
+# Open http://127.0.0.1:8734/gumbel-tree/
+```
+
+`build/gumbel-site/` is the deployable artifact. It does **not** replace the existing multi-report site.
+It can be served at a repository subpath on Pages; publishing is a separate, explicit step. To preserve the other
+reports, copy its `gumbel-tree/` and `assets/gumbel/` into their published site rather than replacing that site's root.
+Do not run the old `export.py` afterwards, since it would replace the browser-enabled Gumbel page.
+
+The exporter copies (not symlinks) the checkpoint and its external weights. `assets/gumbel/manifest.json` records
+SHA-256 checksums, selected fights, source revision/dirty state, and runtime version. Fight starts remain JSON
+**strings** until C++ parses them, preserving 64-bit seeds. Demo fights are evenly spaced through the input file
+(not a random sample), so a deck-grouped input does not publish only the first deck. Only the selected checkpoint/fights are available.
+Browser search limits are 512 simulations, 64 particles, and 512 played moves. Stop prevents further moves;
+it does not interrupt the search already running. This prototype has no persistent model cache or progress indicator.
+Native and browser standard-library RNG distributions and floating-point kernels may produce different search trees;
+bit-for-bit search parity is not promised.
+
+Verification:
+
+```sh
+.venv/bin/python -m gui.test_export_gumbel
+# Optional: use a Python environment with Playwright and its Chromium installed.
+python3 gui/wasm/smoke.py --site build/gumbel-site --output build/gumbel-browser-check \
+  --native /path/to/nn_explain --checkpoint "$RUN/out/training/iterNNN/model.onnx"
+```
+
+The browser check serves only static files under a project subpath, tests next/previous decisions, rejects backend
+API usage, and compares the initial board, observation key, and root network predictions with native inference.
+It writes a screenshot and JSON report. Add `--simulations 64 --particles 8 --all-fights --full-fight` to search
+every published starting position and autoplay the first fight. This is a smoke test, not full browser, fight,
+or model-architecture coverage.
+
 ## Files
 
 | File | Role |
