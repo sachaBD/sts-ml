@@ -23,13 +23,12 @@
 #include "agents/combat/teacher/teacher_search.hpp"
 #include "environments/combat/environment.hpp"
 #include "environments/combat/record_v4.hpp"
+#include "environments/combat/view.hpp"
 #include "constants/Cards.h"
 #include "constants/MonsterMoves.h"
 #include "constants/MonsterStatusEffects.h"
 #include "constants/PlayerStatusEffects.h"
-#include "constants/Potions.h"
 #include "constants/Relics.h"
-#include "combat/CardSelectInfo.h"
 #include "sim/search/Action.h"
 
 #include <algorithm>
@@ -37,7 +36,6 @@
 #include <iostream>
 #include <memory>
 #include <optional>
-#include <sstream>
 #include <stdexcept>
 #include <string>
 
@@ -46,14 +44,8 @@
 using Json = nlohmann::json;
 namespace S = sts;
 using sts::search::Action;
-using sts::search::ActionType;
 
 namespace {
-
-std::string lower(std::string s) {
-    std::transform(s.begin(), s.end(), s.begin(), [](unsigned char c) { return std::tolower(c); });
-    return s;
-}
 
 S::Monster& champ(S::BattleContext& bc) {
     for (int i = 0; i < bc.monsters.monsterCount; ++i)
@@ -201,100 +193,16 @@ S::BattleContext build(const Json& request) {
 
 // ---------------- public view ----------------
 
-Json card_json(const S::CardInstance& c) {
-    return {{"id", static_cast<int>(c.id)}, {"key", lower(S::cardEnumStrings[static_cast<int>(c.id)])},
-            {"upgraded", c.getUpgradeCount()}, {"cost", c.cost}, {"cost_for_turn", c.costForTurn}};
-}
-
-template <typename It>
-Json cards_json(It first, It last, bool sorted) {
-    Json out = Json::array();
-    for (; first != last; ++first) out.push_back(card_json(*first));
-    if (sorted)  // the draw pile is shown as a multiset: its order is hidden
-        std::sort(out.begin(), out.end(), [](const Json& a, const Json& b) {
-            return std::pair{a["key"].get<std::string>(), a["upgraded"].get<int>()} <
-                   std::pair{b["key"].get<std::string>(), b["upgraded"].get<int>()};
-        });
-    return out;
-}
-
-Json player_statuses(const S::Player& p) {
-    Json out = Json::object();
-    for (int s = 1; s < static_cast<int>(::PlayerStatus::THE_BOMB); ++s) {
-        const auto ps = static_cast<::PlayerStatus>(s);
-        if (!p.hasStatusRuntime(ps)) continue;
-        const bool core = ps == ::PlayerStatus::ARTIFACT || ps == ::PlayerStatus::DEXTERITY ||
-                          ps == ::PlayerStatus::STRENGTH || ps == ::PlayerStatus::FOCUS;
-        const int amount = core || p.statusMap.count(ps) ? p.getStatusRuntime(ps) : 1;
-        if (amount != 0) out[lower(playerStatusEnumStrings[s])] = amount;
-    }
-    return out;
-}
-
-std::string kind(const S::BattleContext& bc) {
-    if (bc.outcome != S::Outcome::UNDECIDED) return "done";
-    if (bc.inputState == S::InputState::PLAYER_NORMAL) return "play";
-    if (bc.inputState == S::InputState::CARD_SELECT)
-        return lower(S::cardSelectTaskStrings[static_cast<int>(bc.cardSelectInfo.cardSelectTask)]);
-    return "unsupported";
-}
-
-Json view(const S::BattleContext& bc) {
-    Json v;
-    v["kind"] = kind(bc);
-    v["won"] = bc.outcome == S::Outcome::PLAYER_VICTORY;
-    v["turn"] = bc.turn;
-    const auto& p = bc.player;
-    v["player"] = {{"hp", p.curHp}, {"max_hp", p.maxHp}, {"block", p.block}, {"energy", p.energy},
-                   {"energy_per_turn", p.energyPerTurn}, {"statuses", player_statuses(p)}};
+// The shared view plus the Champ's phase and stances, under "champ" for the Champ page.
+Json champ_view(const S::BattleContext& bc) {
+    auto v = stsrl::combat::view(bc);
     for (int i = 0; i < bc.monsters.monsterCount; ++i) {
         const auto& m = bc.monsters.arr[i];
         if (m.id != S::MonsterId::THE_CHAMP) continue;
-        Json c{{"hp", m.curHp}, {"max_hp", m.maxHp}, {"block", m.block}, {"alive", m.isAlive()},
-               {"phase2", (m.miscInfo >> 2) & 1}, {"stances_used", m.miscInfo & 0x3}};
-        c["intent"] = m.moveHistory[0] == S::MMID::INVALID ? Json() : Json(S::monsterMoveStrings[static_cast<int>(m.moveHistory[0])]);
-        c["last_move"] = m.moveHistory[1] == S::MMID::INVALID ? Json() : Json(S::monsterMoveStrings[static_cast<int>(m.moveHistory[1])]);
-        if (m.moveHistory[0] != S::MMID::INVALID && m.isAttacking()) {
-            const auto base = m.getMoveBaseDamage(bc);
-            c["intent_damage"] = m.calculateDamageToPlayer(bc, base.damage);
-            c["intent_hits"] = base.attackCount;
-        }
-        Json st = Json::object();
-        for (int s = 0; s < static_cast<int>(S::MS::INVALID); ++s) {
-            const auto ms = static_cast<S::MonsterStatus>(s);
-            const int amount = m.getStatusInternal(ms);
-            if (m.hasStatusInternal(ms) && amount != 0) st[lower(S::monsterStatusEnumStrings[s])] = amount;
-        }
-        if (m.strength) st["strength"] = m.strength;
-        c["statuses"] = st;
-        v["champ"] = c;
+        v["champ"] = v["monsters"][i];
+        v["champ"]["phase2"] = (m.miscInfo >> 2) & 1;
+        v["champ"]["stances_used"] = m.miscInfo & 0x3;
     }
-    const auto& cards = bc.cards;
-    v["hand"] = cards_json(cards.hand.begin(), cards.hand.begin() + cards.cardsInHand, false);
-    v["draw"] = cards_json(cards.drawPile.begin(), cards.drawPile.end(), true);
-    v["discard"] = cards_json(cards.discardPile.begin(), cards.discardPile.end(), false);
-    v["exhaust"] = cards_json(cards.exhaustPile.begin(), cards.exhaustPile.end(), false);
-    Json potions = Json::array();
-    for (int i = 0; i < bc.potionCapacity; ++i)
-        potions.push_back(bc.potions[i] == S::Potion::EMPTY_POTION_SLOT || bc.potions[i] == S::Potion::INVALID
-                              ? Json() : Json(S::potionNames[static_cast<int>(bc.potions[i])]));
-    v["potions"] = potions;
-    Json legal = Json::array();
-    if (bc.outcome == S::Outcome::UNDECIDED)
-        for (const auto& a : Action::getAllActionsInState(bc)) {
-            std::ostringstream desc;
-            a.printDesc(desc, bc);
-            Json row{{"bits", a.bits}, {"desc", desc.str()}};
-            switch (a.getActionType()) {
-                case ActionType::CARD: row["type"] = "card"; row["source"] = a.getSourceIdx(); break;
-                case ActionType::POTION: row["type"] = "potion"; row["source"] = a.getSourceIdx(); break;
-                case ActionType::END_TURN: row["type"] = "end_turn"; break;
-                case ActionType::SINGLE_CARD_SELECT: row["type"] = "select"; row["source"] = a.getSelectIdx(); break;
-                default: row["type"] = "other";
-            }
-            legal.push_back(std::move(row));
-        }
-    v["legal"] = legal;
     return v;
 }
 
@@ -360,7 +268,7 @@ int main(int argc, char** argv) {
             const auto request = Json::parse(line);
             const auto bc = build(request);
             const auto query = request.value("query", std::string{"view"});
-            out["view"] = view(bc);
+            out["view"] = champ_view(bc);
             Json relics = Json::array();  // the battle keeps only relic bits; names come from the start
             for (const auto& r : request.at("start").at("relics")) relics.push_back(S::relicNames[r.at("id").get<int>()]);
             out["view"]["relics"] = relics;
