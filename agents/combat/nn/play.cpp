@@ -23,12 +23,6 @@ using Json = nlohmann::json;
 using Clock = std::chrono::steady_clock;
 
 namespace {
-sts::BattleContext start(const Json& start) {
-    sts::BattleContext state;
-    state.init(stsrl::combat_v4::start_game(start));
-    return state;
-}
-
 void write(std::ofstream& out, const stsrl::infra::Tokens& t, const std::vector<float>& policy, float won) {
     out.write(reinterpret_cast<const char*>(&t.count), 4);
     out.write(reinterpret_cast<const char*>(&t.actions), 4);
@@ -46,7 +40,8 @@ struct Game {
     Clock::time_point begin = Clock::now();
 
     Game(Json r, double mix)
-        : record(std::move(r)), fight{start(record.at("start")), record.at("start").at("seed").get<std::uint64_t>()},
+        : record(std::move(r)),
+          fight{stsrl::combat_v4::start_battle(record.at("start")), record.at("start").at("seed").get<std::uint64_t>()},
           rollout_mix{mix} {}
 
     // Play on until the search needs the network (its query) or the game is over (nullptr).
@@ -124,7 +119,7 @@ void import(std::ofstream& samples) {
         const auto& fight = record.at("fight");
         std::map<int, const Json*> searched;
         for (const auto& row : record.at("search")) searched[row.at("step").get<int>()] = &row;
-        auto state = start(fight.at("start"));
+        auto state = stsrl::combat_v4::start_battle(fight.at("start"));
         const float won = fight.at("won").get<bool>();
         int step = 0;
         for (const auto& bits : fight.at("actions")) {
@@ -172,7 +167,7 @@ int main(int argc, char** argv) try {
         while (std::getline(std::cin, line)) {
             if (line.empty()) continue;
             const auto fight = Json::parse(line);
-            const auto state = start(fight.at("start"));
+            const auto state = stsrl::combat_v4::start_battle(fight.at("start"));
             const auto tokens = encode(state, stsrl::combat::legal_actions(state));
             std::cout << Json{{"fight_id", fight.at("fight_id")}, {"tokens", tokens.count},
                               {"actions", tokens.actions}}.dump() << std::endl;

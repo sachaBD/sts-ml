@@ -116,10 +116,14 @@ sts::GameContext start_game(const Start& s) {
     return gc;
 }
 
-sts::BattleContext replay(const Json& start, const std::vector<std::uint32_t>& actions) {
-    const auto gc = start_game(start);
+sts::BattleContext start_battle(const Json& start) {
     sts::BattleContext bc;
-    bc.init(gc);
+    bc.init(start_game(start));
+    return bc;
+}
+
+sts::BattleContext replay(const Json& start, const std::vector<std::uint32_t>& actions) {
+    auto bc = start_battle(start);
     for (std::size_t i = 0; i < actions.size(); ++i) {
         if (bc.outcome != sts::Outcome::UNDECIDED)
             throw std::runtime_error{"combat_v4 replay: fight ended before action " + std::to_string(i)};

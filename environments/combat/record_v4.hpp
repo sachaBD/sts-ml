@@ -3,6 +3,7 @@
 //   start_json(gc)            the pre-battle GameContext fields BattleContext::init reads (call it right before
 //                             battle.init(gc)); Ironclad only, throws otherwise.
 //   start_game(start)         a GameContext with those fields, ready for BattleContext::init.
+//   start_battle(start)       the battle at its start, before any action.
 //   replay(start, actions)    init + Action(bits).execute for every action; the finished battle.
 //                             Throws if an action is not valid or the fight does not end exactly after the last.
 #pragma once
@@ -38,6 +39,7 @@ nlohmann::json start_json(const sts::GameContext& gc);
 Start start_from_json(const nlohmann::json& start);
 sts::GameContext start_game(const Start& start);
 sts::GameContext start_game(const nlohmann::json& start);
+sts::BattleContext start_battle(const nlohmann::json& start);
 sts::BattleContext replay(const nlohmann::json& start, const std::vector<std::uint32_t>& actions);
 
 }  // namespace stsrl::combat_v4
