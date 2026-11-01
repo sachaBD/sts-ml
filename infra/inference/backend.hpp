@@ -32,7 +32,7 @@ public:
     virtual int max_batch() const = 0;  // most inputs per evaluate()
     // Called concurrently by Actors on their own tokens, so must not touch shared state.
     virtual void prepare(const Tokens&, std::vector<std::uint16_t>& packed) const { packed.clear(); }
-    // Called by ONE thread (the InferenceServer).
+    virtual int lanes() const { return 1; }  // maximum concurrent evaluate() calls
     virtual std::vector<Prediction> evaluate(std::span<const Input>) = 0;
 };
 

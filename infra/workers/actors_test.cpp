@@ -91,14 +91,17 @@ class FakeBackend final : public Backend {
 public:
     using Evaluate = std::function<std::vector<Prediction>(std::span<const Input>)>;
     using Prepare = std::function<void(const Tokens&, std::vector<std::uint16_t>&)>;
-    explicit FakeBackend(Evaluate evaluate = echo, Prepare prepare = {}) : evaluate_{std::move(evaluate)}, prepare_{std::move(prepare)} {}
+    explicit FakeBackend(Evaluate evaluate = echo, Prepare prepare = {}, int lanes = 1)
+        : evaluate_{std::move(evaluate)}, prepare_{std::move(prepare)}, lanes_{lanes} {}
     int width() const override { return token_width; }
     int max_batch() const override { return 64; }
+    int lanes() const override { return lanes_; }
     void prepare(const Tokens& t, std::vector<std::uint16_t>& packed) const override { if (prepare_) prepare_(t, packed); else packed.clear(); }
     std::vector<Prediction> evaluate(std::span<const Input> inputs) override { return evaluate_(inputs); }
 private:
     Evaluate evaluate_;
     Prepare prepare_;
+    int lanes_;
 };
 
 ActorConfig small(int slots = 3, int batch = 7) {
@@ -121,12 +124,12 @@ void expect_error(const ActorConfig& config, Log& log, NextEpisode next, FakeBac
 
 // --- Correctness -------------------------------------------------------------------------------------------
 
-class CompletesAllWork : public testing::TestWithParam<std::tuple<int, int>> {};  // (slots, batch)
+class CompletesAllWork : public testing::TestWithParam<std::tuple<int, int, int>> {};  // (slots, batch, lanes)
 
 TEST_P(CompletesAllWork, EveryRequestAnsweredOnceAndCapacityRespected) {
-    const auto [slots, batch] = GetParam();
+    const auto [slots, batch, lanes] = GetParam();
     Log log;
-    FakeBackend backend;
+    FakeBackend backend{echo, {}, lanes};
     run_actors(small(slots, batch), episodes(log, 100), backend);
     EXPECT_EQ(log.finished, 100);
     EXPECT_EQ(log.evaluated, total_steps(100));
@@ -134,9 +137,26 @@ TEST_P(CompletesAllWork, EveryRequestAnsweredOnceAndCapacityRespected) {
     EXPECT_LE(log.most_alive, 4 * slots);
     EXPECT_LE(log.most_alive_per_thread, slots);
 }
-// Slots fewer/more than a batch; slots are reused as episodes finish.
+// Slots fewer/more than a batch; slots are reused as episodes finish; one or two server lanes.
 INSTANTIATE_TEST_SUITE_P(SlotsAndBatches, CompletesAllWork,
-                         testing::Combine(testing::Values(1, 2, 3), testing::Values(2, 17)));
+                         testing::Combine(testing::Values(1, 2, 3), testing::Values(2, 17), testing::Values(1, 2)));
+
+TEST(Actors, LanesEvaluateConcurrentlyUpToTheirCount) {
+    for (int lanes : {1, 2, 3}) {
+        Log log;
+        std::atomic<int> running{0}, most{0};
+        FakeBackend backend{[&](std::span<const Input> inputs) {
+            const int now = ++running;
+            for (int seen = most; seen < now && !most.compare_exchange_weak(seen, now);) {}
+            std::this_thread::sleep_for(1ms);  // long enough for another lane to gather a batch
+            --running;
+            return echo(inputs);
+        }, {}, lanes};
+        run_actors(small(3, 2), episodes(log, 100, three_steps), backend);
+        EXPECT_EQ(log.finished, 100);
+        EXPECT_EQ(most, lanes) << "lanes must overlap, and never exceed the backend's count";
+    }
+}
 
 TEST(Actors, PrepareRunsOnOwnerAndPackedInputStaysStable) {
     Log log;
@@ -177,6 +197,23 @@ TEST(ActorFailures, BackendThrows) {
         throw std::runtime_error{"backend failure"};
     }}, "backend failure");
     EXPECT_EQ(log.finished, 0);
+}
+
+TEST(ActorFailures, OneLaneFailsWhileAnotherStillOwnsInputs) {
+    Log log;
+    std::atomic<int> calls{0};
+    std::atomic<bool> failed{false};
+    FakeBackend backend{[&](auto inputs) {
+        if (calls++ != 0) {
+            failed = true;
+            throw std::runtime_error{"lane failed"};
+        }
+        while (!failed) std::this_thread::sleep_for(1ms);
+        std::this_thread::sleep_for(10ms);  // cancellation must not destroy the first lane's borrowed tokens
+        require(log.alive > 0, "episodes freed before both lanes returned");
+        return echo(inputs);
+    }, {}, 2};
+    expect_error(small(3, 2), log, episodes(log, 40, three_steps), std::move(backend), "lane failed");
 }
 
 TEST(ActorFailures, WrongPredictionCount) {
@@ -237,6 +274,7 @@ TEST(ActorFailures, InvalidConfig) {
     Log log;
     expect_error(small(0), log, episodes(log, 1), FakeBackend{}, "invalid actor configuration");
     expect_error(small(3, 65), log, episodes(log, 1), FakeBackend{}, "invalid actor configuration");  // > max_batch
+    expect_error(small(), log, episodes(log, 1), FakeBackend{echo, {}, 0}, "invalid actor configuration");  // no lanes
 }
 
 // A backend call that never returns cannot be interrupted: the process must exit rather than hang.
