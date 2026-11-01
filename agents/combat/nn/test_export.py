@@ -1,116 +1,210 @@
-"""Export parity, safe capacity limits and preservation of the training model."""
+"""Component tests of deployed predictions, not ONNX internals or tracing calls."""
+import os
 from pathlib import Path
 import tempfile
-import os
 import unittest
-from unittest.mock import patch
 
-import numpy as np
 import onnxruntime as ort
 import torch
 
-from .export import ExportSpec, ModelExporter, deployment_view
-from .model import ModelSpec, build_model
-from .test_model import tokens
+from ._test_support import combat_tokens, small_spec, train_once
+from .export import ExportSpec, ModelExporter
+from .learner import Learner
+from .tokens import TokenKind, WIDTH
 
 
-def session(path):
+def onnx_predictions(path, tokens):
     options = ort.SessionOptions()
     options.intra_op_num_threads = 1
-    return ort.InferenceSession(str(path), options, providers=['CPUExecutionProvider'])
+    session = ort.InferenceSession(str(path), options, providers=['CPUExecutionProvider'])
+    values, logits = session.run(None, {'tokens': tokens.numpy()})
+    return torch.from_numpy(values), torch.from_numpy(logits)
 
 
-class ExportTests(unittest.TestCase):
+def model_predictions(model, tokens):
+    with torch.no_grad():
+        values, logits = model(tokens)
+    return values.cpu(), logits.cpu()
+
+
+class ExportContract:
     def setUp(self):
         torch.set_num_threads(1)
-        torch.manual_seed(0)
+        self.learner = Learner(small_spec(self.kind), lr=1e-3, device='cpu')
+        self.model = self.learner.net.eval()
+        self.tokens = combat_tokens()
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.directory = Path(temporary.name)
+        self.exporter = ModelExporter(self.model.spec, ExportSpec(tokens=10), reuse=True)
 
-    def test_exports_follow_weights_and_match_full_model_for_both_topologies(self):
-        for kind in ('transformer', 'entity'):
-            with self.subTest(kind=kind), tempfile.TemporaryDirectory() as tmp:
-                net = build_model(ModelSpec(kind, 16, 1, 2)).train()
-                deployment = ExportSpec(16, attended=6 if kind == 'entity' else None)
-                exporter = ModelExporter(net.spec, deployment, reuse=True)
-                for snapshot in range(3):
-                    out = Path(tmp) / str(snapshot)
-                    out.mkdir()
-                    before = {k: v.clone() for k, v in net.state_dict().items()}
-                    exporter.export(net, out, 2, (1,))
-                    self.assertTrue(net.training)
-                    self.assertEqual(next(net.parameters()).device.type, 'cpu')
-                    for name, weight in net.state_dict().items():
-                        torch.testing.assert_close(weight, before[name], rtol=0, atol=0)
-                    net.eval()
-                    x = tokens()
-                    for filename, count, dtype in [('model.onnx', 2, np.float32),
-                                                   ('model-gpu.onnx', 2, np.float16),
-                                                   ('model-gpu-b1.onnx', 1, np.float16)]:
-                        actual_input = x[:count].numpy().astype(dtype)
-                        expected = net(torch.from_numpy(actual_input).float())
-                        actual = session(out / filename).run(None, {'tokens': actual_input})
-                        for a, e in zip(actual, expected):
-                            np.testing.assert_allclose(a, e.detach().numpy(), rtol=2e-4, atol=2e-5)
-                    # The CPU model must remain dynamic in both axes.
-                    short = x[:1, :10]
-                    actual = session(out / 'model.onnx').run(None, {'tokens': short.numpy()})
-                    for a, e in zip(actual, net(short)):
-                        np.testing.assert_allclose(a, e.detach().numpy(), rtol=2e-4, atol=2e-5)
-                    with torch.no_grad():
-                        for parameter in net.parameters():
-                            parameter.add_(0.02 * torch.randn_like(parameter))
-                    net.train()
+    def export_models(self, directory=None):
+        self.exporter.export(self.model, directory or self.directory, batch=2, bank=(1,))
 
-    def test_capacity_overflow_is_explicit_and_full_model_remains_valid(self):
-        net = build_model(ModelSpec('entity', 16, 1, 2)).eval()
-        x = tokens()
-        full = net(x)
-        bounded = deployment_view(net, ExportSpec(16, attended=6))
-        torch.testing.assert_close(full, bounded(x))
-        overflow = deployment_view(net, ExportSpec(16, attended=5))
-        self.assertTrue(torch.isnan(overflow(x)[0]).all())
-        self.assertTrue(torch.isfinite(net(x)[0]).all())
-        with tempfile.TemporaryDirectory() as tmp:
-            ModelExporter(net.spec, ExportSpec(16, attended=5)).export(net, Path(tmp), 2, ())
-            gpu = session(Path(tmp) / 'model-gpu.onnx').run(None, {'tokens': x.numpy().astype(np.float16)})
-            cpu = session(Path(tmp) / 'model.onnx').run(None, {'tokens': x.numpy()})
-            self.assertTrue(np.isnan(gpu[0]).all())
-            self.assertTrue(np.isfinite(cpu[0]).all())
+    def test_cpu_export_matches_the_model(self):
+        self.export_models()
 
-    def test_failed_export_cannot_mutate_training_model(self):
-        net = build_model(ModelSpec('entity', 16, 1, 2)).train()
-        x = tokens()
-        before = net(x)
-        with tempfile.TemporaryDirectory() as tmp, patch('torch.onnx.export', side_effect=RuntimeError('failed')):
-            with self.assertRaisesRegex(RuntimeError, 'failed'):
-                ModelExporter(net.spec, ExportSpec(16)).export(net, Path(tmp), 2, ())
-        self.assertTrue(net.training)
-        torch.testing.assert_close(before, net(x), rtol=0, atol=0)
+        actual = onnx_predictions(self.directory / 'model.onnx', self.tokens)
+        expected = model_predictions(self.model, self.tokens)
+
+        torch.testing.assert_close(actual, expected, rtol=2e-4, atol=2e-5)
+
+    def test_cpu_export_accepts_a_different_batch_and_sequence_length(self):
+        self.export_models()
+        padding = torch.zeros(1, 4, WIDTH)
+        different_shape = torch.cat([self.tokens[:1], padding], dim=1)
+
+        actual = onnx_predictions(self.directory / 'model.onnx', different_shape)
+        expected = model_predictions(self.model, different_shape)
+
+        torch.testing.assert_close(actual, expected, rtol=2e-4, atol=2e-5)
+
+    def test_fixed_export_matches_the_model_on_half_precision_inputs(self):
+        self.export_models()
+        inputs = self.tokens.half()
+
+        actual = onnx_predictions(self.directory / 'model-gpu.onnx', inputs)
+        expected = model_predictions(self.model, inputs.float())
+
+        torch.testing.assert_close(actual, expected, rtol=2e-4, atol=2e-5)
+
+    def test_smaller_bank_model_matches_the_same_weights(self):
+        self.export_models()
+        inputs = self.tokens[:1].half()
+
+        actual = onnx_predictions(self.directory / 'model-gpu-b1.onnx', inputs)
+        expected = model_predictions(self.model, inputs.float())
+
+        torch.testing.assert_close(actual, expected, rtol=2e-4, atol=2e-5)
+
+    def export_after_training_updates(self):
+        for update in range(3):
+            train_once(self.learner, self.tokens)
+            directory = self.directory / f'update-{update}'
+            directory.mkdir()
+            self.export_models(directory)
+        self.model.eval()
+        return directory
+
+    def test_repeated_cpu_exports_follow_training_updates(self):
+        directory = self.export_after_training_updates()
+
+        actual = onnx_predictions(directory / 'model.onnx', self.tokens)
+        expected = model_predictions(self.model, self.tokens)
+
+        torch.testing.assert_close(actual, expected, rtol=2e-4, atol=2e-5)
+
+    def test_repeated_fixed_exports_follow_training_updates(self):
+        directory = self.export_after_training_updates()
+        inputs = self.tokens.half()
+
+        actual = onnx_predictions(directory / 'model-gpu.onnx', inputs)
+        expected = model_predictions(self.model, inputs.float())
+
+        torch.testing.assert_close(actual, expected, rtol=2e-4, atol=2e-5)
+
+    def test_repeated_bank_exports_follow_training_updates(self):
+        directory = self.export_after_training_updates()
+        inputs = self.tokens[:1].half()
+
+        actual = onnx_predictions(directory / 'model-gpu-b1.onnx', inputs)
+        expected = model_predictions(self.model, inputs.float())
+
+        torch.testing.assert_close(actual, expected, rtol=2e-4, atol=2e-5)
+
+    def test_export_leaves_the_training_model_usable(self):
+        expected = model_predictions(self.model, self.tokens)
+        self.model.train()
+
+        self.export_models()
+
+        self.assertTrue(self.model.training)
+        actual = model_predictions(self.model.eval(), self.tokens)
+        torch.testing.assert_close(actual, expected, rtol=0, atol=0)
+
+    def test_failed_export_leaves_the_training_model_usable(self):
+        expected = model_predictions(self.model, self.tokens)
+        self.model.train()
+        blocked = self.directory / 'not-a-directory'
+        blocked.write_text('a file cannot contain exported models')
+
+        with self.assertRaises(OSError):
+            self.export_models(blocked)
+
+        self.assertTrue(self.model.training)
+        actual = model_predictions(self.model.eval(), self.tokens)
+        torch.testing.assert_close(actual, expected, rtol=0, atol=0)
 
     @unittest.skipUnless(os.environ.get('NN_TEST_CUDA_EXPORT'), 'explicit CUDA export check required')
-    def test_mixed_precision_export_preserves_live_cuda_model_and_predictions(self):
-        for kind in ('transformer', 'entity'):
-            with self.subTest(kind=kind), tempfile.TemporaryDirectory() as tmp:
-                net = build_model(ModelSpec(kind, 16, 1, 2)).cuda().train()
-                x = tokens().cuda()
-                before = {k: v.clone() for k, v in net.state_dict().items()}
-                spec = ExportSpec(16, attended=6 if kind == 'entity' else None, mixed_precision=True)
-                ModelExporter(net.spec, spec, reuse=True).export(net, Path(tmp), 2, ())
-                self.assertTrue(net.training)
-                self.assertTrue(next(net.parameters()).is_cuda)
-                for name, weight in net.state_dict().items():
-                    torch.testing.assert_close(weight, before[name], rtol=0, atol=0)
-                with torch.autocast('cuda', torch.float16):
-                    expected = net(x.half().float())
-                actual = session(Path(tmp) / 'model-gpu.onnx').run(None, {'tokens': x.cpu().numpy().astype(np.float16)})
-                for a, e in zip(actual, expected):
-                    np.testing.assert_allclose(a, e.detach().float().cpu().numpy(), rtol=3e-3, atol=2e-3)
+    def test_cuda_mixed_precision_export_matches_full_precision_predictions(self):
+        self.model.cuda()
+        exporter = ModelExporter(self.model.spec, ExportSpec(tokens=10, mixed_precision=True))
 
-    def test_invalid_deployment_is_rejected_before_export(self):
-        for kind, spec in [('transformer', ExportSpec(16, attended=5)),
-                           ('entity', ExportSpec(16, attended=0)),
-                           ('entity', ExportSpec(16, attended=17)), ('entity', ExportSpec(0))]:
-            with self.subTest(kind=kind, spec=spec), self.assertRaises(ValueError):
-                ModelExporter(ModelSpec(kind, 16, 1, 2), spec)
+        exporter.export(self.model, self.directory, batch=2, bank=())
+        actual = onnx_predictions(self.directory / 'model-gpu.onnx', self.tokens.half())
+        expected = model_predictions(self.model, self.tokens.half().float().cuda())
+
+        torch.testing.assert_close(actual, expected, rtol=3e-3, atol=2e-3)
+
+    @unittest.skipUnless(os.environ.get('NN_TEST_CUDA_EXPORT'), 'explicit CUDA export check required')
+    def test_cuda_export_leaves_the_training_model_usable(self):
+        self.model.cuda()
+        inputs = self.tokens.cuda()
+        expected = model_predictions(self.model, inputs)
+        self.model.train()
+        exporter = ModelExporter(self.model.spec, ExportSpec(tokens=10, mixed_precision=True))
+
+        exporter.export(self.model, self.directory, batch=2, bank=())
+
+        self.assertTrue(self.model.training)
+        actual = model_predictions(self.model.eval(), inputs)
+        torch.testing.assert_close(actual, expected, rtol=0, atol=0)
+
+
+class TransformerExportTests(ExportContract, unittest.TestCase):
+    kind = 'transformer'
+
+
+class PooledTransformerExportTests(ExportContract, unittest.TestCase):
+    kind = 'entity'
+
+
+class PooledCapacityTests(unittest.TestCase):
+    def setUp(self):
+        torch.set_num_threads(1)
+        self.model = Learner(small_spec('entity'), lr=1e-3, device='cpu').net.eval()
+        self.tokens = torch.zeros(1, 8, WIDTH)
+        self.tokens[:, 0, 0] = TokenKind.CONTEXT
+        self.tokens[:, 1:4, 0] = TokenKind.ACTION  # four retained tokens: context + three actions
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.directory = Path(temporary.name)
+
+    def test_bounded_export_matches_full_model_when_all_actions_fit(self):
+        exporter = ModelExporter(self.model.spec, ExportSpec(tokens=8, attended=4))
+
+        exporter.export(self.model, self.directory, batch=1, bank=())
+        actual = onnx_predictions(self.directory / 'model-gpu.onnx', self.tokens.half())
+        expected = model_predictions(self.model, self.tokens)
+
+        torch.testing.assert_close(actual, expected, rtol=2e-4, atol=2e-5)
+
+    def test_overflow_is_rejected_instead_of_silently_dropping_actions(self):
+        exporter = ModelExporter(self.model.spec, ExportSpec(tokens=8, attended=3))
+
+        exporter.export(self.model, self.directory, batch=1, bank=())
+        values, _ = onnx_predictions(self.directory / 'model-gpu.onnx', self.tokens.half())
+
+        self.assertTrue(torch.isnan(values).all())
+
+    def test_gpu_capacity_does_not_limit_the_cpu_fallback(self):
+        exporter = ModelExporter(self.model.spec, ExportSpec(tokens=8, attended=3))
+
+        exporter.export(self.model, self.directory, batch=1, bank=())
+        actual = onnx_predictions(self.directory / 'model.onnx', self.tokens)
+        expected = model_predictions(self.model, self.tokens)
+
+        torch.testing.assert_close(actual, expected, rtol=2e-4, atol=2e-5)
 
 
 if __name__ == '__main__':

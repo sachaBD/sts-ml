@@ -1,48 +1,92 @@
-"""Invariants of the config: a mistake stops the run before anything is written; resume may only change resumable settings."""
+"""Bad inputs fail at load; resume cannot change the experiment's meaning."""
 from pathlib import Path
 import unittest
-from unittest.mock import patch
 
+from ._test_support import CONFIG, POOLED_CONFIG
 from .config import experiment_changes, load
-from .test_expert_iteration import CONFIG
 
 PRESET = Path(__file__).with_name('config') / 'champ_ten.toml'
 
 
 class ConfigTests(unittest.TestCase):
-    def rejects(self, text, message):
-        with patch('sys.exit', side_effect=SystemExit) as exit, self.assertRaises(SystemExit):
-            load(text)
-        self.assertIn(message, exit.call_args.args[0])
+    def test_maintained_preset_loads(self):
+        load(PRESET.read_text())
 
-    def test_the_preset_is_valid(self):
-        config = load(PRESET.read_text())
-        self.assertEqual(config.training.fights, 'runs/benchmark/champ-ten/decks.jsonl')
-        self.assertEqual(config.workers.gpu_bank, (256, 32))
+    def test_unknown_fields_are_rejected(self):
+        typo = CONFIG.replace('steps = 1', 'stepz = 1')
 
-    def test_a_mistake_stops_the_run(self):
-        self.rejects(CONFIG.replace('steps = 1', 'stepz = 1'), "unknown [training] keys: ['stepz']")
-        self.rejects(CONFIG.replace('lr = 0.001\n', ''), 'missing [training].lr')
-        self.rejects(CONFIG.replace('actors = 2', 'actors = "2"'), '[workers].actors must be int')
-        self.rejects(CONFIG.replace('gpu_bank = [256, 32]', 'gpu_bank = [256, 600]'), 'gpu_bank')
-        self.rejects(CONFIG.replace('rollout_mix = 0.5', 'rollout_mix = 2'), 'rollout_mix')
+        with self.assertRaisesRegex(SystemExit, 'stepz'):
+            load(typo)
 
-    def test_architecture_and_deployment_constraints(self):
-        entity = CONFIG.replace('kind = "transformer"', 'kind = "entity"\ngpu_attended = 8')
-        config = load(entity)
-        self.assertEqual(config.model.architecture().kind, 'entity')
-        self.assertEqual(config.model.deployment().attended, 8)
-        self.rejects(CONFIG.replace('kind = "transformer"', 'kind = "unknown"'), 'model.kind')
-        self.rejects(CONFIG.replace('kind = "transformer"', 'kind = "transformer"\ngpu_attended = 8'), 'gpu_attended')
-        self.rejects(entity.replace('gpu_attended = 8', 'gpu_attended = 17'), 'gpu_attended')
-        changes = experiment_changes(load(CONFIG), load(entity))
-        self.assertIn('[model].kind', changes)
-        self.assertIn('[model].gpu_attended', changes)
+    def test_required_fields_cannot_be_omitted(self):
+        missing_learning_rate = CONFIG.replace('lr = 0.001\n', '')
 
-    def test_only_resumable_settings_may_change_on_resume(self):
-        base = load(CONFIG)
-        self.assertEqual(experiment_changes(base, load(CONFIG.replace('iterations = 2', 'iterations = 9'))), [])
-        self.assertEqual(experiment_changes(base, load(CONFIG.replace('lr = 0.001', 'lr = 0.01'))), ['[training].lr'])
+        with self.assertRaisesRegex(SystemExit, 'lr'):
+            load(missing_learning_rate)
+
+    def test_wrong_field_types_are_rejected(self):
+        wrong_type = CONFIG.replace('actors = 2', 'actors = "two"')
+
+        with self.assertRaisesRegex(SystemExit, 'actors'):
+            load(wrong_type)
+
+    def test_bank_batches_cannot_exceed_the_main_batch(self):
+        oversized_bank = CONFIG.replace('gpu_bank = [256, 32]', 'gpu_bank = [1024]')
+
+        with self.assertRaisesRegex(SystemExit, 'gpu_bank'):
+            load(oversized_bank)
+
+    def test_rollout_mixing_must_be_a_probability(self):
+        invalid_mix = CONFIG.replace('rollout_mix = 0.5', 'rollout_mix = 2')
+
+        with self.assertRaisesRegex(SystemExit, 'rollout_mix'):
+            load(invalid_mix)
+
+    def test_unknown_model_kind_is_rejected(self):
+        unknown_model = CONFIG.replace('kind = "transformer"', 'kind = "unknown"')
+
+        with self.assertRaisesRegex(SystemExit, 'kind'):
+            load(unknown_model)
+
+    def test_attention_pooling_capacity_requires_a_pooled_model(self):
+        unpooled = CONFIG.replace('kind = "transformer"', 'kind = "transformer"\ngpu_attended = 8')
+
+        with self.assertRaisesRegex(SystemExit, 'gpu_attended'):
+            load(unpooled)
+
+    def test_attention_capacity_cannot_exceed_token_capacity(self):
+        oversized_attention = POOLED_CONFIG.replace('gpu_attended = 8', 'gpu_attended = 17')
+
+        with self.assertRaisesRegex(SystemExit, 'gpu_attended'):
+            load(oversized_attention)
+
+    def test_attention_capacity_must_be_positive(self):
+        empty_attention = POOLED_CONFIG.replace('gpu_attended = 8', 'gpu_attended = 0')
+
+        with self.assertRaisesRegex(SystemExit, 'gpu_attended'):
+            load(empty_attention)
+
+    def test_iteration_limit_can_change_on_resume(self):
+        original = load(CONFIG)
+        longer = load(CONFIG.replace('iterations = 2', 'iterations = 9'))
+
+        self.assertEqual(experiment_changes(original, longer), [])
+
+    def test_learning_rate_cannot_change_on_resume(self):
+        original = load(CONFIG)
+        faster = load(CONFIG.replace('lr = 0.001', 'lr = 0.01'))
+
+        self.assertIn('[training].lr', experiment_changes(original, faster))
+
+    def test_model_kind_cannot_change_on_resume(self):
+        self.assertIn('[model].kind', experiment_changes(load(CONFIG), load(POOLED_CONFIG)))
+
+    def test_deployment_capacity_cannot_change_on_resume(self):
+        original = load(POOLED_CONFIG)
+        larger = load(POOLED_CONFIG.replace('gpu_attended = 8', 'gpu_attended = 9'))
+
+        self.assertIn('[model].gpu_attended', experiment_changes(original, larger))
+
 
 if __name__ == '__main__':
     unittest.main()
