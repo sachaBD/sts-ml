@@ -1,5 +1,5 @@
 .DEFAULT_GOAL := help
-.PHONY: help env env-onnx env-jax env-all build test clean infra-benchmark
+.PHONY: help env env-onnx env-jax env-all build test clean clean-data infra-benchmark
 
 BUILD_DIR := build/main
 
@@ -44,3 +44,9 @@ infra-benchmark: ## Component benchmarks for infra/ (about 20 s)
 
 clean: ## Remove build/main
 	cmake -E remove_directory $(BUILD_DIR)
+
+# Do not inherit infra-benchmark's default RUN: cleanup requires an explicit target.
+clean-data: RUN :=
+clean-data: ## Preview Gumbel run cleanup: RUN=path; ARGS="--apply --drop-replay" to discard replay
+	@test -n "$(RUN)" || { echo 'Usage: make clean-data RUN=path [ARGS="--apply --drop-replay"]'; exit 2; }
+	@.venv/bin/python -m apps.gumbel_nn_combat_expert_iteration.cleanup "$(RUN)" $(ARGS)
