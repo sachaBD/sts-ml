@@ -1,7 +1,7 @@
 // Combat episodes own simulator/search state; infra owns scheduling and inference.
+#include "agents/combat/nn/decision.hpp"
 #include "agents/combat/nn/tokens.hpp"
 #include "agents/combat/search/gumbel/gumbel.hpp"
-#include "agents/combat/search/rollout_blend/rollout_blend.hpp"
 #include "environments/combat/public.hpp"
 #include "infra/workers/actors.hpp"
 #include "environments/combat/record_v4.hpp"
@@ -38,48 +38,35 @@ void write(std::ofstream& out, const stsrl::infra::Tokens& t, const std::vector<
 }
 
 struct Game {
-    Json fight;
-    sts::BattleContext state;
-    std::mt19937_64 rng;
-    std::optional<stsrl::search::RolloutBlend> blend;
-    int steps = 0;
-    std::unique_ptr<stsrl::search::CombatSearch> search;
-    stsrl::infra::Tokens query;  // the search's pending query, encoded for the network
+    Json record;  // its fights-file line
+    Fight fight;
+    double rollout_mix;
+    std::optional<Decision> decision;
     std::vector<std::pair<stsrl::infra::Tokens, std::vector<float>>> decisions;  // (state, improved policy) per searched move
     Clock::time_point begin = Clock::now();
 
-    Game(Json f, double rollout_mix) : fight(std::move(f)), state{start(fight.at("start"))},
-                                       rng{fight.at("start").at("seed").get<std::uint64_t>()} {
-        if (rollout_mix > 0) blend.emplace(state, rollout_mix, rng());
-    }
-
-    bool over() const { return state.outcome != sts::Outcome::UNDECIDED || state.turn >= 50 || steps >= 512; }
+    Game(Json r, double mix)
+        : record(std::move(r)), fight{start(record.at("start")), record.at("start").at("seed").get<std::uint64_t>()},
+          rollout_mix{mix} {}
 
     // Play on until the search needs the network (its query) or the game is over (nullptr).
     const stsrl::infra::Tokens* advance(const stsrl::search::Gumbel::Settings& settings) {
         for (;;) {
-            if (search) {
-                if (const auto pending = search->pending()) {
-                    query = encode(pending->state, pending->actions);
-                    return &query;
-                }
-                auto r = search->result();
-                decisions.emplace_back(encode(state, r.actions), std::move(r.policy));
-                r.action.execute(state); ++steps;
-                search.reset();
+            if (decision) {
+                if (const auto query = decision->pending()) return query;
+                auto r = decision->result();
+                decisions.emplace_back(encode(fight.state(), r.actions), std::move(r.policy));
+                decision.reset();
+                fight.play(r.action);
             }
-            if (over()) return nullptr;
-            const auto actions = stsrl::combat::legal_actions(state);
-            if (actions.size() == 1) { actions[0].execute(state); ++steps; continue; }  // forced: nothing to learn
-            search = std::make_unique<stsrl::search::Gumbel>(state, settings, rng());
+            if (fight.over()) return nullptr;
+            auto random = fight.decision_random();
+            auto search = std::make_unique<stsrl::search::Gumbel>(fight.state(), settings, random());
+            decision.emplace(fight.state(), std::move(search), rollout_mix, random());
         }
     }
 
-    void evaluated(const stsrl::infra::Prediction& prediction) {
-        stsrl::search::Evaluation evaluation{prediction.value, prediction.logits};
-        if (blend) evaluation = (*blend)(*search->pending(), std::move(evaluation));
-        search->evaluated(evaluation);
-    }
+    void evaluated(const stsrl::infra::Prediction& prediction) { decision->evaluated(prediction); }
 };
 
 // Everything the worker threads share.
@@ -98,15 +85,16 @@ struct Shared {
     }
 
     void finish(const Game& g) {
-        const float won = g.state.outcome == sts::Outcome::PLAYER_VICTORY;
+        const auto& state = g.fight.state();
+        const float won = state.outcome == sts::Outcome::PLAYER_VICTORY;
         const double seconds = std::chrono::duration<double>(Clock::now() - g.begin).count();
         std::lock_guard lock{output};
         for (const auto& [tokens, policy] : g.decisions) write(samples, tokens, policy, won);
         samples.flush();
         const double finished = std::chrono::duration<double>(std::chrono::system_clock::now().time_since_epoch()).count();
-        std::cout << Json{{"fight_id", g.fight.at("fight_id")}, {"won", won > 0}, {"hp", g.state.player.curHp},
-                          {"decisions", g.decisions.size()}, {"seconds", seconds}, {"turns", g.state.turn},
-                          {"steps", g.steps}, {"capped", g.state.outcome == sts::Outcome::UNDECIDED},
+        std::cout << Json{{"fight_id", g.record.at("fight_id")}, {"won", won > 0}, {"hp", state.player.curHp},
+                          {"decisions", g.decisions.size()}, {"seconds", seconds}, {"turns", state.turn},
+                          {"steps", g.fight.steps()}, {"capped", state.outcome == sts::Outcome::UNDECIDED},
                           {"finished_unix", finished}}.dump() << std::endl;
         if (!samples || !std::cout) throw std::runtime_error{"failed to write game samples/results"};
         ++completed;
@@ -125,7 +113,7 @@ public:
     }
     void evaluated(const stsrl::infra::Prediction& prediction) override { game_->evaluated(prediction); }
     void finish() override { shared_.finish(*game_); }
-    std::string label() const override { return game_->fight.at("fight_id").get<std::string>(); }
+    std::string label() const override { return game_->record.at("fight_id").get<std::string>(); }
 };
 
 void import(std::ofstream& samples) {
