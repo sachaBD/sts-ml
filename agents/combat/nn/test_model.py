@@ -40,6 +40,14 @@ class ModelTests(unittest.TestCase):
                 torch.testing.assert_close(values, expected_values)
                 torch.testing.assert_close(logits[:, :tokens.shape[1]], expected_logits)
 
+    def test_entity_forward_matches_attention_over_every_position(self):
+        model = build_model(small_spec('entity')).eval()
+        tokens = combat_tokens()
+        tokens = torch.cat([tokens, torch.zeros(len(tokens), 5, WIDTH)], dim=1)
+
+        for actual, expected in zip(model(tokens), model.predict(tokens)):
+            torch.testing.assert_close(actual, expected)
+
     def test_invalid_architectures_are_rejected(self):
         for invalid in [dict(kind='unknown'), dict(dim=0), dict(layers=0), dict(heads=0), dict(dim=15)]:
             spec = dict(kind='transformer', dim=16, layers=1, heads=2) | invalid
