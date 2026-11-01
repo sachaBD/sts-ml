@@ -25,3 +25,7 @@ Inputs/provenance: `runs/benchmark/champ-25-inputs/` (including selection source
 Regenerate offline with `python -m experiments.2026-10-31-champ-25.prepare_inputs MAIN_CHECKOUT`.
 Cleanup reclaimed 9.43 GiB of old replay/samples/caches; manifest at
 `runs/benchmark/cleanup-20261031.json`. All old models/results/logs were retained.
+
+Qualification passed: 16 owner tests; exact warm-start weights; 50 real GPU fights
+across all 25 decks with no caps; two optimizer steps produced finite changed weights
+and all four ONNX exports. Qualification run: `champ25-qualification-20261031`.
