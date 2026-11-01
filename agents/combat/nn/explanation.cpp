@@ -49,6 +49,7 @@ Json explain(const Json& request, const Network& network) {
     settings.simulations = s.at("sims");
     settings.particles = s.at("particles");
     settings.gumbel_scale = s.at("gumbel_scale");
+    settings.rescale_values = s.value("rescale_values", true);
     const double mix = s.at("rollout_mix");
 
     auto random = fight.decision_random();

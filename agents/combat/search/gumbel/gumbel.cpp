@@ -55,7 +55,7 @@ std::vector<double> sigma(const Node& n, const Gumbel::Settings& s) {
     std::vector<double> q(n.keys.size());
     for (std::size_t i = 0; i < q.size(); ++i) q[i] = n.visits[i] ? n.value_sum[i] / n.visits[i] : mixed;
     const auto [lo, hi] = std::minmax_element(q.begin(), q.end());
-    const double low = *lo, range = std::max(*hi - low, 1e-8);
+    const double low = *lo, range = s.rescale_values ? std::max(*hi - low, 1e-8) : 1.0;
     for (auto& v : q) v = (s.maxvisit_init + most) * s.value_scale * (v - low) / range;
     return q;
 }

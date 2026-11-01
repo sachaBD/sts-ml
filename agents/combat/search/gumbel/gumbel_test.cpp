@@ -216,3 +216,31 @@ TEST(Gumbel, HalvingRoundsAllocateEqually) {
         }
     }
 }
+
+TEST(Gumbel, UnrescaledValuesScaleSigmaWithoutMinMaxStretching) {
+    const auto root = jaw_worm();
+    const auto actions = legal_actions(root);
+    ASSERT_GE(actions.size(), 2u);
+    auto s = settings(0);
+    s.simulations = 4;
+    s.considered_actions = 2;
+    s.rescale_values = false;
+    Gumbel search{root, s, 1};
+    int queries = 0;
+    run(search, [&](const Query& q) {
+        ++queries;
+        if (queries == 1) {
+            std::vector<float> logits(q.actions.size(), -10.f);
+            logits[0] = 2.0f;
+            logits[1] = 0.0f;
+            return Evaluation{0.5f, logits};
+        }
+        return Evaluation{queries % 2 ? 0.52f : 0.50f, std::vector<float>(q.actions.size(), 0.f)};
+    });
+    const auto tree = search.tree();
+    const auto& edges = tree.nodes[0].edges;
+    const double q0 = edges[0].value_sum / edges[0].visits;
+    const double q1 = edges[1].value_sum / edges[1].visits;
+    const double scale = (s.maxvisit_init + 2) * s.value_scale;
+    EXPECT_NEAR(edges[1].sigma - edges[0].sigma, scale * (q1 - q0), 1e-6);
+}
