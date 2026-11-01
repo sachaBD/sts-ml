@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Gumbel tree viewer</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Kreon:wght@400;600&display=swap">
+<link rel="stylesheet" href="../assets/style.css">
+<link rel="stylesheet" href="../assets/gui.css">
+<link rel="stylesheet" href="tree.css">
+</head>
+<body>
+<div class="page gumbel">
+  <div class="masthead">
+    <nav class="site-nav" aria-label="Site"><a href="../">STS model reports</a><span aria-current="page">Gumbel tree viewer</span></nav>
+    <h1>Gumbel tree viewer</h1>
+    <p>Step through a fight decision by decision and see the NN agent's whole Gumbel search: the root's sequential
+      halving, the tree, and each node's network value and rollout. Frozen checkpoint · all inference and search run in your browser. First use downloads the model and WASM runtime.</p>
+  </div>
+
+  <div class="controls">
+    <label for="run">Run</label><select id="run" class="wide"></select>
+    <label for="iteration">Checkpoint</label><select id="iteration"></select>
+    <label for="fight">Fight</label><select id="fight" class="wide"></select>
+  </div>
+  <div class="controls">
+    <label for="sims">sims</label><input id="sims" type="number" min="0">
+    <label for="particles">particles</label><input id="particles" type="number" min="1">
+    <label for="noise">noise</label><input id="noise" type="number" min="0" step="0.1">
+    <label for="mix">rollout mix</label><input id="mix" type="number" min="0" max="1" step="0.1">
+    <label for="rescale"><input id="rescale" type="checkbox"> rescale Q</label>
+    <button id="explain">One-off search</button>
+    <button id="playFight">Play fight</button>
+    <span class="hint" id="status"></span>
+  </div>
+
+  <section>
+    <div class="steps"><button id="prev" title="previous decision (←)">◀</button>
+      <button id="next" title="next decision, or play the agent's move (→)">▶</button>
+      <span class="hint">● agent's move · ✎ your move · click a decision to view it</span></div>
+    <div class="timeline" id="timeline"></div>
+  </section>
+
+  <section class="top">
+    <div class="board" id="board"></div>
+    <div id="decision">
+      <p class="deck-head">Root: sequential halving <span class="hint">g Gumbel noise · σ scaled Q · π′ improved policy ·
+        round reached · Q = value sum / visits</span></p>
+      <table class="tbl" id="root"></table>
+    </div>
+  </section>
+
+  <div class="lower">
+  <section id="treeSection">
+    <p class="deck-head">Tree <span class="hint">N visits · V node value (blended) · net network value · roll rollout won
+      (1) or lost (0) · ◇ chance outcome · click a node to inspect it</span></p>
+    <div class="tree" id="tree"></div>
+  </section>
+
+  <section class="inspector" id="inspector" hidden></section>
+  </div>
+</div>
+<script>window.GUMBEL_BROWSER = true;</script>
+<script type="module" src="app.js"></script>
+</body>
+</html>
