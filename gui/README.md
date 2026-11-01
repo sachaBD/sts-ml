@@ -24,37 +24,18 @@ The standalone `champ_server.py` remains available on port 8733, but is not need
 The Gumbel tree viewer (`/gumbel-tree/`) and its API (`/api/gumbel/`) need `nn_explain` (default `build/main`, else `--nn-explain PATH`) and
 list runs under this checkout's `runs/`; add others with `--runs DIR`.
 
-## Publish (GitHub Pages)
+## GitHub Pages
 
-```
-.venv/bin/python gui/export.py            # build gui/site/ (static, ~6 MB)
-node gui/verify_js.js                     # Fight Outcome JS model vs Python ensemble, expect max |dp_win| ~1e-7
-node gui/verify_run_value_js.js           # Run Value JS model vs logged Python evaluation
-rm -rf /tmp/pages && cp -r gui/site /tmp/pages && cd /tmp/pages && git init -b gh-pages && git add -A \
-  && git commit -m site && git push -f git@github.com:sachaBD/sts-ml.git gh-pages
-```
-
-Pages serves the `gh-pages` branch of sachaBD/sts-ml. The live site only changes when you republish.
-
-## Frozen Gumbel viewer
-
-From the repository root, with Emscripten activated:
+With Emscripten activated and the ONNX Python environment available:
 
 ```sh
-emcmake cmake -S gui/wasm -B build/gumbel-wasm -DCMAKE_BUILD_TYPE=Release \
-  -DSTS_LIGHTSPEED_DIR=/path/to/lightspeed
-cmake --build build/gumbel-wasm --target gumbel -j4
-npm install --prefix build/web-deps --ignore-scripts --no-audit --no-fund --save-exact onnxruntime-web@1.23.2
-
-RUN=/path/to/chosen-run
-.venv/bin/python gui/export_gumbel.py --checkpoint "$RUN/out/training/iterNNN" \
-  --fights "$RUN/out/inputs/test.jsonl"
-python3 -m http.server 8734 --directory build/gumbel-site
-# http://127.0.0.1:8734/gumbel-tree/
+make pages-preview CHECKPOINT=/path/to/run/out/training/iter135
+# Open http://localhost:8734/; Ctrl-C stops the preview.
+make pages-publish
 ```
 
-Publish `build/gumbel-site/` standalone, or copy its `gumbel-tree/` and `assets/gumbel/` into the existing site
-**after** running `export.py`, preserving the other reports.
+`pages-build` prepares without serving. `FIGHTS=path` overrides the checkpoint run's test fights.
+Publishing uses the prepared snapshot, preserves other reports, and refuses changed artifacts or a stale base.
 
 ## Files
 
