@@ -1,0 +1,51 @@
+.gumbel { max-width: 1280px; }
+.gumbel select.wide { max-width: 420px; }
+.gumbel .controls input[type=number] { width: 72px; }
+.gumbel section { margin-top: 14px; }
+
+.steps { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; }
+.timeline { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 12.5px; }
+.timeline .turn { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
+.timeline .turn b { color: var(--muted); margin-right: 2px; }
+.timeline .dot { padding: 2px 7px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); cursor: pointer; }
+.timeline .dot small { color: var(--muted); }
+.timeline .dot.took { border-style: dashed; border-color: var(--ember); }
+.timeline .dot.at { border-color: var(--crimson); box-shadow: 0 0 0 1px var(--crimson); }
+
+.top { display: grid; grid-template-columns: minmax(320px, 2fr) 3fr; gap: 16px; align-items: start; }
+.board { padding: 10px 12px; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; font-size: 13px; }
+.board > div + div { margin-top: 8px; }
+.board .monster.dead { opacity: .45; }
+.board .block { color: var(--skill); }
+.board .foe-move { color: var(--crimson); font-weight: 600; }
+.board .verdict { margin-left: 8px; color: var(--crimson); }
+.status { display: inline-block; margin: 0 3px; padding: 0 5px; border-radius: 8px; background: var(--sunk); font-size: 11.5px; }
+.cards { display: flex; flex-wrap: wrap; gap: 4px; }
+.chip { padding: 2px 7px; border: 1px solid var(--line); border-left-width: 4px; border-radius: 4px; background: var(--surface);
+  font-size: 12.5px; cursor: pointer; }
+.chip small { color: var(--muted); }
+.chip.attack { border-left-color: var(--attack); }
+.chip.skill { border-left-color: var(--skill); }
+.chip.power { border-left-color: var(--power); }
+.chip.curse, .chip.status { border-left-color: var(--curse); }
+.chip[disabled] { opacity: .55; cursor: default; }
+.piles { color: var(--muted); }
+
+.tbl tr.chosen td { background: var(--ember-wash); }
+.tbl td { font-variant-numeric: tabular-nums; }
+.visits { display: inline-block; width: 60px; height: 7px; background: var(--sunk); border-radius: 3px; vertical-align: middle; }
+.visits i { display: block; height: 100%; background: var(--skill); border-radius: 3px; }
+
+.tree { font-size: 12.5px; font-variant-numeric: tabular-nums; }
+.tree details { margin-left: 18px; }
+.tree > details { margin-left: 0; }
+.tree summary { cursor: pointer; padding: 1px 0; }
+.tree .num, .tree .nodeline { color: var(--muted); }
+.tree .nodeline { margin-left: 18px; }
+.tree a.node { color: var(--skill); cursor: pointer; text-decoration: underline; }
+.tree .end { color: var(--ember); margin-left: 6px; }
+.tree .happened { color: var(--crimson); }
+
+.lower { display: grid; grid-template-columns: 1fr auto; gap: 16px; align-items: start; }
+.inspector { position: sticky; top: 12px; width: 460px; max-height: calc(100vh - 24px); overflow: auto;
+  padding: 10px 12px; background: var(--surface); border: 1px dashed var(--skill); border-radius: 8px; }

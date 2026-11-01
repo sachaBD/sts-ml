@@ -25,6 +25,7 @@ std::string lower(std::string s) {
 
 Json card_json(const S::CardInstance& c) {
     return {{"id", static_cast<int>(c.id)}, {"key", lower(S::cardEnumStrings[static_cast<int>(c.id)])},
+            {"name", S::getCardName(c.id)}, {"type", lower(S::cardTypeStrings[static_cast<int>(S::getCardType(c.id))])},
             {"upgraded", c.getUpgradeCount()}, {"cost", c.cost}, {"cost_for_turn", c.costForTurn}};
 }
 
@@ -91,8 +92,8 @@ Json legal_json(const S::BattleContext& bc) {
         a.printDesc(desc, bc);
         Json row{{"bits", a.bits}, {"desc", desc.str()}};
         switch (a.getActionType()) {
-            case ActionType::CARD: row["type"] = "card"; row["source"] = a.getSourceIdx(); break;
-            case ActionType::POTION: row["type"] = "potion"; row["source"] = a.getSourceIdx(); break;
+            case ActionType::CARD: row["type"] = "card"; row["source"] = a.getSourceIdx(); row["target"] = a.getTargetIdx(); break;
+            case ActionType::POTION: row["type"] = "potion"; row["source"] = a.getSourceIdx(); row["target"] = a.getTargetIdx(); break;
             case ActionType::END_TURN: row["type"] = "end_turn"; break;
             case ActionType::SINGLE_CARD_SELECT: row["type"] = "select"; row["source"] = a.getSelectIdx(); break;
             default: row["type"] = "other";
