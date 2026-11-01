@@ -216,3 +216,29 @@ TEST(Gumbel, HalvingRoundsAllocateEqually) {
         }
     }
 }
+
+TEST(Gumbel, RoundSurvivorsIgnoreMidRoundUpdates) {
+    const auto root = jaw_worm();
+    ASSERT_GE(legal_actions(root).size(), 3u);
+    auto s = settings(0);
+    s.simulations = 6;
+    s.considered_actions = 3;
+    Gumbel search{root, s, 1};
+    int queries = 0;
+    run(search, [&](const Query& q) {
+        ++queries;
+        if (queries == 1) {
+            std::vector<float> logits(q.actions.size(), -10.f);
+            logits[0] = 3.0f;
+            logits[1] = 2.5f;
+            logits[2] = 0.0f;
+            return Evaluation{0.5f, logits};
+        }
+        const float values[] = {1.0f, 0.0f, 0.4f, 0.0f};
+        return Evaluation{queries <= 5 ? values[queries - 2] : 0.5f, std::vector<float>(q.actions.size(), 0.f)};
+    });
+    const auto tree = search.tree();
+    EXPECT_EQ(tree.nodes[0].edges[0].visits, 2);
+    EXPECT_EQ(tree.nodes[0].edges[1].visits, 2);
+    EXPECT_EQ(tree.nodes[0].edges[2].visits, 1);
+}

@@ -66,20 +66,16 @@ std::vector<double> improved_policy(const Node& n, const Gumbel::Settings& s) {
     return softmax(z);
 }
 
-// mctx seq_halving.get_sequence_of_considered_visits, stopping before a partial pass so every round
-// visits its considered actions equally.
-std::vector<int> halving_schedule(int m, int simulations) {
+// Sequential Halving rounds: (survivors, visits per survivor in this round).
+std::vector<std::pair<int, int>> halving_rounds(int m, int simulations) {
     if (simulations <= 0) return {};
     m = std::min(m, std::max(1, simulations / 2));
-    std::vector<int> out;
-    if (m <= 1) { for (int i = 0; i < simulations; ++i) out.push_back(i); return out; }
-    std::vector<int> visits(m, 0);
+    if (m <= 1) return {{1, simulations}};
+    std::vector<std::pair<int, int>> out;
+    int used = 0;
     for (int rounds = int(std::ceil(std::log2(double(m)))); rounds > 0; --rounds, m = (m + 1) / 2) {
-        const int extra = std::max(1, (simulations - int(out.size())) / (rounds * m));
-        for (int r = 0; r < extra && int(out.size()) + m <= simulations; ++r) {
-            for (int i = 0; i < m; ++i) out.push_back(visits[i]);
-            for (int i = 0; i < m; ++i) ++visits[i];
-        }
+        const int extra = std::min(std::max(1, (simulations - used) / (rounds * m)), (simulations - used) / m);
+        if (extra > 0) { out.emplace_back(m, extra); used += extra * m; }
     }
     return out;
 }
@@ -99,7 +95,8 @@ struct Gumbel::Impl {
     std::vector<Action> actions;
     Node root;
     std::vector<double> gumbel;
-    std::vector<int> schedule;
+    std::vector<std::pair<int, int>> rounds;
+    std::vector<std::size_t> schedule;
     int simulation = 0, nodes = 1;
 
     Node* leaf = nullptr;
@@ -116,21 +113,27 @@ struct Gumbel::Impl {
         if (leaf == &root) {
             std::extreme_value_distribution<double> g;
             for (std::size_t i = 0; i < actions.size(); ++i) gumbel.push_back(s.gumbel_scale * g(rng));
-            schedule = halving_schedule(std::min<int>(s.considered_actions, int(actions.size())), s.simulations);
+            rounds = halving_rounds(std::min<int>(s.considered_actions, int(actions.size())), s.simulations);
         } else {
             backup(e.value);
         }
         leaf = nullptr;
-        while (!leaf && simulation < int(schedule.size())) simulate();
+        while (!leaf && (simulation < int(schedule.size()) || !rounds.empty())) simulate();
     }
 
     // Descends until a finished fight (backed up now) or a new node (left pending for the evaluator).
     void simulate() {
+        if (simulation == int(schedule.size())) {
+            const auto [m, extra] = rounds.front();
+            rounds.erase(rounds.begin());
+            const auto survivors = ranked_root(m);
+            for (int r = 0; r < extra; ++r) schedule.insert(schedule.end(), survivors.begin(), survivors.end());
+        }
         auto state = chance.start(rng);
         path.clear();
         Node* node = &root;
         for (;;) {
-            const auto edge = node == &root ? root_choice(schedule[simulation]) : interior_choice(*node);
+            const auto edge = node == &root ? schedule[simulation] : interior_choice(*node);
             path.emplace_back(node, edge);
             play(state, node->keys[edge]);
             if (state.outcome != sts::Outcome::UNDECIDED) { backup(state.outcome == sts::Outcome::PLAYER_VICTORY); return; }
@@ -160,14 +163,18 @@ struct Gumbel::Impl {
         n.value_sum.assign(n.keys.size(), 0); n.visits.assign(n.keys.size(), 0); n.children.resize(n.keys.size());
     }
 
-    // Root: argmax of gumbel + logits + sigma among actions with exactly `considered` visits.
-    std::size_t root_choice(int considered) const {
+    // Root: top `m` actions among the most-visited, ranked by gumbel + logits + sigma.
+    std::vector<std::size_t> ranked_root(int m) const {
+        const int most = *std::max_element(root.visits.begin(), root.visits.end());
         const auto q = sigma(root, s);
-        std::size_t best = 0; double best_score = -INFINITY;
+        std::vector<std::size_t> order;
         for (std::size_t i = 0; i < q.size(); ++i)
-            if (root.visits[i] == considered && gumbel[i] + root.logits[i] + q[i] > best_score)
-                best = i, best_score = gumbel[i] + root.logits[i] + q[i];
-        return best;
+            if (root.visits[i] == most) order.push_back(i);
+        std::stable_sort(order.begin(), order.end(), [&](std::size_t a, std::size_t b) {
+            return gumbel[a] + root.logits[a] + q[a] > gumbel[b] + root.logits[b] + q[b];
+        });
+        order.resize(std::min<std::size_t>(m, order.size()));
+        return order;
     }
 
     // Interior: argmax of improved policy - visits / (1 + total).
@@ -182,10 +189,9 @@ struct Gumbel::Impl {
     }
 
     Result result() const {
-        const int most = *std::max_element(root.visits.begin(), root.visits.end());
         double value_sum = 0;
         for (double v : root.value_sum) value_sum += v;
-        Result r{actions[root_choice(most)], actions, {},
+        Result r{actions[ranked_root(1).front()], actions, {},
                  float(root.total ? value_sum / root.total : root.value)};
         for (double p : improved_policy(root, s)) r.policy.push_back(float(p));
         return r;
