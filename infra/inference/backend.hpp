@@ -32,17 +32,14 @@ public:
     virtual int max_batch() const = 0;  // most inputs per evaluate()
     // Called concurrently by Actors on their own tokens, so must not touch shared state.
     virtual void prepare(const Tokens&, std::vector<std::uint16_t>& packed) const { packed.clear(); }
-    // How many evaluate() calls may run at once. The InferenceServer runs this many lanes, so one lane gathers,
-    // packs and routes a batch while another lane's batch is on the device.
-    virtual int lanes() const { return 1; }
-    // Called by at most lanes() threads at once (the InferenceServer lanes).
+    virtual int lanes() const { return 1; }  // maximum concurrent evaluate() calls
     virtual std::vector<Prediction> evaluate(std::span<const Input>) = 0;
 };
 
 // ONNX Runtime on the CPU, one thread: any batch, any token count.
 std::unique_ptr<Backend> cpu_backend(const std::filesystem::path& onnx);
 
-// TensorRT through ONNX Runtime, CUDA graphs, fp16 input. Two lanes, each with its own CUDA stream and buffers.
+// TensorRT through ONNX Runtime, CUDA graphs, fp16 input.
 //   onnx:  the dynamic-shape fp32 model; evaluates rows longer than the fixed token count, and
 //          re-evaluates any row whose fp16 result is non-finite (never truncated or dropped).
 //   fixed: the SAME network exported for fixed [batch, tokens, width] fp16 input, one model per batch size.

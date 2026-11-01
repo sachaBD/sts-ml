@@ -1,6 +1,4 @@
-// TensorRT (through ONNX Runtime) with captured CUDA graphs. Synchronous: evaluate() runs on its caller, an
-// InferenceServer lane, so there is no extra thread or queue here. Each lane owns a CUDA stream, its buffers and
-// engines bound to them: while one lane's batch is on the GPU, another lane's caller packs and routes.
+// TensorRT through ONNX Runtime; independent streams overlap inference with host batch preparation.
 #include "infra/inference/cpu.hpp"
 #include <cuda_fp16.h>
 #include <immintrin.h>
@@ -99,8 +97,7 @@ struct Engine {
     }
 };
 
-// One batch in flight: a stream, pinned staging, device buffers, and one engine per batch size bound to them.
-// Copies and inference run in order on the lane's stream, independently of other lanes.
+// Captured graphs retain buffer addresses; each lane needs its own engines and buffers.
 struct Lane {
     cudaStream_t stream = nullptr;
     std::vector<std::unique_ptr<Engine>> engines;  // ascending batch size
@@ -133,8 +130,7 @@ struct Lane {
         check(cudaMemcpy(in, host_in, cells * width * sizeof(std::uint16_t), cudaMemcpyHostToDevice));
         for (auto& engine : engines) {
             engine->bind(in, value, logits);
-            // TensorRT captures its CUDA graph on the first runs. Capture every shape sequentially here:
-            // simultaneous first calls from two lanes would synchronize while another stream is capturing.
+            // Capture graphs before starting threads: concurrent first calls cause CUDA capture errors.
             for (int i = 0; i < 3; ++i) engine->session.Run(Ort::RunOptions{}, engine->binding);
             check(cudaStreamSynchronize(stream));
         }
@@ -150,7 +146,7 @@ struct Lane {
 };
 
 class GpuBackend final : public Backend {
-    static constexpr int lane_count = 2;  // one on the GPU while the other is packed and routed
+    static constexpr int lane_count = 2;
 
 public:
     GpuBackend(const std::filesystem::path& onnx, const std::vector<std::filesystem::path>& fixed) : cpu_{onnx} {

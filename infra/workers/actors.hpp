@@ -1,5 +1,5 @@
 #pragma once
-// Actors play episodes; InferenceServer lanes (one per Backend::lanes()) batch their network requests onto a Backend.
+// Actors play episodes; InferenceServer lanes batch their network requests onto a Backend.
 // Episodes never leave their Actor: only immutable token views and predictions cross threads.
 #include "infra/inference/backend.hpp"
 #include <chrono>

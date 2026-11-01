@@ -54,7 +54,7 @@ struct Shared {
     NextEpisode next;
     Backend& backend;
     std::vector<std::unique_ptr<Mailbox>> mailboxes;
-    const int servers;  // InferenceServer lanes: one per evaluate() the backend runs at once
+    const int servers;
     std::atomic<bool> stopped{false};
     std::atomic<int> actors_done{0}, servers_done{0}, queued{0};
     std::mutex wake_mutex, error_mutex;
