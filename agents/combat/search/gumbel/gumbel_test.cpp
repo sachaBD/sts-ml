@@ -108,7 +108,7 @@ TEST(Gumbel, WinningMoveBeatsAWrongPrior) {
     auto root = jaw_worm();
     root.monsters.arr[0].curHp = 1;
     const auto actions = legal_actions(root);
-    const auto loser = std::ranges::find_if(actions, [&](Action a) { return !wins_now(root, a); });
+    const auto loser = std::ranges::find_if(actions, [&](Action a) { return a.getActionType() == sts::search::ActionType::END_TURN; });
     ASSERT_TRUE(std::ranges::any_of(actions, [&](Action a) { return wins_now(root, a); }));
     ASSERT_NE(loser, actions.end());
 
