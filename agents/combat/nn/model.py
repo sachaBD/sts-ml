@@ -4,10 +4,6 @@ from dataclasses import dataclass
 
 from torch import Tensor, nn
 
-WIDTH = 68
-ACTION = 6
-
-
 @dataclass(frozen=True)
 class ModelSpec:
     kind: str

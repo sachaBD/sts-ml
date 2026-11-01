@@ -7,7 +7,8 @@ from torch import nn
 
 from .entity import EntityNet
 from .graphs import GraphCache
-from .model import ACTION, WIDTH, CombatModel, ModelSpec
+from .model import CombatModel, ModelSpec
+from .tokens import TokenKind, WIDTH
 from .play import model_files
 
 
@@ -98,7 +99,7 @@ class ModelExporter:
         options = dict(dynamo=True, input_names=['tokens'], output_names=['value', 'logits'])
         if batch is None:
             example = torch.zeros(2, 3, WIDTH)
-            example[:, 0, 0], example[:, 1:, 0] = 1, ACTION
+            example[:, 0, 0], example[:, 1:, 0] = TokenKind.CONTEXT, TokenKind.ACTION
             options['dynamic_shapes'] = {'tokens': {0: torch.export.Dim('batch'), 1: torch.export.Dim('tokens')}}
             model = net
         else:

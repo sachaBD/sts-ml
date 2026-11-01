@@ -8,7 +8,7 @@ import numpy as np
 import torch
 
 from infra.workers.reader import Reader
-from .model import WIDTH
+from .tokens import WIDTH
 
 HEADER = struct.Struct('<iif')
 

@@ -5,13 +5,16 @@ from dataclasses import asdict
 
 import torch
 
-from .model import ACTION, WIDTH, ModelSpec, build_model
+from .model import ModelSpec, build_model
+from .tokens import CardZone, TokenKind, WIDTH
 
 
 def tokens():
     x = torch.zeros(2, 16, WIDTH)
-    x[:, :10, 0] = torch.tensor([1, 3, 5, 2, 2, 2, 2, ACTION, ACTION, ACTION])
-    x[:, 4:7, 3] = torch.tensor([1, 2, 3])
+    x[:, :10, 0] = torch.tensor([TokenKind.CONTEXT, TokenKind.MONSTER, TokenKind.RELIC, *([TokenKind.CARD] * 4),
+                                *([TokenKind.ACTION] * 3)])
+    x[:, 4:7, 3] = torch.tensor([CardZone.DRAW, CardZone.DISCARD, CardZone.EXHAUST])
+    x[1, 3, 3] = CardZone.OFFERED
     x[:, :10, 1] = torch.arange(10)
     x[:, :10, 4:] = torch.rand(2, 10, WIDTH - 4)
     return x
@@ -33,7 +36,7 @@ class ModelTests(unittest.TestCase):
                 self.assertTrue(torch.isfinite(value).all())
                 self.assertTrue(((value >= 0) & (value <= 1)).all())
                 self.assertTrue(torch.isfinite(logits[:, 7:10]).all())
-                self.assertTrue((logits[x[..., 0] != ACTION] < -1e8).all())
+                self.assertTrue((logits[x[..., 0] != TokenKind.ACTION] < -1e8).all())
                 short = net(x[:, :10])
                 torch.testing.assert_close(value, short[0])
                 torch.testing.assert_close(logits[:, :10], short[1])
@@ -46,7 +49,7 @@ class ModelTests(unittest.TestCase):
                 self.assertEqual(mixed_value.dtype, torch.float32)
                 self.assertEqual(mixed_logits.dtype, torch.float32)
                 self.assertTrue(torch.isfinite(mixed_logits).all())
-                self.assertTrue((mixed_logits[x[..., 0] != ACTION] < -1e8).all())
+                self.assertTrue((mixed_logits[x[..., 0] != TokenKind.ACTION] < -1e8).all())
                 loss = -value.log().mean() - logits[:, 7:10].log_softmax(-1).mean()
                 loss.backward()
                 for parameter in net.parameters():

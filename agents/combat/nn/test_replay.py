@@ -9,7 +9,8 @@ from unittest.mock import patch
 import numpy as np
 import torch
 
-from .model import ModelSpec, build_model, WIDTH
+from .model import ModelSpec, build_model
+from .tokens import WIDTH
 from .replay import Replay, index
 from .train import train
 

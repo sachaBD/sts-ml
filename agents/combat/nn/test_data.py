@@ -8,7 +8,7 @@ from unittest.mock import patch
 import numpy as np
 
 from agents.combat.nn import data
-from agents.combat.nn.model import WIDTH
+from agents.combat.nn.tokens import WIDTH
 
 
 def write(path, seed, records, longest):

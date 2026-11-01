@@ -12,9 +12,10 @@ See the [documentation index](docs/README.md), [production inference benchmark](
 - `infra/workers`: actors, inference server, supervision, replay readers and prefetch.
 - `infra/inference`: CPU/GPU backends; no agent-specific inference implementation.
 - `agents/combat/search`: the Gumbel search `play.cpp` drives (`--sims 0` = the network alone) and the rollout blend (`--rollout-mix`).
+- `tokens.py`: typed token kinds/card zones and named tensor field access for the native wire format.
 - `model.py`: frozen `ModelSpec`, `CombatModel` prediction contract, and the explicit two-topology factory.
 - `transformer.py`: `Transformer` attends over all tokens.
-- `entity.py`: `EntityNet` pools relics and non-hand cards before attention; scatters predictions back to action positions.
+- `entity.py`: `EntityNet` pools relics and draw/discard/exhaust cards before attention; scatters predictions back to action positions.
 - `export.py`: `ModelExporter`, deployment capacity and precision, and the entity's bounded-attention adapter.
 - `graphs.py`: graph/weight reuse, independent of topology and tracing policy.
 - `data.py`: binary self-play samples → dense padded tensors.
@@ -40,6 +41,9 @@ Both models accept `[batch, tokens, 68]` FP32 tokens and return win probabilitie
 `[batch]` and action logits `[batch, tokens]`. Context is first; non-action positions
 are masked below -1e8. Padding never changes real-token predictions. Neither model
 owns devices, export precision, worker scheduling or training policy.
+
+Entity prediction is a sequence of small stages: classify groups, embed, pool, compact,
+attend, then scatter predictions back to wire positions.
 
 The entity bounded view is an export adapter, not a different checkpoint architecture.
 `gpu_attended` counts retained tokens (context, enemy, hand and actions), excluding the

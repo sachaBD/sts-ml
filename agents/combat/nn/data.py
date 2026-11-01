@@ -7,7 +7,7 @@ import os
 import numpy as np
 import torch
 
-from .model import WIDTH
+from .tokens import WIDTH
 
 
 def read(paths, max_rows=0):
