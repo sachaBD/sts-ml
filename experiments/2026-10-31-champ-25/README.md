@@ -29,3 +29,9 @@ Cleanup reclaimed 9.43 GiB of old replay/samples/caches; manifest at
 Qualification passed: 16 owner tests; exact warm-start weights; 50 real GPU fights
 across all 25 decks with no caps; two optimizer steps produced finite changed weights
 and all four ONNX exports. Qualification run: `champ25-qualification-20261031`.
+
+Active run: `runs/schema=gumbel_nn_combat_v1/date=2026-11-01/id=gumbel-nn-champ25-64s-mix50-20261031`.
+Dashboard: http://127.0.0.1:8743/ ; launcher log: `runs/benchmark/champ25-overnight-launch.log`.
+Verified live after the initial 1,250-fight validation and two complete 5,000-fight
+updates (zero caps); iteration 3 underway. First two updates took 269 and 261 seconds,
+including training/export, excluding scheduled validation. Longer-run variability unknown.
