@@ -23,7 +23,7 @@ endif()
 set(STS_LIGHTSPEED_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../lightspeed" CACHE PATH "sts_lightspeed checkout")
 add_subdirectory("${STS_LIGHTSPEED_DIR}" "${CMAKE_CURRENT_BINARY_DIR}/sts_lightspeed")
 
-add_library(combat_public STATIC environments/combat/public.cpp)
+add_library(combat_public STATIC environments/combat/public.cpp environments/combat/view.cpp)
 target_include_directories(combat_public PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
 target_link_libraries(combat_public PUBLIC sts_lightspeed)
 target_compile_options(combat_public PRIVATE -Wall -Wextra -Wpedantic)
@@ -191,6 +191,11 @@ add_executable(battle_snapshot_test environments/combat/battle_snapshot_test.cpp
 target_link_libraries(battle_snapshot_test PRIVATE combat_core)
 target_compile_features(battle_snapshot_test PRIVATE cxx_std_23)
 add_test(NAME battle_snapshot_test COMMAND battle_snapshot_test)
+
+add_executable(view_test environments/combat/view_test.cpp)
+target_link_libraries(view_test PRIVATE combat_core GTest::gtest_main)
+target_compile_options(view_test PRIVATE -Wall -Wextra -Wpedantic)
+gtest_discover_tests(view_test PROPERTIES TIMEOUT 10)
 
 # Rebuild a recorded fight from its overworld macro state and play it with guided-rollout MCTS
 # (experiments/act2-boss-search).
