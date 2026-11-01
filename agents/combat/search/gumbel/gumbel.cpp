@@ -15,6 +15,7 @@ struct Node {
     std::vector<std::map<std::uint64_t, std::unique_ptr<Node>>> children;  // per edge, by Chance::child_key
     double value = 0;
     int total = 0;
+    int id = 0;  // creation order
 };
 
 // How the tree meets hidden information and chance: where a simulation starts, and which children
@@ -98,7 +99,7 @@ struct Gumbel::Impl {
     Node root;
     std::vector<double> gumbel;
     std::vector<int> schedule;
-    int simulation = 0;
+    int simulation = 0, nodes = 1;
 
     Node* leaf = nullptr;
     sts::BattleContext leaf_state;
@@ -135,6 +136,7 @@ struct Gumbel::Impl {
             auto& child = node->children[edge][Chance::child_key(state)];
             if (!child) {
                 child = std::make_unique<Node>();
+                child->id = nodes++;
                 leaf = child.get();
                 leaf_state = state;
                 leaf_actions = combat::legal_actions(state);
@@ -187,6 +189,28 @@ struct Gumbel::Impl {
         for (double p : improved_policy(root, s)) r.policy.push_back(float(p));
         return r;
     }
+
+    Tree tree() const {
+        Tree t{std::vector<Tree::Node>(nodes), gumbel};
+        copy(root, t);
+        return t;
+    }
+
+    void copy(const Node& n, Tree& t) const {
+        auto& out = t.nodes[n.id];
+        out.value = n.value;
+        out.total = n.total;
+        const auto q = sigma(n, s);
+        const auto pi = improved_policy(n, s);
+        for (std::size_t i = 0; i < n.keys.size(); ++i) {
+            Tree::Edge e{n.keys[i], n.logits[i], n.prior[i], q[i], pi[i], n.value_sum[i], n.visits[i], {}};
+            for (const auto& [observation, child] : n.children[i]) {
+                e.children.push_back({observation, child->id});
+                copy(*child, t);
+            }
+            out.edges.push_back(std::move(e));
+        }
+    }
 };
 
 Gumbel::Gumbel(const sts::BattleContext& observed, const Settings& settings, std::uint64_t seed)
@@ -200,4 +224,5 @@ std::optional<Query> Gumbel::pending() const {
 
 void Gumbel::evaluated(const Evaluation& evaluation) { impl_->evaluated(evaluation); }
 Result Gumbel::result() const { return impl_->result(); }
+Gumbel::Tree Gumbel::tree() const { return impl_->tree(); }
 }  // namespace stsrl::search

@@ -149,3 +149,40 @@ TEST(Gumbel, ForcedMoveIsCertain) {
     EXPECT_EQ(r.action, legal_actions(root).front());
     EXPECT_EQ(r.policy, std::vector<float>{1.f});
 }
+
+TEST(GumbelTree, NodeIIsTheIthQuery) {
+    for (const std::uint64_t seed : {1, 2, 3}) {
+        Gumbel search{jaw_worm(), settings(1), seed};
+        std::vector<std::uint64_t> queried;
+        auto answer = noisy();
+        run(search, [&](const Query& q) { queried.push_back(stsrl::combat::observation_key(q.state)); return answer(q); });
+        const auto tree = search.tree();
+        ASSERT_EQ(tree.nodes.size(), queried.size());
+        std::vector<int> parents(tree.nodes.size(), 0);
+        for (const auto& node : tree.nodes)
+            for (const auto& edge : node.edges)
+                for (const auto& child : edge.children) {
+                    EXPECT_EQ(child.observation, queried[child.node]);
+                    ++parents[child.node];
+                }
+        EXPECT_EQ(parents[0], 0);
+        for (std::size_t i = 1; i < parents.size(); ++i) EXPECT_EQ(parents[i], 1) << "node " << i;
+    }
+}
+
+TEST(GumbelTree, AgreesWithTheSearch) {
+    for (const std::uint64_t seed : {1, 2, 3}) {
+        const auto s = settings(1);
+        Gumbel search{jaw_worm(), s, seed};
+        const auto r = run(search, noisy());
+        const auto tree = search.tree();
+        EXPECT_EQ(tree.nodes[0].total, s.simulations);
+        ASSERT_EQ(tree.nodes[0].edges.size(), r.policy.size());
+        for (std::size_t i = 0; i < r.policy.size(); ++i) EXPECT_FLOAT_EQ(tree.nodes[0].edges[i].improved, r.policy[i]);
+        for (const auto& node : tree.nodes) {
+            int visits = 0;
+            for (const auto& edge : node.edges) visits += edge.visits;
+            EXPECT_EQ(visits, node.total);
+        }
+    }
+}
