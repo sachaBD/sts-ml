@@ -27,6 +27,18 @@ class ConfigTests(unittest.TestCase):
         self.rejects(CONFIG.replace('gpu_bank = [256, 32]', 'gpu_bank = [256, 600]'), 'gpu_bank')
         self.rejects(CONFIG.replace('rollout_mix = 0.5', 'rollout_mix = 2'), 'rollout_mix')
 
+    def test_architecture_and_deployment_constraints(self):
+        entity = CONFIG.replace('kind = "transformer"', 'kind = "entity"\ngpu_attended = 8')
+        config = load(entity)
+        self.assertEqual(config.model.architecture().kind, 'entity')
+        self.assertEqual(config.model.deployment().attended, 8)
+        self.rejects(CONFIG.replace('kind = "transformer"', 'kind = "unknown"'), 'model.kind')
+        self.rejects(CONFIG.replace('kind = "transformer"', 'kind = "transformer"\ngpu_attended = 8'), 'gpu_attended')
+        self.rejects(entity.replace('gpu_attended = 8', 'gpu_attended = 17'), 'gpu_attended')
+        changes = experiment_changes(load(CONFIG), load(entity))
+        self.assertIn('[model].kind', changes)
+        self.assertIn('[model].gpu_attended', changes)
+
     def test_only_resumable_settings_may_change_on_resume(self):
         base = load(CONFIG)
         self.assertEqual(experiment_changes(base, load(CONFIG.replace('iterations = 2', 'iterations = 9'))), [])

@@ -2,7 +2,7 @@
 
 Expert iteration on fixed Champ decks: Gumbel self-play, train on the replay window, export, evaluate.
 Hard cutover from the old `agents/combat/nn/loop.py`: its runs cannot be resumed; start from one of their
-checkpoints with `[run].initial_checkpoint`.
+checkpoints with `[run].initial_checkpoint` when their explicit architecture spec matches.
 
 ## Structure
 
@@ -16,13 +16,21 @@ checkpoints with `[run].initial_checkpoint`.
 | `supervisor.py` | Optional bounded restart after recognised CUDA failures |
 | `dashboard.py`, `web.py`, `reporting.py` | Read-only views of the run's outputs |
 
-The recipe calls the agent (`agents/combat/nn`: `play()`, `Replay`, `Learner`); `nn_play` runs as a separate
+The recipe calls the agent (`agents/combat/nn`: `play()`, `Replay`, `Learner`, `ModelExporter`); `nn_play` runs as a separate
 process per play or evaluation stage, so a CUDA failure is recoverable and PyTorch never shares GPU state with TensorRT.
 
 Config sections follow the owners: `[run]` (identity, length, optional initial checkpoint / recovery / disk
 reserve), `[search]` (self-play), `[training]` (its fights file, one fight per deck), `[model]`, `[workers]`
 (nn_play), `[evaluation]` (schedule, simulations, fights files, baselines, cohorts). Settings have no defaults;
 a typo or missing key stops the run before it starts.
+
+`[model].kind` is required: `transformer` (full-token attention) or `entity` (pooled
+non-hand cards/relics). `dim`, `layers`, `heads` define the checkpoint architecture.
+`gpu_tokens`, optional entity-only `gpu_attended`, and `gpu_mixed_precision` (default false)
+are deployment settings, not model weights. Architecture and deployment changes are refused
+on resume. `export_reuse` remains resumable. See the [model boundary](../../agents/combat/nn/readme.md#model-and-deployment-boundaries).
+Old unnamed transformer checkpoint specs and configs require an explicit cutover; no
+compatibility adapter is provided. Overnight experiment files are not part of this change.
 
 The run only reads files. A **fights file** is JSON lines, one playable fight per line: `{"fight_id", "start"}`
 (a combat_v4 start). Build them once with `make_fights.py`: `decks` turns `[[deck]]` tables (see

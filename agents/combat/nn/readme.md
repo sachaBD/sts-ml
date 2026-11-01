@@ -1,20 +1,64 @@
 # Combat NN
 
-A standalone transformer + Gumbel self-play pipeline. Python trains; C++ simulates fights and searches. No dependency on the old agent implementation.
+Two combat model topologies behind one prediction contract, with Gumbel self-play. Python trains; C++ simulates fights and searches. No dependency on the old agent implementation.
 
 See the [documentation index](docs/README.md), [production inference benchmark](docs/INFERENCE_BENCHMARK.md), and [measured GPU settings and profiling findings](docs/GPU_PERFORMANCE.md).
 
 ## Main files
 
 - `play.py`: `play()` runs one `nn_play` process per stage (fresh CUDA context); `Search`/`Workers` settings.
-- `learner.py`: `Learner`: network + optimizer; `fit` on replay, `save`/`load` checkpoints (with RNG), `export` the models `nn_play` loads.
+- `learner.py`: `Learner`: network + optimizer; `fit` on replay and `save`/`load` checkpoints (with optimizer and RNG). No deployment policy.
 - `play.cpp`: combat `infra::Episode` adapter and CLI. See [WORKERS.md](WORKERS.md).
 - `infra/workers`: actors, inference server, supervision, replay readers and prefetch.
 - `infra/inference`: CPU/GPU backends; no agent-specific inference implementation.
 - `agents/combat/search`: the Gumbel search `play.cpp` drives (`--sims 0` = the network alone) and the rollout blend (`--rollout-mix`).
-- `model.py`: 2-layer, width-64, 2-head transformer. Context token produces win probability; legal-action tokens produce policy logits.
+- `model.py`: frozen `ModelSpec`, `CombatModel` prediction contract, and the explicit two-topology factory.
+- `transformer.py`: `Transformer` attends over all tokens.
+- `entity.py`: `EntityNet` pools relics and non-hand cards before attention; scatters predictions back to action positions.
+- `export.py`: `ModelExporter`, deployment capacity and precision, and the entity's bounded-attention adapter.
+- `graphs.py`: graph/weight reuse, independent of topology and tracing policy.
 - `data.py`: binary self-play samples → dense padded tensors.
 - `train.py`: outcome BCE + improved-policy cross-entropy, AdamW, bf16 training.
+
+## Model and deployment boundaries
+
+```text
+ModelSpec ──► build_model ──► CombatModel
+                              ├─ Transformer
+                              └─ EntityNet
+                                  │
+                  ┌───────────────┴────────────────┐
+               Learner                        ModelExporter
+          optimizer/checkpoint            ExportSpec: capacity/precision
+                                                │
+                                    dynamic CPU + fixed GPU bank
+                                                │
+                                      unchanged native search
+```
+
+Both models accept `[batch, tokens, 68]` FP32 tokens and return win probabilities
+`[batch]` and action logits `[batch, tokens]`. Context is first; non-action positions
+are masked below -1e8. Padding never changes real-token predictions. Neither model
+owns devices, export precision, worker scheduling or training policy.
+
+The entity bounded view is an export adapter, not a different checkpoint architecture.
+`gpu_attended` counts retained tokens (context, enemy, hand and actions), excluding the
+four pooled tokens. Overflow emits a NaN value; the existing native backend retries
+against the unbounded FP32 CPU model. It never silently accepts truncated predictions.
+This uses the existing nonfinite/precision-retry counter, not a separate overflow metric.
+
+Export works on an independent copy: the training model's device, mode, weights and optimizer
+remain untouched, including on failure. Fixed models take FP16 tokens and return FP32
+predictions. By default compute precision is left to TensorRT; `gpu_mixed_precision = true`
+traces CUDA FP16 autocast explicitly and requires CUDA at export time. CPU/dynamic exports
+always remain FP32. Graph reuse is allowed only with an exact mapping for every parameter;
+otherwise export retraces (mixed-precision weights often cannot be reused).
+
+Architecture specs explicitly name `transformer` or `entity`. There is no implicit/default
+kind, legacy `Net` alias, checkpoint translator or old export-function facade. Old unnamed
+transformer checkpoints/configs and historical Python experiment scripts are not supported
+by this interface. Entity parameter names and explicit architecture specs are unchanged.
+Native weights here are ONNX; the token/action schema and native model filenames are unchanged.
 
 ## Getting good hardware utilisation
 

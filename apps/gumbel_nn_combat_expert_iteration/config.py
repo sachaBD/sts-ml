@@ -13,6 +13,8 @@ import types
 from typing import get_args
 
 from agents.combat.nn.play import Search, Workers
+from agents.combat.nn.model import ModelSpec
+from agents.combat.nn.export import ExportSpec
 from apps.common.app import check_keys, required
 
 
@@ -47,11 +49,20 @@ class Training:
 
 @dataclass(frozen=True)
 class Model:
+    kind: str
     dim: int
     layers: int
     heads: int
     gpu_tokens: int
     export_reuse: bool = resumable()
+    gpu_attended: int | None = None
+    gpu_mixed_precision: bool = False
+
+    def architecture(self):
+        return ModelSpec(self.kind, self.dim, self.layers, self.heads)
+
+    def deployment(self):
+        return ExportSpec(self.gpu_tokens, self.gpu_attended, self.gpu_mixed_precision)
 
 
 @dataclass(frozen=True)
@@ -117,8 +128,10 @@ def validate(c):
          'search: nonnegative sims and gumbel_scale, rollout_mix in [0, 1], positive particles')
     need(t.steps > 0 and t.batch > 0 and t.lr > 0 and t.replay_window > 0 and t.max_train_rows >= 0,
          'training: positive steps, batch, lr, replay_window; nonnegative max_train_rows')
-    need(m.dim > 0 and m.layers > 0 and m.heads > 0 and m.dim % m.heads == 0 and m.gpu_tokens > 0,
-         'model: positive dim, layers, heads, gpu_tokens; dim divisible by heads')
+    try:
+        m.deployment().validate(m.architecture())
+    except ValueError as error:
+        sys.exit(f'config: {error}')
     need(w.actors > 0 and w.slots > 0 and w.gpu_batch > 0 and w.gpu_wait_us >= 0 and w.timeout_ms > 0
          and w.shutdown_timeout_ms > 0, 'workers: positive counts and timeouts, nonnegative gpu_wait_us')
     need(len(set(w.gpu_bank)) == len(w.gpu_bank) and all(0 < b < w.gpu_batch for b in w.gpu_bank),

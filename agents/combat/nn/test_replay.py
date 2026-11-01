@@ -9,7 +9,7 @@ from unittest.mock import patch
 import numpy as np
 import torch
 
-from .model import Net, WIDTH
+from .model import ModelSpec, build_model, WIDTH
 from .replay import Replay, index
 from .train import train
 
@@ -155,7 +155,7 @@ class ReplayTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             path = samples(Path(tmp) / 'iter001', [('a', 4, 1, 1), ('b', 4, 2, 0)])
             replay = Replay([path])
-            net = Net(dim=8, layers=1, heads=1)
+            net = build_model(ModelSpec('transformer', 8, 1, 1))
             optimizer = torch.optim.AdamW(net.parameters())
             before = net.value.weight.detach().clone()
             train(net, optimizer, replay, None, None, 2, 4, 'cpu', log=lambda _: None)
