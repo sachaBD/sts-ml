@@ -6,7 +6,7 @@ OUT is a prepared run (prepare.py): OUT/config.toml and OUT/inputs/. Writes OUT/
 iterNNN/{samples-0.bin, results.jsonl, replay.json, model.pt, model*.onnx} and test/iterNNN/results.jsonl.
 """
 import argparse
-from dataclasses import asdict, replace
+from dataclasses import asdict
 import itertools
 import json
 from pathlib import Path
@@ -14,7 +14,7 @@ import time
 
 from agents.combat.nn.learner import Learner
 from agents.combat.nn.export import ModelExporter
-from agents.combat.nn.play import play
+from agents.combat.nn.play import Search, play
 from agents.combat.nn.replay import Replay
 from apps.common.app import read_jsonl
 from environments.combat.starts import fights
@@ -39,7 +39,9 @@ class ExpertIteration:
         self.learner = Learner(m.architecture(), t.lr, t.device)
         self.exporter = ModelExporter(m.architecture(), m.deployment(), m.export_reuse)
         self.games = config.run.games_per_deck * len(self.starts)
-        self.evaluation_search = replace(config.search, sims=config.evaluation.sims, gumbel_scale=0.0)
+        e = config.evaluation
+        self.evaluation_search = Search(e.sims, 0.0, config.search.rollout_mix if e.rollout_mix is None else e.rollout_mix,
+                                        config.search.particles)
 
     def run(self, resume_from=None):
         self.control.status(stage='initialization', phase='initialize')
@@ -60,6 +62,7 @@ class ExpertIteration:
             played = time.time()
             states = self.train(it)
             self.control.log(iteration=it, games=len(results), wins=sum(r['won'] for r in results), states=states,
+                             rollout_mix=self.config.search.at(it).rollout_mix,
                              play_seconds=round(played - begin), train_seconds=round(time.time() - played),
                              **collection_stats(results))
             self.evaluate(it)
@@ -102,7 +105,7 @@ class ExpertIteration:
     def self_play(self, it):
         directory = self.control.iteration(it)
         games = fights(self.starts, f'{self.config.run.seed_namespace}:{it}', self.games)
-        return self.play(f'iteration {it}', self.control.iteration(it - 1), games, directory, self.config.search)
+        return self.play(f'iteration {it}', self.control.iteration(it - 1), games, directory, self.config.search.at(it))
 
     def train(self, it):
         t = self.config.training

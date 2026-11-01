@@ -13,6 +13,7 @@ iterations = 0 # run until ./run.sh stop RUN_DIRECTORY; finish the active update
 sims = 256
 gumbel_scale = 1.0
 rollout_mix = 0.5
+rollout_mix_decay = 30 # rollouts bootstrap: mix falls linearly to 0 (network alone) at iteration 30
 particles = 8
 
 [training]
@@ -51,6 +52,7 @@ wall_share = 0
 # make_fights teacher <decks.jsonl> combat_v4/2026-10-09/champ-ten-rollout-v1:monitor-teacher <dir> --name mcts20k
 #   --fights-per-deck 50 --baseline puct=combat_v4/2026-10-09/champ-ten-rollout-v1:update006/monitor
 fights = "runs/benchmark/champ-ten/teacher/fights.jsonl"
+rollout_mix = 0 # every evaluation plays the same search, so the curve follows the network, not the schedule
 baselines = "runs/benchmark/champ-ten/teacher/baselines.json"
 cohorts = "runs/benchmark/champ-ten/teacher/cohorts.json"
 

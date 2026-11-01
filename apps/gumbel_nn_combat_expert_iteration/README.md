@@ -95,7 +95,10 @@ Live browser view of the same snapshot (polls every 2 s, read-only):
 ## Search
 
 Gumbel (`agents/combat/search/gumbel`), with leaf values blended with a guided rollout (`[search] rollout_mix`).
-Evaluation plays the same search without noise; `[evaluation] sims` sets its simulations, 0 plays the network alone.
+Optional `[search] rollout_mix_decay = N` lowers self-play's mix linearly to 0 at iteration N, so rollouts only
+bootstrap; each update logs its `rollout_mix`. Evaluation plays the same search without noise at a fixed mix
+(optional `[evaluation] rollout_mix`, otherwise `[search] rollout_mix`); `[evaluation] sims` sets its simulations,
+0 plays the network alone.
 
 ## Recipe / storage
 

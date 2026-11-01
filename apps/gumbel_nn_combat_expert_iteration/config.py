@@ -35,6 +35,16 @@ class Run:
 
 
 @dataclass(frozen=True)
+class SelfPlay(Search):
+    rollout_mix_decay: int = 0  # rollout_mix falls linearly to 0 at this iteration; 0 keeps it constant
+
+    def at(self, it):
+        """The search of self-play iteration `it`."""
+        mix = self.rollout_mix * max(0.0, 1 - it / self.rollout_mix_decay) if self.rollout_mix_decay else self.rollout_mix
+        return Search(self.sims, self.gumbel_scale, mix, self.particles)
+
+
+@dataclass(frozen=True)
 class Training:
     fights: str
     steps: int
@@ -72,6 +82,7 @@ class Evaluation:
     every: int = resumable()
     wall_share: float = resumable()
     fights: str
+    rollout_mix: float | None = None  # fixed across the run; None: [search].rollout_mix
     in_sample_fights: str | None = None
     final_fights: str | None = None
     baselines: str | None = None
@@ -81,7 +92,7 @@ class Evaluation:
 @dataclass(frozen=True)
 class Config:
     run: Run
-    search: Search
+    search: SelfPlay
     training: Training
     model: Model
     workers: Workers
@@ -124,8 +135,8 @@ def validate(c):
     r, s, t, m, w, e = c.run, c.search, c.training, c.model, c.workers, c.evaluation
     need(r.games_per_deck > 0 and r.iterations >= 0 and r.recovery_retries >= 0 and r.min_free_gib >= 0,
          'positive games_per_deck; nonnegative iterations, recovery_retries, min_free_gib')
-    need(s.sims >= 0 and s.gumbel_scale >= 0 and 0 <= s.rollout_mix <= 1 and s.particles > 0,
-         'search: nonnegative sims and gumbel_scale, rollout_mix in [0, 1], positive particles')
+    need(s.sims >= 0 and s.gumbel_scale >= 0 and 0 <= s.rollout_mix <= 1 and s.particles > 0 and s.rollout_mix_decay >= 0,
+         'search: nonnegative sims, gumbel_scale and rollout_mix_decay, rollout_mix in [0, 1], positive particles')
     need(t.steps > 0 and t.batch > 0 and t.lr > 0 and t.replay_window > 0 and t.max_train_rows >= 0,
          'training: positive steps, batch, lr, replay_window; nonnegative max_train_rows')
     try:
@@ -136,8 +147,9 @@ def validate(c):
          and w.shutdown_timeout_ms > 0, 'workers: positive counts and timeouts, nonnegative gpu_wait_us')
     need(len(set(w.gpu_bank)) == len(w.gpu_bank) and all(0 < b < w.gpu_batch for b in w.gpu_bank),
          'workers.gpu_bank: distinct batches, each positive and below gpu_batch')
-    need(e.sims >= 0 and e.every >= 0 and 0 <= e.wall_share < 1 and all(i >= 0 for i in e.at),
-         'evaluation: nonnegative sims, every and at; wall_share in [0, 1)')
+    need(e.sims >= 0 and e.every >= 0 and 0 <= e.wall_share < 1 and all(i >= 0 for i in e.at)
+         and (e.rollout_mix is None or 0 <= e.rollout_mix <= 1),
+         'evaluation: nonnegative sims, every and at; wall_share in [0, 1); rollout_mix in [0, 1]')
 
 
 def experiment_changes(old, new):
