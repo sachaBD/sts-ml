@@ -126,3 +126,9 @@ seeds. The dashboard reports Wilson95% win-rate bounds and paired95% differences
 against the starting checkpoint, plus historical MCTS20k/PUCT on their500matching
 starts only. Original/added cohorts are separate. `[evaluation] wall_share = 0.20` budgets
 measured validation wall time instead of a fixed evaluation iteration interval.
+
+## Cleanup
+
+`make clean-data RUN=path` previews TensorRT cache cleanup for a completed (`done`) run.
+Add `ARGS=--apply` to delete; add `--drop-replay` to also discard samples/indexes and exact continuation.
+Models and results are kept. Failed/interrupted runs require manual review.
