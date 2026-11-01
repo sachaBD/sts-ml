@@ -15,6 +15,7 @@ public:
         double gumbel_scale = 0;  // 1 explores (self-play); 0 is deterministic (evaluation)
         int particles = 8;
         double value_scale = 0.1, maxvisit_init = 50;  // mctx qtransform_completed_by_mix_value
+        bool rescale_values = true;
     };
 
     // A copy of the tree. Node i answered the i-th query; node 0 is the root.

@@ -4,7 +4,7 @@ import { happened } from "./derive.js";
 import { board, inspector, rootTable, timeline, tree } from "./render.js";
 
 const $ = (id) => document.getElementById(id);
-const SETTINGS = { sims: 64, particles: 8, gumbel_scale: 0, rollout_mix: 0.5 };
+const SETTINGS = { sims: 64, particles: 8, gumbel_scale: 0, rollout_mix: 0.5, rescale_values: false };
 
 const state = { run: "", iteration: null, fight: "", moves: [], at: 0, search: { ...SETTINGS }, inspect: null };
 const responses = new Map();  // request → response; a decision is a pure function of its request
@@ -112,11 +112,13 @@ async function loadRun(keep) {
 }
 function readSettings() {
   state.search = { sims: +$("sims").value, particles: +$("particles").value,
-                   gumbel_scale: +$("noise").value, rollout_mix: +$("mix").value };
+                   gumbel_scale: +$("noise").value, rollout_mix: +$("mix").value,
+                   rescale_values: $("rescale").checked };
 }
 function writeSettings() {
   $("sims").value = state.search.sims; $("particles").value = state.search.particles;
   $("noise").value = state.search.gumbel_scale; $("mix").value = state.search.rollout_mix;
+  $("rescale").checked = state.search.rescale_values;
 }
 
 function saveUrl() {
@@ -131,7 +133,8 @@ function readUrl() {
   state.fight = q.get("fight") || "";
   state.moves = (q.get("moves") || "").split(",").filter(Boolean).map(Number);
   state.at = Math.min(+(q.get("at") ?? state.moves.length), state.moves.length);
-  for (const k of Object.keys(SETTINGS)) if (q.has(k)) state.search[k] = +q.get(k);
+  for (const [k, v] of Object.entries(SETTINGS))
+    if (q.has(k)) state.search[k] = typeof v === "boolean" ? q.get(k) === "true" || q.get(k) === "1" : +q.get(k);
 }
 
 async function main() {
