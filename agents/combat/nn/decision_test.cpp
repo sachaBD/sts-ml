@@ -1,5 +1,5 @@
-// Fight and Decision invariants, with a fake network that is a pure function of the encoded query.
 #include "agents/combat/nn/decision.hpp"
+#include "agents/combat/nn/fake_network.hpp"
 #include "agents/combat/nn/tokens.hpp"
 #include "agents/combat/search/gumbel/gumbel.hpp"
 #include "environments/combat/public.hpp"
@@ -8,8 +8,6 @@
 #include "constants/Rooms.h"
 #include "game/GameContext.h"
 #include <gtest/gtest.h>
-#include <cmath>
-#include <numeric>
 
 using namespace stsrl::nn;
 using stsrl::combat::legal_actions;
@@ -25,13 +23,6 @@ sts::BattleContext jaw_worm(std::uint64_t seed) {
     return battle;
 }
 
-stsrl::infra::Prediction network(const stsrl::infra::Tokens& t) {
-    const auto row = [&](int i) { return std::accumulate(t.data.begin() + i * width, t.data.begin() + (i + 1) * width, 0.0); };
-    stsrl::infra::Prediction p{float(0.5 + 0.4 * std::sin(row(0))), {}};
-    for (int i = t.count - t.actions; i < t.count; ++i) p.logits.push_back(float(std::sin(row(i))));
-    return p;
-}
-
 Gumbel::Settings gumbel() {
     Gumbel::Settings s;
     s.simulations = 8;
@@ -45,7 +36,7 @@ stsrl::search::Result decide(const Fight& fight, double rollout_mix) {
     auto random = fight.decision_random();
     auto search = std::make_unique<Gumbel>(fight.state(), gumbel(), random());
     Decision decision{fight.state(), std::move(search), rollout_mix, random()};
-    while (const auto query = decision.pending()) decision.evaluated(network(*query));
+    while (const auto query = decision.pending()) decision.evaluated(fake_network(*query));
     return decision.result();
 }
 
@@ -95,7 +86,7 @@ TEST(Decision, WithoutRolloutsIsTheSearchOnTheNetwork) {
             auto random = fight.decision_random();
             Gumbel bare{fight.state(), gumbel(), random()};
             const auto expected = stsrl::search::run(bare, [](const stsrl::search::Query& q) {
-                const auto p = network(encode(q.state, q.actions));
+                const auto p = fake_network(encode(q.state, q.actions));
                 return stsrl::search::Evaluation{p.value, p.logits};
             });
             const auto r = decide(fight, 0);
