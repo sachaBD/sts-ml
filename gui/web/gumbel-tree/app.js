@@ -9,6 +9,7 @@ const SETTINGS = { sims: 64, particles: 8, gumbel_scale: 0, rollout_mix: 0.5, re
 const state = { run: "", iteration: null, fight: "", moves: [], at: 0, search: { ...SETTINGS }, inspect: null };
 const responses = new Map();  // request → response; a decision is a pure function of its request
 let seq = 0;  // drops stale renders
+let playback = null;
 
 async function api(path, body) {
   const res = await fetch("../api/gumbel/" + path, body && { method: "POST", body: JSON.stringify(body) });
@@ -31,18 +32,62 @@ const known = (k) => responses.get(JSON.stringify(request(k)));
 // ---------- state changes ----------
 
 function play(bits) {
+  if (playback) return;
   state.moves = [...state.moves.slice(0, state.at), bits];
   state.at = state.moves.length;
   show();
 }
 function go(k) {
+  if (playback) return;
   state.at = Math.max(0, Math.min(state.moves.length, k));
   show();
 }
 async function next() {
+  if (playback) return;
   if (state.at < state.moves.length) return go(state.at + 1);
   const current = await decision(state.at);
   if (current.decision) play(current.decision.action);
+}
+
+function setPlayback(active) {
+  playback = active;
+  document.querySelectorAll(".controls input, .controls select, .controls button, #prev, #next")
+    .forEach((el) => { el.disabled = !!active && el.id !== "playFight"; });
+  $("playFight").textContent = active ? "Stop" : "Play fight";
+}
+
+async function playFight() {
+  if (playback) {
+    setPlayback(null);
+    ++seq;
+    $("status").textContent = `stopped at decision ${state.at}`;
+    return;
+  }
+  const active = {};
+  readSettings();
+  state.moves = [];
+  state.at = 0;
+  setPlayback(active);
+  try {
+    while (playback === active) {
+      const current = await show();
+      if (playback !== active || !current) break;
+      if (current.over) {
+        $("status").textContent = `fight complete · ${state.at} moves`;
+        break;
+      }
+      if (!current.decision) throw new Error("no agent move available");
+      // Yield so even cached fights paint and the Stop button stays responsive.
+      await new Promise((resolve) => setTimeout(resolve, 16));
+      if (playback !== active) break;
+      state.moves.push(current.decision.action);
+      state.at = state.moves.length;
+    }
+  } catch (e) {
+    if (playback === active) $("status").textContent = "error: " + e.message;
+  } finally {
+    if (playback === active) setPlayback(null);
+  }
 }
 
 // ---------- rendering ----------
@@ -72,6 +117,7 @@ async function show() {
   }
   inspect(current);
   renderTimeline(my);
+  return current;
 }
 
 function inspect(current) {
@@ -149,6 +195,7 @@ async function main() {
   $("iteration").onchange = () => { state.iteration = +$("iteration").value; show(); };
   $("fight").onchange = () => { state.fight = $("fight").value; state.moves = []; state.at = 0; show(); };
   $("explain").onclick = () => { readSettings(); show(); };
+  $("playFight").onclick = playFight;
   $("prev").onclick = () => go(state.at - 1);
   $("next").onclick = next;
   document.addEventListener("keydown", (e) => {
