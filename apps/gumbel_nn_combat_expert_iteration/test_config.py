@@ -26,6 +26,17 @@ class ConfigTests(unittest.TestCase):
         self.rejects(CONFIG.replace('actors = 2', 'actors = "2"'), '[workers].actors must be int')
         self.rejects(CONFIG.replace('gpu_bank = [256, 32]', 'gpu_bank = [256, 600]'), 'gpu_bank')
         self.rejects(CONFIG.replace('rollout_mix = 0.5', 'rollout_mix = 2'), 'rollout_mix')
+        self.rejects(CONFIG.replace('rollout_mix = 0.5', 'rollout_mix = 0.5\nrollout_mix_decay = -1'), 'rollout_mix_decay')
+
+    def test_rollout_mix_decays_to_zero_and_stays(self):
+        for decay in (0, 1, 7, 30):
+            search = load(CONFIG.replace('rollout_mix = 0.5', f'rollout_mix = 0.5\nrollout_mix_decay = {decay}')).search
+            mixes = [search.at(it).rollout_mix for it in range(1, 70)]
+            self.assertTrue(all(0 <= b <= a <= 0.5 for a, b in zip(mixes, mixes[1:])))
+            self.assertEqual(mixes[-1], 0 if decay else 0.5)
+            if decay:
+                self.assertEqual(search.at(decay).rollout_mix, 0)
+                self.assertGreater(search.at(decay - 1).rollout_mix, 0)
 
     def test_only_resumable_settings_may_change_on_resume(self):
         base = load(CONFIG)

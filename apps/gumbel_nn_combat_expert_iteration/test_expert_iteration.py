@@ -133,6 +133,15 @@ class ExpertIterationInvariants(unittest.TestCase):
         for p in self.self_play():
             self.assertEqual((p['search'].gumbel_scale, p['search'].sims), (1.0, 4))
 
+    def test_evaluation_keeps_its_mix_while_self_play_decays(self):
+        config = (CONFIG.replace('every = 0', 'every = 1').replace('wall_share = 0\n', 'wall_share = 0\nrollout_mix = 0\n')
+                  .replace('rollout_mix = 0.5', 'rollout_mix = 0.5\nrollout_mix_decay = 2'))
+        self.run_loop(config=config)
+        self.assertEqual({p['search'].rollout_mix for p in self.evaluations()}, {0})
+        mixes = [p['search'].rollout_mix for p in self.self_play()]
+        self.assertEqual(mixes, sorted(mixes, reverse=True))
+        self.assertTrue(mixes[0] > 0 and mixes[-1] == 0)
+
     def test_a_logged_iteration_has_its_checkpoint_and_models(self):
         control = self.run_loop()
         logged = [r['iteration'] for r in control.history() if 'iteration' in r]
