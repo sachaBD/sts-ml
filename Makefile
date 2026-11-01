@@ -50,3 +50,30 @@ clean-data: RUN :=
 clean-data: ## Preview Gumbel run cleanup: RUN=path; ARGS="--apply --drop-replay" to discard replay
 	@test -n "$(RUN)" || { echo 'Usage: make clean-data RUN=path [ARGS="--apply --drop-replay"]'; exit 2; }
 	@.venv/bin/python -m apps.gumbel_nn_combat_expert_iteration.cleanup "$(RUN)" $(ARGS)
+
+PYTHON ?= .venv/bin/python
+CMAKE ?= $(shell command -v cmake)
+CHECKPOINT ?=
+FIGHTS ?= $(CHECKPOINT)/../../inputs/test.jsonl
+FIGHT_COUNT ?= 8
+PAGES_SITE := build/pages/site
+PAGES_PORT ?= 8734
+STS_LIGHTSPEED_DIR ?= $(abspath ../lightspeed)
+
+.PHONY: pages-build pages-preview pages-publish
+pages-build: ## Prepare Pages without publishing: CHECKPOINT=path/to/iterNNN (Emscripten activated)
+	@test -n "$(CHECKPOINT)" || { echo 'Usage: make pages-build CHECKPOINT=path/to/iterNNN [FIGHTS=path]'; exit 2; }
+	@test -f "$(CHECKPOINT)/model.onnx" || { echo 'Checkpoint must contain model.onnx'; exit 2; }
+	emcmake "$(CMAKE)" -S gui/wasm -B build/gumbel-wasm -DCMAKE_BUILD_TYPE=Release -DSTS_LIGHTSPEED_DIR="$(STS_LIGHTSPEED_DIR)"
+	"$(CMAKE)" --build build/gumbel-wasm --target gumbel --parallel 4
+	@version=$$($(PYTHON) -c 'from gui.export_gumbel import ORT_VERSION; print(ORT_VERSION)') && \
+	  npm install --prefix build/web-deps --ignore-scripts --no-audit --no-fund --save-exact "onnxruntime-web@$$version"
+	$(PYTHON) -m gui.pages build --checkpoint "$(CHECKPOINT)" --fights "$(FIGHTS)" \
+	  --fight-count "$(FIGHT_COUNT)" --site "$(PAGES_SITE)"
+
+pages-preview: pages-build ## Build and serve Pages on 0.0.0.0:8734 (PAGES_PORT overrides)
+	$(PYTHON) -m http.server "$(PAGES_PORT)" --bind 0.0.0.0 --directory "$(PAGES_SITE)"
+
+pages-publish: ## Publish exactly the prepared site; refuses modified or stale builds
+	@test -f "$(PAGES_SITE).json" || { echo 'Run make pages-build CHECKPOINT=path/to/iterNNN first'; exit 2; }
+	$(PYTHON) -m gui.pages publish --site "$(PAGES_SITE)"
