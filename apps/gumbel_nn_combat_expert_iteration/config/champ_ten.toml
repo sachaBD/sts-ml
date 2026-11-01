@@ -27,6 +27,7 @@ prune_replay = true # keep five batches of samples, discard expired samples/engi
 device = "cuda"
 
 [model]
+kind = "transformer"
 dim = 64
 layers = 2
 heads = 2

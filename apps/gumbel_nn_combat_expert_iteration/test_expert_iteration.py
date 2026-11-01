@@ -8,6 +8,8 @@ from unittest.mock import MagicMock, patch
 import torch
 
 from agents.combat.nn import learner
+from agents.combat.nn.model import ModelSpec
+from agents.combat.nn.play import model_files
 from . import expert_iteration
 from .config import load
 from .run_control import RunControl
@@ -38,6 +40,7 @@ prune_replay = true
 device = "cpu"
 
 [model]
+kind = "transformer"
 dim = 8
 layers = 1
 heads = 1
@@ -72,13 +75,18 @@ class ExpertIterationInvariants(unittest.TestCase):
         (self.out / 'inputs/starts.json').write_text(json.dumps([dict(fight_id='deck', start={})]))
         (self.out / 'inputs/test.jsonl').write_text(json.dumps(dict(fight_id='t', start={})) + '\n')
         self.plays = []
-        write = lambda net, path, *shape: Path(path).touch()
-        fakes = dict(play=self.play, Replay=self.replay, train=lambda *a, **k: None, export=write, export_static=write)
-        for target, name in [(expert_iteration, 'play'), (expert_iteration, 'Replay'), (learner, 'train'),
-                             (learner, 'export'), (learner, 'export_static')]:
-            patcher = patch.object(target, name, side_effect=fakes[name])
+        fakes = [(expert_iteration, 'play', self.play), (expert_iteration, 'Replay', self.replay),
+                 (learner.Learner, 'fit', lambda *a, **k: None),
+                 (expert_iteration.ModelExporter, 'export', self.export)]
+        for target, name, fake in fakes:
+            patcher = patch.object(target, name, side_effect=fake)
             patcher.start()
             self.addCleanup(patcher.stop)
+
+    def export(self, net, directory, batch, bank):
+        files = model_files(directory, bank)
+        for path in (files['dynamic'], files['gpu'], *files['bank']):
+            path.touch()
 
     def play(self, binary, models, games, directory, search, workers, progress):
         self.plays.append(dict(models=models, directory=directory, search=search))
@@ -163,7 +171,7 @@ class ExpertIterationInvariants(unittest.TestCase):
         self.assertEqual(json.loads((control.directory / 'status.json').read_text())['phase'], 'stopped')
 
     def test_initial_checkpoint_is_iteration_zero(self):
-        initial = learner.Learner(dict(dim=8, layers=1, heads=1), 1e-3, 'cpu', seed=1)
+        initial = learner.Learner(ModelSpec('transformer', 8, 1, 1), 1e-3, 'cpu', seed=1)
         initial.save(self.out / 'inputs/initial-model.pt')
         control = self.run_loop(config=CONFIG.replace('iterations = 2', 'iterations = 1'))
         saved = torch.load(control.iteration(0) / 'model.pt', weights_only=True)['net']

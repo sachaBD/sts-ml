@@ -2,7 +2,7 @@
 
 Expert iteration on fixed Champ decks: Gumbel self-play, train on the replay window, export, evaluate.
 Hard cutover from the old `agents/combat/nn/loop.py`: its runs cannot be resumed; start from one of their
-checkpoints with `[run].initial_checkpoint`.
+checkpoints with `[run].initial_checkpoint` when their explicit architecture spec matches.
 
 ## Structure
 
@@ -16,13 +16,17 @@ checkpoints with `[run].initial_checkpoint`.
 | `supervisor.py` | Optional bounded restart after recognised CUDA failures |
 | `dashboard.py`, `web.py`, `reporting.py` | Read-only views of the run's outputs |
 
-The recipe calls the agent (`agents/combat/nn`: `play()`, `Replay`, `Learner`); `nn_play` runs as a separate
+The recipe calls the agent (`agents/combat/nn`: `play()`, `Replay`, `Learner`, `ModelExporter`); `nn_play` runs as a separate
 process per play or evaluation stage, so a CUDA failure is recoverable and PyTorch never shares GPU state with TensorRT.
 
 Config sections follow the owners: `[run]` (identity, length, optional initial checkpoint / recovery / disk
 reserve), `[search]` (self-play), `[training]` (its fights file, one fight per deck), `[model]`, `[workers]`
 (nn_play), `[evaluation]` (schedule, simulations, fights files, baselines, cohorts). Settings have no defaults;
 a typo or missing key stops the run before it starts.
+
+Choose `transformer` or `entity` (PooledTransformer) with `[model].kind`.
+The [typed config](config.py) defines supported settings; the [model contract](../../agents/combat/nn/model.py)
+and colocated tests define model guarantees.
 
 The run only reads files. A **fights file** is JSON lines, one playable fight per line: `{"fight_id", "start"}`
 (a combat_v4 start). Build them once with `make_fights.py`: `decks` turns `[[deck]]` tables (see
@@ -32,7 +36,7 @@ under `runs/benchmark/champ-ten/`.
 
 ## Run, monitor, stop
 
-From the repo root, with `nn_play` built ([instructions](../../agents/combat/nn/readme.md)).
+From the repo root, with `nn_play` built ([setup](../../README.md#setup)).
 Use a new `[run].id` and `seed_namespace` in a copy of the preset for a new experiment.
 
 ```sh

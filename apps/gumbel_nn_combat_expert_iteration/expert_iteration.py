@@ -6,13 +6,14 @@ OUT is a prepared run (prepare.py): OUT/config.toml and OUT/inputs/. Writes OUT/
 iterNNN/{samples-0.bin, results.jsonl, replay.json, model.pt, model*.onnx} and test/iterNNN/results.jsonl.
 """
 import argparse
-from dataclasses import replace
+from dataclasses import asdict, replace
 import itertools
 import json
 from pathlib import Path
 import time
 
 from agents.combat.nn.learner import Learner
+from agents.combat.nn.export import ModelExporter
 from agents.combat.nn.play import play
 from agents.combat.nn.replay import Replay
 from apps.common.app import read_jsonl
@@ -35,7 +36,8 @@ class ExpertIteration:
         self.starts = json.loads((self.inputs / 'starts.json').read_text())
         self.tests, self.tests_in = read_jsonl(self.inputs / 'test.jsonl'), read_jsonl(self.inputs / 'test-in.jsonl')
         m, t = config.model, config.training
-        self.learner = Learner(dict(dim=m.dim, layers=m.layers, heads=m.heads), t.lr, t.device, m.export_reuse)
+        self.learner = Learner(m.architecture(), t.lr, t.device)
+        self.exporter = ModelExporter(m.architecture(), m.deployment(), m.export_reuse)
         self.games = config.run.games_per_deck * len(self.starts)
         self.evaluation_search = replace(config.search, sims=config.evaluation.sims, gumbel_scale=0.0)
 
@@ -70,7 +72,7 @@ class ExpertIteration:
         (self.control.directory / 'config.toml').write_text((self.inputs.parent / 'config.toml').read_text())
         if (initial := self.inputs / 'initial-model.pt').exists():
             self.learner.load(initial)
-            self.control.log(initial_checkpoint=str(initial), spec=self.learner.net.spec)
+            self.control.log(initial_checkpoint=str(initial), spec=asdict(self.learner.net.spec))
         directory = self.control.iteration(0)
         directory.mkdir()
         begin = time.time()
@@ -123,7 +125,7 @@ class ExpertIteration:
 
     def export(self, directory):
         w = self.config.workers
-        self.learner.export(directory, w.gpu_batch, self.config.model.gpu_tokens, w.gpu_bank)
+        self.exporter.export(self.learner.net, directory, w.gpu_batch, w.gpu_bank)
 
     def evaluate(self, it):
         if not self.tests or not self.evaluation_due(it):

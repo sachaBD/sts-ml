@@ -1,63 +1,42 @@
-"""Transformer over a decision's tokens -> (win probability, one logit per token; only action tokens are legal).
+"""Combat prediction contract and the two supported architectures. No deployment policy."""
+from abc import ABC, abstractmethod
+from dataclasses import dataclass
 
-Token = [type, id, id2, numeric x 65] (agents/combat/nn/tokens.hpp); type 0 = padding, 1 = context (first), 6 = action.
-"""
-import torch
-from torch import nn
-
-WIDTH = 68
-ACTION = 6
+from torch import Tensor, nn
 
 
-class Net(nn.Module):
-    def __init__(self, dim=64, layers=2, heads=2):
-        super().__init__()
-        if dim <= 0 or layers <= 0 or heads <= 0 or dim % heads:
+@dataclass(frozen=True)
+class ModelSpec:
+    kind: str  # persisted architecture identifier; entity names PooledTransformer
+    dim: int
+    layers: int
+    heads: int
+
+    def __post_init__(self):
+        if self.kind not in ('transformer', 'entity'):
+            raise ValueError('model.kind: transformer or entity')
+        if min(self.dim, self.layers, self.heads) <= 0 or self.dim % self.heads:
             raise ValueError('positive dim/layers/heads required; dim must be divisible by heads')
-        self.spec = dict(dim=dim, layers=layers, heads=heads)
-        self.kind = nn.Embedding(8, dim)
-        self.id = nn.Embedding(8 * 1024, dim)   # per type: type * 1024 + id
-        self.id2 = nn.Embedding(1024, dim)
-        self.numeric = nn.Linear(WIDTH - 3, dim)
-        layer = nn.TransformerEncoderLayer(dim, heads, 4 * dim, dropout=0.0, batch_first=True, norm_first=True)
-        self.encoder = nn.TransformerEncoder(layer, layers, enable_nested_tensor=False)
-        self.norm = nn.LayerNorm(dim)
-        self.value = nn.Linear(dim, 1)
-        self.policy = nn.Linear(dim, 1)
-
-    def forward(self, tokens):
-        kind = tokens[..., 0].long()
-        x = (self.kind(kind) + self.id(kind * 1024 + tokens[..., 1].long()) + self.id2(tokens[..., 2].long())
-             + self.numeric(tokens[..., 3:]))
-        # Masks use < / > on the float type column: ONNX Runtime's CUDA provider runs no Equal here (CPU fallback).
-        h = self.norm(self.encoder(x, src_key_padding_mask=tokens[..., 0] < 0.5))
-        value = torch.sigmoid(self.value(h[:, 0]).squeeze(-1))
-        logits = self.policy(h).squeeze(-1).masked_fill((tokens[..., 0] - ACTION).abs() > 0.5, -1e9)
-        return value, logits
 
 
-def export(net, path):
-    """ONNX: tokens [B, T, WIDTH] -> value [B], logits [B, T]."""
-    net = net.cpu().eval()
-    example = torch.zeros(2, 3, WIDTH)
-    example[:, 0, 0], example[:, 1:, 0] = 1, ACTION
-    torch.onnx.export(net, (example,), str(path), dynamo=True, input_names=['tokens'], output_names=['value', 'logits'],
-                      dynamic_shapes={'tokens': {0: torch.export.Dim('batch'), 1: torch.export.Dim('tokens')}})
+class CombatModel(nn.Module, ABC):
+    """Tokens [B,T,68] -> win probability [B], action logits [B,T].
 
-
-class HalfInput(nn.Module):
-    """Half-precision transport; TensorRT chooses internal precision, outputs remain float32."""
-    def __init__(self, net):
+    Context is row zero; type zero is padding and type six is an action. Non-action
+    logits are masked below -1e8. Padding must not affect real-token predictions.
+    The immutable spec completely identifies the architecture, not its deployment.
+    """
+    def __init__(self, spec: ModelSpec):
         super().__init__()
-        self.net = net
+        self.spec = spec
 
-    def forward(self, tokens):
-        return self.net(tokens.float())
+    @abstractmethod
+    def forward(self, tokens: Tensor) -> tuple[Tensor, Tensor]:
+        raise NotImplementedError
 
 
-def export_static(net, path, batch, tokens):
-    """Fixed-shape GPU model: fp16 tokens [batch, tokens, WIDTH], fp32 value/logits."""
-    net = HalfInput(net.cpu().eval()).eval()
-    example = torch.zeros(batch, tokens, WIDTH, dtype=torch.float16)
-    torch.onnx.export(net, (example,), str(path), dynamo=True,
-                      input_names=['tokens'], output_names=['value', 'logits'])
+def build_model(spec: ModelSpec) -> CombatModel:
+    from .pooled_transformer import PooledTransformer
+    from .transformer import Transformer
+
+    return {'transformer': Transformer, 'entity': PooledTransformer}[spec.kind](spec)
