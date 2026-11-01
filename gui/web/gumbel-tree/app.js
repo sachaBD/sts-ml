@@ -1,6 +1,7 @@
 // Gumbel tree viewer: a fight as a line of moves; any decision on it, explained by /api/gumbel/decision.
 // The URL holds the whole state, so every view is a link.
 import { happened } from "./derive.js";
+import { browserAPI } from "./browser.js";
 import { board, inspector, rootTable, timeline, tree } from "./render.js";
 
 const $ = (id) => document.getElementById(id);
@@ -11,7 +12,9 @@ const responses = new Map();  // request → response; a decision is a pure func
 let seq = 0;  // drops stale renders
 let playback = null;
 
+const browser = window.GUMBEL_BROWSER ? browserAPI() : null;
 async function api(path, body) {
+  if (browser) return browser(path, body);
   const res = await fetch("../api/gumbel/" + path, body && { method: "POST", body: JSON.stringify(body) });
   const out = await res.json();
   if (!res.ok || out.error) throw new Error(out.error || `HTTP ${res.status}`);

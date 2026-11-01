@@ -36,6 +36,26 @@ rm -rf /tmp/pages && cp -r gui/site /tmp/pages && cd /tmp/pages && git init -b g
 
 Pages serves the `gh-pages` branch of sachaBD/sts-ml. The live site only changes when you republish.
 
+## Frozen Gumbel viewer
+
+From the repository root, with Emscripten activated:
+
+```sh
+emcmake cmake -S gui/wasm -B build/gumbel-wasm -DCMAKE_BUILD_TYPE=Release \
+  -DSTS_LIGHTSPEED_DIR=/path/to/lightspeed
+cmake --build build/gumbel-wasm --target gumbel -j4
+npm install --prefix build/web-deps --ignore-scripts --no-audit --no-fund --save-exact onnxruntime-web@1.23.2
+
+RUN=/path/to/chosen-run
+.venv/bin/python gui/export_gumbel.py --checkpoint "$RUN/out/training/iterNNN" \
+  --fights "$RUN/out/inputs/test.jsonl"
+python3 -m http.server 8734 --directory build/gumbel-site
+# http://127.0.0.1:8734/gumbel-tree/
+```
+
+Publish `build/gumbel-site/` standalone, or copy its `gumbel-tree/` and `assets/gumbel/` into the existing site
+**after** running `export.py`, preserving the other reports.
+
 ## Files
 
 | File | Role |
