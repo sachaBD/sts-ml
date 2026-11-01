@@ -20,7 +20,7 @@ used by the InferenceServer during play and by the Learner during train.
 |---|---|---|---|---|
 | Loop | 1 | python `loop` | both | starts play, runs train, exports models, prunes old replay |
 | Actor | 9 (`--workers`) | native `nn_play` | play | plays K games each (`--parallel`): search + simulator, requests NN evals, writes samples |
-| InferenceServer | 1 | native `nn_play` | play | batches all Actors' requests, runs the GPU, routes replies |
+| InferenceServer | 2 lanes (`Backend::lanes()`) | native `nn_play` | play | each lane batches Actors' requests, runs the GPU, routes replies; one lane packs and routes while the other's batch is on the GPU |
 | Reader | 4 threads | python `loop` | train | reads sampled rows with coarse `pread` tasks; Replay builds padded batches |
 | Learner | 1 | python `loop` | train | takes ready batches, runs the GPU training step |
 
@@ -40,7 +40,7 @@ used by the InferenceServer during play and by the Learner during train.
      ▼         │    │                        │              ▼
  ┌─────────────┴─┐  │   ┌──────────────┐     │      ┌───────────────┐
  │InferenceServer│  └──►│ DISK replay  ├─────┘      │ batch queue   │
- │ batch requests│      │ samples-*.bin│            │ (2-3 batches) │
+ │ 2 GPU lanes   │      │ samples-*.bin│            │ (2-3 batches) │
  └──────┬────────┘      └──────────────┘            └───────┬───────┘
         │                                                   ▼
         │                                              ┌─────────┐
@@ -50,6 +50,15 @@ used by the InferenceServer during play and by the Learner during train.
         └──────────────────►│ GPU (shared) │◄───────────────┘
                             └──────────────┘
 ```
+
+The GPU backend has two lanes, each with its own pinned/device buffers, stream and bound engines. Each
+InferenceServer lane can gather/pack/route while the other runs inference. The CPU backend keeps one lane.
+Actor slots still own one outstanding request each; inputs remain immutable until their replies, and every
+server lane is joined before any episode is destroyed, including on cancellation.
+
+`gpu_stats` reports wall-clock `seconds` and completed leaves; its `busy`, `h2d_seconds`, `inference_seconds`
+and `d2h_seconds` are summed lane times, **not GPU utilization**, and can exceed wall time. `server_cpu_pct`
+is average CPU use per server lane (`servers` in `actors_stats`), not a single-core total.
 
 ## Communication
 

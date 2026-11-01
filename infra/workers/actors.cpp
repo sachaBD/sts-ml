@@ -54,15 +54,14 @@ struct Shared {
     NextEpisode next;
     Backend& backend;
     std::vector<std::unique_ptr<Mailbox>> mailboxes;
-    std::atomic<bool> stopped{false}, server_done{false};
-    std::atomic<int> actors_done{0}, queued{0};
-    std::atomic<long long> server_heartbeat{now_ms()};
+    const int servers;  // InferenceServer lanes: one per evaluate() the backend runs at once
+    std::atomic<bool> stopped{false};
+    std::atomic<int> actors_done{0}, servers_done{0}, queued{0};
     std::mutex wake_mutex, error_mutex;
     std::condition_variable requested;
     std::exception_ptr error;
-    double server_cpu_seconds = std::nan("");
 
-    Shared(const ActorConfig& c, NextEpisode n, Backend& b) : config{c}, next{std::move(n)}, backend{b} {
+    Shared(const ActorConfig& c, NextEpisode n, Backend& b) : config{c}, next{std::move(n)}, backend{b}, servers{b.lanes()} {
         for (int i = 0; i < config.actors; ++i) mailboxes.push_back(std::make_unique<Mailbox>());
     }
     void notify() {
@@ -74,7 +73,7 @@ struct Shared {
         stopped = true;
         notify();  // Actors also wake every 10 ms
     }
-    bool all_done() const { return server_done && actors_done == config.actors; }
+    bool all_done() const { return servers_done == servers && actors_done == config.actors; }
 };
 
 class Actor {
@@ -173,7 +172,7 @@ public:
                 mailbox_.replied.wait_for(lock, 10ms, [&] { return shared_.stopped || !mailbox_.replies.empty(); });
             }
         }
-        // Slots stay alive (owned by this object) until the server has joined, even on failure.
+        // Slots stay alive (owned by this object) until the servers have joined, even on failure.
     }
 };
 
@@ -250,11 +249,14 @@ class InferenceServer {
 
 public:
     long batches = 0, requests = 0;
+    std::atomic<long long> heartbeat{now_ms()};
+    std::atomic<bool> done{false};
+    double cpu_seconds = std::nan("");
     explicit InferenceServer(Shared& shared) : shared_{shared} {}
 
     void run() {
         while (!shared_.stopped) {
-            shared_.server_heartbeat = now_ms();
+            heartbeat = now_ms();
             {
                 std::unique_lock lock{shared_.wake_mutex};
                 shared_.requested.wait_for(lock, 10ms, [&] {
@@ -275,7 +277,7 @@ std::string describe(std::exception_ptr error) {
 }
 
 // The calling thread: heartbeats, cancellation, and the hard exit if native code will not return.
-void supervise(Shared& shared) {
+void supervise(Shared& shared, const std::vector<std::unique_ptr<InferenceServer>>& servers) {
     std::optional<Clock::time_point> cancelling;
     while (!shared.all_done()) {
         if (!shared.stopped) {
@@ -286,8 +288,9 @@ void supervise(Shared& shared) {
                     shared.fail(std::make_exception_ptr(std::runtime_error{"actor timeout: actor " + std::to_string(i) +
                         " slot " + std::to_string(mailbox.current_slot.load())}));
             }
-            if (!shared.server_done && now - shared.server_heartbeat >= limit)
-                shared.fail(std::make_exception_ptr(std::runtime_error{"inference server timeout"}));
+            for (const auto& server : servers)
+                if (!server->done && now - server->heartbeat >= limit)
+                    shared.fail(std::make_exception_ptr(std::runtime_error{"inference server timeout"}));
         }
         if (shared.stopped && !cancelling) {
             cancelling = Clock::now();
@@ -304,23 +307,24 @@ void supervise(Shared& shared) {
 }  // namespace
 
 void run_actors(const ActorConfig& config, NextEpisode next, Backend& backend) {
-    if (config.actors < 1 || config.slots < 1 || config.batch < 1 || config.batch > backend.max_batch() ||
+    if (config.actors < 1 || config.slots < 1 || config.batch < 1 || config.batch > backend.max_batch() || backend.lanes() < 1 ||
         config.batch_wait.count() < 0 || config.timeout.count() <= 0 || config.shutdown_timeout.count() <= 0 || !next)
         throw std::invalid_argument{"invalid actor configuration"};
     const auto started = Clock::now();
     Shared shared{config, std::move(next), backend};
     std::vector<std::unique_ptr<Actor>> actors;
     for (int i = 0; i < config.actors; ++i) actors.push_back(std::make_unique<Actor>(shared, i));
-    InferenceServer server{shared};
-    std::jthread server_thread;
-    std::vector<std::jthread> actor_threads;
+    std::vector<std::unique_ptr<InferenceServer>> servers;
+    for (int i = 0; i < shared.servers; ++i) servers.push_back(std::make_unique<InferenceServer>(shared));
+    std::vector<std::jthread> server_threads, actor_threads;
     try {
-        server_thread = std::jthread{[&] {
+        for (auto& server : servers) server_threads.emplace_back([&shared, &server = *server] {
             const double cpu = thread_cpu_seconds();
             try { server.run(); } catch (...) { shared.fail(std::current_exception()); }
-            shared.server_cpu_seconds = thread_cpu_seconds() - cpu;
-            shared.server_done = true;
-        }};
+            server.cpu_seconds = thread_cpu_seconds() - cpu;
+            server.done = true;
+            ++shared.servers_done;
+        });
         for (int i = 0; i < config.actors; ++i) actor_threads.emplace_back([&, i] {
             const double cpu = thread_cpu_seconds();
             try { actors[i]->run(); } catch (...) { shared.fail(std::current_exception()); }
@@ -332,20 +336,23 @@ void run_actors(const ActorConfig& config, NextEpisode next, Backend& backend) {
     } catch (...) {  // thread creation failed: count the never-started threads as done
         shared.fail(std::current_exception());
         for (std::size_t i = actor_threads.size(); i < actors.size(); ++i) { shared.mailboxes[i]->done = true; ++shared.actors_done; }
-        if (!server_thread.joinable()) shared.server_done = true;
+        for (std::size_t i = server_threads.size(); i < servers.size(); ++i) { servers[i]->done = true; ++shared.servers_done; }
     }
-    supervise(shared);
-    if (server_thread.joinable()) server_thread.join();
+    supervise(shared, servers);
+    server_threads.clear();
     actor_threads.clear();
 
     const double seconds = std::chrono::duration<double>(Clock::now() - started).count();
     double actor_cpu = 0;
     for (const auto& mailbox : shared.mailboxes) actor_cpu += mailbox->cpu_seconds;
-    std::fprintf(stderr, "actors_stats: {\"seconds\":%.3f,\"actors\":%d,\"slots\":%d,\"batches\":%ld,\"requests\":%ld,"
+    long batches = 0, requests = 0;
+    double server_cpu = 0;
+    for (const auto& server : servers) { batches += server->batches; requests += server->requests; server_cpu += server->cpu_seconds; }
+    std::fprintf(stderr, "actors_stats: {\"seconds\":%.3f,\"actors\":%d,\"slots\":%d,\"servers\":%d,\"batches\":%ld,\"requests\":%ld,"
                  "\"mean_batch\":%.1f,\"actor_cpu_pct\":%.1f,\"server_cpu_pct\":%.1f}\n",
-                 seconds, config.actors, config.slots, server.batches, server.requests,
-                 server.batches ? double(server.requests) / server.batches : 0.,
-                 100 * actor_cpu / (config.actors * seconds), 100 * shared.server_cpu_seconds / seconds);
+                 seconds, config.actors, config.slots, shared.servers, batches, requests,
+                 batches ? double(requests) / batches : 0.,
+                 100 * actor_cpu / (config.actors * seconds), 100 * server_cpu / (shared.servers * seconds));
     if (shared.error) std::rethrow_exception(shared.error);
 }
 }  // namespace stsrl::infra
