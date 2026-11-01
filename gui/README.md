@@ -21,6 +21,9 @@ API failures appear in the Champ page's status area.
 Link a recorded Champ fight with `/champ/?date=2026-10-04&id=champ-ox-c-r01&part=bench-oracle&fight=<fight_id>`.
 The standalone `champ_server.py` remains available on port 8733, but is not needed with `make run`.
 
+The Gumbel tree viewer's API (`/api/gumbel/`) needs `nn_explain` (default `build/main`, else `--nn-explain PATH`) and
+lists runs under this checkout's `runs/`; add others with `--runs DIR`.
+
 ## Publish (GitHub Pages)
 
 ```
@@ -39,6 +42,7 @@ Pages serves the `gh-pages` branch of sachaBD/sts-ml. The live site only changes
 |---|---|
 | `model.py` | 3-seed ensemble (`act2-co2-w32-h64-l1-d30-lr.001-s{0,1,2}/natural.pt`), encoded via `learn.batch`; id tables from `../sts_lightspeed` headers; fight groups (act × easy/hard/elite/boss), presets and calibration from held-out natural fights (run_seed % 10 ∈ {0,1,8}) of `combat_transition_v1/2026-10-02/act2-overworld-fights` |
 | `server.py` | Local server: `GET /api/meta`, `POST /api/predict`, card art from `../sts_visualiser` at `/vis/` |
+| `gumbel_server.py` | Gumbel tree viewer API: runs, checkpoints, evaluation fights, and one decision with its search tree from `nn_explain` |
 | `model.js` | Plain-JS port of `combat_outcome_v2`; on the published fight-outcome page it replaces the server |
 | `export.py` | Writes `site/` from `web/`, adds the browser model/data/art, and writes the parity fixture in `build/` |
 | `verify.py` / `verify_js.js` | Parity checks: Python path vs saved predictions; JS vs Python |
