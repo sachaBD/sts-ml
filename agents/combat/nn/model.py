@@ -4,9 +4,10 @@ from dataclasses import dataclass
 
 from torch import Tensor, nn
 
+
 @dataclass(frozen=True)
 class ModelSpec:
-    kind: str
+    kind: str  # persisted architecture identifier; entity names PooledTransformer
     dim: int
     layers: int
     heads: int
@@ -35,7 +36,7 @@ class CombatModel(nn.Module, ABC):
 
 
 def build_model(spec: ModelSpec) -> CombatModel:
-    from .entity import EntityNet
+    from .pooled_transformer import PooledTransformer
     from .transformer import Transformer
 
-    return {'transformer': Transformer, 'entity': EntityNet}[spec.kind](spec)
+    return {'transformer': Transformer, 'entity': PooledTransformer}[spec.kind](spec)

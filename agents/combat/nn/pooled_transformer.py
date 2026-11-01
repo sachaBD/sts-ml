@@ -1,4 +1,4 @@
-"""Pooled entity transformer for Ironclad vs Champ, preserving the existing token and action contract."""
+"""Pooled-token transformer for Ironclad vs Champ, preserving the existing token and action contract."""
 import torch
 from torch import Tensor, nn
 
@@ -6,7 +6,7 @@ from .model import CombatModel
 from .tokens import CardZone, ID_CAPACITY, KIND_CAPACITY, MASKED_LOGIT, TokenKind, TokenRows, WIDTH
 
 
-class EntityNet(CombatModel):
+class PooledTransformer(CombatModel):
     """Pool relics and draw/discard/exhaust cards, then attend over retained tokens.
 
     Predictions are scattered back to the original action positions. A bounded view

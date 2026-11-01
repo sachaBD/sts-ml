@@ -5,7 +5,7 @@ from dataclasses import dataclass
 import torch
 from torch import nn
 
-from .entity import EntityNet
+from .pooled_transformer import PooledTransformer
 from .graphs import GraphCache
 from .model import CombatModel, ModelSpec
 from .tokens import TokenKind, WIDTH
@@ -28,9 +28,9 @@ class ExportSpec:
                 raise ValueError('0 < gpu_attended <= gpu_tokens required')
 
 
-class EntityView(nn.Module):
+class PooledAttentionView(nn.Module):
     """Fixed attention capacity; the native backend retries overflow on the full CPU model."""
-    def __init__(self, net: EntityNet, slots: int | None):
+    def __init__(self, net: PooledTransformer, slots: int | None):
         super().__init__()
         self.net, self.slots = net, slots
 
@@ -41,8 +41,8 @@ class EntityView(nn.Module):
 def deployment_view(net: CombatModel, spec: ExportSpec) -> nn.Module:
     """The single topology-specific deployment boundary."""
     spec.validate(net.spec)
-    if isinstance(net, EntityNet):
-        return EntityView(net, spec.attended)
+    if isinstance(net, PooledTransformer):
+        return PooledAttentionView(net, spec.attended)
     return net
 
 

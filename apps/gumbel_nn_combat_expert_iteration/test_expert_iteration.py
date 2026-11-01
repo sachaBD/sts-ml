@@ -170,7 +170,7 @@ class ExpertIterationInvariants(unittest.TestCase):
         self.assertEqual(sorted(p.name for p in control.directory.glob('iter*')), ['iter000'])
         self.assertEqual(json.loads((control.directory / 'status.json').read_text())['phase'], 'stopped')
 
-    def test_entity_runs_through_the_same_recipe(self):
+    def test_pooled_transformer_runs_through_the_same_recipe(self):
         config = CONFIG.replace('kind = "transformer"', 'kind = "entity"\ngpu_attended = 8')
         control = self.run_loop(config=config)
         checkpoint = torch.load(control.iteration(2) / 'model.pt', weights_only=True)

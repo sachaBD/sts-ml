@@ -15,8 +15,8 @@ See the [documentation index](docs/README.md), [production inference benchmark](
 - `tokens.py`: typed token kinds/card zones and named tensor field access for the native wire format.
 - `model.py`: frozen `ModelSpec`, `CombatModel` prediction contract, and the explicit two-topology factory.
 - `transformer.py`: `Transformer` attends over all tokens.
-- `entity.py`: `EntityNet` pools relics and draw/discard/exhaust cards before attention; scatters predictions back to action positions.
-- `export.py`: `ModelExporter`, deployment capacity and precision, and the entity's bounded-attention adapter.
+- `pooled_transformer.py`: `PooledTransformer` pools relics and draw/discard/exhaust cards before attention; scatters predictions back to action positions.
+- `export.py`: `ModelExporter`, deployment capacity and precision, and the pooled-attention adapter.
 - `graphs.py`: graph/weight reuse, independent of topology and tracing policy.
 - `data.py`: binary self-play samples → dense padded tensors.
 - `train.py`: outcome BCE + improved-policy cross-entropy, AdamW, bf16 training.
@@ -26,7 +26,7 @@ See the [documentation index](docs/README.md), [production inference benchmark](
 ```text
 ModelSpec ──► build_model ──► CombatModel
                               ├─ Transformer
-                              └─ EntityNet
+                              └─ PooledTransformer
                                   │
                   ┌───────────────┴────────────────┐
                Learner                        ModelExporter
@@ -42,10 +42,10 @@ Both models accept `[batch, tokens, 68]` FP32 tokens and return win probabilitie
 are masked below -1e8. Padding never changes real-token predictions. Neither model
 owns devices, export precision, worker scheduling or training policy.
 
-Entity prediction is a sequence of small stages: classify groups, embed, pool, compact,
+PooledTransformer prediction is a sequence of small stages: classify groups, embed, pool, compact,
 attend, then scatter predictions back to wire positions.
 
-The entity bounded view is an export adapter, not a different checkpoint architecture.
+The bounded pooled-attention view is an export adapter, not a different checkpoint architecture.
 `gpu_attended` counts retained tokens (context, enemy, hand and actions), excluding the
 four pooled tokens. Overflow emits a NaN value; the existing native backend retries
 against the unbounded FP32 CPU model. It never silently accepts truncated predictions.
@@ -58,7 +58,8 @@ traces CUDA FP16 autocast explicitly and requires CUDA at export time. CPU/dynam
 always remain FP32. Graph reuse is allowed only with an exact mapping for every parameter;
 otherwise export retraces (mixed-precision weights often cannot be reused).
 
-Architecture specs explicitly name `transformer` or `entity`. There is no implicit/default
+Architecture specs explicitly name `transformer` or `entity` (the stable serialized identifier
+for `PooledTransformer`, not a separate architecture or compatibility alias). There is no implicit/default
 kind, legacy `Net` alias, checkpoint translator or old export-function facade. Old unnamed
 transformer checkpoints/configs and historical Python experiment scripts are not supported
 by this interface. Entity parameter names and explicit architecture specs are unchanged.

@@ -24,8 +24,8 @@ reserve), `[search]` (self-play), `[training]` (its fights file, one fight per d
 (nn_play), `[evaluation]` (schedule, simulations, fights files, baselines, cohorts). Settings have no defaults;
 a typo or missing key stops the run before it starts.
 
-`[model].kind` is required: `transformer` (full-token attention) or `entity` (pooled
-non-hand cards/relics). `dim`, `layers`, `heads` define the checkpoint architecture.
+`[model].kind` is required: `transformer` (full-token attention) or `entity` (`PooledTransformer`: pooled
+relics and draw/discard/exhaust cards). `dim`, `layers`, `heads` define the checkpoint architecture.
 `gpu_tokens`, optional entity-only `gpu_attended`, and `gpu_mixed_precision` (default false)
 are deployment settings, not model weights. Architecture and deployment changes are refused
 on resume. `export_reuse` remains resumable. See the [model boundary](../../agents/combat/nn/readme.md#model-and-deployment-boundaries).
