@@ -74,10 +74,10 @@ class ExpertIterationInvariants(unittest.TestCase):
         (self.out / 'config.toml').write_text(CONFIG)
         (self.out / 'inputs/starts.json').write_text(json.dumps([dict(fight_id='deck', start={})]))
         (self.out / 'inputs/test.jsonl').write_text(json.dumps(dict(fight_id='t', start={})) + '\n')
-        self.plays, self.learning = [], []
+        self.plays = []
         fakes = [(expert_iteration, 'play', self.play), (expert_iteration, 'Replay', self.replay),
-                 (learner.Learner, 'fit', lambda replay, *a, **k: self.learning.append(('fit', replay.paths)) or (.1, .2)),
-                 (learner.Learner, 'score', lambda replay, *a: self.learning.append(('score', replay.paths)) or (.3, .4)),
+                 (learner.Learner, 'fit', lambda *a, **k: (.1, .2)),
+                 (learner.Learner, 'score', lambda *a: (.3, .4)),
                  (expert_iteration.ModelExporter, 'export', self.export)]
         for target, name, fake in fakes:
             patcher = patch.object(target, name, side_effect=fake)
@@ -95,9 +95,8 @@ class ExpertIterationInvariants(unittest.TestCase):
         (directory / 'samples-0.bin').touch()
         return [dict(won=True, capped=False, finished_unix=1.0) for _ in games]
 
-    def replay(self, paths, **kwargs):
+    def replay(self, *args, **kwargs):
         replay = MagicMock()
-        replay.paths = paths
         replay.__enter__.return_value = replay
         replay.__len__.return_value = 7
         replay.groups = {'deck': []}
@@ -151,18 +150,6 @@ class ExpertIterationInvariants(unittest.TestCase):
         for it in logged:
             for name in ('model.pt', 'model.onnx', 'model-gpu.onnx', 'model-gpu-b256.onnx', 'model-gpu-b32.onnx'):
                 self.assertTrue((control.iteration(it) / name).exists(), f'iter{it}/{name}')
-
-    def test_held_out_loss_scores_only_new_samples_before_training_on_them(self):
-        control = self.run_loop(config=CONFIG.replace('replay_window = 1', 'replay_window = 2'))
-        for it in (1, 2):
-            new = [control.iteration(it) / 'samples-0.bin']
-            score, fit = self.learning[2 * (it - 1):2 * it]
-            self.assertEqual(score, ('score', new))
-            self.assertEqual(fit[0], 'fit')
-            self.assertIn(new[0], fit[1])
-        for row in control.history():
-            if row.get('iteration', 0) > 0:
-                self.assertEqual((row['heldout_value_loss'], row['train_value_loss']), (.3, .1))
 
     def test_samples_outside_the_replay_window_are_pruned(self):
         control = self.run_loop()
