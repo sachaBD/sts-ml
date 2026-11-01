@@ -21,8 +21,8 @@ API failures appear in the Champ page's status area.
 Link a recorded Champ fight with `/champ/?date=2026-10-04&id=champ-ox-c-r01&part=bench-oracle&fight=<fight_id>`.
 The standalone `champ_server.py` remains available on port 8733, but is not needed with `make run`.
 
-The Gumbel tree viewer's API (`/api/gumbel/`) needs `nn_explain` (default `build/main`, else `--nn-explain PATH`) and
-lists runs under this checkout's `runs/`; add others with `--runs DIR`.
+The Gumbel tree viewer (`/gumbel-tree/`) and its API (`/api/gumbel/`) need `nn_explain` (default `build/main`, else `--nn-explain PATH`) and
+list runs under this checkout's `runs/`; add others with `--runs DIR`.
 
 ## Publish (GitHub Pages)
 
