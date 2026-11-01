@@ -101,7 +101,8 @@ class ModelExporter:
             example = torch.zeros(2, 3, WIDTH)
             example[:, 0, 0], example[:, 1:, 0] = TokenKind.CONTEXT, TokenKind.ACTION
             options['dynamic_shapes'] = {'tokens': {0: torch.export.Dim('batch'), 1: torch.export.Dim('tokens')}}
-            model = net
+            # The CPU fallback evaluates rows the bounded GPU view cannot: attend over every position.
+            model = PooledAttentionView(net, None) if isinstance(net, PooledTransformer) else net
         else:
             device = next(net.parameters()).device
             example = torch.zeros(batch, self.deployment.tokens, WIDTH, dtype=torch.float16, device=device)

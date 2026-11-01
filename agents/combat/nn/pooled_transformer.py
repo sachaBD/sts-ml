@@ -31,7 +31,7 @@ class PooledTransformer(CombatModel):
 
     def forward(self, tokens):
         # Attend over the longest retained row rather than the padded length: identical predictions, and
-        # ~4x fewer encoder positions on real replay (pooling leaves ~16 of ~66). Export uses predict directly.
+        # ~4x fewer encoder positions on real replay (pooling leaves ~16 of ~66). Export views call predict.
         _, keep = self._group_masks(TokenRows(tokens))
         return self.predict(tokens, int(keep.sum(dim=1).max()))
 
