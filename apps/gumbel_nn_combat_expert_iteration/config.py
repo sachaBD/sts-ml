@@ -52,6 +52,8 @@ class Model:
     heads: int
     gpu_tokens: int
     export_reuse: bool = resumable()
+    kind: str = 'net'
+    gpu_attended: int | None = None
 
 
 @dataclass(frozen=True)
@@ -119,6 +121,10 @@ def validate(c):
          'training: positive steps, batch, lr, replay_window; nonnegative max_train_rows')
     need(m.dim > 0 and m.layers > 0 and m.heads > 0 and m.dim % m.heads == 0 and m.gpu_tokens > 0,
          'model: positive dim, layers, heads, gpu_tokens; dim divisible by heads')
+    need(m.kind in ('net', 'entity'), 'model.kind: net or entity')
+    need(m.kind != 'entity' or (m.gpu_attended is not None and 0 < m.gpu_attended <= m.gpu_tokens and not m.export_reuse),
+         'entity model: 0 < gpu_attended <= gpu_tokens; export_reuse must be false')
+    need(m.kind != 'net' or m.gpu_attended is None, 'gpu_attended is only supported for entity models')
     need(w.actors > 0 and w.slots > 0 and w.gpu_batch > 0 and w.gpu_wait_us >= 0 and w.timeout_ms > 0
          and w.shutdown_timeout_ms > 0, 'workers: positive counts and timeouts, nonnegative gpu_wait_us')
     need(len(set(w.gpu_bank)) == len(w.gpu_bank) and all(0 < b < w.gpu_batch for b in w.gpu_bank),

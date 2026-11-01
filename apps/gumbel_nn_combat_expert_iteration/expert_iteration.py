@@ -35,7 +35,10 @@ class ExpertIteration:
         self.starts = json.loads((self.inputs / 'starts.json').read_text())
         self.tests, self.tests_in = read_jsonl(self.inputs / 'test.jsonl'), read_jsonl(self.inputs / 'test-in.jsonl')
         m, t = config.model, config.training
-        self.learner = Learner(dict(dim=m.dim, layers=m.layers, heads=m.heads), t.lr, t.device, m.export_reuse)
+        spec = dict(dim=m.dim, layers=m.layers, heads=m.heads)
+        if m.kind == 'entity':
+            spec['kind'] = m.kind
+        self.learner = Learner(spec, t.lr, t.device, m.export_reuse, gpu_attended=m.gpu_attended)
         self.games = config.run.games_per_deck * len(self.starts)
         self.evaluation_search = replace(config.search, sims=config.evaluation.sims, gumbel_scale=0.0)
 

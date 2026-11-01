@@ -55,9 +55,43 @@ class HalfInput(nn.Module):
         return self.net(tokens.float())
 
 
-def export_static(net, path, batch, tokens):
+def export_static(net, path, batch, tokens, attended=None):
     """Fixed-shape GPU model: fp16 tokens [batch, tokens, WIDTH], fp32 value/logits."""
+    if getattr(net, 'spec', {}).get('kind') == 'entity':
+        return export_entity_static(net, path, batch, tokens, attended)
     net = HalfInput(net.cpu().eval()).eval()
     example = torch.zeros(batch, tokens, WIDTH, dtype=torch.float16)
     torch.onnx.export(net, (example,), str(path), dynamo=True,
                       input_names=['tokens'], output_names=['value', 'logits'])
+
+
+class MixedInput(nn.Module):
+    """fp16 transport and fp16 compute written into the graph (autocast: fp16 matmuls, fp32 norms/softmax).
+    Left to TensorRT, the precision choice is per shape and sometimes keeps whole GEMMs in fp32 (about 2x slower).
+    Outputs remain float32."""
+    def __init__(self, net):
+        super().__init__()
+        self.net = net
+
+    def forward(self, tokens):
+        with torch.autocast('cuda', torch.float16):
+            value, logits = self.net(tokens.float())
+        return value.float(), logits.float()
+
+
+def export_entity_static(net, path, batch, tokens, attended):
+    """Fixed-shape GPU model: fp16 tokens [batch, tokens, WIDTH], fp32 value/logits.
+    attended: compacted attention slots for an EntityNet (entity.py); ignored by Net."""
+    device = next(net.parameters()).device
+    net = net.cuda().eval()
+    previous = getattr(net, 'attended', None)
+    if hasattr(net, 'attended'):
+        net.attended = attended
+    try:
+        example = torch.zeros(batch, tokens, WIDTH, dtype=torch.float16, device='cuda')
+        torch.onnx.export(MixedInput(net).eval(), (example,), str(path), dynamo=True,
+                          input_names=['tokens'], output_names=['value', 'logits'])
+    finally:
+        if hasattr(net, 'attended'):
+            net.attended = previous
+        net.to(device)

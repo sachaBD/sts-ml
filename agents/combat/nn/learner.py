@@ -1,6 +1,7 @@
 """The network and its optimizer: trains on replay, saves and restores checkpoints, exports what nn_play loads."""
 import torch
 
+from .entity import EntityNet
 from .graphs import Exporter
 from .model import Net, export, export_static
 from .play import model_files
@@ -8,9 +9,11 @@ from .train import train
 
 
 class Learner:
-    def __init__(self, spec, lr, device, export_reuse=False, seed=0):
+    def __init__(self, spec, lr, device, export_reuse=False, seed=0, gpu_attended=None):
         torch.manual_seed(seed)
-        self.net = Net(**spec).to(device)
+        factory = {'net': Net, 'entity': EntityNet}[spec.get('kind', 'net')]
+        self.net = factory(**{k: v for k, v in spec.items() if k != 'kind'}).to(device)
+        self.gpu_attended = gpu_attended
         self.optimizer = torch.optim.AdamW(self.net.parameters(), lr=lr, weight_decay=1e-4)
         self.device = device
         exporter = Exporter() if export_reuse else None
@@ -38,9 +41,10 @@ class Learner:
     def export(self, directory, gpu_batch, gpu_tokens, gpu_bank):
         files = model_files(directory, gpu_bank)
         self._export(self.net, files['dynamic'])
-        self._export_static(self.net, files['gpu'], gpu_batch, gpu_tokens)
+        extra = (self.gpu_attended,) if self.net.spec.get('kind') == 'entity' else ()
+        self._export_static(self.net, files['gpu'], gpu_batch, gpu_tokens, *extra)
         for batch, path in zip(gpu_bank, files['bank']):
-            self._export_static(self.net, path, batch, gpu_tokens)
+            self._export_static(self.net, path, batch, gpu_tokens, *extra)
         self.net.to(self.device)  # the exporters move it to the CPU
         if self.device.startswith('cuda'):
             torch.cuda.empty_cache()  # leave VRAM for the next native TensorRT worker
