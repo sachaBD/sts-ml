@@ -24,13 +24,9 @@ reserve), `[search]` (self-play), `[training]` (its fights file, one fight per d
 (nn_play), `[evaluation]` (schedule, simulations, fights files, baselines, cohorts). Settings have no defaults;
 a typo or missing key stops the run before it starts.
 
-`[model].kind` is required: `transformer` (full-token attention) or `entity` (`PooledTransformer`: pooled
-relics and draw/discard/exhaust cards). `dim`, `layers`, `heads` define the checkpoint architecture.
-`gpu_tokens`, optional entity-only `gpu_attended`, and `gpu_mixed_precision` (default false)
-are deployment settings, not model weights. Architecture and deployment changes are refused
-on resume. `export_reuse` remains resumable. See the [model boundary](../../agents/combat/nn/readme.md#model-and-deployment-boundaries).
-Old unnamed transformer checkpoint specs and configs require an explicit cutover; no
-compatibility adapter is provided. Overnight experiment files are not part of this change.
+Choose `transformer` or `entity` (PooledTransformer) with `[model].kind`.
+The [typed config](config.py) defines supported settings; the [model contract](../../agents/combat/nn/model.py)
+and colocated tests define model guarantees.
 
 The run only reads files. A **fights file** is JSON lines, one playable fight per line: `{"fight_id", "start"}`
 (a combat_v4 start). Build them once with `make_fights.py`: `decks` turns `[[deck]]` tables (see
@@ -40,7 +36,7 @@ under `runs/benchmark/champ-ten/`.
 
 ## Run, monitor, stop
 
-From the repo root, with `nn_play` built ([instructions](../../agents/combat/nn/readme.md)).
+From the repo root, with `nn_play` built ([setup](../../README.md#setup)).
 Use a new `[run].id` and `seed_namespace` in a copy of the preset for a new experiment.
 
 ```sh
