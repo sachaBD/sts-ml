@@ -27,6 +27,7 @@ class Workers:
     gpu_wait_us: int
     timeout_ms: int
     shutdown_timeout_ms: int
+    gpu_wide_batch: int = 32
 
 
 def model_files(directory, gpu_bank):
@@ -35,7 +36,8 @@ def model_files(directory, gpu_bank):
                 bank=[directory / f'model-gpu-b{b}.onnx' for b in gpu_bank])
 
 
-def play(binary, models, fights, directory, search, workers, progress=lambda done, pid: None, sample_devices=True):
+def play(binary, models, fights, directory, search, workers, progress=lambda done, pid: None, sample_devices=True,
+         gpu_attended=0, gpu_wide_attended=0):
     """Plays `fights` with nn_play `binary` and the models in `models`; writes samples, results and logs to `directory`.
     Results are journaled as fights finish; progress(done, pid) follows them."""
     directory.mkdir(parents=True, exist_ok=True)
@@ -52,6 +54,11 @@ def play(binary, models, fights, directory, search, workers, progress=lambda don
                '--shutdown-timeout-ms', str(workers.shutdown_timeout_ms),
                '--sims', str(search.sims), '--gumbel-scale', str(search.gumbel_scale),
                '--rollout-mix', str(search.rollout_mix), '--particles', str(search.particles)]
+    if gpu_attended:
+        command += ['--gpu-attended', str(gpu_attended)]
+    if gpu_wide_attended:
+        command += ['--gpu-wide-model', str(models / 'wide/model-gpu.onnx'),
+                    '--gpu-wide-attended', str(gpu_wide_attended)]
     if files['bank']:
         command += ['--gpu-bank', ','.join(map(str, files['bank']))]
     # TensorRT and CUDA libraries come from the dependency-managed environment, not system-wide installs.
