@@ -1,0 +1,113 @@
+[hidden] { display:none !important; }
+.view-tabs { display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-bottom:20px; }
+.view-tabs button { padding:8px 16px; }
+.view-tabs .active { color:var(--train); border-color:var(--train); background:#6ea8fe12; }
+#healthFreshness { margin-left:auto; font-size:12px; }
+.resource-frame h2 { margin:0; font-size:16px; font-weight:500; }
+.resource-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:24px 36px; margin:24px 0; }
+.resource h3 { margin:0 0 16px; font-size:14px; font-weight:500; }
+.resource-reading { margin-bottom:12px; }
+.resource-heading { display:flex; justify-content:space-between; gap:12px; margin-bottom:7px; font-size:12px; color:var(--dim); }
+.resource-heading strong { color:var(--text); font-weight:500; font-variant-numeric:tabular-nums; }
+.resource-meter { height:7px; border-radius:3px; background:var(--line); overflow:hidden; }
+.resource-meter > div { height:100%; background:var(--train); }
+.resource-cores { display:grid; grid-template-columns:repeat(auto-fit,minmax(48px,1fr)); gap:4px; margin:14px 0 8px; }
+.resource-core { position:relative; background:var(--line); border-radius:3px; overflow:hidden; padding:4px 0; text-align:center; }
+.resource-core > div { position:absolute; bottom:0; width:100%; background:#6ea8fe55; }
+.resource-core span { display:block; position:relative; font-variant-numeric:tabular-nums; }
+.resource-core-index { font-size:10px; color:var(--dim); }
+.resource-core-value { font-size:12px; }
+.resource-status { padding-top:14px; border-top:1px solid var(--line); }
+#healthPanel.offline .resource-grid { opacity:.4; }
+#healthPanel.offline .resource-status { color:var(--test); }
+@media (max-width:650px) {
+  .resource-grid { grid-template-columns:1fr; }
+  #healthFreshness { width:100%; margin-left:0; }
+  .resource-frame .head { gap:8px; flex-wrap:wrap; }
+}
+.execution-frame { margin-top:16px; }
+.execution-frame h2 { margin:0; font-size:16px; font-weight:500; }
+.execution-driver { display:flex; gap:16px; margin-top:20px; font-size:12px; color:var(--dim); }
+.execution-phase.active { color:var(--train); font-weight:600; }
+.execution-phase-arrow { margin-left:12px; color:var(--dim); font-weight:400; }
+.execution-stage { margin-top:8px; }
+.execution-return { border:1px solid var(--line); border-top:0; height:22px; margin:0 10% 0; text-align:center; border-radius:0 0 8px 8px; color:var(--dim); font-size:11px; }
+.execution-return span { display:inline-block; background:var(--card); padding:0 10px; transform:translateY(12px); }
+@media (max-width:700px) {
+  .execution-return { display:none; }
+  .execution-driver { gap:8px; }
+  .execution-phase-arrow { margin-left:4px; }
+  .execution-frame .head { flex-wrap:wrap; gap:8px; }
+}
+.topology { display:grid; grid-template-columns:minmax(250px,1.1fr) 38px minmax(210px,.85fr) 38px minmax(240px,1fr); align-items:center; margin:24px 0 16px; }
+.topology h3 { margin:0 0 16px; font-size:13px; font-weight:500; }
+.topology-heading { display:flex; justify-content:space-between; align-items:baseline; }
+.topology-heading > span { color:var(--dim); font-size:10px; }
+.topology-rate-label { display:inline-block; width:55px; text-align:right; margin-left:10px; }
+.topology-actors { position:relative; }
+.topology-actors::after { content:''; position:absolute; right:-14px; top:50px; bottom:17px; width:1px; background:#6ea8fe55; }
+.topology-actor { display:grid; grid-template-columns:35px 1fr 42px; align-items:center; gap:8px; position:relative; height:37px; }
+.topology-actor::after { content:''; position:absolute; right:-14px; width:14px; height:1px; background:#6ea8fe55; }
+.topology-actor-id { font:11px ui-monospace,monospace; color:var(--dim); }
+.topology-actor-id::before { content:''; display:inline-block; width:5px; height:5px; border-radius:50%; background:var(--dim); margin-right:6px; }
+.topology-slots { display:flex; height:15px; background:var(--line); border-radius:3px; overflow:hidden; }
+.slot-ready { background:var(--train); }
+.slot-waiting { background:#f0b46a99; }
+.slot-empty { background:var(--line); }
+.topology-rate { font-size:11px; color:var(--dim); text-align:right; font-variant-numeric:tabular-nums; }
+.topology-wire { position:relative; text-align:right; color:var(--train); font-size:20px; }
+.topology-wire::before { content:''; position:absolute; left:14px; right:10px; top:50%; height:1px; background:#6ea8fe55; }
+.topology-service { border:1px solid var(--line); border-radius:10px; padding:18px; background:var(--bg); }
+.topology-queue-heading, .topology-queue-wait { display:flex; justify-content:space-between; gap:10px; font-size:12px; color:var(--dim); }
+.topology-queue-heading strong { color:var(--text); font-weight:500; font-variant-numeric:tabular-nums; }
+.topology-queue-wait { font-size:10px; }
+.topology-service-arrow { text-align:center; color:var(--dim); padding:14px 0; }
+.topology-dispatch-title { font-size:10px; color:var(--dim); margin-bottom:8px; }
+.topology-dispatcher { display:grid; grid-template-columns:24px 1fr; gap:7px; border:1px solid var(--line); border-radius:5px; padding:10px; margin-top:8px; font-size:10px; }
+.topology-dispatcher strong { font-weight:500; color:var(--dim); }
+.topology-dispatcher > span { text-align:right; color:var(--dim); }
+.topology-dispatch-batch { grid-column:1/-1; display:flex; height:4px; background:var(--line); border-radius:2px; overflow:hidden; }
+.dispatch-fill { background:var(--train); }
+.topology-lane { position:relative; border:1px solid var(--line); background:var(--bg); border-radius:8px; padding:14px; margin-bottom:12px; }
+.topology-lane-heading { display:flex; align-items:center; justify-content:space-between; font-size:12px; }
+.topology-lane-heading strong { font-weight:500; }
+.topology-lane-phase { font-size:10px; color:var(--dim); }
+.topology-lane-footer { display:flex; justify-content:space-between; font-size:10px; color:var(--dim); margin-top:10px; font-variant-numeric:tabular-nums; }
+.topology-fallback { color:var(--test); font-size:11px; text-align:right; min-height:15px; }
+.topology-legend { display:flex; gap:16px; align-items:center; font-size:10px; color:var(--dim); }
+.topology-legend > span:not(:last-child)::before { content:''; display:inline-block; width:7px; height:7px; border-radius:2px; margin-right:5px; }
+.legend-ready::before { background:var(--train); }
+.legend-waiting::before { background:#f0b46a99; }
+.legend-empty::before { background:var(--line); }
+#executionMode { margin-left:auto; color:var(--train); }
+.topology.unavailable { opacity:.4; }
+.topology-slots.unknown { background:repeating-linear-gradient(135deg,var(--line),var(--line) 5px,#161a1f 5px,#161a1f 10px); }
+#healthPanel.offline .topology { opacity:.4; }
+@media (max-width:950px) {
+  .topology { grid-template-columns:minmax(180px,1fr) 24px minmax(180px,.85fr) 24px minmax(200px,1fr); }
+  .topology-service { padding:12px; }
+}
+@media (max-width:700px) {
+  .topology { grid-template-columns:1fr; gap:16px; }
+  .topology-wire { transform:rotate(90deg); text-align:center; }
+  .topology-wire::before, .topology-actors::after, .topology-actor::after { display:none; }
+  .topology-legend { flex-wrap:wrap; gap:8px; }
+  #executionMode { width:100%; margin-left:0; }
+}
+/* Keep sampled windows readable: animate proportions, not individual requests. */
+.topology-slots > span, .dispatch-fill { transition:width .9s ease-in-out; flex-shrink:0; }
+.topology-actor-id::before { background:var(--good); opacity:var(--activity,0); transition:opacity .9s ease-in-out; box-shadow:none; }
+.topology-queue-meter { position:relative; height:32px; margin:12px 0; background:repeating-linear-gradient(to right,var(--line),var(--line) calc(100% / 24 - 2px),var(--bg) calc(100% / 24 - 2px),var(--bg) calc(100% / 24)); border-radius:3px; }
+.queue-fill { display:block; height:100%; background:#f0b46a99; border-radius:3px; transition:width .9s ease-in-out; }
+.queue-peak { position:absolute; top:-3px; bottom:-3px; width:2px; background:var(--test); transition:left .9s ease-in-out; }
+.topology-lane-time { display:flex; height:34px; margin:16px 0 12px; border-radius:4px; overflow:hidden; background:var(--line); }
+.topology-lane-time > span { display:flex; flex-shrink:0; align-items:center; justify-content:center; overflow:hidden; white-space:nowrap; font-size:9px; color:var(--text); transition:width .9s ease-in-out; }
+.lane-time-packing { background:#7d859066; }
+.lane-time-h2d { background:#4fd1d977; }
+.lane-time-inference { background:#6ea8feaa; }
+.lane-time-d2h { background:#5fd39a77; }
+.lane-time-idle { background:var(--line); color:var(--dim) !important; }
+.topology-lane-throughput { font-size:20px; font-weight:500; font-variant-numeric:tabular-nums; }
+@media (prefers-reduced-motion:reduce) {
+  .topology *, .resource-meter > div { transition:none !important; }
+}
