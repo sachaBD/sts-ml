@@ -38,9 +38,9 @@ one extra variant of a held-out composition is explicitly withheld, giving 9,941
 Each update collects 10,000 fights: uniform deck draws with replacement, HP jitter 0.1 and sampled potions. Search:
 16 simulations, eight particles, Gumbel scale 1; rollout mix 0.5 falls to zero at update 30.
 
-Learning: 500 AdamW steps of 2,048 sampled rows, learning rate 0.001, uniform replay over five updates, no row cap.
-A larger window is under discussion; disk headroom must be resolved before increasing it. The buffer is already
-disk-indexed, with only sampled minibatches read and length-bounded padding. Expired replay is pruned. Worker: nine actors × 224 slots; GPU batches 512/256/32, 64-token GPU capacity with 24
+Learning: 500 AdamW steps of 2,048 sampled rows, learning rate 0.001, uniform replay over ten updates (100k fights),
+no row cap. **Launch is blocked on disk headroom and explicit permission.** The buffer is disk-indexed, with only
+sampled minibatches read and length-bounded padding. Expired replay is pruned. Worker: nine actors × 224 slots; GPU batches 512/256/32, 64-token GPU capacity with 24
 attended slots and mixed precision; larger/overflowing states use the full CPU model.
 
 Evaluate initially and every three updates, 64 simulations, no Gumbel noise or rollout blending: 1,900 primary
@@ -65,11 +65,11 @@ Training replay ratio R = optimizer row draws / newly collected decision rows. E
 - The 448-fight potion probe at 16 sims averaged 38.42 decisions/fight. Scaling that workload to 10k fights gives
   R ≈ 2.66 and 3.81 GiB/update. One small probe; not a prediction interval for this full-corpus run.
 - Changing buffer size does not change R at a fixed collection/training budget. It spreads draws over more history.
-  A ten-update window would retain about 100k fights; it is a candidate, not an approved config change.
+  The agreed ten-update window retains up to 100k fights.
 - Pruning happens after collection/training. Ten retained updates therefore need room for eleven sample batches
   temporarily, plus the 10 GiB reserve: about 42 GiB using the previous run's workload, or 52 GiB scaling the potion
-  probe, before checkpoint growth. Only about 36 GiB is free. Keep the five-update config until capacity is resolved;
-  do not silently delete other runs. `max_train_rows` caps the replay index, not stored sample bytes.
+  probe, before checkpoint growth. Only about 36 GiB is free. Aim for about 60 GiB free before launching;
+  cleanup needs explicit approval. `max_train_rows` caps the replay index, not stored sample bytes.
 
 ## Evaluation and checkpoint selection
 
