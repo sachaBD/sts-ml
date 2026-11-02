@@ -22,7 +22,7 @@ worker = "nn_play"
 seed_namespace = "test"
 iterations = 2
 
-[decks]
+[starts]
 fights = "unused"
 per_iteration = 5
 

@@ -20,7 +20,7 @@ from agents.combat.nn.replay import Replay
 from apps.common.app import read_jsonl
 
 from .config import experiment_changes, load
-from .decks import tally
+from .reporting import deck_of
 from .run_control import RunControl, delete_samples
 
 # Rows of an iteration's own samples scored before training on them: a few seconds, and enough to compare
@@ -32,6 +32,16 @@ def collection_stats(results):
     finished = sorted(r['finished_unix'] for r in results)
     return dict(capped=sum(r['capped'] for r in results),
                 tail95_seconds=finished[-1] - finished[int(.95 * (len(finished) - 1))] if finished else None)
+
+
+def tally(counts, results):
+    """A copy of counts ({deck: {fights, wins}}) with results added."""
+    counts = {deck: dict(c) for deck, c in counts.items()}
+    for r in results:
+        c = counts[deck_of(r['fight_id'])]
+        c['fights'] += 1
+        c['wins'] += bool(r['won'])
+    return counts
 
 
 class ExpertIteration:
@@ -100,7 +110,7 @@ class ExpertIteration:
         recorded.rename(recorded.with_name(f'config-before-resume-{time.time_ns()}.toml'))
         recorded.write_text((self.inputs.parent / 'config.toml').read_text())
         self.learner.load(self.control.iteration(completed) / 'model.pt')
-        self.control.log(resume_from=completed, fights_per_iteration=self.config.decks.per_iteration)
+        self.control.log(resume_from=completed, fights_per_iteration=self.config.starts.per_iteration)
         # A stop or crash between the checkpoint and its evaluation must not skip that evaluation.
         if not any(r.get('test') == completed for r in self.control.history()):
             self.control.archive(self.control.directory / 'test' / f'iter{completed:03d}')
@@ -109,7 +119,8 @@ class ExpertIteration:
 
     def self_play(self, it):
         previous, directory = self.control.iteration(it - 1), self.control.iteration(it)
-        fights = self.config.decks.draw(self.pool, f'{self.config.run.seed_namespace}:{it}')
+        s = self.config.starts
+        fights = s.draw(self.pool, f'{self.config.run.seed_namespace}:{it}', s.per_iteration)
         results = self.play(f'iteration {it}', previous, fights, directory, self.config.search.at(it))
         counts = json.loads((previous / 'decks.json').read_text())
         (directory / 'decks.json').write_text(json.dumps(tally(counts, results)))

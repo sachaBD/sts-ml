@@ -17,7 +17,7 @@ class ConfigTests(unittest.TestCase):
 
     def test_the_preset_is_valid(self):
         config = load(PRESET.read_text())
-        self.assertEqual(config.decks.fights, 'runs/benchmark/champ-ten/decks.jsonl')
+        self.assertEqual(config.starts.fights, 'runs/benchmark/champ-ten/decks.jsonl')
         self.assertEqual(config.workers.gpu_bank, (256, 32))
 
     def test_a_mistake_stops_the_run(self):

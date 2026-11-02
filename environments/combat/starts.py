@@ -1,8 +1,14 @@
-"""Fresh-seeded copies of combat starts (combat_v4 `start` objects), seeded the way the simulator seeds them."""
+"""Combat starts (combat_v4 `start` objects): fresh-seeded copies, seeded the way the simulator seeds them, and
+draws from a pool of decks with their starts varied."""
 import copy
+from dataclasses import dataclass
 import hashlib
+import random
+from statistics import NormalDist
 
 MASK = (1 << 64) - 1
+# A normal draw lies beyond this many standard deviations half the time.
+MEDIAN_MOVE = NormalDist().inv_cdf(0.75)
 
 
 def rng_state(seed):
@@ -27,3 +33,28 @@ def seeded(base, fight_id):
 def fights(base, name, n):
     """n copies of base with fresh seeds derived from name."""
     return [seeded(base, f'{name}:{i}') for i in range(n)]
+
+
+@dataclass(frozen=True)
+class Starts:
+    hp_jitter: float = 0.0  # half of starts move their deck's HP by more than this fraction of max HP
+
+    def draw(self, pool, name, n):
+        """n fights named name:deck:i, each on a deck ({fight_id: deck, start}) drawn uniformly, with replacement,
+        from pool, then varied."""
+        rng = random.Random(name)
+        picks = rng.choices(pool, k=n)
+        fights = [seeded(deck, f'{name}:{deck["fight_id"]}:{i}') for i, deck in enumerate(picks)]
+        for f in fights:
+            self.vary(f['start'], rng)
+        return fights
+
+    def vary(self, start, rng):
+        """Each variation of a start, in turn."""
+        jitter_hp(start, rng, self.hp_jitter)
+
+
+def jitter_hp(start, rng, median):
+    """HP normal around start's, moving by more than median x max HP half the time; kept within [1, max HP]."""
+    sd = median / MEDIAN_MOVE * start['max_hp']
+    start['hp'] = min(start['max_hp'], max(1, round(rng.gauss(start['hp'], sd))))

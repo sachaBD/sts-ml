@@ -17,18 +17,18 @@ EVALUATION_INPUTS = {'in_sample_fights': 'test-in.jsonl', 'final_fights': 'FINAL
 
 def inputs(raw):
     """The files this run reads (lineage for apps/common/launch.sh)."""
-    run, decks, evaluation = (raw.get(k, {}) for k in ('run', 'decks', 'evaluation'))
-    paths = [decks.get('fights'), run.get('initial_checkpoint'), evaluation.get('fights'),
+    run, starts, evaluation = (raw.get(k, {}) for k in ('run', 'starts', 'evaluation'))
+    paths = [starts.get('fights'), run.get('initial_checkpoint'), evaluation.get('fights'),
              *(evaluation.get(k) for k in EVALUATION_INPUTS)]
     return sorted(p for p in paths if p)
 
 
 def run(_raw, config_path, out):
     config = load(config_path.read_text())
-    decks = read_jsonl(config.decks.fights)
+    decks = read_jsonl(config.starts.fights)
     names = [f['fight_id'] for f in decks]
     if not decks or len(set(names)) != len(names) or not all(re.fullmatch(r'[a-z0-9_-]+', n) for n in names):
-        sys.exit('[decks].fights: at least one, with unique fight_ids (deck names) in [a-z0-9_-]')
+        sys.exit('[starts].fights: at least one, with unique fight_ids (deck names) in [a-z0-9_-]')
     if config.training.balanced_replay and len(decks) > config.training.batch:
         sys.exit('balanced_replay draws every deck in each batch: needs no more decks than [training].batch')
     frozen = out / 'inputs'
