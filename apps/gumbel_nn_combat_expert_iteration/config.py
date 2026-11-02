@@ -2,9 +2,8 @@
 
 Settings have no defaults, except optional features. A count of 0 means unlimited or off (iterations,
 max_train_rows, evaluation every and wall_share); evaluation sims 0 plays the network alone.
-The training fights file holds one fight per deck (fight_id = deck name); each self-play fight draws its deck
-uniformly, with replacement. Evaluation plays [search] without noise; final_fights are copied with the run, never
-played. Fights files and baselines are built offline by make_fights.py.
+[starts] draws self-play's fights from its deck pool and varies them. Evaluation plays [search] without noise; final_fights are
+copied with the run, never played. Fights files and baselines are built offline by make_fights.py.
 A run may resume with different `resumable()` settings; any other change would be a different experiment.
 """
 from dataclasses import MISSING, dataclass, field, fields
@@ -17,6 +16,7 @@ from agents.combat.nn.play import Search, Workers
 from agents.combat.nn.model import ModelSpec
 from agents.combat.nn.export import ExportSpec
 from apps.common.app import check_keys, required
+from environments.combat.starts import Starts
 
 
 def resumable(**kwargs):
@@ -28,7 +28,6 @@ class Run:
     id: str
     worker: str
     seed_namespace: str
-    fights_per_iteration: int
     iterations: int = resumable()
     initial_checkpoint: str | None = None
     recovery_retries: int = resumable(default=0)
@@ -45,9 +44,14 @@ class SelfPlay(Search):
         return Search(self.sims, self.gumbel_scale, mix, self.particles)
 
 
+@dataclass(frozen=True, kw_only=True)
+class SelfPlayStarts(Starts):
+    fights: str  # the deck pool: one fight per deck, fight_id = deck name
+    per_iteration: int
+
+
 @dataclass(frozen=True)
 class Training:
-    fights: str
     steps: int
     batch: int
     lr: float
@@ -93,6 +97,7 @@ class Evaluation:
 @dataclass(frozen=True)
 class Config:
     run: Run
+    starts: SelfPlayStarts
     search: SelfPlay
     training: Training
     model: Model
@@ -133,9 +138,10 @@ def validate(c):
     def need(ok, message):
         if not ok:
             sys.exit(f'config: {message}')
-    r, s, t, m, w, e = c.run, c.search, c.training, c.model, c.workers, c.evaluation
-    need(r.fights_per_iteration > 0 and r.iterations >= 0 and r.recovery_retries >= 0 and r.min_free_gib >= 0,
-         'positive fights_per_iteration; nonnegative iterations, recovery_retries, min_free_gib')
+    r, st, s, t, m, w, e = c.run, c.starts, c.search, c.training, c.model, c.workers, c.evaluation
+    need(r.iterations >= 0 and r.recovery_retries >= 0 and r.min_free_gib >= 0,
+         'nonnegative iterations, recovery_retries, min_free_gib')
+    need(st.per_iteration > 0 and st.hp_jitter >= 0, 'starts: positive per_iteration, nonnegative hp_jitter')
     need(s.sims >= 0 and s.gumbel_scale >= 0 and 0 <= s.rollout_mix <= 1 and s.particles > 0 and s.rollout_mix_decay >= 0,
          'search: nonnegative sims, gumbel_scale and rollout_mix_decay, rollout_mix in [0, 1], positive particles')
     need(t.steps > 0 and t.batch > 0 and t.lr > 0 and t.replay_window > 0 and t.max_train_rows >= 0,

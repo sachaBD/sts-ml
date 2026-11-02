@@ -6,8 +6,11 @@
 id = "gumbel-nn-champ-ten-v1"
 worker = "build/nn/agents/combat/nn/nn_play"
 seed_namespace = "gumbel-nn-champ-ten-v1"
-fights_per_iteration = 5000 # decks drawn uniformly; replacement reserve beyond 9 x 224 active slots
 iterations = 0 # run until ./run.sh stop RUN_DIRECTORY; finish the active update cleanly
+
+[starts]
+fights = "runs/benchmark/champ-ten/decks.jsonl" # make_fights decks config/champ_ten_decks.toml
+per_iteration = 5000 # replacement reserve beyond 9 x 224 active slots
 
 [search] # self-play; evaluation plays the same search without noise
 sims = 256
@@ -17,7 +20,6 @@ rollout_mix_decay = 30 # rollouts bootstrap: mix falls linearly to 0 (network al
 particles = 8
 
 [training]
-fights = "runs/benchmark/champ-ten/decks.jsonl" # make_fights decks config/champ_ten_decks.toml
 steps = 100
 batch = 2048
 lr = 0.001
