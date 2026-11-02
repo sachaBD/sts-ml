@@ -99,6 +99,9 @@ struct Engine {
 
 // Captured graphs retain buffer addresses; each lane needs its own engines and buffers.
 struct Lane {
+    mutable std::mutex telemetry_mutex;
+    LaneSnapshot telemetry;
+    TimeIntegral<6> time{{1, 0, 0, 0, 0, 0}};
     cudaStream_t stream = nullptr;
     std::vector<std::unique_ptr<Engine>> engines;  // ascending batch size
     std::uint16_t *host_in = nullptr, *in = nullptr;  // fp16 bits
@@ -153,7 +156,9 @@ public:
         : lane_count_{lanes}, attended_{attended}, cpu_{onnx} {
         if (lanes < 1 || attended < 0) throw std::invalid_argument{"positive lanes and nonnegative attended required"};
         if (fixed.empty()) throw std::invalid_argument{"gpu backend: at least one fixed-shape model required"};
-        for (int i = 0; i < lane_count_; ++i) lanes_.push_back(std::make_unique<Lane>(env_, fixed));
+        for (int i = 0; i < lane_count_; ++i) {
+            lanes_.push_back(std::make_unique<Lane>(env_, fixed)); lanes_.back()->telemetry.id = i;
+        }
         const auto& engines = lanes_.front()->engines;
         tokens_ = engines.front()->tokens;
         width_ = engines.front()->width;
@@ -177,6 +182,19 @@ public:
     int width() const override { return width_; }
     int max_batch() const override { return batch_; }
     int lanes() const override { return lane_count_; }
+    void enable_telemetry(bool enabled) override { telemetry_enabled_ = enabled; }
+    BackendSnapshot telemetry() const override {
+        BackendSnapshot result;
+        result.kind = "gpu"; result.tokens = tokens_; result.attended = attended_;
+        if (!telemetry_enabled_) return result;
+        for (const auto& lane : lanes_) {
+            std::lock_guard lock{lane->telemetry_mutex};
+            auto s = lane->telemetry; s.time_seconds = lane->time.snapshot(); result.lanes.push_back(s);
+        }
+        { std::lock_guard lock{stats_mutex_};
+          result.oversized_rows = total_.cpu_leaves; result.precision_retries = total_.precision_retries; }
+        return result;
+    }
     bool accepts(const Tokens& tokens) const override {
         return tokens.count <= tokens_ && (!attended_ || (tokens.attended > 0 && tokens.attended <= attended_));
     }
@@ -197,7 +215,8 @@ public:
         if (!cpu.empty()) fallback(inputs, cpu, out, stats);
         if (!gpu.empty()) {
             Lane& lane = acquire();
-            try { run(lane, inputs, gpu, out, stats); } catch (...) { release(lane); throw; }
+            try { run(lane, inputs, gpu, out, stats); } catch (...) { phase(lane, 0); release(lane); throw; }
+            phase(lane, 0);
             release(lane);
         }
         stats.busy = since(begin);
@@ -229,6 +248,12 @@ private:
         return *lane;
     }
 
+    void phase(Lane& lane, std::size_t index) {
+        if (!telemetry_enabled_) return;
+        std::array<double, 6> state{}; state[index] = 1;
+        std::lock_guard lock{lane.telemetry_mutex}; lane.time.set(state);
+    }
+
     void release(Lane& lane) {
         std::lock_guard lock{lanes_mutex_};
         free_.push_back(&lane);
@@ -245,19 +270,23 @@ private:
     void run(Lane& lane, std::span<const Input> inputs, const std::vector<std::size_t>& rows, std::vector<Prediction>& out, Stats& stats) {
         const std::size_t stride = std::size_t(tokens_) * width_;
         const int n = int(rows.size());
+        phase(lane, 1);
         for (int k = 0; k < n; ++k) {
             const auto packed = inputs[rows[k]].packed;
             if (packed.size() != stride) throw std::invalid_argument{"gpu backend: packed input has the wrong size"};
             std::memcpy(lane.host_in + k * stride, packed.data(), packed.size_bytes());
         }
         auto& engine = **std::find_if(lane.engines.begin(), lane.engines.end(), [n](const auto& e) { return e->batch >= n; });
+        phase(lane, 2);
         auto t = Clock::now();
         check(cudaMemcpyAsync(lane.in, lane.host_in, n * stride * sizeof(std::uint16_t), cudaMemcpyHostToDevice, lane.stream));
         check(cudaStreamSynchronize(lane.stream));
         stats.h2d += since(t); t = Clock::now();
+        phase(lane, 3);
         engine.session.Run(Ort::RunOptions{}, engine.binding);
         check(cudaStreamSynchronize(lane.stream));
         stats.inference += since(t); t = Clock::now();
+        phase(lane, 4);
         check(cudaMemcpyAsync(lane.host_value, lane.value, n * sizeof(float), cudaMemcpyDeviceToHost, lane.stream));
         check(cudaMemcpyAsync(lane.host_logits, lane.logits, std::size_t(n) * tokens_ * sizeof(float), cudaMemcpyDeviceToHost, lane.stream));
         check(cudaStreamSynchronize(lane.stream));
@@ -269,13 +298,19 @@ private:
             const bool finite = std::isfinite(p.value) && std::all_of(p.logits.begin(), p.logits.end(), [](float x) { return std::isfinite(x); });
             if (!finite) {  // capacity or numerical failure: redo on the full fp32 model
                 const std::array<const Tokens*, 1> retry{&tokens};
+                phase(lane, 5);
                 p = cpu_.evaluate(retry).front();
+                phase(lane, 4);
                 if (precision_warned_.exchange(true) == false)
                     std::fprintf(stderr, "gpu backend: non-finite GPU prediction; retried in fp32 on the CPU\n");
                 ++stats.precision_retries;
             }
         }
         ++stats.batches; stats.leaves += n; stats.capacity += engine.batch; ++stats.shapes[engine.batch];
+        if (telemetry_enabled_) {
+            std::lock_guard lock{lane.telemetry_mutex};
+            ++lane.telemetry.batches; lane.telemetry.rows += n; lane.telemetry.capacity_rows += engine.batch;
+        }
     }
 
     void report() {
@@ -293,10 +328,12 @@ private:
         std::fprintf(stderr, "}}\n");
     }
 
+    bool telemetry_enabled_ = false;
     CpuBackend cpu_;  // ONNX Runtime sessions run concurrently, so lanes share it
     Ort::Env env_{ORT_LOGGING_LEVEL_WARNING, "infra-gpu"};
     std::vector<std::unique_ptr<Lane>> lanes_;
-    std::mutex lanes_mutex_, stats_mutex_;
+    std::mutex lanes_mutex_;
+    mutable std::mutex stats_mutex_;
     std::vector<Lane*> free_;
     int batch_ = 0, tokens_ = 0, width_ = 0;
     Stats total_;

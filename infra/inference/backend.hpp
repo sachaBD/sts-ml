@@ -2,6 +2,7 @@
 // What crosses between Actors and the InferenceServer: token sequences in, predictions out.
 // Model contract (ONNX): input "tokens" [batch, tokens, width] -> "value" [batch] in 0..1, "logits" [batch, tokens].
 // Rows are padded with all-zero tokens; the legal actions are the LAST `actions` tokens of each row.
+#include "infra/telemetry.hpp"
 #include <cstdint>
 #include <filesystem>
 #include <memory>
@@ -37,6 +38,9 @@ public:
     virtual void prepare(const Tokens&, std::vector<std::uint16_t>& packed) const { packed.clear(); }
     virtual int lanes() const { return 1; }  // maximum concurrent evaluate() calls
     virtual std::vector<Prediction> evaluate(std::span<const Input>) = 0;
+    // Enable only before workers start; snapshots must never wait for GPU calls to finish.
+    virtual void enable_telemetry(bool) {}
+    virtual BackendSnapshot telemetry() const { return {}; }
 };
 
 // ONNX Runtime on the CPU, one thread: any batch, any token count.

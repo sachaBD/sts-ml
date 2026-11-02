@@ -28,12 +28,13 @@ struct ActorConfig {
 };
 
 // Thread-safe source of episodes; nullptr when there are none left. Runs on the Actor that will own the episode.
+using RuntimeObserver = std::function<void(const RuntimeSnapshot&)>;
 using NextEpisode = std::function<std::unique_ptr<Episode>()>;
 
 // Runs the Actors and the InferenceServer lanes until every episode has finished; the calling thread supervises.
 // Throws the first failure; a timeout is a failure, never a lost episode. If a native call cannot be stopped
 // within shutdown_timeout the process exits nonzero rather than hang or free state still in use.
 // First accepting backend wins; the last handles requests none accept. Backends outlive this call.
-void run_actors(const ActorConfig&, NextEpisode, const std::vector<Backend*>&);
-void run_actors(const ActorConfig&, NextEpisode, Backend&);
+void run_actors(const ActorConfig&, NextEpisode, const std::vector<Backend*>&, RuntimeObserver = {});
+void run_actors(const ActorConfig&, NextEpisode, Backend&, RuntimeObserver = {});
 }  // namespace stsrl::infra

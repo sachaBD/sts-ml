@@ -11,6 +11,7 @@ public:
     ~CpuBackend() override;
     int width() const override;
     int max_batch() const override { return std::numeric_limits<int>::max(); }
+    BackendSnapshot telemetry() const override { BackendSnapshot s; s.kind = "cpu"; return s; }
     std::vector<Prediction> evaluate(std::span<const Input>) override;
     std::vector<Prediction> evaluate(std::span<const Tokens* const>);
 private:

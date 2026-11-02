@@ -10,6 +10,11 @@ foreach(test decision_test explanation_test)
     gtest_discover_tests(nn_${test} PROPERTIES TIMEOUT 10)
 endforeach()
 
+add_executable(nn_runtime_telemetry_test runtime_telemetry_test.cpp)
+target_link_libraries(nn_runtime_telemetry_test PRIVATE nn_decision infra_actors GTest::gtest_main)
+target_compile_options(nn_runtime_telemetry_test PRIVATE -Wall -Wextra -Wpedantic)
+gtest_discover_tests(nn_runtime_telemetry_test PROPERTIES TIMEOUT 10)
+
 if(NOT TARGET infra_inference)
     message(STATUS "nn_play / nn_explain not built: infra_inference unavailable")
     return()
