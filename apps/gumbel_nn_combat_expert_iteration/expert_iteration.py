@@ -12,6 +12,7 @@ import itertools
 import json
 from pathlib import Path
 import random
+from statistics import NormalDist
 import time
 
 from agents.combat.nn.learner import Learner
@@ -36,10 +37,16 @@ def collection_stats(results):
                 tail95_seconds=finished[-1] - finished[int(.95 * (len(finished) - 1))] if finished else None)
 
 
-def draw(decks, name, n):
-    """n fights named name:deck:i, each on a deck drawn uniformly, with replacement, from decks."""
-    picks = random.Random(name).choices(decks, k=n)
-    return [seeded(deck, f'{name}:{deck["fight_id"]}:{i}') for i, deck in enumerate(picks)]
+def draw(decks, name, n, hp_jitter):
+    """n fights named name:deck:i, each on a deck drawn uniformly, with replacement, from decks. Each fight's HP is
+    normal around its deck's, so that half move by more than hp_jitter x max HP, and kept within [1, max HP]."""
+    rng = random.Random(name)
+    sd = hp_jitter / NormalDist().inv_cdf(0.75)
+    fights = [seeded(deck, f'{name}:{deck["fight_id"]}:{i}') for i, deck in enumerate(rng.choices(decks, k=n))]
+    for f in fights:
+        start = f['start']
+        start['hp'] = min(start['max_hp'], max(1, round(rng.gauss(start['hp'], sd * start['max_hp']))))
+    return fights
 
 
 def tally(counts, results):
@@ -127,7 +134,8 @@ class ExpertIteration:
 
     def self_play(self, it):
         previous, directory = self.control.iteration(it - 1), self.control.iteration(it)
-        fights = draw(self.decks, f'{self.config.run.seed_namespace}:{it}', self.config.run.fights_per_iteration)
+        fights = draw(self.decks, f'{self.config.run.seed_namespace}:{it}', self.config.run.fights_per_iteration,
+                      self.config.training.hp_jitter)
         results = self.play(f'iteration {it}', previous, fights, directory, self.config.search.at(it))
         counts = json.loads((previous / 'decks.json').read_text())
         (directory / 'decks.json').write_text(json.dumps(tally(counts, results)))

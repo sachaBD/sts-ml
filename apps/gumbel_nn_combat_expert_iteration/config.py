@@ -56,6 +56,7 @@ class Training:
     balanced_replay: bool
     prune_replay: bool = resumable()
     device: str
+    hp_jitter: float = 0.0  # half of self-play fights move their deck's HP by more than this fraction of max HP
 
 
 @dataclass(frozen=True)
@@ -138,8 +139,8 @@ def validate(c):
          'positive fights_per_iteration; nonnegative iterations, recovery_retries, min_free_gib')
     need(s.sims >= 0 and s.gumbel_scale >= 0 and 0 <= s.rollout_mix <= 1 and s.particles > 0 and s.rollout_mix_decay >= 0,
          'search: nonnegative sims, gumbel_scale and rollout_mix_decay, rollout_mix in [0, 1], positive particles')
-    need(t.steps > 0 and t.batch > 0 and t.lr > 0 and t.replay_window > 0 and t.max_train_rows >= 0,
-         'training: positive steps, batch, lr, replay_window; nonnegative max_train_rows')
+    need(t.steps > 0 and t.batch > 0 and t.lr > 0 and t.replay_window > 0 and t.max_train_rows >= 0 and t.hp_jitter >= 0,
+         'training: positive steps, batch, lr, replay_window; nonnegative max_train_rows, hp_jitter')
     try:
         m.deployment().validate(m.architecture())
     except ValueError as error:

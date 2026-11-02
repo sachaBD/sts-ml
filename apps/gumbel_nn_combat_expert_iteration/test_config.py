@@ -26,6 +26,7 @@ class ConfigTests(unittest.TestCase):
         self.rejects(CONFIG.replace('actors = 2', 'actors = "2"'), '[workers].actors must be int')
         self.rejects(CONFIG.replace('gpu_bank = [256, 32]', 'gpu_bank = [256, 600]'), 'gpu_bank')
         self.rejects(CONFIG.replace('rollout_mix = 0.5', 'rollout_mix = 2'), 'rollout_mix')
+        self.rejects(CONFIG.replace('device = "cpu"', 'device = "cpu"\nhp_jitter = -0.1'), 'hp_jitter')
         self.rejects(CONFIG.replace('rollout_mix = 0.5', 'rollout_mix = 0.5\nrollout_mix_decay = -1'), 'rollout_mix_decay')
 
     def test_rollout_mix_decays_to_zero_and_stays(self):

@@ -1,6 +1,7 @@
 """Invariants of the recipe on a prepared run. nn_play, replay and ONNX export are faked; checkpoints are real."""
 import json
 from pathlib import Path
+from statistics import median
 import tempfile
 import unittest
 from unittest.mock import MagicMock, patch
@@ -73,7 +74,7 @@ class ExpertIterationInvariants(unittest.TestCase):
         self.out = Path(self.tmp.name)
         (self.out / 'inputs').mkdir()
         (self.out / 'config.toml').write_text(CONFIG)
-        self.decks = [dict(fight_id=name, start=dict(hp=hp, seed=0)) for hp, name in enumerate(['a', 'b', 'c'])]
+        self.decks = [dict(fight_id=name, start=dict(hp=hp, max_hp=80, seed=0)) for hp, name in zip((10, 40, 80), 'abc')]
         (self.out / 'inputs/starts.json').write_text(json.dumps(self.decks))
         (self.out / 'inputs/test.jsonl').write_text(json.dumps(dict(fight_id='t', start={})) + '\n')
         self.plays = []
@@ -212,6 +213,24 @@ class ExpertIterationInvariants(unittest.TestCase):
         saved = torch.load(control.iteration(0) / 'model.pt', weights_only=True)['net']
         for name, value in initial.net.state_dict().items():
             torch.testing.assert_close(saved[name], value)
+
+
+class DrawInvariants(unittest.TestCase):
+    DECKS = [dict(fight_id=name, start=dict(hp=hp, max_hp=80)) for name, hp in (('low', 2), ('mid', 40), ('full', 80))]
+
+    def test_hp_stays_playable_and_max_hp_never_changes(self):
+        decks = {d['fight_id']: d['start'] for d in self.DECKS}
+        for hp_jitter in (0, 0.1, 2):
+            for f in expert_iteration.draw(self.DECKS, 'ns:1', 300, hp_jitter):
+                start, deck = f['start'], decks[deck_of(f['fight_id'])]
+                self.assertEqual(start['max_hp'], deck['max_hp'])
+                self.assertTrue(1 <= start['hp'] <= start['max_hp'])
+                if not hp_jitter:
+                    self.assertEqual(start['hp'], deck['hp'])
+
+    def test_half_of_fights_move_hp_by_more_than_hp_jitter(self):
+        fights = expert_iteration.draw(self.DECKS[1:2], 'ns:1', 4000, 0.1)
+        self.assertAlmostEqual(median(abs(f['start']['hp'] - 40) for f in fights), 0.1 * 80, delta=1)
 
 
 if __name__ == '__main__':
