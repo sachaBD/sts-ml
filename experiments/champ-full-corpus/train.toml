@@ -8,12 +8,12 @@ min_free_gib = 10
 
 [starts]
 fights = "runs/benchmark/champ-full-corpus-v1/frozen/training.jsonl"
-per_iteration = 5000
+per_iteration = 10000
 hp_jitter = 0.1
 potions = true
 
 [search]
-sims = 128
+sims = 16
 particles = 8
 gumbel_scale = 1.0
 rollout_mix = 0.5
