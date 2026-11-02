@@ -5,8 +5,10 @@
       --runs <megacrit_runs_v1 run dirs> --out {out}
 
 Writes out/starts.parquet (all converted decks) and out/starts_pv.parquet (same without Runic Dome: the PV agent rejects
-hidden intents), plus summary.json. One row per (deck, copy k): copy 1 uses the human's seed_played, copies 2.. use
-fresh seeds --seed0 + i. Everything not rebuilt from the human record (gold, RNG counters, room fields) is copied from
+hidden intents), plus summary.json. For combat training, decks without Runic Dome or Prismatic Shard, one per run, each
+in a fixed part by its play_id: out/decks.jsonl (training: one fight per deck), out/validation.jsonl and
+out/final.jsonl (--held-out-fights per held-out deck, at its HP with potions as at Champ). One row per (deck, copy k):
+copy 1 uses the human's seed_played, copies 2.. use fresh seeds --seed0 + i. Everything not rebuilt from the human record (gold, RNG counters, room fields) is copied from
 one row of a template starts file. Known approximations: potions empty; card misc 0; Searing Blow with >1 upgrade
 is stored as upgraded=True; deck and relic order are sorted by name (true order is unknown); bottled = none.
 """
@@ -14,17 +16,21 @@ from __future__ import annotations
 
 import argparse
 import collections
+import hashlib
 import json
+import random
 import sys
 from pathlib import Path
 
 import duckdb
 import pyarrow as pa
 import pyarrow.parquet as pq
+from sts_lightspeed import enums
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from apps.megacrit_dump.champ_starts import header_array  # noqa: E402
 from apps.pv.starts import start_type  # noqa: E402
+from environments.combat.starts import Starts, fights as copies  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_TEMPLATE = ROOT / "runs/schema=pv_starts_v1/id=champ-bench2k/starts.parquet"
@@ -34,6 +40,8 @@ BASE_OK = {"event_card_upgrade_unknown", "bottled_relic"}
 MISC_CARDS = {"ritual_dagger", "genetic_algorithm"}  # carry a per-card `misc` value we do not know
 COPY_KEYS = ("ascension", "act", "floor", "encounter", "cur_room", "last_room", "burning_elite_buff", "gold",
              "misc_rng", "potion_rng")
+# Runic Dome hides intents; Prismatic Shard brings other characters' cards.
+NOT_DECKS = {enums.RELICS.index("RUNIC_DOME"), enums.RELICS.index("PRISMATIC_SHARD")}
 
 
 def enum_index():
@@ -82,7 +90,10 @@ def convert(row: dict, seed: int, template: dict, cards: dict, relics: dict, sta
     if row["hp"] is None or row["max_hp"] is None:
         stats["skipped_no_hp"] += 1
         return None
-    cap = 3 if "potion_belt" in row["relics"] else 2
+    if not 1 <= row["hp"] <= row["max_hp"] <= 32767:  # combat_v4 HP is int16
+        stats["skipped_invalid_hp"] += 1
+        return None
+    cap = (2 if template["ascension"] >= 11 else 3) + (2 if "potion_belt" in row["relics"] else 0)
     start = {k: template[k] for k in COPY_KEYS}
     start.update(seed=to_u64(seed), hp=row["hp"], max_hp=row["max_hp"], potion_capacity=cap,
                  potions=[EMPTY_POTION] * cap, relics=rel, deck=deck, bottled=[-1, -1, -1])
@@ -141,6 +152,32 @@ def build(champ_rows, seeds, template, k, seed0, include="base-exact"):
     return out, stats
 
 
+def part(play_id):
+    """train, validation or final (about 2% each held out), by the run alone: new pulls never move a run."""
+    x = int(hashlib.sha256(play_id.encode()).hexdigest(), 16) / 2 ** 256
+    return "validation" if x < 0.02 else "final" if x < 0.04 else "train"
+
+
+def decks(fights):
+    """{part: decks}: {fight_id: mc-<play_id>, start} per run (its first copy), without a NOT_DECKS relic."""
+    out = {"train": [], "validation": [], "final": []}
+    for f in fights:
+        if f["copy"] == 1 and not {r["id"] for r in f["start"]["relics"]} & NOT_DECKS:
+            out[part(f["play_id"])].append({"fight_id": f"mc-{f['play_id']}", "start": f["start"]})
+    return out
+
+
+def held_out_fights(held_out, name, n):
+    """n fixed fights per deck, named name:deck:i, at the deck's HP with potions as at Champ."""
+    out = []
+    for deck in held_out:
+        rng = random.Random(f"{name}:{deck['fight_id']}")
+        for f in copies(deck, f"{name}:{deck['fight_id']}", n):
+            Starts(potions=True).vary(f["start"], rng)
+            out.append(f)
+    return out
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--champ-starts", nargs="+", required=True)
@@ -150,6 +187,7 @@ def main():
     ap.add_argument("--seed0", type=int, default=997_000_000_000)
     ap.add_argument("--include", choices=["exact", "base-exact"], default="base-exact")
     ap.add_argument("--limit", type=int, default=None, help="keep only the first N fights (smoke tests)")
+    ap.add_argument("--held-out-fights", type=int, default=10, help="fights per validation or final deck")
     ap.add_argument("--out", required=True)
     a = ap.parse_args()
     out = Path(a.out)
@@ -164,13 +202,19 @@ def main():
     schema = pa.schema([("fight_id", pa.string()), ("start", start_type()), ("augment", pa.string()),
                         ("source_fight_id", pa.string()), ("play_id", pa.string()), ("exact", pa.bool_()),
                         ("base_exact", pa.bool_()), ("copy", pa.int32())])
-    dome = int(header_array("Relics.h", "relicEnumNames").index("RUNIC_DOME"))
+    dome = enums.RELICS.index("RUNIC_DOME")
     pv = [f for f in fights if not any(r["id"] == dome for r in f["start"]["relics"])]
     for name, fs in (("starts.parquet", fights), ("starts_pv.parquet", pv)):
         pq.write_table(pa.Table.from_pylist(fs, schema=schema), out / name, compression="zstd")
+    parts = decks(fights)
+    files = {"decks": parts["train"], "validation": held_out_fights(parts["validation"], "megacrit", a.held_out_fights),
+             "final": held_out_fights(parts["final"], "megacrit", a.held_out_fights)}
+    for name, written in files.items():
+        (out / f"{name}.jsonl").write_text("".join(json.dumps(r) + "\n" for r in written))
     summary = {"champ_rows_in": len(rows), **stats, "fights": len(fights), "fights_pv_no_dome": len(pv),
                "dome_fights_dropped_for_pv": len(fights) - len(pv),
-               "dome_decks": (len(fights) - len(pv)) // max(1, a.k), "k": a.k, "seed0": a.seed0, "include": a.include}
+               "dome_decks": (len(fights) - len(pv)) // max(1, a.k), "k": a.k, "seed0": a.seed0, "include": a.include,
+               "deck_parts": {p: len(d) for p, d in parts.items()}}
     (out / "summary.json").write_text(json.dumps(summary, indent=2))
     print(json.dumps(summary, indent=2))
 
