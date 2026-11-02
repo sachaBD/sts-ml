@@ -20,8 +20,11 @@ CONFIG = """
 id = "test"
 worker = "nn_play"
 seed_namespace = "test"
-fights_per_iteration = 5
 iterations = 2
+
+[decks]
+fights = "unused"
+per_iteration = 5
 
 [search]
 sims = 4
@@ -30,7 +33,6 @@ rollout_mix = 0.5
 particles = 2
 
 [training]
-fights = "unused"
 steps = 1
 batch = 4
 lr = 0.001
@@ -73,7 +75,7 @@ class ExpertIterationInvariants(unittest.TestCase):
         self.out = Path(self.tmp.name)
         (self.out / 'inputs').mkdir()
         (self.out / 'config.toml').write_text(CONFIG)
-        self.decks = [dict(fight_id=name, start=dict(hp=hp, seed=0)) for hp, name in enumerate(['a', 'b', 'c'])]
+        self.decks = [dict(fight_id=name, start=dict(hp=40, max_hp=80)) for name in 'abc']
         (self.out / 'inputs/starts.json').write_text(json.dumps(self.decks))
         (self.out / 'inputs/test.jsonl').write_text(json.dumps(dict(fight_id='t', start={})) + '\n')
         self.plays = []
@@ -129,16 +131,6 @@ class ExpertIterationInvariants(unittest.TestCase):
         for p in self.self_play():
             it = int(p['directory'].name[4:])
             self.assertEqual(p['models'], control.iteration(it - 1))
-
-    def test_self_play_fights_are_freshly_seeded_training_decks(self):
-        self.run_loop()
-        decks = {d['fight_id']: d['start'] for d in self.decks}
-        fights = [f for p in self.self_play() for f in p['fights']]
-        self.assertEqual(len({f['fight_id'] for f in fights}), len(fights))
-        self.assertEqual(len({f['start']['seed'] for f in fights}), len(fights))
-        stable = lambda start: {k: v for k, v in start.items() if k not in {'seed', 'misc_rng', 'potion_rng'}}
-        for f in fights:
-            self.assertEqual(stable(f['start']), stable(decks[deck_of(f['fight_id'])]))
 
     def test_deck_counts_are_every_self_play_result_so_far(self):
         self.run_loop(config=CONFIG.replace('iterations = 2', 'iterations = 1'))

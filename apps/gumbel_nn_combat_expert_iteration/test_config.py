@@ -17,7 +17,7 @@ class ConfigTests(unittest.TestCase):
 
     def test_the_preset_is_valid(self):
         config = load(PRESET.read_text())
-        self.assertEqual(config.training.fights, 'runs/benchmark/champ-ten/decks.jsonl')
+        self.assertEqual(config.decks.fights, 'runs/benchmark/champ-ten/decks.jsonl')
         self.assertEqual(config.workers.gpu_bank, (256, 32))
 
     def test_a_mistake_stops_the_run(self):
@@ -26,6 +26,7 @@ class ConfigTests(unittest.TestCase):
         self.rejects(CONFIG.replace('actors = 2', 'actors = "2"'), '[workers].actors must be int')
         self.rejects(CONFIG.replace('gpu_bank = [256, 32]', 'gpu_bank = [256, 600]'), 'gpu_bank')
         self.rejects(CONFIG.replace('rollout_mix = 0.5', 'rollout_mix = 2'), 'rollout_mix')
+        self.rejects(CONFIG.replace('per_iteration = 5', 'per_iteration = 5\nhp_jitter = -0.1'), 'hp_jitter')
         self.rejects(CONFIG.replace('rollout_mix = 0.5', 'rollout_mix = 0.5\nrollout_mix_decay = -1'), 'rollout_mix_decay')
 
     def test_rollout_mix_decays_to_zero_and_stays(self):
