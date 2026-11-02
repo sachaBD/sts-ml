@@ -5,7 +5,6 @@
 #include "environments/combat/public.hpp"
 #include "infra/workers/actors.hpp"
 #include "environments/combat/record_v4.hpp"
-#include "sim/search/PublicBeliefCombatSearch.h"
 #include <atomic>
 #include <chrono>
 #include <cstdio>
@@ -112,7 +111,6 @@ public:
 };
 
 void import(std::ofstream& samples) {
-    using Public = sts::search::PublicBeliefCombatSearch;
     for (std::string line; std::getline(std::cin, line);) {
         if (line.empty()) continue;
         const auto record = Json::parse(line);
@@ -128,9 +126,9 @@ void import(std::ofstream& samples) {
                 std::vector<float> policy(actions.size(), 0);
                 float total = 0;
                 for (const auto& child : searched[step]->at("children")) {
-                    const auto key = Public::publicActionKey(state, sts::search::Action{child.at("action").get<std::uint32_t>()});
+                    const auto key = stsrl::combat::action_key(state, sts::search::Action{child.at("action").get<std::uint32_t>()});
                     std::size_t i = 0;
-                    while (i < actions.size() && Public::publicActionKey(state, actions[i]) != key) ++i;
+                    while (i < actions.size() && stsrl::combat::action_key(state, actions[i]) != key) ++i;
                     if (i == actions.size()) {
                         std::string message = "import: recorded action is not legal; fight=" +
                             fight.at("fight_id").get<std::string>() + " step=" + std::to_string(step) +

@@ -53,7 +53,7 @@ std::vector<Action> legal_actions(const sts::BattleContext& state) {
     return actions;
 }
 
-std::uint64_t action_key(const sts::BattleContext& state, Action action) { return Public::publicActionKey(state, action); }
+std::uint64_t action_key(const sts::BattleContext& state, Action action) { return Public::identityActionKey(state, action); }
 std::uint64_t observation_key(const sts::BattleContext& state) { return Public::observationKey(state); }
 
 std::vector<sts::BattleContext> particles(const sts::BattleContext& observed, int count, std::uint64_t stream) {
