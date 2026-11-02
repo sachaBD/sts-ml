@@ -53,6 +53,8 @@ class ExpertIteration:
         m, t = config.model, config.training
         self.learner = Learner(m.architecture(), t.lr, t.device)
         self.exporter = ModelExporter(m.architecture(), m.deployment(), m.export_reuse)
+        self.wide_exporter = (ModelExporter(m.architecture(), wide, m.export_reuse)
+                              if (wide := m.wide_deployment()) else None)
         e = config.evaluation
         self.evaluation_search = Search(e.sims, 0.0, config.search.rollout_mix if e.rollout_mix is None else e.rollout_mix,
                                         config.search.particles)
@@ -110,6 +112,8 @@ class ExpertIteration:
         recorded.rename(recorded.with_name(f'config-before-resume-{time.time_ns()}.toml'))
         recorded.write_text((self.inputs.parent / 'config.toml').read_text())
         self.learner.load(self.control.iteration(completed) / 'model.pt')
+        # Deployment may change on resume; rebuild the wide model from the committed checkpoint.
+        self.export_wide(self.control.iteration(completed))
         self.control.log(resume_from=completed, fights_per_iteration=self.config.starts.per_iteration)
         # A stop or crash between the checkpoint and its evaluation must not skip that evaluation.
         if not any(r.get('test') == completed for r in self.control.history()):
@@ -154,6 +158,13 @@ class ExpertIteration:
     def export(self, directory):
         w = self.config.workers
         self.exporter.export(self.learner.net, directory, w.gpu_batch, w.gpu_bank)
+        self.export_wide(directory)
+
+    def export_wide(self, directory):
+        if self.wide_exporter:
+            wide = directory / 'wide'
+            wide.mkdir(exist_ok=True)
+            self.wide_exporter.export(self.learner.net, wide, self.config.workers.gpu_wide_batch, ())
 
     def evaluate(self, it):
         if not self.tests or not self.evaluation_due(it):
@@ -183,6 +194,8 @@ class ExpertIteration:
     def play(self, stage, models, games, directory, search):
         self.control.status(stage=stage, phase='play', done=0, total=len(games), directory=str(directory))
         return play(self.inputs / 'nn_play', models, games, directory, search, self.config.workers,
+                    gpu_attended=self.config.model.gpu_attended or 0,
+                    gpu_wide_attended=self.config.model.gpu_wide_attended or 0,
                     progress=lambda done, pid: self.control.status(stage=stage, phase='play', done=done,
                                                                    total=len(games), child_pid=pid,
                                                                    directory=str(directory)))
