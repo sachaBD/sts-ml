@@ -9,23 +9,16 @@
       Evaluation on a teacher run's fights, for paired comparison: OUT_DIR/fights.jsonl, baselines.json (each
       player's result per fight it completed) and cohorts.json (decks with teacher fights are `original`,
       generated-only decks `added`). A player's results are RUN's out/DIRECTORY/results.jsonl.
-
-  python -m apps.gumbel_nn_combat_expert_iteration.make_fights split DECKS.jsonl OUT_DIR --namespace NS
-          [--held-out N --per-deck K]
-      A fights file of decks split for one experiment: OUT_DIR/training.jsonl (one fight per deck), validation.jsonl
-      and final.jsonl (N held-out decks each, K fights per deck, potions as at Champ).
 """
 import argparse
-import hashlib
 import json
 from pathlib import Path
-import random
 import tomllib
 
 import pyarrow.parquet as pq
 
 from apps.common.app import read_jsonl
-from environments.combat.starts import Starts, fights
+from environments.combat.starts import fights
 from runs.run import run_dir
 
 from .reporting import deck_of
@@ -87,26 +80,6 @@ def teacher_fights(training, teacher, name, fights_per_deck, generated_per_deck=
     return out, won, cohorts
 
 
-def split(decks, namespace, held_out, per_deck):
-    """(training, validation, final): held_out decks each, ranked by a hash of namespace and deck, are validation and
-    final, played per_deck times with potions as at Champ; the rest train."""
-    decks = sorted(decks, key=lambda d: hashlib.sha256(f'{namespace}:{d["fight_id"]}'.encode()).hexdigest())
-    if len(decks) <= 2 * held_out:
-        raise ValueError(f'{len(decks)} decks cannot hold out {held_out} for validation and {held_out} for final')
-
-    def played(held, part):
-        out = []
-        for deck in held:
-            name = f'{namespace}:{deck["fight_id"]}:{part}'
-            rng = random.Random(name)
-            for f in fights(deck, name, per_deck):
-                Starts(potions=True).vary(f['start'], rng)
-                out.append(f)
-        return out
-    return (decks[2 * held_out:], played(decks[:held_out], 'validation'),
-            played(decks[held_out:2 * held_out], 'final'))
-
-
 def write_fights(path, rows):
     path.write_text(''.join(json.dumps(row) + '\n' for row in rows))
 
@@ -127,21 +100,9 @@ def main():
     t.add_argument('--namespace', help='seed namespace of generated fights (required with --generated-per-deck)')
     t.add_argument('--baseline', action='append', default=[], metavar='NAME=RUN:DIRECTORY',
                    help='another player on the same fights (repeatable)')
-    s = sub.add_parser('split')
-    s.add_argument('decks', type=Path)
-    s.add_argument('out', type=Path)
-    s.add_argument('--namespace', required=True, help='held-out choice and seeds')
-    s.add_argument('--held-out', type=int, default=200)
-    s.add_argument('--per-deck', type=int, default=10)
     a = p.parse_args()
     if a.command == 'decks':
         write_fights(a.out, deck_fights(tomllib.loads(a.decks.read_text())['deck']))
-        return
-    if a.command == 'split':
-        a.out.mkdir(parents=True, exist_ok=False)  # never replace a frozen split
-        for name, rows in zip(('training', 'validation', 'final'),
-                              split(read_jsonl(a.decks), a.namespace, a.held_out, a.per_deck)):
-            write_fights(a.out / f'{name}.jsonl', rows)
         return
     if a.generated_per_deck and not a.namespace:
         p.error('--generated-per-deck needs --namespace')

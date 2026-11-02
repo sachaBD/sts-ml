@@ -5,9 +5,10 @@
       --runs <megacrit_runs_v1 run dirs> --out {out}
 
 Writes out/starts.parquet (all converted decks) and out/starts_pv.parquet (same without Runic Dome: the PV agent rejects
-hidden intents), out/decks.jsonl (a fights file of decks: one per run, without Runic Dome or Prismatic Shard), plus
-summary.json. One row per (deck, copy k): copy 1 uses the human's seed_played, copies 2.. use
-fresh seeds --seed0 + i. Everything not rebuilt from the human record (gold, RNG counters, room fields) is copied from
+hidden intents), plus summary.json. For combat training, decks without Runic Dome or Prismatic Shard, one per run, each
+in a fixed part by its play_id: out/decks.jsonl (training: one fight per deck), out/validation.jsonl and
+out/final.jsonl (--held-out-fights per held-out deck, at its HP with potions as at Champ). One row per (deck, copy k):
+copy 1 uses the human's seed_played, copies 2.. use fresh seeds --seed0 + i. Everything not rebuilt from the human record (gold, RNG counters, room fields) is copied from
 one row of a template starts file. Known approximations: potions empty; card misc 0; Searing Blow with >1 upgrade
 is stored as upgraded=True; deck and relic order are sorted by name (true order is unknown); bottled = none.
 """
@@ -15,7 +16,9 @@ from __future__ import annotations
 
 import argparse
 import collections
+import hashlib
 import json
+import random
 import sys
 from pathlib import Path
 
@@ -27,6 +30,7 @@ from sts_lightspeed import enums
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from apps.megacrit_dump.champ_starts import header_array  # noqa: E402
 from apps.pv.starts import start_type  # noqa: E402
+from environments.combat.starts import Starts, fights as copies  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_TEMPLATE = ROOT / "runs/schema=pv_starts_v1/id=champ-bench2k/starts.parquet"
@@ -145,10 +149,30 @@ def build(champ_rows, seeds, template, k, seed0, include="base-exact"):
     return out, stats
 
 
+def part(play_id):
+    """train, validation or final (about 2% each held out), by the run alone: new pulls never move a run."""
+    x = int(hashlib.sha256(play_id.encode()).hexdigest(), 16) / 2 ** 256
+    return "validation" if x < 0.02 else "final" if x < 0.04 else "train"
+
+
 def decks(fights):
-    """A fights file of decks: {fight_id: mc-<play_id>, start} per run (its first copy), without a NOT_DECKS relic."""
-    return [{"fight_id": f"mc-{f['play_id']}", "start": f["start"]} for f in fights
-            if f["copy"] == 1 and not {r["id"] for r in f["start"]["relics"]} & NOT_DECKS]
+    """{part: decks}: {fight_id: mc-<play_id>, start} per run (its first copy), without a NOT_DECKS relic."""
+    out = {"train": [], "validation": [], "final": []}
+    for f in fights:
+        if f["copy"] == 1 and not {r["id"] for r in f["start"]["relics"]} & NOT_DECKS:
+            out[part(f["play_id"])].append({"fight_id": f"mc-{f['play_id']}", "start": f["start"]})
+    return out
+
+
+def held_out_fights(held_out, name, n):
+    """n fixed fights per deck, named name:deck:i, at the deck's HP with potions as at Champ."""
+    out = []
+    for deck in held_out:
+        rng = random.Random(f"{name}:{deck['fight_id']}")
+        for f in copies(deck, f"{name}:{deck['fight_id']}", n):
+            Starts(potions=True).vary(f["start"], rng)
+            out.append(f)
+    return out
 
 
 def main():
@@ -160,6 +184,7 @@ def main():
     ap.add_argument("--seed0", type=int, default=997_000_000_000)
     ap.add_argument("--include", choices=["exact", "base-exact"], default="base-exact")
     ap.add_argument("--limit", type=int, default=None, help="keep only the first N fights (smoke tests)")
+    ap.add_argument("--held-out-fights", type=int, default=10, help="fights per validation or final deck")
     ap.add_argument("--out", required=True)
     a = ap.parse_args()
     out = Path(a.out)
@@ -178,10 +203,15 @@ def main():
     pv = [f for f in fights if not any(r["id"] == dome for r in f["start"]["relics"])]
     for name, fs in (("starts.parquet", fights), ("starts_pv.parquet", pv)):
         pq.write_table(pa.Table.from_pylist(fs, schema=schema), out / name, compression="zstd")
-    (out / "decks.jsonl").write_text("".join(json.dumps(d) + "\n" for d in decks(fights)))
+    parts = decks(fights)
+    files = {"decks": parts["train"], "validation": held_out_fights(parts["validation"], "megacrit", a.held_out_fights),
+             "final": held_out_fights(parts["final"], "megacrit", a.held_out_fights)}
+    for name, written in files.items():
+        (out / f"{name}.jsonl").write_text("".join(json.dumps(r) + "\n" for r in written))
     summary = {"champ_rows_in": len(rows), **stats, "fights": len(fights), "fights_pv_no_dome": len(pv),
                "dome_fights_dropped_for_pv": len(fights) - len(pv),
-               "dome_decks": (len(fights) - len(pv)) // max(1, a.k), "k": a.k, "seed0": a.seed0, "include": a.include}
+               "dome_decks": (len(fights) - len(pv)) // max(1, a.k), "k": a.k, "seed0": a.seed0, "include": a.include,
+               "deck_parts": {p: len(d) for p, d in parts.items()}}
     (out / "summary.json").write_text(json.dumps(summary, indent=2))
     print(json.dumps(summary, indent=2))
 
