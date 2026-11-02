@@ -91,10 +91,12 @@ class FakeBackend final : public Backend {
 public:
     using Evaluate = std::function<std::vector<Prediction>(std::span<const Input>)>;
     using Prepare = std::function<void(const Tokens&, std::vector<std::uint16_t>&)>;
-    explicit FakeBackend(Evaluate evaluate = echo, Prepare prepare = {}, int lanes = 1)
-        : evaluate_{std::move(evaluate)}, prepare_{std::move(prepare)}, lanes_{lanes} {}
+    explicit FakeBackend(Evaluate evaluate = echo, Prepare prepare = {}, int lanes = 1,
+                         std::function<bool(const Tokens&)> accepts = {}, int batch = 64)
+        : evaluate_{std::move(evaluate)}, prepare_{std::move(prepare)}, lanes_{lanes}, accepts_{std::move(accepts)}, batch_{batch} {}
     int width() const override { return token_width; }
-    int max_batch() const override { return 64; }
+    int max_batch() const override { return batch_; }
+    bool accepts(const Tokens& t) const override { return !accepts_ || accepts_(t); }
     int lanes() const override { return lanes_; }
     void prepare(const Tokens& t, std::vector<std::uint16_t>& packed) const override { if (prepare_) prepare_(t, packed); else packed.clear(); }
     std::vector<Prediction> evaluate(std::span<const Input> inputs) override { return evaluate_(inputs); }
@@ -102,6 +104,8 @@ private:
     Evaluate evaluate_;
     Prepare prepare_;
     int lanes_;
+    std::function<bool(const Tokens&)> accepts_;
+    int batch_;
 };
 
 ActorConfig small(int slots = 3, int batch = 7) {
@@ -273,7 +277,6 @@ TEST(ActorFailures, StalledEpisodeTimesOut) {
 TEST(ActorFailures, InvalidConfig) {
     Log log;
     expect_error(small(0), log, episodes(log, 1), FakeBackend{}, "invalid actor configuration");
-    expect_error(small(3, 65), log, episodes(log, 1), FakeBackend{}, "invalid actor configuration");  // > max_batch
     expect_error(small(), log, episodes(log, 1), FakeBackend{echo, {}, 0}, "invalid actor configuration");  // no lanes
 }
 
@@ -287,4 +290,35 @@ TEST(ActorsDeathTest, HungBackendExitsProcess) {
         FakeBackend backend{[](auto) -> std::vector<Prediction> { for (;;) std::this_thread::sleep_for(1s); }};
         run_actors(config, episodes(log, 20, three_steps), backend);
     }, testing::ExitedWithCode(1), "shutdown timeout");
+}
+
+TEST(Actors, MixedBackendsPreserveRepliesWithoutWideWorkBlockingNarrow) {
+    for (bool wide_accepts : {true, false}) {
+        Log log;
+        std::atomic<int> fast_calls{0}, fast_rows{0}, wide_rows{0};
+        const auto fits = [](const Tokens& t) { return (int(t.data[0] * 1000 + .5f) + int(t.data[1])) % 2 == 0; };
+        FakeBackend narrow{[&](auto inputs) {
+            require(inputs.size() <= 7, "narrow batch too large");
+            for (const auto& i : inputs) require(fits(*i.tokens) && i.packed.size() == 1, "wrong narrow request");
+            ++fast_calls; fast_rows += inputs.size();
+            return echo(inputs);
+        }, [](const Tokens&, auto& packed) { packed.assign(1, 1); }, 2, fits, 7};
+        FakeBackend wide{[&](auto inputs) {
+            require(inputs.size() <= 2, "wide batch too large");
+            for (const auto& i : inputs) require(!fits(*i.tokens) && i.packed.size() == 2, "wrong wide request");
+            const auto deadline = std::chrono::steady_clock::now() + 1s;
+            while (fast_calls < 2 && std::chrono::steady_clock::now() < deadline) std::this_thread::sleep_for(1ms);
+            require(fast_calls >= 2, "wide work blocked narrow lanes");
+            wide_rows += inputs.size();
+            return echo(inputs);
+        }, [](const Tokens&, auto& packed) { packed.assign(2, 1); }, 1,
+           [=](const Tokens&) { return wide_accepts; }, 2};
+        run_actors(small(7, 7), episodes(log, 100), {&narrow, &wide});
+        EXPECT_EQ(log.finished, 100);
+        EXPECT_EQ(log.evaluated, total_steps(100));
+        EXPECT_EQ(fast_rows + wide_rows, total_steps(100));
+        EXPECT_GT(fast_rows, 0);
+        EXPECT_GT(wide_rows, 0);
+        EXPECT_EQ(log.alive, 0);
+    }
 }

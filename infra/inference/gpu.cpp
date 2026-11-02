@@ -146,15 +146,18 @@ struct Lane {
 };
 
 class GpuBackend final : public Backend {
-    static constexpr int lane_count = 2;
+    const int lane_count_, attended_;
 
 public:
-    GpuBackend(const std::filesystem::path& onnx, const std::vector<std::filesystem::path>& fixed) : cpu_{onnx} {
+    GpuBackend(const std::filesystem::path& onnx, const std::vector<std::filesystem::path>& fixed, int lanes, int attended)
+        : lane_count_{lanes}, attended_{attended}, cpu_{onnx} {
+        if (lanes < 1 || attended < 0) throw std::invalid_argument{"positive lanes and nonnegative attended required"};
         if (fixed.empty()) throw std::invalid_argument{"gpu backend: at least one fixed-shape model required"};
-        for (int i = 0; i < lane_count; ++i) lanes_.push_back(std::make_unique<Lane>(env_, fixed));
+        for (int i = 0; i < lane_count_; ++i) lanes_.push_back(std::make_unique<Lane>(env_, fixed));
         const auto& engines = lanes_.front()->engines;
         tokens_ = engines.front()->tokens;
         width_ = engines.front()->width;
+        if (attended_ > tokens_) throw std::invalid_argument{"attention capacity exceeds token capacity"};
         for (std::size_t i = 0; i < engines.size(); ++i) {
             const auto& e = *engines[i];
             if (e.tokens != tokens_ || e.width != width_) throw std::invalid_argument{"gpu backend: fixed models differ in token shape"};
@@ -173,10 +176,13 @@ public:
 
     int width() const override { return width_; }
     int max_batch() const override { return batch_; }
-    int lanes() const override { return lane_count; }
+    int lanes() const override { return lane_count_; }
+    bool accepts(const Tokens& tokens) const override {
+        return tokens.count <= tokens_ && (!attended_ || (tokens.attended > 0 && tokens.attended <= attended_));
+    }
 
     void prepare(const Tokens& tokens, std::vector<std::uint16_t>& packed) const override {
-        if (tokens.count > tokens_) { packed.clear(); return; }  // too long: the CPU evaluates it whole
+        if (!accepts(tokens)) { packed.clear(); return; }  // full CPU model, no truncation
         packed.assign(std::size_t(tokens_) * width_, 0);
         to_fp16(tokens.data, packed.data());
     }
@@ -261,11 +267,11 @@ private:
             const float* logits = lane.host_logits + std::size_t(k) * tokens_;
             auto& p = out[rows[k]] = {lane.host_value[k], {logits + tokens.count - tokens.actions, logits + tokens.count}};
             const bool finite = std::isfinite(p.value) && std::all_of(p.logits.begin(), p.logits.end(), [](float x) { return std::isfinite(x); });
-            if (!finite) {  // fp16 overflow on large features: redo this row in fp32 once
+            if (!finite) {  // capacity or numerical failure: redo on the full fp32 model
                 const std::array<const Tokens*, 1> retry{&tokens};
                 p = cpu_.evaluate(retry).front();
                 if (precision_warned_.exchange(true) == false)
-                    std::fprintf(stderr, "gpu backend: non-finite fp16 prediction; retried in fp32 on the CPU\n");
+                    std::fprintf(stderr, "gpu backend: non-finite GPU prediction; retried in fp32 on the CPU\n");
                 ++stats.precision_retries;
             }
         }
@@ -281,7 +287,7 @@ private:
         const auto& s = total_;
         std::fprintf(stderr, "gpu_stats: {\"seconds\":%.3f,\"lanes\":%d,\"batches\":%ld,\"leaves\":%ld,\"capacity\":%ld,\"cpu_leaves\":%ld,"
                      "\"cpu_precision_retries\":%ld,\"busy\":%.3f,\"h2d_seconds\":%.3f,\"inference_seconds\":%.3f,\"d2h_seconds\":%.3f,\"shapes\":{",
-                     since(begin_), lane_count, s.batches, s.leaves, s.capacity, s.cpu_leaves, s.precision_retries, s.busy, s.h2d, s.inference, s.d2h);
+                     since(begin_), lane_count_, s.batches, s.leaves, s.capacity, s.cpu_leaves, s.precision_retries, s.busy, s.h2d, s.inference, s.d2h);
         const char* separator = "";
         for (const auto& [batch, count] : s.shapes) { std::fprintf(stderr, "%s\"%d\":%ld", separator, batch, count); separator = ","; }
         std::fprintf(stderr, "}}\n");
@@ -300,7 +306,7 @@ private:
 };
 }  // namespace
 
-std::unique_ptr<Backend> gpu_backend(const std::filesystem::path& onnx, const std::vector<std::filesystem::path>& fixed) {
-    return std::make_unique<GpuBackend>(onnx, fixed);
+std::unique_ptr<Backend> gpu_backend(const std::filesystem::path& onnx, const std::vector<std::filesystem::path>& fixed, int lanes, int attended) {
+    return std::make_unique<GpuBackend>(onnx, fixed, lanes, attended);
 }
 }  // namespace stsrl::infra
