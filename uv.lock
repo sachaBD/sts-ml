@@ -54,6 +54,7 @@ dependencies = [
     { name = "numpy" },
     { name = "pyarrow" },
     { name = "scipy" },
+    { name = "sts-lightspeed" },
     { name = "torch" },
 ]
 
@@ -79,6 +80,7 @@ requires-dist = [
     { name = "numpy", specifier = "==2.5.2" },
     { name = "pyarrow", specifier = "==23.0.1" },
     { name = "scipy", specifier = "==1.18.1" },
+    { name = "sts-lightspeed", editable = "../lightspeed/python" },
     { name = "torch", specifier = "==2.14.0", index = "https://download.pytorch.org/whl/cu126" },
 ]
 
@@ -1061,6 +1063,11 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/3b/35/b7ead80b7fd03c1caed56161f2fa31ce20b12b43e8e0ed8e84a80b0be9ab/simplejson-4.2.0-cp315-cp315t-musllinux_1_2_x86_64.whl", hash = "sha256:a62e32c55685be98867c9735d1efa0f3daf53a347303da4450e375493f47cb75", size = 222513, upload-time = "2026-10-03T03:33:55.577Z" },
     { url = "https://files.pythonhosted.org/packages/e9/4c/9acdf4ae4f41c09a09ad17427e5ee912f35aa56ea1d1723a9d927d659d4e/simplejson-4.2.0-py3-none-any.whl", hash = "sha256:c2a2e5f43287cbe3413f7b73b04d5a6f75c7bd93d783e628f5978853a2ef738d", size = 72826, upload-time = "2026-10-03T03:34:21.667Z" },
 ]
+
+[[package]]
+name = "sts-lightspeed"
+version = "0.0.1"
+source = { editable = "../lightspeed/python" }
 
 [[package]]
 name = "sympy"
