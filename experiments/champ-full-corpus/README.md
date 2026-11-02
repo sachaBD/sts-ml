@@ -9,7 +9,8 @@ uncertainty does not measure training-run variability.
 ## Frozen inputs — 2026-11-02
 
 `runs/benchmark/champ-full-corpus-v1/frozen/` contains the inputs, `selection.json`, `summary.json` and `sha256.json`.
-The parent directory contains the launch config snapshot and `preflight.json`. No training has been launched.
+The parent directory contains the launch config snapshot and `preflight.json`. Launched with explicit permission
+on 2026-11-02 at 20:10 UTC; see Live run below.
 
 | Partition | Decks | Share of 9,941 retained loadouts | Fixed fights/deck | Evaluation fights |
 |---|---:|---:|---:|---:|
@@ -39,7 +40,7 @@ Each update collects 10,000 fights: uniform deck draws with replacement, HP jitt
 16 simulations, eight particles, Gumbel scale 1; rollout mix 0.5 falls to zero at update 30.
 
 Learning: 500 AdamW steps of 2,048 sampled rows, learning rate 0.001, uniform replay over ten updates (100k fights),
-no row cap. **Launch still requires explicit permission.** Disk cleanup is complete. The buffer is disk-indexed, with only
+no row cap. Launch was explicitly approved; disk cleanup is complete. The buffer is disk-indexed, with only
 sampled minibatches read and length-bounded padding. Expired replay is pruned. Worker: nine actors × 224 slots; GPU batches 512/256/32, 64-token GPU capacity with 24
 attended slots and mixed precision; larger/overflowing states use the full CPU model.
 
@@ -53,7 +54,19 @@ From the main checkout (config snapshot already exists):
 ./apps/gumbel_nn_combat_expert_iteration/run.sh runs/benchmark/champ-full-corpus-v1/train.toml
 ```
 
-That command launches training. It has **not** been executed. Standard stop/status commands apply.
+That command has been executed for the live run below. Do not launch a duplicate. Standard stop/status commands apply.
+
+## Live run
+
+- Run: `runs/schema=gumbel_nn_combat_v1/date=2026-11-02/id=champ-full-corpus-v1-cold`.
+- Monitor: http://localhost:8001 (loopback listener, HTTP/API checked).
+- Launcher PID 2740; learner PID 2801; monitor PID 2794 (initial PIDs; recovery may change them).
+- Checkpoint 0 saved with zero training rows; config has no initial checkpoint and inputs contain no initial model.
+  Initial 1,900-fight primary validation started before the 500-fight legacy validation and first collection.
+- Launch log: `scratch/champ-full-corpus/launch.log`; monitor log: `scratch/champ-full-corpus/web-8001.log`.
+  Stage logs, frozen inputs and checkpoints live under the recorded run directory.
+- Full first update and its post-training evaluation have not yet been verified. Native startup has reached GPU
+  inference; its existing non-finite-FP16-to-CPU-FP32 fallback was observed.
 
 ## Replay ratio and capacity planning
 
