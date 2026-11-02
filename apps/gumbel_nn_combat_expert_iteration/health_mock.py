@@ -89,7 +89,7 @@ class MockHealth:
                     dispatchers=dispatchers, lanes=lanes)
 
     def view(self, window=900):
-        now = time.time()
+        now = self.started + math.floor(max(0, time.time() - self.started))
         elapsed = max(0, now - self.started)
         topology = self.topology(now)
         oversized, retries = (4000, 2000) if self.scenario == 'fallback' else (30, 15)
