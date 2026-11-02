@@ -9,16 +9,24 @@
       Evaluation on a teacher run's fights, for paired comparison: OUT_DIR/fights.jsonl, baselines.json (each
       player's result per fight it completed) and cohorts.json (decks with teacher fights are `original`,
       generated-only decks `added`). A player's results are RUN's out/DIRECTORY/results.jsonl.
+
+  python -m apps.gumbel_nn_combat_expert_iteration.make_fights megacrit STARTS.parquet OUT_DIR --namespace NS
+          [--held-out N --per-deck K]
+      Decks of human runs that reached Champ (apps/megacrit_dump/to_starts.py output): OUT_DIR/training.jsonl (one
+      fight per deck), validation.jsonl and final.jsonl (N held-out decks each, K fights per deck, potions as at Champ).
 """
 import argparse
+import hashlib
 import json
 from pathlib import Path
+import random
 import tomllib
 
 import pyarrow.parquet as pq
+from sts_lightspeed.enums import RELICS
 
 from apps.common.app import read_jsonl
-from environments.combat.starts import fights
+from environments.combat.starts import Starts, fights
 from runs.run import run_dir
 
 from .reporting import deck_of
@@ -80,6 +88,33 @@ def teacher_fights(training, teacher, name, fights_per_deck, generated_per_deck=
     return out, won, cohorts
 
 
+# Runic Dome hides intents; Prismatic Shard brings other characters' cards.
+EXCLUDED_RELICS = {RELICS.index('RUNIC_DOME'), RELICS.index('PRISMATIC_SHARD')}
+
+
+def megacrit_fights(rows, namespace, held_out, per_deck):
+    """(training, validation, final) from to_starts rows: one deck per run (its first copy), without excluded relics.
+    held_out decks each, ranked by a hash of namespace and deck, are validation and final, played per_deck times with
+    potions as at Champ; the rest train."""
+    decks = [dict(fight_id=f'mc-{r["play_id"]}', start=r['start']) for r in rows
+             if r['copy'] == 1 and not {x['id'] for x in r['start']['relics']} & EXCLUDED_RELICS]
+    decks.sort(key=lambda d: hashlib.sha256(f'{namespace}:{d["fight_id"]}'.encode()).hexdigest())
+    if len(decks) <= 2 * held_out:
+        raise ValueError(f'{len(decks)} decks cannot hold out {held_out} for validation and {held_out} for final')
+
+    def played(held, split):
+        out = []
+        for deck in held:
+            name = f'{namespace}:{deck["fight_id"]}:{split}'
+            rng = random.Random(name)
+            for f in fights(deck, name, per_deck):
+                Starts(potions=True).vary(f['start'], rng)
+                out.append(f)
+        return out
+    return (decks[2 * held_out:], played(decks[:held_out], 'validation'),
+            played(decks[held_out:2 * held_out], 'final'))
+
+
 def write_fights(path, rows):
     path.write_text(''.join(json.dumps(row) + '\n' for row in rows))
 
@@ -100,9 +135,22 @@ def main():
     t.add_argument('--namespace', help='seed namespace of generated fights (required with --generated-per-deck)')
     t.add_argument('--baseline', action='append', default=[], metavar='NAME=RUN:DIRECTORY',
                    help='another player on the same fights (repeatable)')
+    m = sub.add_parser('megacrit')
+    m.add_argument('starts', type=Path)
+    m.add_argument('out', type=Path)
+    m.add_argument('--namespace', required=True, help='held-out choice and seeds')
+    m.add_argument('--held-out', type=int, default=200)
+    m.add_argument('--per-deck', type=int, default=10)
     a = p.parse_args()
     if a.command == 'decks':
         write_fights(a.out, deck_fights(tomllib.loads(a.decks.read_text())['deck']))
+        return
+    if a.command == 'megacrit':
+        rows = pq.read_table(a.starts, columns=['play_id', 'copy', 'start']).to_pylist()
+        a.out.mkdir(parents=True, exist_ok=False)  # never replace a frozen split
+        for name, split in zip(('training', 'validation', 'final'),
+                               megacrit_fights(rows, a.namespace, a.held_out, a.per_deck)):
+            write_fights(a.out / f'{name}.jsonl', split)
         return
     if a.generated_per_deck and not a.namespace:
         p.error('--generated-per-deck needs --namespace')
