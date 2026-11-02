@@ -18,6 +18,7 @@ dependencies = [
     "msgpack==1.1.2",
     "scipy==1.18.1",
     "duckdb==1.5.5",
+    "sts-lightspeed",  # Python names of the simulator's enums, from the sibling lightspeed checkout
 ]
 
 [dependency-groups]
@@ -44,6 +45,7 @@ environments = ["sys_platform == 'linux'"]
 [tool.uv.sources]
 torch = { index = "pytorch-cu126" }
 jaxsim = { path = "../lightspeed/jaxsim", editable = true }
+sts-lightspeed = { path = "../lightspeed/python", editable = true }
 
 [[tool.uv.index]]
 name = "pytorch-cu126"

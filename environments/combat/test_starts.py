@@ -2,6 +2,8 @@
 from statistics import median
 import unittest
 
+from sts_lightspeed.enums import POTIONS
+
 from .starts import EMPTY_POTION_SLOT, IRONCLAD_POTIONS, POTION_BELT, Starts
 
 POOL = [dict(fight_id=name, start=dict(hp=hp, max_hp=80, seed=0, ascension=20, relics=relics, potion_capacity=2,
@@ -46,7 +48,7 @@ class DrawInvariants(unittest.TestCase):
         self.assertAlmostEqual(median(abs(f['start']['hp'] - 40) for f in fights), 0.1 * 80, delta=1)
 
     def test_potion_slots_hold_ironclad_potions_all_but_a_few_full(self):
-        ironclad = {p for rarity in IRONCLAD_POTIONS.values() for p in rarity}
+        ironclad = {POTIONS.index(p) for _, rarity in IRONCLAD_POTIONS for p in rarity}
         fights = Starts(potions=True).draw(POOL, 'ns:1', 4000)
         for f in fights:
             start = f['start']

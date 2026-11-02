@@ -6,17 +6,22 @@ import hashlib
 import random
 from statistics import NormalDist
 
+from sts_lightspeed.enums import POTIONS, RELICS
+
 MASK = (1 << 64) - 1
 # A normal draw lies beyond this many standard deviations half the time.
 MEDIAN_MOVE = NormalDist().inv_cdf(0.75)
 
-EMPTY_POTION_SLOT, POTION_BELT = 1, 159  # sts::Potion, sts::RelicId
-# Ironclad's potions (sts::Potion ids) by rarity weight, as the game draws them; the simulator rerolls Smoke Bomb.
-IRONCLAD_POTIONS = {
-    65: (4, 5, 6, 7, 9, 12, 16, 20, 22, 23, 24, 34, 36, 39, 41, 42, 43),  # common: Attack .. Weak Potion
-    25: (3, 13, 14, 15, 19, 27, 30, 31, 35),  # uncommon: Ancient Potion .. Regen Potion
-    10: (10, 17, 21, 26, 29, 38),  # rare: Cultist Potion .. Snecko Oil
-}
+EMPTY_POTION_SLOT, POTION_BELT = POTIONS.index('EMPTY_POTION_SLOT'), RELICS.index('POTION_BELT')
+# The game's potion rarity odds, each with Ironclad's potions of that rarity; the simulator rerolls Smoke Bomb.
+IRONCLAD_POTIONS = (
+    (65, ('ATTACK_POTION', 'BLESSING_OF_THE_FORGE', 'BLOCK_POTION', 'BLOOD_POTION', 'COLORLESS_POTION',
+          'DEXTERITY_POTION', 'ENERGY_POTION', 'EXPLOSIVE_POTION', 'FEAR_POTION', 'FIRE_POTION', 'FLEX_POTION',
+          'POWER_POTION', 'SKILL_POTION', 'SPEED_POTION', 'STRENGTH_POTION', 'SWIFT_POTION', 'WEAK_POTION')),
+    (25, ('ANCIENT_POTION', 'DISTILLED_CHAOS', 'DUPLICATION_POTION', 'ELIXIR_POTION', 'ESSENCE_OF_STEEL',
+          'GAMBLERS_BREW', 'LIQUID_BRONZE', 'LIQUID_MEMORIES', 'REGEN_POTION')),
+    (10, ('CULTIST_POTION', 'ENTROPIC_BREW', 'FAIRY_POTION', 'FRUIT_JUICE', 'HEART_OF_IRON', 'SNECKO_OIL')),
+)
 # Empty potion slots entering Champ, fit by eye to ~8.1k A20 Ironclad wins (Mega Crit run histories).
 EMPTY_SLOTS = {0: 0.75, 1: 0.15, 2: 0.07, 3: 0.03}
 
@@ -79,6 +84,6 @@ def fill_potions(start, rng):
     belt = any(r['id'] == POTION_BELT for r in start['relics'])
     slots = (2 if start['ascension'] >= 11 else 3) + 2 * belt
     held = max(0, slots - rng.choices(list(EMPTY_SLOTS), weights=list(EMPTY_SLOTS.values()))[0])
-    rarities = rng.choices(list(IRONCLAD_POTIONS.values()), weights=list(IRONCLAD_POTIONS), k=held)
-    potions = [rng.choice(rarity) for rarity in rarities]
+    weights, rarities = zip(*IRONCLAD_POTIONS)
+    potions = [POTIONS.index(rng.choice(rarity)) for rarity in rng.choices(rarities, weights, k=held)]
     start.update(potion_capacity=slots, potions=potions + [EMPTY_POTION_SLOT] * (slots - held))
