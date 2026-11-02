@@ -12,6 +12,7 @@ import threading
 from urllib.parse import parse_qs, urlsplit
 
 from .health import Health
+from .telemetry_api import DashboardAPI
 
 from .dashboard import snapshot
 from .reporting import baselines, by_deck, deck_of, jsonl, outcomes, paired, pool, rate, unpaired
@@ -182,6 +183,68 @@ def api(out):
                 windows=dict(train=WINDOW, eval=[new_eval, old_eval]))
 
 
+def handler_for(health, out, dashboard):
+    class Handler(BaseHTTPRequestHandler):
+        def do_GET(self):
+            try:
+                route = urlsplit(self.path)
+                if route.path.startswith('/api/v1/'):
+                    if route.query:
+                        self.send_json(400, dict(error=dict(code='invalid_request', message='Query parameters are not supported')))
+                        return
+                    if route.path == '/api/v1/resources':
+                        self.send_json(200, dashboard.resources())
+                    elif route.path == '/api/v1/execution':
+                        self.send_json(200, dashboard.execution())
+                    elif route.path == '/api/v1/schema':
+                        self.send_json(200, json.loads(PAGE.with_name('api.schema.json').read_text()))
+                    else:
+                        self.send_json(404, dict(error=dict(code='not_found', message='Unknown API endpoint')))
+                    return
+                if route.path == '/api/health':
+                    window = int(parse_qs(route.query).get('window', ['900'])[0])
+                    body = json.dumps(health.view(window), allow_nan=False).encode()
+                elif route.path == '/api':
+                    body = json.dumps(api(out) if out else dict(error='Quality view unavailable in mock mode')).encode()
+                elif route.path == '/health.js':
+                    body = PAGE.with_name('health.js').read_bytes()
+                elif route.path == '/health.css':
+                    body = PAGE.with_name('health.css').read_bytes()
+                elif route.path == '/':
+                    body = PAGE.read_bytes()
+                else:
+                    self.send_error(404)
+                    return
+            except Exception as e:  # legacy clients retain their existing error payload
+                if self.path.startswith('/api/v1/'):
+                    self.send_json(500, dict(error=dict(code='internal_error', message='Telemetry response unavailable')))
+                    return
+                body = json.dumps(dict(error=repr(e))).encode()
+            self.send_response(200)
+            content_type = ('application/json' if self.path.startswith('/api') else
+                            'text/javascript' if self.path.startswith('/health.js') else
+                            'text/css' if self.path.startswith('/health.css') else 'text/html')
+            self.send_header('Content-Type', content_type + '; charset=utf-8')
+            self.send_header('Content-Length', str(len(body)))
+            self.send_header('Cache-Control', 'no-store')
+            self.end_headers()
+            self.wfile.write(body)
+
+        def send_json(self, status, payload):
+            body = json.dumps(payload, allow_nan=False).encode()
+            self.send_response(status)
+            self.send_header('Content-Type', 'application/json; charset=utf-8')
+            self.send_header('Content-Length', str(len(body)))
+            self.send_header('Cache-Control', 'no-store')
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, *args):
+            pass
+
+    return Handler
+
+
 def main():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument('run', type=Path, nargs='?')
@@ -201,43 +264,21 @@ def main():
         sampler = threading.Thread(target=health.run, name='dashboard-health', daemon=True)
         sampler.start()
 
-    class Handler(BaseHTTPRequestHandler):
-        def do_GET(self):
-            try:
-                route = urlsplit(self.path)
-                if route.path == '/api/health':
-                    window = int(parse_qs(route.query).get('window', ['900'])[0])
-                    body = json.dumps(health.view(window), allow_nan=False).encode()
-                elif route.path == '/api':
-                    body = json.dumps(api(out) if out else dict(error='Quality view unavailable in mock mode')).encode()
-                elif route.path == '/health.js':
-                    body = PAGE.with_name('health.js').read_bytes()
-                elif route.path == '/health.css':
-                    body = PAGE.with_name('health.css').read_bytes()
-                elif route.path == '/':
-                    body = PAGE.read_bytes()
-                else:
-                    self.send_error(404)
-                    return
-            except Exception as e:  # files mid-write or run not initialized: report, keep serving
-                body = json.dumps(dict(error=repr(e))).encode()
-            self.send_response(200)
-            content_type = ('application/json' if self.path.startswith('/api') else
-                            'text/javascript' if self.path.startswith('/health.js') else
-                            'text/css' if self.path.startswith('/health.css') else 'text/html')
-            self.send_header('Content-Type', content_type + '; charset=utf-8')
-            self.send_header('Cache-Control', 'no-store')
-            self.end_headers()
-            self.wfile.write(body)
 
-        def log_message(self, *args):
-            pass
+    dashboard = DashboardAPI(health, out)
+    runtime_thread = None
+    if dashboard.runtime:
+        runtime_thread = threading.Thread(target=dashboard.runtime.run, name='dashboard-runtime', daemon=True)
+        runtime_thread.start()
 
     print(f'http://{a.host}:{a.port}/  ({out or "MOCK: " + a.mock})', flush=True)
-    server = ThreadingHTTPServer((a.host, a.port), Handler)
+    server = ThreadingHTTPServer((a.host, a.port), handler_for(health, out, dashboard))
     try:
         server.serve_forever()
     finally:
+        if runtime_thread:
+            dashboard.runtime.stop.set()
+            runtime_thread.join(timeout=3)
         if sampler:
             health.stop.set()
             sampler.join(timeout=3)

@@ -350,6 +350,13 @@ class Health:
                                      stage_id=repr(stage_key), values=values))
             self.latest = latest
 
+    def current(self):
+        """Cached measurements only; no history aggregation or subprocesses on HTTP threads."""
+        with self.lock:
+            if self.latest is None:
+                return None
+            return dict(self.latest, values=dict(self.samples[-1]['values']))
+
     def view(self, window=900):
         now = time.time()
         with self.lock:
