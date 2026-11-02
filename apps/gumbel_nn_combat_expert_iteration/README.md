@@ -1,6 +1,6 @@
 # Gumbel NN combat expert iteration
 
-Expert iteration on fixed Champ decks: Gumbel self-play, train on the replay window, export, evaluate.
+Expert iteration on Champ decks: Gumbel self-play, train on the replay window, export, evaluate.
 Hard cutover from the old `agents/combat/nn/loop.py`: its runs cannot be resumed; start from one of their
 checkpoints with `[run].initial_checkpoint` when their explicit architecture spec matches.
 
@@ -20,9 +20,14 @@ The recipe calls the agent (`agents/combat/nn`: `play()`, `Replay`, `Learner`, `
 process per play or evaluation stage, so a CUDA failure is recoverable and PyTorch never shares GPU state with TensorRT.
 
 Config sections follow the owners: `[run]` (identity, length, optional initial checkpoint / recovery / disk
-reserve), `[search]` (self-play), `[training]` (its fights file, one fight per deck), `[model]`, `[workers]`
+reserve), `[search]` (self-play), `[training]` (its fights file: the decks, one fight each), `[model]`, `[workers]`
 (nn_play), `[evaluation]` (schedule, simulations, fights files, baselines, cohorts). Settings have no defaults;
 a typo or missing key stops the run before it starts.
+
+Each self-play iteration plays `[run].fights_per_iteration` fights, each on a deck drawn uniformly, with replacement,
+from the training fights file, so the deck list can be far larger than one iteration. `iterNNN/decks.json` records
+every deck's self-play fights and wins up to and including iteration NNN. `balanced_replay` needs no more decks than
+`[training].batch`.
 
 Choose `transformer` or `entity` (PooledTransformer) with `[model].kind`.
 The [typed config](config.py) defines supported settings; the [model contract](../../agents/combat/nn/model.py)
@@ -111,7 +116,7 @@ Keep five batches of training samples; index a uniform subset of at most
 500,000 decision rows per update; infra readers prefetch exact row bytes into
 length-bounded minibatches. Remove expired samples,
 old TensorRT caches and committed evaluation sample binaries. Retain checkpoints,
-models, small fight summaries and telemetry. No full action traces.
+models, small fight summaries, per-deck counts and telemetry. No full action traces.
 
 One 5,000-fight batch used 1.24 GiB of replay. A GPU check with five copies and the
 500k-row cap used 10.94 GiB peak process RSS (including mapped pages) and 4.18 GiB

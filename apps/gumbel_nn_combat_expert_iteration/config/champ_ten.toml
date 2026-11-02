@@ -1,4 +1,4 @@
-# Example recipe, not an approved experiment budget. Counts below are PER DECK.
+# Example recipe, not an approved experiment budget.
 # Historical monitoring scores are approximate references under older simulator rules.
 # Bootstrap is disabled: old teacher trajectories do not replay after correctness fixes.
 # No old PV training/inference or fresh teacher collection is launched.
@@ -6,7 +6,7 @@
 id = "gumbel-nn-champ-ten-v1"
 worker = "build/nn/agents/combat/nn/nn_play"
 seed_namespace = "gumbel-nn-champ-ten-v1"
-games_per_deck = 500 # 5,000 total/update; replacement reserve beyond 9 x 224 active slots
+fights_per_iteration = 5000 # decks drawn uniformly; replacement reserve beyond 9 x 224 active slots
 iterations = 0 # run until ./run.sh stop RUN_DIRECTORY; finish the active update cleanly
 
 [search] # self-play; evaluation plays the same search without noise

@@ -12,6 +12,7 @@ from agents.combat.nn.model import ModelSpec
 from agents.combat.nn.play import model_files
 from . import expert_iteration
 from .config import load
+from .reporting import deck_of
 from .run_control import RunControl
 
 CONFIG = """
@@ -19,7 +20,7 @@ CONFIG = """
 id = "test"
 worker = "nn_play"
 seed_namespace = "test"
-games_per_deck = 2
+fights_per_iteration = 5
 iterations = 2
 
 [search]
@@ -72,7 +73,8 @@ class ExpertIterationInvariants(unittest.TestCase):
         self.out = Path(self.tmp.name)
         (self.out / 'inputs').mkdir()
         (self.out / 'config.toml').write_text(CONFIG)
-        (self.out / 'inputs/starts.json').write_text(json.dumps([dict(fight_id='deck', start={})]))
+        self.decks = [dict(fight_id=name, start=dict(hp=hp, seed=0)) for hp, name in enumerate(['a', 'b', 'c'])]
+        (self.out / 'inputs/starts.json').write_text(json.dumps(self.decks))
         (self.out / 'inputs/test.jsonl').write_text(json.dumps(dict(fight_id='t', start={})) + '\n')
         self.plays = []
         fakes = [(expert_iteration, 'play', self.play), (expert_iteration, 'Replay', self.replay),
@@ -89,18 +91,20 @@ class ExpertIterationInvariants(unittest.TestCase):
         for path in (files['dynamic'], files['gpu'], *files['bank']):
             path.touch()
 
-    def play(self, binary, models, games, directory, search, workers, progress):
-        self.plays.append(dict(models=models, directory=directory, search=search))
+    def play(self, binary, models, fights, directory, search, workers, progress):
+        results = [dict(fight_id=f['fight_id'], won=i % 2 == 0, capped=False, finished_unix=1.0)
+                   for i, f in enumerate(fights)]
+        self.plays.append(dict(models=models, directory=directory, search=search, fights=fights, results=results))
         directory.mkdir(parents=True)
         (directory / 'samples-0.bin').touch()
-        return [dict(won=True, capped=False, finished_unix=1.0) for _ in games]
+        return results
 
     def replay(self, *args, **kwargs):
         replay = MagicMock()
         replay.__enter__.return_value = replay
         replay.__len__.return_value = 7
-        replay.groups = {'deck': []}
-        replay.available = replay.selected = replay.drawn = {'deck': 1}
+        replay.groups = {'a': []}
+        replay.available = replay.selected = replay.drawn = {'a': 1}
         return replay
 
     def run_loop(self, resume_from=None, config=None):
@@ -125,6 +129,27 @@ class ExpertIterationInvariants(unittest.TestCase):
         for p in self.self_play():
             it = int(p['directory'].name[4:])
             self.assertEqual(p['models'], control.iteration(it - 1))
+
+    def test_self_play_fights_are_freshly_seeded_training_decks(self):
+        self.run_loop()
+        decks = {d['fight_id']: d['start'] for d in self.decks}
+        fights = [f for p in self.self_play() for f in p['fights']]
+        self.assertEqual(len({f['fight_id'] for f in fights}), len(fights))
+        self.assertEqual(len({f['start']['seed'] for f in fights}), len(fights))
+        stable = lambda start: {k: v for k, v in start.items() if k not in {'seed', 'misc_rng', 'potion_rng'}}
+        for f in fights:
+            self.assertEqual(stable(f['start']), stable(decks[deck_of(f['fight_id'])]))
+
+    def test_deck_counts_are_every_self_play_result_so_far(self):
+        self.run_loop(config=CONFIG.replace('iterations = 2', 'iterations = 1'))
+        control = self.run_loop(resume_from=1, config=CONFIG)
+        played = {p['directory']: p['results'] for p in self.self_play()}
+        expected = {d['fight_id']: dict(fights=0, wins=0) for d in self.decks}
+        for it in range(3):
+            for r in played.get(control.iteration(it), []):
+                expected[deck_of(r['fight_id'])]['fights'] += 1
+                expected[deck_of(r['fight_id'])]['wins'] += r['won']
+            self.assertEqual(json.loads((control.iteration(it) / 'decks.json').read_text()), expected)
 
     def test_evaluation_never_explores(self):
         self.run_loop(config=CONFIG.replace('every = 0', 'every = 1'))
