@@ -79,7 +79,6 @@ class ExpertIterationInvariants(unittest.TestCase):
         (self.out / 'inputs/starts.json').write_text(json.dumps(self.decks))
         (self.out / 'inputs/test.jsonl').write_text(json.dumps(dict(fight_id='t', start={})) + '\n')
         self.plays = []
-        self.exports = []
         fakes = [(expert_iteration, 'play', self.play), (expert_iteration, 'Replay', self.replay),
                  (learner.Learner, 'fit', lambda *a, **k: (.1, .2)),
                  (learner.Learner, 'score', lambda *a: (.3, .4)),
@@ -90,19 +89,14 @@ class ExpertIterationInvariants(unittest.TestCase):
             self.addCleanup(patcher.stop)
 
     def export(self, net, directory, batch, bank):
-        self.exports.append(dict(directory=directory, batch=batch,
-                                 weights={k: v.detach().clone() for k, v in net.state_dict().items()}))
         files = model_files(directory, bank)
         for path in (files['dynamic'], files['gpu'], *files['bank']):
             path.touch()
 
-    def play(self, binary, models, fights, directory, search, workers, progress, **deployment):
-        if deployment.get('gpu_wide_attended'):
-            self.assertTrue((models / 'wide/model-gpu.onnx').is_file())
+    def play(self, binary, models, fights, directory, search, workers, progress):
         results = [dict(fight_id=f['fight_id'], won=i % 2 == 0, capped=False, finished_unix=1.0)
                    for i, f in enumerate(fights)]
-        self.plays.append(dict(models=models, directory=directory, search=search, fights=fights, results=results,
-                               deployment=deployment))
+        self.plays.append(dict(models=models, directory=directory, search=search, fights=fights, results=results))
         directory.mkdir(parents=True)
         (directory / 'samples-0.bin').touch()
         return results
@@ -202,37 +196,6 @@ class ExpertIterationInvariants(unittest.TestCase):
         control = self.run_loop()
         self.assertEqual(sorted(p.name for p in control.directory.glob('iter*')), ['iter000'])
         self.assertEqual(json.loads((control.directory / 'status.json').read_text())['phase'], 'stopped')
-
-    def test_wide_models_follow_each_checkpoint_and_are_ready_before_play(self):
-        config = (CONFIG.replace('kind = "transformer"', 'kind = "entity"')
-                  .replace('gpu_tokens = 16', 'gpu_tokens = 16\ngpu_attended = 4\n'
-                           'gpu_wide_tokens = 32\ngpu_wide_attended = 8')
-                  .replace('gpu_batch = 512', 'gpu_batch = 512\ngpu_wide_batch = 3'))
-        control = self.run_loop(config=config)
-        for it in range(3):
-            directory = control.iteration(it)
-            wide = next(e for e in self.exports if e['directory'] == directory / 'wide')
-            narrow = next(e for e in self.exports if e['directory'] == directory)
-            self.assertEqual(wide['batch'], load(config).workers.gpu_wide_batch)
-            for name, weights in narrow['weights'].items():
-                torch.testing.assert_close(wide['weights'][name], weights, rtol=0, atol=0)
-        for p in self.plays:
-            self.assertEqual(p['deployment']['gpu_attended'], load(config).model.gpu_attended)
-            self.assertEqual(p['deployment']['gpu_wide_attended'], load(config).model.gpu_wide_attended)
-
-    def test_enabling_wide_on_resume_preserves_the_checkpoint_and_prepares_it_before_play(self):
-        base = (CONFIG.replace('kind = "transformer"', 'kind = "entity"')
-                .replace('gpu_tokens = 16', 'gpu_tokens = 16\ngpu_attended = 4'))
-        control = self.run_loop(config=base.replace('iterations = 2', 'iterations = 1'))
-        checkpoint = control.iteration(1) / 'model.pt'
-        before = checkpoint.read_bytes()
-        config = base.replace('gpu_attended = 4', 'gpu_attended = 4\ngpu_wide_tokens = 32\ngpu_wide_attended = 8')
-        self.run_loop(resume_from=1, config=config)
-        self.assertEqual(checkpoint.read_bytes(), before)
-        wide = next(e for e in self.exports if e['directory'] == control.iteration(1) / 'wide')
-        saved = torch.load(checkpoint, weights_only=True)['net']
-        for name, weights in saved.items():
-            torch.testing.assert_close(wide['weights'][name], weights, rtol=0, atol=0)
 
     def test_initial_checkpoint_is_iteration_zero(self):
         initial = learner.Learner(ModelSpec('transformer', 8, 1, 1), 1e-3, 'cpu', seed=1)
