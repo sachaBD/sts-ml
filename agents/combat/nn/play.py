@@ -57,7 +57,7 @@ def play(binary, models, fights, directory, search, workers, progress=lambda don
     # TensorRT and CUDA libraries come from the dependency-managed environment, not system-wide installs.
     packages = Path(sys.prefix) / f'lib/python{sys.version_info.major}.{sys.version_info.minor}/site-packages'
     libs = [packages / 'tensorrt_libs', *sorted((packages / 'nvidia').glob('*/lib'))]
-    env = dict(os.environ, LD_LIBRARY_PATH=':'.join(map(str, libs)) + ':' + os.environ.get('LD_LIBRARY_PATH', ''))
+    env = dict(os.environ, STSRL_RUNTIME_TELEMETRY=str((directory / 'runtime.json').resolve()), LD_LIBRARY_PATH=':'.join(map(str, libs)) + ':' + os.environ.get('LD_LIBRARY_PATH', ''))
     results = []
     with DeviceSampler(directory / 'gpu.csv', enabled=sample_devices), starts.open() as source, \
             (directory / 'results.jsonl').open('w') as journal, (directory / 'worker.log').open('w') as errors:

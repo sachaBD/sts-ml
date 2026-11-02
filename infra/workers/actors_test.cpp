@@ -313,7 +313,17 @@ TEST(Actors, MixedBackendsPreserveRepliesWithoutWideWorkBlockingNarrow) {
             return echo(inputs);
         }, [](const Tokens&, auto& packed) { packed.assign(2, 1); }, 1,
            [=](const Tokens&) { return wide_accepts; }, 2};
-        run_actors(small(7, 7), episodes(log, 100), {&narrow, &wide});
+        RuntimeSnapshot final;
+        run_actors(small(7, 7), episodes(log, 100), {&narrow, &wide}, [&](const RuntimeSnapshot& s) { final = s; });
+        ASSERT_EQ(final.queues.size(), 2);
+        ASSERT_EQ(final.backends.size(), 2);
+        ASSERT_EQ(final.dispatchers.size(), 3);
+        std::array<std::uint64_t, 2> routed{};
+        for (const auto& dispatcher : final.dispatchers) {
+            ASSERT_LT(dispatcher.backend_id, 2); routed[dispatcher.backend_id] += dispatcher.requests;
+        }
+        EXPECT_EQ(routed[0], fast_rows);
+        EXPECT_EQ(routed[1], wide_rows);
         EXPECT_EQ(log.finished, 100);
         EXPECT_EQ(log.evaluated, total_steps(100));
         EXPECT_EQ(fast_rows + wide_rows, total_steps(100));
@@ -321,4 +331,53 @@ TEST(Actors, MixedBackendsPreserveRepliesWithoutWideWorkBlockingNarrow) {
         EXPECT_GT(wide_rows, 0);
         EXPECT_EQ(log.alive, 0);
     }
+}
+
+TEST(ActorsTelemetry, FinalCountersMatchWorkWithAndWithoutAnObserver) {
+    for (bool observing : {false, true}) {
+        Log log;
+        FakeBackend primary{echo, {}, 2};
+        std::vector<RuntimeSnapshot> snapshots;
+        RuntimeObserver observer;
+        if (observing) observer = [&](const RuntimeSnapshot& snapshot) { snapshots.push_back(snapshot); };
+        run_actors(small(), episodes(log, 100), primary, observer);
+        EXPECT_EQ(log.finished, 100);
+        EXPECT_EQ(log.evaluated, total_steps(100));
+        if (!observing) { EXPECT_TRUE(snapshots.empty()); continue; }
+        ASSERT_FALSE(snapshots.empty());
+        const auto& final = snapshots.back();
+        ASSERT_EQ(final.actors.size(), 4);
+        ASSERT_EQ(final.queues.size(), 1);
+        ASSERT_EQ(final.backends.size(), 1);
+        ASSERT_EQ(final.dispatchers.size(), 2);
+        std::uint64_t requests = 0, completed = 0, dispatched = 0;
+        for (const auto& a : final.actors) {
+            EXPECT_GE(a.working_seconds, 0);
+            for (double integral : a.slot_seconds) EXPECT_GE(integral, 0);
+            requests += a.requests; completed += a.completed;
+        }
+        for (const auto& d : final.dispatchers) dispatched += d.requests;
+        EXPECT_EQ(requests, total_steps(100));
+        EXPECT_EQ(dispatched, requests);
+        EXPECT_EQ(completed, 100);
+        EXPECT_EQ(final.queues[0].depth, 0);
+        std::uint64_t waits = 0;
+        for (auto count : final.queues[0].wait_counts) waits += count;
+        EXPECT_EQ(waits, requests);
+        for (std::size_t i = 1; i < snapshots.size(); ++i) {
+            EXPECT_GT(snapshots[i].sequence, snapshots[i - 1].sequence);
+            EXPECT_GE(snapshots[i].elapsed_seconds, snapshots[i - 1].elapsed_seconds);
+            for (std::size_t a = 0; a < final.actors.size(); ++a)
+                EXPECT_GE(snapshots[i].actors[a].requests, snapshots[i - 1].actors[a].requests);
+        }
+    }
+}
+
+TEST(ActorsTelemetry, ObserverFailureCannotLoseEpisodes) {
+    Log log;
+    FakeBackend backend;
+    run_actors(small(), episodes(log, 30), backend, [](const RuntimeSnapshot&) { throw std::runtime_error{"observer"}; });
+    EXPECT_EQ(log.finished, 30);
+    EXPECT_EQ(log.evaluated, total_steps(30));
+    EXPECT_EQ(log.alive, 0);
 }

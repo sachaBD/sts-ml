@@ -4,6 +4,7 @@
 #include "agents/combat/search/gumbel/gumbel.hpp"
 #include "environments/combat/public.hpp"
 #include "infra/workers/actors.hpp"
+#include "agents/combat/nn/runtime_telemetry.hpp"
 #include "environments/combat/record_v4.hpp"
 #include "sim/search/PublicBeliefCombatSearch.h"
 #include <atomic>
@@ -252,7 +253,7 @@ int main(int argc, char** argv) try {
         stsrl::infra::run_actors(config, [&]() -> std::unique_ptr<stsrl::infra::Episode> {
             auto game = shared.next_game();
             return game ? std::make_unique<CombatEpisode>(std::move(game), shared) : nullptr;
-        }, backends);
+        }, backends, stsrl::nn::runtime_observer(std::getenv("STSRL_RUNTIME_TELEMETRY")));
     } catch (const std::exception& e) {
         if (std::string{e.what()}.find("CUDA") != std::string::npos) {
             // A poisoned CUDA context requires a fresh process, not backend teardown.
