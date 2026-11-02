@@ -3,13 +3,15 @@
   python -m apps.gumbel_nn_combat_expert_iteration.expert_iteration OUT [--resume-from N]
 
 OUT is a prepared run (prepare.py): OUT/config.toml and OUT/inputs/. Writes OUT/training/ (run_control.py):
-iterNNN/{samples-0.bin, results.jsonl, replay.json, model.pt, model*.onnx} and test/iterNNN/results.jsonl.
+iterNNN/{samples-0.bin, results.jsonl, decks.json, replay.json, model.pt, model*.onnx} and test/iterNNN/results.jsonl.
+iterNNN/decks.json counts each deck's self-play fights and wins up to and including iteration NNN.
 """
 import argparse
 from dataclasses import asdict
 import itertools
 import json
 from pathlib import Path
+import random
 import time
 
 from agents.combat.nn.learner import Learner
@@ -17,9 +19,10 @@ from agents.combat.nn.export import ModelExporter
 from agents.combat.nn.play import Search, play
 from agents.combat.nn.replay import Replay
 from apps.common.app import read_jsonl
-from environments.combat.starts import fights
+from environments.combat.starts import seeded
 
 from .config import experiment_changes, load
+from .reporting import deck_of
 from .run_control import RunControl, delete_samples
 
 # Rows of an iteration's own samples scored before training on them: a few seconds, and enough to compare
@@ -33,16 +36,31 @@ def collection_stats(results):
                 tail95_seconds=finished[-1] - finished[int(.95 * (len(finished) - 1))] if finished else None)
 
 
+def draw(decks, name, n):
+    """n fights named name:deck:i, each on a deck drawn uniformly, with replacement, from decks."""
+    picks = random.Random(name).choices(decks, k=n)
+    return [seeded(deck, f'{name}:{deck["fight_id"]}:{i}') for i, deck in enumerate(picks)]
+
+
+def tally(counts, results):
+    """A copy of counts ({deck: {fights, wins}}) with results added."""
+    counts = {deck: dict(c) for deck, c in counts.items()}
+    for r in results:
+        c = counts[deck_of(r['fight_id'])]
+        c['fights'] += 1
+        c['wins'] += bool(r['won'])
+    return counts
+
+
 class ExpertIteration:
     def __init__(self, out, config, control):
         self.config, self.control = config, control
         self.inputs = out / 'inputs'
-        self.starts = json.loads((self.inputs / 'starts.json').read_text())
+        self.decks = json.loads((self.inputs / 'starts.json').read_text())
         self.tests, self.tests_in = read_jsonl(self.inputs / 'test.jsonl'), read_jsonl(self.inputs / 'test-in.jsonl')
         m, t = config.model, config.training
         self.learner = Learner(m.architecture(), t.lr, t.device)
         self.exporter = ModelExporter(m.architecture(), m.deployment(), m.export_reuse)
-        self.games = config.run.games_per_deck * len(self.starts)
         e = config.evaluation
         self.evaluation_search = Search(e.sims, 0.0, config.search.rollout_mix if e.rollout_mix is None else e.rollout_mix,
                                         config.search.particles)
@@ -85,6 +103,7 @@ class ExpertIteration:
         begin = time.time()
         self.export(directory)
         self.learner.save(directory / 'model.pt')
+        (directory / 'decks.json').write_text(json.dumps({d['fight_id']: dict(fights=0, wins=0) for d in self.decks}))
         self.control.log(iteration=0, states=0, train_seconds=round(time.time() - begin))
         self.evaluate(0)
         return 1
@@ -99,7 +118,7 @@ class ExpertIteration:
         recorded.rename(recorded.with_name(f'config-before-resume-{time.time_ns()}.toml'))
         recorded.write_text((self.inputs.parent / 'config.toml').read_text())
         self.learner.load(self.control.iteration(completed) / 'model.pt')
-        self.control.log(resume_from=completed, games_per_update=self.games)
+        self.control.log(resume_from=completed, fights_per_iteration=self.config.run.fights_per_iteration)
         # A stop or crash between the checkpoint and its evaluation must not skip that evaluation.
         if not any(r.get('test') == completed for r in self.control.history()):
             self.control.archive(self.control.directory / 'test' / f'iter{completed:03d}')
@@ -107,9 +126,12 @@ class ExpertIteration:
         return completed + 1
 
     def self_play(self, it):
-        directory = self.control.iteration(it)
-        games = fights(self.starts, f'{self.config.run.seed_namespace}:{it}', self.games)
-        return self.play(f'iteration {it}', self.control.iteration(it - 1), games, directory, self.config.search.at(it))
+        previous, directory = self.control.iteration(it - 1), self.control.iteration(it)
+        fights = draw(self.decks, f'{self.config.run.seed_namespace}:{it}', self.config.run.fights_per_iteration)
+        results = self.play(f'iteration {it}', previous, fights, directory, self.config.search.at(it))
+        counts = json.loads((previous / 'decks.json').read_text())
+        (directory / 'decks.json').write_text(json.dumps(tally(counts, results)))
+        return results
 
     def train(self, it):
         t = self.config.training
@@ -121,8 +143,8 @@ class ExpertIteration:
             heldout = self.learner.score(fresh, HELDOUT_ROWS, t.batch)
         self.control.status(stage=stage, phase='load', files=len(samples))
         with Replay(samples, max_rows=t.max_train_rows, balanced=t.balanced_replay) as replay:
-            if set(replay.groups) != {f['fight_id'] for f in self.starts}:
-                raise ValueError('replay does not contain every configured deck')
+            if not set(replay.groups) <= {d['fight_id'] for d in self.decks}:
+                raise ValueError('replay contains a deck outside the training decks')
             self.control.status(stage=stage, phase='train', done=0, total=t.steps)
             trained = self.learner.fit(replay, t.steps, t.batch, log=lambda line: (
                 print(f'  {line}', flush=True), self.control.status(stage=stage, phase='train', detail=line)))

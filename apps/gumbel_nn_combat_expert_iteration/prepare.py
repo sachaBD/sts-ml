@@ -29,6 +29,8 @@ def run(_raw, config_path, out):
     names = [f['fight_id'] for f in decks]
     if not decks or len(set(names)) != len(names) or not all(re.fullmatch(r'[a-z0-9_-]+', n) for n in names):
         sys.exit('training fights: at least one, with unique fight_ids (deck names) in [a-z0-9_-]')
+    if config.training.balanced_replay and len(decks) > config.training.batch:
+        sys.exit('balanced_replay draws every deck in each batch: needs no more training decks than [training].batch')
     frozen = out / 'inputs'
     frozen.mkdir(parents=True)  # refuse to overwrite an existing run's inputs
     snapshot(Path(config.run.worker), frozen, 'nn_play')

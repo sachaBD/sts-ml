@@ -15,22 +15,15 @@ def rng_state(seed):
     return {'counter': 0, 'seed0': first, 'seed1': murmur(first)}
 
 
+def seeded(base, fight_id):
+    """A copy of base ({fight_id, start}) named fight_id, with a fresh seed derived from that name."""
+    seed = int.from_bytes(hashlib.sha256(fight_id.encode()).digest()[:8], 'little')
+    f = copy.deepcopy(base)
+    f['fight_id'] = fight_id
+    f['start'].update(seed=seed, misc_rng=rng_state(seed), potion_rng=rng_state(seed))
+    return f
+
+
 def fights(base, name, n):
-    """n copies of base ({fight_id, start}, or a list of them) with fresh seeds derived from name."""
-    if isinstance(base, list):
-        if not base or n % len(base):
-            raise ValueError('games must be a multiple of the nonempty start list length')
-        names = [f['fight_id'] for f in base]
-        if len(set(names)) != len(names):
-            raise ValueError('start list fight_ids must be unique')
-        # Interleave decks so collection/draining does not run one deck at a time.
-        decks = [fights(f, f'{name}:{f["fight_id"]}', n // len(base)) for f in base]
-        return [decks[d][i] for i in range(n // len(base)) for d in range(len(base))]
-    out = []
-    for i in range(n):
-        seed = int.from_bytes(hashlib.sha256(f'{name}:{i}'.encode()).digest()[:8], 'little')
-        f = copy.deepcopy(base)
-        f['fight_id'] = f'{name}:{i}'
-        f['start'].update(seed=seed, misc_rng=rng_state(seed), potion_rng=rng_state(seed))
-        out.append(f)
-    return out
+    """n copies of base with fresh seeds derived from name."""
+    return [seeded(base, f'{name}:{i}') for i in range(n)]
