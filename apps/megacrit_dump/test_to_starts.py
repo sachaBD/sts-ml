@@ -33,9 +33,17 @@ class T(unittest.TestCase):
         self.assertEqual(st["neows_lament_dropped"], 1)
         self.assertEqual(st["searing_blow_multi_upgrade_clamped"], 1)
 
-    def test_potion_belt_capacity_3(self):
+    def test_potion_belt_adds_two_slots(self):
         s = ts.convert(row(relics=["burning_blood", "potion_belt"]), 1, TEMPLATE, CARDS, RELICS)
-        self.assertEqual((s["potion_capacity"], s["potions"]), (3, [1, 1, 1]))
+        self.assertEqual((s["potion_capacity"], s["potions"]), (4, [1, 1, 1, 1]))
+
+    def test_decks_are_first_copies_without_excluded_relics(self):
+        rows = [row(play_id=p, relics=["burning_blood", *extra])
+                for p, extra in (("a", []), ("b", ["runic_dome"]), ("c", ["prismatic_shard"]), ("d", ["kunai"]))]
+        out, _ = ts.build(rows, {}, TEMPLATE, 2, 5)
+        decks = ts.decks(out)
+        self.assertEqual([d["fight_id"] for d in decks], ["mc-a", "mc-d"])
+        self.assertEqual([d["start"] for d in decks], [f["start"] for f in out if f["copy"] == 1 and f["play_id"] in "ad"])
 
     def test_unmapped_skipped(self):
         self.assertIsNone(ts.convert(row(unmapped=["relic:Dodecahedron"]), 1, TEMPLATE, CARDS, RELICS))

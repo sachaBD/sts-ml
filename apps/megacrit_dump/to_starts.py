@@ -5,7 +5,8 @@
       --runs <megacrit_runs_v1 run dirs> --out {out}
 
 Writes out/starts.parquet (all converted decks) and out/starts_pv.parquet (same without Runic Dome: the PV agent rejects
-hidden intents), plus summary.json. One row per (deck, copy k): copy 1 uses the human's seed_played, copies 2.. use
+hidden intents), out/decks.jsonl (a fights file of decks: one per run, without Runic Dome or Prismatic Shard), plus
+summary.json. One row per (deck, copy k): copy 1 uses the human's seed_played, copies 2.. use
 fresh seeds --seed0 + i. Everything not rebuilt from the human record (gold, RNG counters, room fields) is copied from
 one row of a template starts file. Known approximations: potions empty; card misc 0; Searing Blow with >1 upgrade
 is stored as upgraded=True; deck and relic order are sorted by name (true order is unknown); bottled = none.
@@ -21,6 +22,7 @@ from pathlib import Path
 import duckdb
 import pyarrow as pa
 import pyarrow.parquet as pq
+from sts_lightspeed import enums
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from apps.megacrit_dump.champ_starts import header_array  # noqa: E402
@@ -34,6 +36,8 @@ BASE_OK = {"event_card_upgrade_unknown", "bottled_relic"}
 MISC_CARDS = {"ritual_dagger", "genetic_algorithm"}  # carry a per-card `misc` value we do not know
 COPY_KEYS = ("ascension", "act", "floor", "encounter", "cur_room", "last_room", "burning_elite_buff", "gold",
              "misc_rng", "potion_rng")
+# Runic Dome hides intents; Prismatic Shard brings other characters' cards.
+NOT_DECKS = {enums.RELICS.index("RUNIC_DOME"), enums.RELICS.index("PRISMATIC_SHARD")}
 
 
 def enum_index():
@@ -82,7 +86,7 @@ def convert(row: dict, seed: int, template: dict, cards: dict, relics: dict, sta
     if row["hp"] is None or row["max_hp"] is None:
         stats["skipped_no_hp"] += 1
         return None
-    cap = 3 if "potion_belt" in row["relics"] else 2
+    cap = (2 if template["ascension"] >= 11 else 3) + (2 if "potion_belt" in row["relics"] else 0)
     start = {k: template[k] for k in COPY_KEYS}
     start.update(seed=to_u64(seed), hp=row["hp"], max_hp=row["max_hp"], potion_capacity=cap,
                  potions=[EMPTY_POTION] * cap, relics=rel, deck=deck, bottled=[-1, -1, -1])
@@ -141,6 +145,12 @@ def build(champ_rows, seeds, template, k, seed0, include="base-exact"):
     return out, stats
 
 
+def decks(fights):
+    """A fights file of decks: {fight_id: mc-<play_id>, start} per run (its first copy), without a NOT_DECKS relic."""
+    return [{"fight_id": f"mc-{f['play_id']}", "start": f["start"]} for f in fights
+            if f["copy"] == 1 and not {r["id"] for r in f["start"]["relics"]} & NOT_DECKS]
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--champ-starts", nargs="+", required=True)
@@ -164,10 +174,11 @@ def main():
     schema = pa.schema([("fight_id", pa.string()), ("start", start_type()), ("augment", pa.string()),
                         ("source_fight_id", pa.string()), ("play_id", pa.string()), ("exact", pa.bool_()),
                         ("base_exact", pa.bool_()), ("copy", pa.int32())])
-    dome = int(header_array("Relics.h", "relicEnumNames").index("RUNIC_DOME"))
+    dome = enums.RELICS.index("RUNIC_DOME")
     pv = [f for f in fights if not any(r["id"] == dome for r in f["start"]["relics"])]
     for name, fs in (("starts.parquet", fights), ("starts_pv.parquet", pv)):
         pq.write_table(pa.Table.from_pylist(fs, schema=schema), out / name, compression="zstd")
+    (out / "decks.jsonl").write_text("".join(json.dumps(d) + "\n" for d in decks(fights)))
     summary = {"champ_rows_in": len(rows), **stats, "fights": len(fights), "fights_pv_no_dome": len(pv),
                "dome_fights_dropped_for_pv": len(fights) - len(pv),
                "dome_decks": (len(fights) - len(pv)) // max(1, a.k), "k": a.k, "seed0": a.seed0, "include": a.include}
