@@ -88,16 +88,15 @@ class ExpertIterationInvariants(unittest.TestCase):
             patcher.start()
             self.addCleanup(patcher.stop)
 
-    def export(self, net, directory, batch, bank, wide_batch=32):
-        wide = load((self.out / 'config.toml').read_text()).model.wide_deployment()
-        files = model_files(directory, bank, wide=wide is not None)
-        for path in (files['dynamic'], files['gpu'], *files['bank'], *([files['wide']] if wide else [])):
+    def export(self, net, directory, batch, bank):
+        files = model_files(directory, bank)
+        for path in (files['dynamic'], files['gpu'], *files['bank']):
             path.touch()
 
-    def play(self, binary, models, fights, directory, search, workers, progress, **deployment):
+    def play(self, binary, models, fights, directory, search, workers, progress):
         results = [dict(fight_id=f['fight_id'], won=i % 2 == 0, capped=False, finished_unix=1.0)
                    for i, f in enumerate(fights)]
-        self.plays.append(dict(models=models, directory=directory, search=search, fights=fights, results=results, **deployment))
+        self.plays.append(dict(models=models, directory=directory, search=search, fights=fights, results=results))
         directory.mkdir(parents=True)
         (directory / 'samples-0.bin').touch()
         return results
@@ -168,18 +167,6 @@ class ExpertIterationInvariants(unittest.TestCase):
         for it in logged:
             for name in ('model.pt', 'model.onnx', 'model-gpu.onnx', 'model-gpu-b256.onnx', 'model-gpu-b32.onnx'):
                 self.assertTrue((control.iteration(it) / name).exists(), f'iter{it}/{name}')
-
-    def test_every_stage_uses_the_checkpoint_deployment_shapes(self):
-        config = CONFIG.replace('kind = "transformer"', 'kind = "entity"').replace(
-            'gpu_tokens = 16', 'gpu_tokens = 16\ngpu_attended = 8\ngpu_wide_tokens = 32\ngpu_wide_attended = 16')
-        control = self.run_loop(config=config)
-        for stage in self.plays:
-            self.assertEqual(stage['deployment'], load(config).model.deployment())
-            self.assertEqual(stage['wide_deployment'], load(config).model.wide_deployment())
-            self.assertTrue((stage['models'] / 'model-gpu-wide.onnx').exists())
-        for row in control.history():
-            if 'iteration' in row:
-                self.assertTrue((control.iteration(row['iteration']) / 'model-gpu-wide.onnx').exists())
 
     def test_samples_outside_the_replay_window_are_pruned(self):
         control = self.run_loop()

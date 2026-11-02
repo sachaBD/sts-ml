@@ -65,30 +65,24 @@ class ModelExporter:
     not checkpoint architecture. Reuse falls back to tracing unless every weight maps
     exactly; mixed-precision graphs may therefore require full re-export.
     """
-    def __init__(self, model: ModelSpec, deployment: ExportSpec, reuse=False, wide: ExportSpec | None = None):
+    def __init__(self, model: ModelSpec, deployment: ExportSpec, reuse=False):
         deployment.validate(model)
         self.model, self.deployment = model, deployment
         self.cache = GraphCache() if reuse else None
-        self.wide = ModelExporter(model, wide, reuse) if wide else None
 
-    def export(self, net: CombatModel, directory, batch, bank, wide_batch=32):
+    def export(self, net: CombatModel, directory, batch, bank):
         if net.spec != self.model:
             raise ValueError('export architecture differs from model')
         if batch <= 0 or len(set(bank)) != len(bank) or any(not 0 < b < batch for b in bank):
             raise ValueError('positive main batch and distinct smaller bank batches required')
-        if self.wide and wide_batch <= 0:
-            raise ValueError('positive wide batch required')
-        files = model_files(directory, bank, wide=self.wide is not None)
+        files = model_files(directory, bank)
         snapshot = deepcopy(net).cpu().eval()
         try:
             self._write(snapshot, files['dynamic'], None)
-            mixed = self.deployment.mixed_precision or (self.wide and self.wide.deployment.mixed_precision)
-            device = 'cuda' if mixed else 'cpu'
+            device = 'cuda' if self.deployment.mixed_precision else 'cpu'
             snapshot.to(device)
             for size, path in zip((batch, *bank), (files['gpu'], *files['bank'])):
                 self._write(snapshot, path, size)
-            if self.wide:
-                self.wide._write(snapshot, files['wide'], wide_batch)
         finally:
             del snapshot
             if next(net.parameters()).is_cuda or self.deployment.mixed_precision:

@@ -1,6 +1,6 @@
 #include "infra/workers/actors.hpp"
-#include <atomic>
 #include <algorithm>
+#include <atomic>
 #include <cmath>
 #include <condition_variable>
 #include <cstdio>
@@ -26,11 +26,11 @@ double thread_cpu_seconds() {
 }
 
 struct Request {
+    int actor;
     std::size_t slot;
     std::uint64_t generation;
     Input input;
     const std::string* label;  // owned by the slot, unchanged until the reply
-    Clock::time_point submitted;
 };
 struct Reply {
     std::size_t slot;
@@ -43,8 +43,6 @@ struct Reply {
 struct Mailbox {
     std::mutex mutex;
     std::condition_variable replied;
-    std::vector<std::deque<Request>> requests;
-    explicit Mailbox(int routes) : requests(routes) {}
     std::deque<Reply> replies;
     std::atomic<long long> heartbeat{now_ms()};
     std::atomic<int> current_slot{-1};
@@ -52,27 +50,71 @@ struct Mailbox {
     double cpu_seconds = std::nan("");  // written by the Actor, read after join
 };
 
+class InferencePool {
+public:
+    struct Queue {
+        Backend& backend;
+        const int batch;
+        std::mutex mutex;
+        std::condition_variable requested;
+        std::deque<Request> pending;
+        Queue(Backend& b, int limit) : backend{b}, batch{std::min(limit, b.max_batch())} {}
+    };
+
+    InferencePool(const std::vector<Backend*>& backends, int batch) {
+        if (backends.empty() || !backends.front()) throw std::invalid_argument{"invalid actor configuration"};
+        for (auto* backend : backends) {
+            if (!backend || backend->lanes() < 1 || backend->max_batch() < 1 || backend->width() != backends.front()->width())
+                throw std::invalid_argument{"invalid actor configuration"};
+            queues_.push_back(std::make_unique<Queue>(*backend, batch));
+            for (int i = 0; i < backend->lanes(); ++i) lanes_.push_back(queues_.back().get());
+        }
+    }
+
+    int width() const { return queues_.front()->backend.width(); }
+    const auto& lanes() const { return lanes_; }
+
+    void submit(Request request, std::vector<std::uint16_t>& packed) {
+        std::size_t i = 0;
+        while (i + 1 < queues_.size() && !queues_[i]->backend.accepts(*request.input.tokens)) ++i;
+        auto& queue = *queues_[i];
+        queue.backend.prepare(*request.input.tokens, packed);
+        request.input.packed = packed;
+        {
+            std::lock_guard lock{queue.mutex};
+            queue.pending.push_back(request);
+        }
+        queue.requested.notify_one();
+    }
+
+    void notify() {
+        for (auto& queue : queues_) {
+            std::lock_guard lock{queue->mutex};
+            queue->requested.notify_all();
+        }
+    }
+
+private:
+    std::vector<std::unique_ptr<Queue>> queues_;
+    std::vector<Queue*> lanes_;
+};
+
 struct Shared {
     const ActorConfig config;
     NextEpisode next;
-    Backend& backend;
+    InferencePool inference;
     std::vector<std::unique_ptr<Mailbox>> mailboxes;
     const int servers;
     std::atomic<bool> stopped{false};
     std::atomic<int> actors_done{0}, servers_done{0};
-    std::vector<std::atomic<int>> queued;
-    std::vector<std::atomic<int>> queue_peak;
-    std::mutex wake_mutex, error_mutex;
-    std::condition_variable requested;
+    std::mutex error_mutex;
     std::exception_ptr error;
 
-    Shared(const ActorConfig& c, NextEpisode n, Backend& b) : config{c}, next{std::move(n)}, backend{b}, servers{b.lanes()}, queued(b.routes()), queue_peak(b.routes()) {
-        for (int i = 0; i < config.actors; ++i) mailboxes.push_back(std::make_unique<Mailbox>(b.routes()));
+    Shared(const ActorConfig& c, NextEpisode n, const std::vector<Backend*>& b)
+        : config{c}, next{std::move(n)}, inference{b, c.batch}, servers{int(inference.lanes().size())} {
+        for (int i = 0; i < config.actors; ++i) mailboxes.push_back(std::make_unique<Mailbox>());
     }
-    void notify() {
-        std::lock_guard lock{wake_mutex};  // a notify outside the wait mutex can be lost
-        requested.notify_all();  // a request must wake a server assigned to its route
-    }
+    void notify() { inference.notify(); }
     void fail(std::exception_ptr failure) {
         { std::lock_guard lock{error_mutex}; if (!error) error = failure; }
         stopped = true;
@@ -142,25 +184,13 @@ class Actor {
             refill(i);
             return;
         }
-        const int width = shared_.backend.width();
+        const int width = shared_.inference.width();
         if (tokens->count <= 0 || tokens->actions <= 0 || tokens->actions > tokens->count ||
             tokens->data.size() != std::size_t(tokens->count) * width || tokens->attended < 0 || tokens->attended > tokens->count)
             throw std::runtime_error{"invalid tokens from episode " + slot.label};
-        const int route = shared_.backend.route(*tokens);
-        if (route < 0 || route >= shared_.backend.routes()) throw std::runtime_error{"invalid inference route"};
-        shared_.backend.prepare(*tokens, slot.packed);
         slot.phase = Phase::waiting;
         slot.submitted = Clock::now();
-        {
-            std::lock_guard lock{mailbox_.mutex};
-            auto& queue = mailbox_.requests[route];
-            if (queue.size() >= slots_.size()) throw std::runtime_error{"request queue overflow"};
-            queue.push_back({i, ++slot.generation, {tokens, slot.packed}, &slot.label, slot.submitted});
-            const int pending = ++shared_.queued[route];
-            auto peak = shared_.queue_peak[route].load();
-            while (pending > peak && !shared_.queue_peak[route].compare_exchange_weak(peak, pending)) {}
-        }
-        shared_.notify();
+        shared_.inference.submit({id_, i, ++slot.generation, {tokens, {}}, &slot.label}, slot.packed);
     }
 
 public:
@@ -187,67 +217,50 @@ public:
 };
 
 class InferenceServer {
-    struct Routed { int actor; Request request; };
     Shared& shared_;
-    int cursor_ = 0;
-    const int route_, batch_size_;
+    InferencePool::Queue& queue_;
 
-    // Round-robin over Actors so none is starved.
-    bool take_one(std::vector<Routed>& batch) {
-        for (int n = 0; n < shared_.config.actors; ++n) {
-            const int actor = cursor_;
-            cursor_ = (cursor_ + 1) % shared_.config.actors;
-            auto& mailbox = *shared_.mailboxes[actor];
-            std::lock_guard lock{mailbox.mutex};
-            auto& queue = mailbox.requests[route_];
-            if (queue.empty()) continue;
-            batch.push_back({actor, queue.front()});
-            queue.pop_front();
-            --shared_.queued[route_];
-            return true;
-        }
-        return false;
-    }
-
-    std::vector<Routed> gather() {
-        std::vector<Routed> batch;
-        batch.reserve(batch_size_);
+    std::vector<Request> gather() {
+        std::vector<Request> batch;
+        batch.reserve(queue_.batch);
+        std::unique_lock lock{queue_.mutex};
+        const auto ready = [&] { return shared_.stopped || !queue_.pending.empty() || shared_.actors_done == shared_.config.actors; };
+        queue_.requested.wait_for(lock, 10ms, ready);
         const auto deadline = Clock::now() + shared_.config.batch_wait;
-        while (!shared_.stopped && int(batch.size()) < batch_size_) {
-            if (take_one(batch)) continue;
-            if (Clock::now() >= deadline) break;
-            std::unique_lock lock{shared_.wake_mutex};
-            shared_.requested.wait_until(lock, deadline, [&] { return shared_.stopped || shared_.queued[route_] != 0; });
+        while (!shared_.stopped && int(batch.size()) < queue_.batch) {
+            if (queue_.pending.empty()) {
+                if (shared_.actors_done == shared_.config.actors || !queue_.requested.wait_until(lock, deadline, ready)) break;
+                continue;
+            }
+            batch.push_back(queue_.pending.front());
+            queue_.pending.pop_front();
         }
         return batch;
     }
 
-    static void validate(const Routed& item, const Prediction& p) {
-        const auto& tokens = *item.request.input.tokens;
+    static void validate(const Request& item, const Prediction& p) {
+        const auto& tokens = *item.input.tokens;
         bool finite = std::isfinite(p.value) && p.value >= 0 && p.value <= 1;
         for (float x : p.logits) finite = finite && std::isfinite(x);
         if (finite && p.logits.size() == std::size_t(tokens.actions)) return;
         std::ostringstream message;
-        message << "invalid prediction: episode=" << *item.request.label << " value=" << p.value
+        message << "invalid prediction: episode=" << *item.label << " value=" << p.value
                 << " logits=" << p.logits.size() << " actions=" << tokens.actions << " tokens=" << tokens.count;
         throw std::runtime_error{message.str()};
     }
 
-    void dispatch(const std::vector<Routed>& batch) {
+    void dispatch(const std::vector<Request>& batch) {
         std::vector<Input> inputs;
         inputs.reserve(batch.size());
-        for (const auto& item : batch) {
-            inputs.push_back(item.request.input);
-            queue_wait_seconds += std::chrono::duration<double>(Clock::now() - item.request.submitted).count();
-        }
-        auto predictions = shared_.backend.evaluate(inputs, route_);
+        for (const auto& item : batch) inputs.push_back(item.input);
+        auto predictions = queue_.backend.evaluate(inputs);
         if (shared_.stopped) return;
         if (predictions.size() != batch.size()) throw std::runtime_error{"prediction count mismatch"};
         // Validate everything before replying: a reply lets its Actor mutate the tokens again.
         for (std::size_t i = 0; i < batch.size(); ++i) validate(batch[i], predictions[i]);
         std::vector<std::deque<Reply>> replies(shared_.config.actors);
         for (std::size_t i = 0; i < batch.size(); ++i)
-            replies[batch[i].actor].push_back({batch[i].request.slot, batch[i].request.generation, std::move(predictions[i])});
+            replies[batch[i].actor].push_back({batch[i].slot, batch[i].generation, std::move(predictions[i])});
         for (int actor = 0; actor < shared_.config.actors; ++actor) {
             if (replies[actor].empty()) continue;
             auto& mailbox = *shared_.mailboxes[actor];
@@ -264,25 +277,16 @@ class InferenceServer {
 
 public:
     long batches = 0, requests = 0;
-    double queue_wait_seconds = 0;
     std::atomic<long long> heartbeat{now_ms()};
     std::atomic<bool> done{false};
     double cpu_seconds = std::nan("");
-    InferenceServer(Shared& shared, int lane) : shared_{shared}, route_{shared.backend.lane_route(lane)},
-        batch_size_{std::min(shared.config.batch, shared.backend.max_batch(route_))} {}
-    int route() const { return route_; }
+    InferenceServer(Shared& shared, InferencePool::Queue& queue) : shared_{shared}, queue_{queue} {}
 
     void run() {
         while (!shared_.stopped) {
             heartbeat = now_ms();
-            {
-                std::unique_lock lock{shared_.wake_mutex};
-                shared_.requested.wait_for(lock, 10ms, [&] {
-                    return shared_.stopped || shared_.queued[route_] != 0 || shared_.actors_done == shared_.config.actors;
-                });
-            }
-            if (shared_.queued[route_] == 0 && shared_.actors_done == shared_.config.actors) return;
             const auto batch = gather();
+            if (batch.empty() && shared_.actors_done == shared_.config.actors) return;
             if (!batch.empty() && !shared_.stopped) dispatch(batch);
         }
     }
@@ -325,23 +329,19 @@ void supervise(Shared& shared, const std::vector<std::unique_ptr<InferenceServer
 }  // namespace
 
 void run_actors(const ActorConfig& config, NextEpisode next, Backend& backend) {
-    if (config.actors < 1 || config.slots < 1 || config.batch < 1 || config.batch > backend.max_batch() || backend.lanes() < 1 || backend.routes() < 1 || backend.routes() > backend.lanes() ||
+    run_actors(config, std::move(next), std::vector<Backend*>{&backend});
+}
+
+void run_actors(const ActorConfig& config, NextEpisode next, const std::vector<Backend*>& backends) {
+    if (config.actors < 1 || config.slots < 1 || config.batch < 1 ||
         config.batch_wait.count() < 0 || config.timeout.count() <= 0 || config.shutdown_timeout.count() <= 0 || !next)
         throw std::invalid_argument{"invalid actor configuration"};
-    std::vector<int> route_lanes(backend.routes());
-    for (int lane = 0; lane < backend.lanes(); ++lane) {
-        const int route = backend.lane_route(lane);
-        if (route < 0 || route >= backend.routes()) throw std::invalid_argument{"invalid inference lane route"};
-        ++route_lanes[route];
-    }
-    for (int r = 0; r < backend.routes(); ++r)
-        if (!route_lanes[r] || backend.max_batch(r) < 1) throw std::invalid_argument{"inference route needs lanes and a positive batch"};
     const auto started = Clock::now();
-    Shared shared{config, std::move(next), backend};
+    Shared shared{config, std::move(next), backends};
     std::vector<std::unique_ptr<Actor>> actors;
     for (int i = 0; i < config.actors; ++i) actors.push_back(std::make_unique<Actor>(shared, i));
     std::vector<std::unique_ptr<InferenceServer>> servers;
-    for (int i = 0; i < shared.servers; ++i) servers.push_back(std::make_unique<InferenceServer>(shared, i));
+    for (auto* queue : shared.inference.lanes()) servers.push_back(std::make_unique<InferenceServer>(shared, *queue));
     std::vector<std::jthread> server_threads, actor_threads;
     try {
         for (auto& server : servers) server_threads.emplace_back([&shared, &server = *server] {
@@ -379,15 +379,6 @@ void run_actors(const ActorConfig& config, NextEpisode next, Backend& backend) {
                  seconds, config.actors, config.slots, shared.servers, batches, requests,
                  batches ? double(requests) / batches : 0.,
                  100 * actor_cpu / (config.actors * seconds), 100 * server_cpu / (shared.servers * seconds));
-    for (int r = 0; r < backend.routes(); ++r) {
-        long count = 0, batch_count = 0;
-        double wait = 0;
-        for (const auto& server : servers) if (server->route() == r) {
-            count += server->requests; batch_count += server->batches; wait += server->queue_wait_seconds;
-        }
-        std::fprintf(stderr, "inference_route_stats: {\"route\":%d,\"lanes\":%d,\"requests\":%ld,\"batches\":%ld,\"queue_peak\":%d,\"mean_queue_wait_ms\":%.3f}\n",
-            r, route_lanes[r], count, batch_count, shared.queue_peak[r].load(), count ? 1000 * wait / count : 0.);
-    }
     if (shared.error) std::rethrow_exception(shared.error);
 }
 }  // namespace stsrl::infra

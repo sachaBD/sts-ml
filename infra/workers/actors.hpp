@@ -1,5 +1,5 @@
 #pragma once
-// Actors play episodes; dedicated InferenceServer lanes batch each Backend route independently.
+// Actors play episodes; InferenceServer lanes batch their network requests onto a Backend.
 // Episodes never leave their Actor: only immutable token views and predictions cross threads.
 #include "infra/inference/backend.hpp"
 #include <chrono>
@@ -33,5 +33,7 @@ using NextEpisode = std::function<std::unique_ptr<Episode>()>;
 // Runs the Actors and the InferenceServer lanes until every episode has finished; the calling thread supervises.
 // Throws the first failure; a timeout is a failure, never a lost episode. If a native call cannot be stopped
 // within shutdown_timeout the process exits nonzero rather than hang or free state still in use.
+// First accepting backend wins; the last handles requests none accept. Backends outlive this call.
+void run_actors(const ActorConfig&, NextEpisode, const std::vector<Backend*>&);
 void run_actors(const ActorConfig&, NextEpisode, Backend&);
 }  // namespace stsrl::infra

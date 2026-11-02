@@ -27,22 +27,15 @@ class Workers:
     gpu_wait_us: int
     timeout_ms: int
     shutdown_timeout_ms: int
-    gpu_lanes: int = 2
-    gpu_wide_lanes: int = 1
-    gpu_wide_batch: int = 32
 
 
-def model_files(directory, gpu_bank, wide=False):
+def model_files(directory, gpu_bank):
     """What nn_play loads from a model directory: the dynamic model, the fixed-batch GPU model and its smaller bank."""
-    files = dict(dynamic=directory / 'model.onnx', gpu=directory / 'model-gpu.onnx',
-                 bank=[directory / f'model-gpu-b{b}.onnx' for b in gpu_bank])
-    if wide:
-        files['wide'] = directory / 'model-gpu-wide.onnx'
-    return files
+    return dict(dynamic=directory / 'model.onnx', gpu=directory / 'model-gpu.onnx',
+                bank=[directory / f'model-gpu-b{b}.onnx' for b in gpu_bank])
 
 
-def play(binary, models, fights, directory, search, workers, progress=lambda done, pid: None, sample_devices=True,
-         deployment=None, wide_deployment=None):
+def play(binary, models, fights, directory, search, workers, progress=lambda done, pid: None, sample_devices=True):
     """Plays `fights` with nn_play `binary` and the models in `models`; writes samples, results and logs to `directory`.
     Results are journaled as fights finish; progress(done, pid) follows them."""
     directory.mkdir(parents=True, exist_ok=True)
@@ -51,20 +44,14 @@ def play(binary, models, fights, directory, search, workers, progress=lambda don
         raise FileExistsError(f'{samples}: refusing to append duplicate gameplay')
     starts = directory / 'starts.jsonl'
     starts.write_text(''.join(json.dumps(f) + '\n' for f in fights))
-    files = model_files(models, workers.gpu_bank, wide=wide_deployment is not None)
+    files = model_files(models, workers.gpu_bank)
     command = [str(binary), 'play', str(files['dynamic']), str(samples),
                '--threads', str(workers.actors), '--parallel', str(workers.slots),
                '--gpu-model', str(files['gpu']), '--gpu-batch', str(workers.gpu_batch),
-               '--gpu-lanes', str(workers.gpu_lanes),
                '--gpu-wait-us', str(workers.gpu_wait_us), '--timeout-ms', str(workers.timeout_ms),
                '--shutdown-timeout-ms', str(workers.shutdown_timeout_ms),
                '--sims', str(search.sims), '--gumbel-scale', str(search.gumbel_scale),
                '--rollout-mix', str(search.rollout_mix), '--particles', str(search.particles)]
-    if deployment and deployment.attended is not None:
-        command += ['--gpu-attended', str(deployment.attended)]
-    if wide_deployment:
-        command += ['--gpu-wide-model', str(files['wide']), '--gpu-wide-lanes', str(workers.gpu_wide_lanes),
-                    '--gpu-wide-attended', str(wide_deployment.attended or 0)]
     if files['bank']:
         command += ['--gpu-bank', ','.join(map(str, files['bank']))]
     # TensorRT and CUDA libraries come from the dependency-managed environment, not system-wide installs.

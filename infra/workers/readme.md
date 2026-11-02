@@ -20,7 +20,7 @@ used by the InferenceServer during play and by the Learner during train.
 |---|---|---|---|---|
 | Loop | 1 | python `loop` | both | starts play, runs train, exports models, prunes old replay |
 | Actor | 9 (`--workers`) | native `nn_play` | play | plays K games each (`--parallel`): search + simulator, requests NN evals, writes samples |
-| InferenceServer | configurable per GPU route; 2 by default / 1 (CPU) | native `nn_play` | play | overlapping batch preparation and inference |
+| InferenceServer | 2 (GPU) / 1 (CPU) | native `nn_play` | play | overlapping batch preparation and inference |
 | Reader | 4 threads | python `loop` | train | reads sampled rows with coarse `pread` tasks; Replay builds padded batches |
 | Learner | 1 | python `loop` | train | takes ready batches, runs the GPU training step |
 
@@ -53,12 +53,6 @@ used by the InferenceServer during play and by the Learner during train.
 
 `gpu_stats` timings (except wall-clock `seconds`) are summed over lanes, not GPU utilization; they can
 exceed wall time. `actors_stats.server_cpu_pct` is average CPU use per server lane.
-
-An optional wide route has dedicated queues and server lanes. Actors choose a route from token-count
-metadata before submitting a request; each server gathers only its route, capped by that route's batch
-capacity. Narrow servers never execute the widest route's CPU fallback. Mailbox requests across all
-routes remain bounded by the Actor's slots, and replies preserve the same generation/ownership checks.
-`inference_route_stats` reports each route's queue peak and mean submission-to-dispatch wait at shutdown.
 
 ## Communication
 

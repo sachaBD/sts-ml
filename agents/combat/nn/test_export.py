@@ -81,20 +81,6 @@ class TransformerExportTests(ExportContract, unittest.TestCase):
 class PooledTransformerExportTests(ExportContract, unittest.TestCase):
     kind = 'entity'
 
-    def test_wide_export_covers_narrow_overflow_without_changing_weights(self):
-        exporter = ModelExporter(self.model.spec, ExportSpec(tokens=10, attended=1), reuse=True,
-                                 wide=ExportSpec(tokens=12, attended=6))
-        for _ in range(2):
-            train_once(self.learner, self.tokens)
-            exporter.export(self.model, self.directory, batch=2, bank=(1,), wide_batch=2)
-        self.model.eval()
-        narrow_value, _ = onnx_predictions(self.directory / 'model-gpu.onnx', self.tokens.half())
-        wide = onnx_predictions(self.directory / 'model-gpu-wide.onnx', torch.nn.functional.pad(self.tokens.half(), (0, 0, 0, 2)))
-        expected = model_predictions(self.model, self.tokens)
-        self.assertTrue(torch.isnan(narrow_value).all())
-        torch.testing.assert_close(wide[0], expected[0], rtol=2e-4, atol=2e-5)
-        torch.testing.assert_close(wide[1][:, :10], expected[1], rtol=2e-4, atol=2e-5)
-
     def test_attention_overflow_requires_the_full_cpu_model(self):
         exporter = ModelExporter(self.model.spec, ExportSpec(tokens=10, attended=1))
 
