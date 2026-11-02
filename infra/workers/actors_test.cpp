@@ -4,6 +4,7 @@
 #include "infra/workers/actors.hpp"
 #include <gtest/gtest.h>
 #include <atomic>
+#include <array>
 #include <limits>
 #include <map>
 #include <mutex>
@@ -287,4 +288,94 @@ TEST(ActorsDeathTest, HungBackendExitsProcess) {
         FakeBackend backend{[](auto) -> std::vector<Prediction> { for (;;) std::this_thread::sleep_for(1s); }};
         run_actors(config, episodes(log, 20, three_steps), backend);
     }, testing::ExitedWithCode(1), "shutdown timeout");
+}
+
+namespace {
+class RoutedBackend final : public Backend {
+public:
+    std::function<void(std::span<const Input>, int)> check;
+    std::array<std::atomic<int>, 2> calls{}, active{}, peak{};
+    int width() const override { return token_width; }
+    int max_batch() const override { return 7; }
+    int max_batch(int r) const override { return r ? 2 : 7; }
+    int lanes() const override { return 3; }
+    int routes() const override { return 2; }
+    int lane_route(int lane) const override { return lane < 2 ? 0 : 1; }
+    int route(const Tokens& t) const override { return (int(t.data[0] * 1000 + .5f) + int(t.data[1])) % 2; }
+    void prepare(const Tokens& t, std::vector<std::uint16_t>& packed) const override { packed.assign(route(t) + 1, 1); }
+    std::vector<Prediction> evaluate(std::span<const Input> inputs) override { return evaluate(inputs, 0); }
+    std::vector<Prediction> evaluate(std::span<const Input> inputs, int r) override {
+        require(int(inputs.size()) <= max_batch(r), "route batch exceeds capacity");
+        for (const auto& input : inputs)
+            require(route(*input.tokens) == r && input.packed.size() == std::size_t(r + 1), "request reached wrong route");
+        ++calls[r];
+        const int now = ++active[r];
+        for (int seen = peak[r]; now > seen && !peak[r].compare_exchange_weak(seen, now);) {}
+        try {
+            if (check) check(inputs, r);
+            else std::this_thread::sleep_for(1ms);
+        } catch (...) { --active[r]; throw; }
+        --active[r];
+        return echo(inputs);
+    }
+};
+}
+
+TEST(InferenceRoutes, RouteChangesPreserveOwnershipAndAnswerEveryRequestOnce) {
+    Log log;
+    RoutedBackend backend;
+    run_actors(small(7, 7), episodes(log, 100), backend);
+    EXPECT_EQ(log.finished, 100);
+    EXPECT_EQ(log.evaluated, total_steps(100));
+    EXPECT_EQ(log.alive, 0);
+    EXPECT_GT(backend.calls[0], 0);
+    EXPECT_GT(backend.calls[1], 0);
+    EXPECT_LE(backend.peak[0], 2);
+    EXPECT_LE(backend.peak[1], 1);
+}
+
+TEST(InferenceRoutes, SlowWideLaneDoesNotBlockNarrowProgress) {
+    Log log;
+    RoutedBackend backend;
+    backend.check = [&](std::span<const Input>, int route) {
+        if (route == 1) {
+            const auto deadline = std::chrono::steady_clock::now() + 1s;
+            while (backend.calls[0] < 2 && std::chrono::steady_clock::now() < deadline) std::this_thread::sleep_for(1ms);
+            require(backend.calls[0] >= 2, "wide work blocked narrow lanes");
+        }
+    };
+    run_actors(small(7, 7), episodes(log, 100), backend);
+    EXPECT_EQ(log.finished, 100);
+    EXPECT_EQ(log.alive, 0);
+}
+
+TEST(InferenceRoutes, AnIdleRouteDoesNotPreventShutdown) {
+    for (int id : {1, 2}) {
+        Log log;
+        RoutedBackend backend;
+        std::atomic<bool> started{false};
+        run_actors(small(), [&]() -> std::unique_ptr<Episode> {
+            return started.exchange(true) ? nullptr : std::make_unique<FakeEpisode>(log, id, 1);
+        }, backend);
+        EXPECT_EQ(log.finished, 1);
+        EXPECT_EQ(log.alive, 0);
+        EXPECT_EQ(backend.calls[0] + backend.calls[1], 1);
+    }
+}
+
+TEST(InferenceRoutes, WideFailureJoinsNarrowLanesBeforeFreeingInputs) {
+    Log log;
+    RoutedBackend backend;
+    std::atomic<bool> failed{false};
+    backend.check = [&](std::span<const Input>, int route) {
+        if (route == 1) { failed = true; throw std::runtime_error{"wide route failed"}; }
+        while (!failed) std::this_thread::sleep_for(1ms);
+        std::this_thread::sleep_for(10ms);
+        require(log.alive > 0, "inputs freed before narrow lane returned");
+    };
+    try {
+        run_actors(small(7, 7), episodes(log, 100), backend);
+        FAIL() << "wide failure was swallowed";
+    } catch (const std::exception& e) { EXPECT_NE(std::string{e.what()}.find("wide route failed"), std::string::npos); }
+    EXPECT_EQ(log.alive, 0);
 }

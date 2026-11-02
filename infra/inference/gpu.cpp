@@ -146,23 +146,50 @@ struct Lane {
 };
 
 class GpuBackend final : public Backend {
-    static constexpr int lane_count = 2;
+    struct Group {
+        std::vector<Lane*> free;
+        int tokens = 0, batch = 0, attended = 0, lanes = 0;
+        bool fits(const Tokens& t) const {
+            return t.count <= tokens && (!attended || (t.attended > 0 && t.attended <= attended));
+        }
+    };
 
 public:
-    GpuBackend(const std::filesystem::path& onnx, const std::vector<std::filesystem::path>& fixed) : cpu_{onnx} {
-        if (fixed.empty()) throw std::invalid_argument{"gpu backend: at least one fixed-shape model required"};
-        for (int i = 0; i < lane_count; ++i) lanes_.push_back(std::make_unique<Lane>(env_, fixed));
-        const auto& engines = lanes_.front()->engines;
-        tokens_ = engines.front()->tokens;
-        width_ = engines.front()->width;
-        for (std::size_t i = 0; i < engines.size(); ++i) {
-            const auto& e = *engines[i];
-            if (e.tokens != tokens_ || e.width != width_) throw std::invalid_argument{"gpu backend: fixed models differ in token shape"};
-            if (i && e.batch == engines[i - 1]->batch) throw std::invalid_argument{"gpu backend: duplicate batch size"};
+    GpuBackend(const std::filesystem::path& onnx, const std::vector<GpuRoute>& routes) : cpu_{onnx} {
+        if (routes.empty()) throw std::invalid_argument{"gpu backend: at least one route required"};
+        for (const auto& config : routes) {
+            if (config.models.empty() || config.lanes < 1 || config.attended < 0)
+                throw std::invalid_argument{"gpu backend: models, positive lanes and nonnegative attended required"};
+            Group group;
+            group.attended = config.attended;
+            group.lanes = config.lanes;
+            for (int i = 0; i < config.lanes; ++i) {
+                auto lane = std::make_unique<Lane>(env_, config.models);
+                const auto& engines = lane->engines;
+                group.tokens = engines.front()->tokens;
+                group.batch = engines.back()->batch;
+                for (std::size_t k = 0; k < engines.size(); ++k) {
+                    const auto& e = *engines[k];
+                    if (e.tokens != group.tokens || e.width != cpu_.width())
+                        throw std::invalid_argument{"gpu backend: fixed models differ in token shape or width"};
+                    if (k && e.batch == engines[k - 1]->batch)
+                        throw std::invalid_argument{"gpu backend: duplicate batch size"};
+                }
+                if (group.attended > group.tokens)
+                    throw std::invalid_argument{"gpu backend: attended exceeds token capacity"};
+                lane->allocate(group.batch, group.tokens, cpu_.width());
+                group.free.push_back(lane.get());
+                lanes_.push_back(std::move(lane));
+            }
+            if (!groups_.empty()) {
+                const auto& previous = groups_.back();
+                if (group.tokens < previous.tokens ||
+                    (group.attended && (!previous.attended || group.attended < previous.attended)))
+                    throw std::invalid_argument{"gpu backend: wider route must cover the preceding route"};
+            }
+            groups_.push_back(std::move(group));
         }
-        if (width_ != cpu_.width()) throw std::invalid_argument{"gpu backend: fixed and dynamic models differ in width"};
-        batch_ = engines.back()->batch;
-        for (auto& lane : lanes_) { lane->allocate(batch_, tokens_, width_); free_.push_back(lane.get()); }
+        route_stats_.resize(groups_.size());
         begin_ = Clock::now();
     }
 
@@ -171,18 +198,39 @@ public:
         lanes_.clear();
     }
 
-    int width() const override { return width_; }
-    int max_batch() const override { return batch_; }
-    int lanes() const override { return lane_count; }
+    int width() const override { return cpu_.width(); }
+    int max_batch() const override { return max_batch(0); }
+    int max_batch(int route) const override { return groups_.at(route).batch; }
+    int lanes() const override { return int(lanes_.size()); }
+    int routes() const override { return int(groups_.size()); }
+    int route(const Tokens& tokens) const override {
+        for (int r = 0; r < routes(); ++r) if (groups_[r].fits(tokens)) return r;
+        return routes() - 1;  // CPU fallback shares only the widest route, never the narrow lanes.
+    }
+    int lane_route(int lane) const override {
+        for (int r = 0; r < routes(); ++r) {
+            if (lane < groups_[r].lanes) return r;
+            lane -= groups_[r].lanes;
+        }
+        throw std::out_of_range{"invalid inference lane"};
+    }
 
     void prepare(const Tokens& tokens, std::vector<std::uint16_t>& packed) const override {
-        if (tokens.count > tokens_) { packed.clear(); return; }  // too long: the CPU evaluates it whole
-        packed.assign(std::size_t(tokens_) * width_, 0);
+        const auto& group = groups_[route(tokens)];
+        if (!group.fits(tokens)) { packed.clear(); return; }  // full CPU model, no truncation
+        packed.assign(std::size_t(group.tokens) * width(), 0);
         to_fp16(tokens.data, packed.data());
     }
 
     std::vector<Prediction> evaluate(std::span<const Input> inputs) override {
-        if (std::ssize(inputs) > batch_) throw std::invalid_argument{"gpu backend: batch too large"};
+        return evaluate(inputs, inputs.empty() ? 0 : route(*inputs.front().tokens));
+    }
+
+    std::vector<Prediction> evaluate(std::span<const Input> inputs, int route_id) override {
+        auto& group = groups_.at(route_id);
+        if (std::ssize(inputs) > group.batch) throw std::invalid_argument{"gpu backend: batch too large"};
+        for (const auto& input : inputs)
+            if (route(*input.tokens) != route_id) throw std::invalid_argument{"gpu backend: mixed inference routes"};
         const auto begin = Clock::now();
         Stats stats;
         std::vector<Prediction> out(inputs.size());
@@ -190,13 +238,14 @@ public:
         for (std::size_t i = 0; i < inputs.size(); ++i) (inputs[i].packed.empty() ? cpu : gpu).push_back(i);
         if (!cpu.empty()) fallback(inputs, cpu, out, stats);
         if (!gpu.empty()) {
-            Lane& lane = acquire();
-            try { run(lane, inputs, gpu, out, stats); } catch (...) { release(lane); throw; }
-            release(lane);
+            Lane& lane = acquire(group);
+            try { run(lane, group, inputs, gpu, out, stats); } catch (...) { release(group, lane); throw; }
+            release(group, lane);
         }
         stats.busy = since(begin);
         std::lock_guard lock{stats_mutex_};
         total_ += stats;
+        route_stats_[route_id] += stats;
         if (since(begin_) - reported_ >= 60) { print(); reported_ = since(begin_); }
         return out;
     }
@@ -215,17 +264,17 @@ private:
         }
     };
 
-    Lane& acquire() {
+    Lane& acquire(Group& group) {
         std::lock_guard lock{lanes_mutex_};
-        if (free_.empty()) throw std::logic_error{"gpu backend: more concurrent evaluate() calls than lanes"};
-        Lane* lane = free_.back();
-        free_.pop_back();
+        if (group.free.empty()) throw std::logic_error{"gpu backend: more concurrent evaluate() calls than route lanes"};
+        Lane* lane = group.free.back();
+        group.free.pop_back();
         return *lane;
     }
 
-    void release(Lane& lane) {
+    void release(Group& group, Lane& lane) {
         std::lock_guard lock{lanes_mutex_};
-        free_.push_back(&lane);
+        group.free.push_back(&lane);
     }
 
     void fallback(std::span<const Input> inputs, const std::vector<std::size_t>& rows, std::vector<Prediction>& out, Stats& stats) {
@@ -236,8 +285,9 @@ private:
         stats.cpu_leaves += long(rows.size());
     }
 
-    void run(Lane& lane, std::span<const Input> inputs, const std::vector<std::size_t>& rows, std::vector<Prediction>& out, Stats& stats) {
-        const std::size_t stride = std::size_t(tokens_) * width_;
+    void run(Lane& lane, const Group& group, std::span<const Input> inputs, const std::vector<std::size_t>& rows, std::vector<Prediction>& out, Stats& stats) {
+        const int tokens_ = group.tokens;
+        const std::size_t stride = std::size_t(tokens_) * width();
         const int n = int(rows.size());
         for (int k = 0; k < n; ++k) {
             const auto packed = inputs[rows[k]].packed;
@@ -261,11 +311,11 @@ private:
             const float* logits = lane.host_logits + std::size_t(k) * tokens_;
             auto& p = out[rows[k]] = {lane.host_value[k], {logits + tokens.count - tokens.actions, logits + tokens.count}};
             const bool finite = std::isfinite(p.value) && std::all_of(p.logits.begin(), p.logits.end(), [](float x) { return std::isfinite(x); });
-            if (!finite) {  // fp16 overflow on large features: redo this row in fp32 once
+            if (!finite) {  // capacity or numerical failure: redo this row on the full fp32 model
                 const std::array<const Tokens*, 1> retry{&tokens};
                 p = cpu_.evaluate(retry).front();
                 if (precision_warned_.exchange(true) == false)
-                    std::fprintf(stderr, "gpu backend: non-finite fp16 prediction; retried in fp32 on the CPU\n");
+                    std::fprintf(stderr, "gpu backend: non-finite GPU prediction; retried in fp32 on the CPU\n");
                 ++stats.precision_retries;
             }
         }
@@ -278,10 +328,14 @@ private:
     }
 
     void print() const {  // caller holds stats_mutex_
-        const auto& s = total_;
-        std::fprintf(stderr, "gpu_stats: {\"seconds\":%.3f,\"lanes\":%d,\"batches\":%ld,\"leaves\":%ld,\"capacity\":%ld,\"cpu_leaves\":%ld,"
+        print_stats(total_, "gpu_stats", -1, lanes());
+        for (int r = 0; r < routes(); ++r) print_stats(route_stats_[r], "gpu_route_stats", r, groups_[r].lanes);
+    }
+
+    void print_stats(const Stats& s, const char* label, int route, int lane_count) const {
+        std::fprintf(stderr, "%s: {\"route\":%d,\"seconds\":%.3f,\"lanes\":%d,\"batches\":%ld,\"leaves\":%ld,\"capacity\":%ld,\"cpu_leaves\":%ld,"
                      "\"cpu_precision_retries\":%ld,\"busy\":%.3f,\"h2d_seconds\":%.3f,\"inference_seconds\":%.3f,\"d2h_seconds\":%.3f,\"shapes\":{",
-                     since(begin_), lane_count, s.batches, s.leaves, s.capacity, s.cpu_leaves, s.precision_retries, s.busy, s.h2d, s.inference, s.d2h);
+                     label, route, since(begin_), lane_count, s.batches, s.leaves, s.capacity, s.cpu_leaves, s.precision_retries, s.busy, s.h2d, s.inference, s.d2h);
         const char* separator = "";
         for (const auto& [batch, count] : s.shapes) { std::fprintf(stderr, "%s\"%d\":%ld", separator, batch, count); separator = ","; }
         std::fprintf(stderr, "}}\n");
@@ -291,9 +345,9 @@ private:
     Ort::Env env_{ORT_LOGGING_LEVEL_WARNING, "infra-gpu"};
     std::vector<std::unique_ptr<Lane>> lanes_;
     std::mutex lanes_mutex_, stats_mutex_;
-    std::vector<Lane*> free_;
-    int batch_ = 0, tokens_ = 0, width_ = 0;
+    std::vector<Group> groups_;
     Stats total_;
+    std::vector<Stats> route_stats_;
     std::atomic<bool> precision_warned_{false};
     double reported_ = 0;
     Clock::time_point begin_;
@@ -301,6 +355,12 @@ private:
 }  // namespace
 
 std::unique_ptr<Backend> gpu_backend(const std::filesystem::path& onnx, const std::vector<std::filesystem::path>& fixed) {
-    return std::make_unique<GpuBackend>(onnx, fixed);
+    return gpu_backend(onnx, GpuRoute{fixed}, {});
+}
+
+std::unique_ptr<Backend> gpu_backend(const std::filesystem::path& onnx, const GpuRoute& narrow, const GpuRoute& wide) {
+    std::vector<GpuRoute> routes{narrow};
+    if (!wide.models.empty()) routes.push_back(wide);
+    return std::make_unique<GpuBackend>(onnx, routes);
 }
 }  // namespace stsrl::infra

@@ -183,14 +183,16 @@ int main(int argc, char** argv) try {
     if (mode != "play" || argc < 4 || argc % 2) {
         std::cerr << "usage: nn_play play MODEL.onnx SAMPLES.bin [--threads T] [--parallel G] [--gpu-model FIXED.onnx\n"
                      "                    --gpu-batch B] [--gpu-bank SMALLER.onnx,...] [--gpu-wait-us U]\n"
-                     "                    [--sims S] [--rollout-mix M]\n"
+                     "                    [--gpu-lanes N] [--gpu-attended A] [--gpu-wide-model WIDE.onnx]\n"
+                     "                    [--gpu-wide-lanes N] [--gpu-wide-attended A] [--sims S] [--rollout-mix M]\n"
                      "                    [--gumbel-scale G] [--particles P] [--timeout-ms M] [--shutdown-timeout-ms M]\n"
                      "       nn_play import SAMPLES.bin\n";
         return 2;
     }
     int threads = 9, parallel = 224, gpu_batch = 512, gpu_wait_us = 100;
     int timeout_ms = 60'000, shutdown_timeout_ms = 5'000;
-    std::string gpu_model;
+    std::string gpu_model, gpu_wide_model;
+    int gpu_lanes = 2, gpu_attended = 0, gpu_wide_lanes = 1, gpu_wide_attended = 0;
     std::vector<std::filesystem::path> gpu_bank;
     stsrl::search::Gumbel::Settings settings;
     double rollout_mix = 0.5;
@@ -211,6 +213,11 @@ int main(int argc, char** argv) try {
         }
         else if (k == "--gpu-model") gpu_model = v;
         else if (k == "--gpu-batch") gpu_batch = std::stoi(v);
+        else if (k == "--gpu-lanes") gpu_lanes = std::stoi(v);
+        else if (k == "--gpu-attended") gpu_attended = std::stoi(v);
+        else if (k == "--gpu-wide-model") gpu_wide_model = v;
+        else if (k == "--gpu-wide-lanes") gpu_wide_lanes = std::stoi(v);
+        else if (k == "--gpu-wide-attended") gpu_wide_attended = std::stoi(v);
         else if (k == "--sims") settings.simulations = std::stoi(v);
         else if (k == "--rollout-mix") rollout_mix = std::stod(v);
         else if (k == "--gumbel-scale") settings.gumbel_scale = std::stod(v);
@@ -220,10 +227,16 @@ int main(int argc, char** argv) try {
     if (threads < 1 || parallel < 1 || gpu_batch < 1 || gpu_wait_us < 0 || timeout_ms <= 0 || shutdown_timeout_ms <= 0 ||
         settings.simulations < 0 || settings.particles < 1 || rollout_mix < 0 || rollout_mix > 1 || settings.gumbel_scale < 0)
         throw std::invalid_argument{"positive threads/slots/batch/particles/timeouts, nonnegative sims, rollout mix in [0,1], nonnegative noise/wait required"};
-    if (gpu_model.empty() && !gpu_bank.empty()) throw std::invalid_argument{"gpu-bank requires gpu-model"};
+    if (gpu_lanes < 1 || gpu_wide_lanes < 1 || gpu_attended < 0 || gpu_wide_attended < 0)
+        throw std::invalid_argument{"positive GPU lane counts and nonnegative attention capacities required"};
+    if (gpu_model.empty() && (!gpu_bank.empty() || !gpu_wide_model.empty()))
+        throw std::invalid_argument{"gpu-bank and gpu-wide-model require gpu-model"};
     const auto setup_begin = Clock::now();
     if (!gpu_model.empty()) gpu_bank.push_back(gpu_model);
-    auto backend = gpu_model.empty() ? stsrl::infra::cpu_backend(argv[2]) : stsrl::infra::gpu_backend(argv[2], gpu_bank);
+    stsrl::infra::GpuRoute narrow{gpu_bank, gpu_lanes, gpu_attended};
+    stsrl::infra::GpuRoute wide{{}, gpu_wide_lanes, gpu_wide_attended};
+    if (!gpu_wide_model.empty()) wide.models.emplace_back(gpu_wide_model);
+    auto backend = gpu_model.empty() ? stsrl::infra::cpu_backend(argv[2]) : stsrl::infra::gpu_backend(argv[2], narrow, wide);
     if (backend->width() != width) throw std::invalid_argument{"model token width does not match combat encoder"};
     std::cerr << "timing: evaluator setup "
               << std::chrono::duration<double>(Clock::now() - setup_begin).count() << " s\n";

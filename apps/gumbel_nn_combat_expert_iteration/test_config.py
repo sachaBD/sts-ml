@@ -29,6 +29,19 @@ class ConfigTests(unittest.TestCase):
         self.rejects(CONFIG.replace('per_iteration = 5', 'per_iteration = 5\nhp_jitter = -0.1'), 'hp_jitter')
         self.rejects(CONFIG.replace('rollout_mix = 0.5', 'rollout_mix = 0.5\nrollout_mix_decay = -1'), 'rollout_mix_decay')
 
+    def test_wide_route_covers_both_narrow_limits(self):
+        base = CONFIG.replace('kind = "transformer"', 'kind = "entity"')
+        enabled = base.replace('gpu_tokens = 16', 'gpu_tokens = 16\ngpu_attended = 8\ngpu_wide_tokens = 32\ngpu_wide_attended = 16')
+        config = load(enabled)
+        self.assertGreaterEqual(config.model.wide_deployment().tokens, config.model.deployment().tokens)
+        self.assertGreaterEqual(config.model.wide_deployment().attended, config.model.deployment().attended)
+        self.rejects(enabled.replace('gpu_wide_tokens = 32', 'gpu_wide_tokens = 8').replace('gpu_wide_attended = 16', 'gpu_wide_attended = 8'), 'cover narrow token')
+        self.rejects(enabled.replace('gpu_wide_attended = 16', 'gpu_wide_attended = 4'), 'cover narrow attention')
+        self.rejects(base.replace('gpu_tokens = 16', 'gpu_tokens = 16\ngpu_wide_attended = 8'), 'requires gpu_wide_tokens')
+        self.rejects(base.replace('gpu_tokens = 16', 'gpu_tokens = 16\ngpu_wide_tokens = -1'), 'nonnegative')
+        self.rejects(CONFIG.replace('gpu_bank = [256, 32]', 'gpu_bank = [256, 32]\ngpu_lanes = 0'), 'workers: positive')
+        self.assertIsNone(load(CONFIG).model.wide_deployment())
+
     def test_rollout_mix_decays_to_zero_and_stays(self):
         for decay in (0, 1, 7, 30):
             search = load(CONFIG.replace('rollout_mix = 0.5', f'rollout_mix = 0.5\nrollout_mix_decay = {decay}')).search

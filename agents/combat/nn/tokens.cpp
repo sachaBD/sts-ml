@@ -74,6 +74,9 @@ stsrl::infra::Tokens encode(const sts::BattleContext& bc, std::span<const sts::s
     }
     t.count = int(out.size() / width);
     t.actions = int(actions.size());
+    t.attended = 1 + int(s.monsters.size() + s.potions.size() + actions.size());
+    for (const auto& c : s.cards)
+        if (c.zone == CardZone::hand || c.zone == CardZone::offered) ++t.attended;
     return t;
 }
 }  // namespace stsrl::nn

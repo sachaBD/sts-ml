@@ -72,12 +72,18 @@ class Model:
     export_reuse: bool = resumable()
     gpu_attended: int | None = None
     gpu_mixed_precision: bool = False
+    gpu_wide_tokens: int = 0
+    gpu_wide_attended: int | None = None
 
     def architecture(self):
         return ModelSpec(self.kind, self.dim, self.layers, self.heads)
 
     def deployment(self):
         return ExportSpec(self.gpu_tokens, self.gpu_attended, self.gpu_mixed_precision)
+
+    def wide_deployment(self):
+        if self.gpu_wide_tokens:
+            return ExportSpec(self.gpu_wide_tokens, self.gpu_wide_attended, self.gpu_mixed_precision)
 
 
 @dataclass(frozen=True)
@@ -148,10 +154,19 @@ def validate(c):
          'training: positive steps, batch, lr, replay_window; nonnegative max_train_rows')
     try:
         m.deployment().validate(m.architecture())
+        need(m.gpu_wide_tokens >= 0, 'model.gpu_wide_tokens must be nonnegative')
+        if wide := m.wide_deployment():
+            wide.validate(m.architecture())
+            need(wide.tokens >= m.gpu_tokens, 'wide route must cover narrow token capacity')
+            need(wide.attended is None or (m.gpu_attended is not None and wide.attended >= m.gpu_attended),
+                 'wide route must cover narrow attention capacity')
+        else:
+            need(m.gpu_wide_attended is None, 'gpu_wide_attended requires gpu_wide_tokens')
     except ValueError as error:
         sys.exit(f'config: {error}')
     need(w.actors > 0 and w.slots > 0 and w.gpu_batch > 0 and w.gpu_wait_us >= 0 and w.timeout_ms > 0
-         and w.shutdown_timeout_ms > 0, 'workers: positive counts and timeouts, nonnegative gpu_wait_us')
+         and w.shutdown_timeout_ms > 0 and w.gpu_lanes > 0 and w.gpu_wide_lanes > 0 and w.gpu_wide_batch > 0,
+         'workers: positive counts and timeouts, nonnegative gpu_wait_us')
     need(len(set(w.gpu_bank)) == len(w.gpu_bank) and all(0 < b < w.gpu_batch for b in w.gpu_bank),
          'workers.gpu_bank: distinct batches, each positive and below gpu_batch')
     need(e.sims >= 0 and e.every >= 0 and 0 <= e.wall_share < 1 and all(i >= 0 for i in e.at)

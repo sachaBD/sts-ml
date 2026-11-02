@@ -52,7 +52,7 @@ class ExpertIteration:
         self.tests, self.tests_in = read_jsonl(self.inputs / 'test.jsonl'), read_jsonl(self.inputs / 'test-in.jsonl')
         m, t = config.model, config.training
         self.learner = Learner(m.architecture(), t.lr, t.device)
-        self.exporter = ModelExporter(m.architecture(), m.deployment(), m.export_reuse)
+        self.exporter = ModelExporter(m.architecture(), m.deployment(), m.export_reuse, wide=m.wide_deployment())
         e = config.evaluation
         self.evaluation_search = Search(e.sims, 0.0, config.search.rollout_mix if e.rollout_mix is None else e.rollout_mix,
                                         config.search.particles)
@@ -153,7 +153,7 @@ class ExpertIteration:
 
     def export(self, directory):
         w = self.config.workers
-        self.exporter.export(self.learner.net, directory, w.gpu_batch, w.gpu_bank)
+        self.exporter.export(self.learner.net, directory, w.gpu_batch, w.gpu_bank, wide_batch=w.gpu_wide_batch)
 
     def evaluate(self, it):
         if not self.tests or not self.evaluation_due(it):
@@ -183,6 +183,7 @@ class ExpertIteration:
     def play(self, stage, models, games, directory, search):
         self.control.status(stage=stage, phase='play', done=0, total=len(games), directory=str(directory))
         return play(self.inputs / 'nn_play', models, games, directory, search, self.config.workers,
+                    deployment=self.config.model.deployment(), wide_deployment=self.config.model.wide_deployment(),
                     progress=lambda done, pid: self.control.status(stage=stage, phase='play', done=done,
                                                                    total=len(games), child_pid=pid,
                                                                    directory=str(directory)))

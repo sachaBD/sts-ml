@@ -97,3 +97,23 @@ TEST(Decision, WithoutRolloutsIsTheSearchOnTheNetwork) {
         }
     }
 }
+
+TEST(Tokens, RetainedAttentionMetadataMatchesUnpooledWireRows) {
+    for (const auto seed : seeds) {
+        Fight fight{jaw_worm(seed), seed};
+        std::mt19937_64 random{seed};
+        while (!fight.over()) {
+            const auto actions = legal_actions(fight.state());
+            const auto tokens = encode(fight.state(), actions);
+            int retained = 0;
+            for (int i = 0; i < tokens.count; ++i) {
+                const float* row = tokens.data.data() + std::size_t(i) * width;
+                const bool pooled = row[0] == 5 || (row[0] == 2 && row[3] >= 1 && row[3] <= 3);
+                if (!pooled) ++retained;
+            }
+            EXPECT_EQ(tokens.attended, retained);
+            EXPECT_LE(tokens.attended, tokens.count);
+            fight.play(actions[random() % actions.size()]);
+        }
+    }
+}
