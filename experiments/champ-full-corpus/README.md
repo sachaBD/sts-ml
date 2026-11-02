@@ -39,7 +39,7 @@ Each update collects 10,000 fights: uniform deck draws with replacement, HP jitt
 16 simulations, eight particles, Gumbel scale 1; rollout mix 0.5 falls to zero at update 30.
 
 Learning: 500 AdamW steps of 2,048 sampled rows, learning rate 0.001, uniform replay over ten updates (100k fights),
-no row cap. **Launch is blocked on disk headroom and explicit permission.** The buffer is disk-indexed, with only
+no row cap. **Launch still requires explicit permission.** Disk cleanup is complete. The buffer is disk-indexed, with only
 sampled minibatches read and length-bounded padding. Expired replay is pruned. Worker: nine actors × 224 slots; GPU batches 512/256/32, 64-token GPU capacity with 24
 attended slots and mixed precision; larger/overflowing states use the full CPU model.
 
@@ -68,8 +68,9 @@ Training replay ratio R = optimizer row draws / newly collected decision rows. E
   The agreed ten-update window retains up to 100k fights.
 - Pruning happens after collection/training. Ten retained updates therefore need room for eleven sample batches
   temporarily, plus the 10 GiB reserve: about 42 GiB using the previous run's workload, or 52 GiB scaling the potion
-  probe, before checkpoint growth. Only about 36 GiB is free. Aim for about 60 GiB free before launching;
-  cleanup needs explicit approval. `max_train_rows` caps the replay index, not stored sample bytes.
+  probe, before checkpoint growth. Approved cleanup reclaimed 23.36 GiB, leaving 59.16 GiB free: older ONNX exports
+  and stale uv build environments removed; newest two checkpoints' exports per run and every checkpoint preserved.
+  Journal: `scratch/champ-full-corpus/cleanup-journal.json`. `max_train_rows` caps the replay index, not sample bytes.
 
 ## Evaluation and checkpoint selection
 
@@ -94,7 +95,7 @@ claim that all historical policies used identical simulator rules or search sett
 - Partition invariants, unchanged legacy records and hashes verified. Native encoding/decision/explanation tests
   and 28 Python environment/app tests passed. A disposable cold CUDA model produced a valid output on one
   16-row probe minibatch; no optimizer step or weights saved. No export/startup or full training iteration rehearsed.
-- Logs: `scratch/champ-full-corpus/`. About 35.8 GiB free at preflight, not a guarantee for an unlimited run.
+- Logs: `scratch/champ-full-corpus/`. 59.16 GiB free after cleanup, not a guarantee for an unlimited run.
 - Dataset reconstruction is approximate: unknown relic counters/bottled assignments; 353 converted decks with unknown
   card misc; 314 converted decks with multi-upgrade Searing Blow collapsed to boolean upgraded. These counts describe
   the pre-capability-filter conversion, not necessarily the final training partition.
