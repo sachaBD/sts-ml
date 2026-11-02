@@ -71,6 +71,12 @@ class T(unittest.TestCase):
         self.assertIsNone(ts.convert(row(unmapped=["relic:Dodecahedron"]), 1, TEMPLATE, CARDS, RELICS))
         self.assertIsNone(ts.convert(row(deck=[{"card": "not_a_card", "upgrades": 0}]), 1, TEMPLATE, CARDS, RELICS))
 
+    def test_invalid_hp_is_counted_not_clipped(self):
+        for hp, max_hp in ((0, 80), (81, 80), (899795, 900000)):
+            stats = collections.Counter()
+            self.assertIsNone(ts.convert(row(hp=hp, max_hp=max_hp), 1, TEMPLATE, CARDS, RELICS, stats))
+            self.assertEqual(stats["skipped_invalid_hp"], 1)
+
     def test_seed_twos_complement(self):
         self.assertEqual(ts.to_u64(-1), 2 ** 64 - 1)
         self.assertEqual(ts.to_i64("-5"), -5)

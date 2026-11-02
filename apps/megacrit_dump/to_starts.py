@@ -90,6 +90,9 @@ def convert(row: dict, seed: int, template: dict, cards: dict, relics: dict, sta
     if row["hp"] is None or row["max_hp"] is None:
         stats["skipped_no_hp"] += 1
         return None
+    if not 1 <= row["hp"] <= row["max_hp"] <= 32767:  # combat_v4 HP is int16
+        stats["skipped_invalid_hp"] += 1
+        return None
     cap = (2 if template["ascension"] >= 11 else 3) + (2 if "potion_belt" in row["relics"] else 0)
     start = {k: template[k] for k in COPY_KEYS}
     start.update(seed=to_u64(seed), hp=row["hp"], max_hp=row["max_hp"], potion_capacity=cap,
