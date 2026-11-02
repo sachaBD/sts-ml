@@ -188,7 +188,8 @@ TEST(GumbelTree, AgreesWithTheSearch) {
 }
 
 TEST(Gumbel, HalvingRoundsAllocateEqually) {
-    const auto root = jaw_worm();
+    auto root = jaw_worm();
+    root.cards.hand[0].upgrade();
     const int A = int(legal_actions(root).size());
     ASSERT_GE(A, 5);
     for (const int sims : {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 15, 16, 17, 32, 64, 100, 256}) {
