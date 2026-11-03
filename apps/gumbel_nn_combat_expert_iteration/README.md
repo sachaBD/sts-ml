@@ -39,7 +39,8 @@ The default **Run health** view shows live execution telemetry from the existing
 `/api/actors`, `/api/queues`, and `/api/lanes` endpoints, refreshed every second:
 
 - Actors: inference requests/s and blocked wall-time percentage.
-- Queues: requests/s and mean submit-to-batch wait in milliseconds.
+- Queues: sampled depth, peak since worker start, requests/s and mean submit-to-batch wait.
+  Bars use a labelled display scale, not queue capacity. Older workers show unknown depth/peak.
 - Inference lanes: requests/s, busy wall-time percentage, batch fill, and queue assignment.
 
 Only measured metrics are displayed. Live mode hides the resource cards and mock-only slot counts,
