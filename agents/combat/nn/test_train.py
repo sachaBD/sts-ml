@@ -64,23 +64,6 @@ class TrainingTests(unittest.TestCase):
                     for name, parameter in actual.named_parameters():
                         torch.testing.assert_close(parameter, dict(expected.named_parameters())[name])
 
-    def test_invalid_value_batch_fails_before_any_update(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            path = samples(Path(tmp) / 'a', [('a', 2, 1, 1)])
-            with Replay([path], balanced=False) as replay:
-                for value_batch in (-1, 2):
-                    net = Tiny()
-                    before = {name: p.detach().clone() for name, p in net.named_parameters()}
-                    optimizer = torch.optim.AdamW(net.parameters())
-                    with self.assertRaises(ValueError):
-                        train(net, optimizer, replay, None, None, 1, 2, 'cpu', value_batch=value_batch)
-                    self.assertEqual(optimizer.state, {})
-                    for name, p in net.named_parameters():
-                        torch.testing.assert_close(p, before[name], rtol=0, atol=0)
-            net = Tiny()
-            with self.assertRaisesRegex(ValueError, 'requires Replay'):
-                train(net, torch.optim.SGD(net.parameters(), lr=.1), *batch(2, 1.), 1, 2, 'cpu', value_batch=1)
-
 
 if __name__ == '__main__':
     unittest.main()

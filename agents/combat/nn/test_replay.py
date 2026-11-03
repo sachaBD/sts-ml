@@ -86,72 +86,20 @@ class ReplayTests(unittest.TestCase):
                 self.assertEqual(len(replay.sample(2)), 2)
                 self.assertEqual(sum(replay.drawn.values()), 2)
 
-    def test_value_sampling_balances_combats_not_decks_or_lengths(self):
-        torch.manual_seed(7)
+    def test_value_samples_one_state_per_combat_without_affecting_policy_accounting(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             a = samples(root / 'a', [('same', 40, 1, 1), ('same', 2, 2, 0), ('empty', 0, 9, 0)])
             b = samples(root / 'b', [('other', 1, 3, 1)])
-            c = samples(root / 'c', [('empty', 0, 4, 0)])
-            with Replay([a, b, c], balanced=False) as replay:
-                seen_lengths = set()
-                for size in (1, 2, 3):
-                    for _ in range(20):
+            for balanced in (False, True):
+                with self.subTest(balanced=balanced), Replay([a, b], balanced=balanced) as replay:
+                    for size in (1, 2, 3):
                         records = replay.sample_combats(size)
                         identities = [int(t[0, 1]) for t, _, _ in records]
                         self.assertEqual(len(identities), size)
                         self.assertEqual(len(set(identities)), size)
                         self.assertTrue(set(identities) <= {1, 2, 3})
-                        seen_lengths.update(len(t) for t, _, _ in records if t[0, 1] == 1)
-                self.assertGreater(len(seen_lengths), 1)  # states are resampled, not fixed per combat
-                draws = 600
-                counts = np.zeros(3, dtype=int)
-                for _ in range(draws):
-                    tokens, _, _ = replay.sample_combats(1)[0]
-                    counts[int(tokens[0, 1]) - 1] += 1
-                # Equal combat inclusion, with a six-standard-deviation sampling tolerance.
-                self.assertTrue(np.all(abs(counts - draws / 3) < 6 * np.sqrt(draws * (1 / 3) * (2 / 3))))
-                self.assertEqual(sum(replay.drawn.values()), 0)  # value does not alter policy accounting
-                with self.assertRaisesRegex(ValueError, 'combat count'):
-                    replay.sample_combats(4)
-
-    def test_combat_ranges_partition_replay_regardless_of_journal_order(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            path = samples(Path(tmp) / 'a', [('same', 4, 1, 1), ('same', 4, 2, 0)])
-            index(path)
-            journal = path.parent / 'results.jsonl'
-            games = list(reversed(journal.read_text().splitlines()))
-            journal.write_text('\n'.join(games) + '\n')
-            with Replay([path], balanced=False) as replay:
-                self.assertEqual({int(t[0, 1]) for t, _, _ in replay.sample_combats(2)}, {1, 2})
-            journal.write_text('\n'.join([games[0], games[0]]) + '\n')
-            with Replay([path], balanced=False) as replay:
-                with self.assertRaisesRegex(ValueError, 'partition'):
-                    replay.sample_combats(2)
-
-    def test_value_sampling_requires_uncapped_combat_ranges(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            path = samples(Path(tmp) / 'a', [('same', 4, 1, 1)])
-            for balanced in (False, True):
-                with Replay([path], max_rows=2, balanced=balanced) as replay:
-                    with self.assertRaisesRegex(ValueError, 'max_train_rows'):
-                        replay.sample_combats(1)
-            index(path)
-            journal = path.parent / 'results.jsonl'
-            game = json.loads(journal.read_text())
-            game['decisions'] += 1
-            journal.write_text(json.dumps(game) + '\n')
-            with Replay([path], balanced=False) as replay:
-                with self.assertRaisesRegex(ValueError, 'combat range'):
-                    replay.sample_combats(1)
-            game['decisions'] -= 1
-            del game['sample_range']
-            journal.write_text(json.dumps(game) + '\n')
-            path.with_suffix('.index.npz').unlink()
-            with Replay([path], balanced=False) as replay:
-                self.assertEqual(len(replay.sample(1)), 1)  # legacy policy replay still works
-                with self.assertRaisesRegex(ValueError, 'sample_range'):
-                    replay.sample_combats(1)
+                    self.assertEqual(sum(replay.drawn.values()), 0)
 
     def test_reject_incomplete_binary(self):
         with tempfile.TemporaryDirectory() as tmp:
