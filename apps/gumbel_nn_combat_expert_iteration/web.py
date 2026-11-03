@@ -1,5 +1,6 @@
 """Live web dashboard.  .venv/bin/python -m apps.gumbel_nn_combat_expert_iteration.web RUN [--port 8740]"""
 import argparse
+from dataclasses import asdict
 from functools import lru_cache
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
@@ -13,10 +14,14 @@ from urllib.parse import parse_qs, urlsplit
 
 from .health import Health
 
+import monitoring
+from monitoring.telemetry import actors, lanes, queues
+
 from .dashboard import snapshot
 from .reporting import baselines, by_deck, deck_of, jsonl, outcomes, paired, pool, rate, unpaired
 
 PAGE = Path(__file__).with_name('web.html')
+TELEMETRY_PANEL = Path(monitoring.__file__).with_name('telemetry.js')
 WINDOW = 5      # training trend: last WINDOW batches pooled vs the WINDOW before
 EVAL_BACK = 3   # evaluation trend: latest vs the evaluation EVAL_BACK earlier (same seeds, paired)
 LABELS = dict(mcts20k='MCTS20k', puct='PUCT')
@@ -182,6 +187,19 @@ def api(out):
                 windows=dict(train=WINDOW, eval=[new_eval, old_eval]))
 
 
+def playing(states):
+    """A route serving one run_actors component of the playing stage; none outside play."""
+    def route(out):
+        progress = json.loads((out / 'training/status.json').read_text())
+        if progress['phase'] != 'play':
+            return []
+        return [asdict(s) for s in states(Path(progress['directory']) / 'telemetry.jsonl')]
+    return route
+
+
+ROUTES = {'/api': api, '/api/actors': playing(actors), '/api/queues': playing(queues), '/api/lanes': playing(lanes)}
+
+
 def main():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument('run', type=Path, nargs='?')
@@ -208,8 +226,14 @@ def main():
                 if route.path == '/api/health':
                     window = int(parse_qs(route.query).get('window', ['900'])[0])
                     body = json.dumps(health.view(window), allow_nan=False).encode()
-                elif route.path == '/api':
-                    body = json.dumps(api(out) if out else dict(error='Quality view unavailable in mock mode')).encode()
+                elif route.path in ROUTES:
+                    if out is None:
+                        result = dict(error='Quality view unavailable in mock mode') if route.path == '/api' else []
+                    else:
+                        result = ROUTES[route.path](out)
+                    body = json.dumps(result).encode()
+                elif route.path == '/telemetry.js':
+                    body = TELEMETRY_PANEL.read_bytes()
                 elif route.path == '/health.js':
                     body = PAGE.with_name('health.js').read_bytes()
                 elif route.path == '/health.css':
@@ -223,7 +247,7 @@ def main():
                 body = json.dumps(dict(error=repr(e))).encode()
             self.send_response(200)
             content_type = ('application/json' if self.path.startswith('/api') else
-                            'text/javascript' if self.path.startswith('/health.js') else
+                            'text/javascript' if route.path in ('/health.js', '/telemetry.js') else
                             'text/css' if self.path.startswith('/health.css') else 'text/html')
             self.send_header('Content-Type', content_type + '; charset=utf-8')
             self.send_header('Cache-Control', 'no-store')

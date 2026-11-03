@@ -31,6 +31,7 @@ struct Request {
     std::uint64_t generation;
     Input input;
     const std::string* label;  // owned by the slot, unchanged until the reply
+    Clock::time_point enqueued;
 };
 struct Reply {
     std::size_t slot;
@@ -48,17 +49,21 @@ struct Mailbox {
     std::atomic<int> current_slot{-1};
     std::atomic<bool> done{false};
     double cpu_seconds = std::nan("");  // written by the Actor, read after join
+    std::atomic<long> requests{0};
+    std::atomic<Clock::rep> blocked{0};  // Clock ticks: an atomic duration has no +=
 };
 
 class InferencePool {
 public:
     struct Queue {
         Backend& backend;
-        const int batch;
+        const int id, batch;
         std::mutex mutex;
         std::condition_variable requested;
         std::deque<Request> pending;
-        Queue(Backend& b, int limit) : backend{b}, batch{std::min(limit, b.max_batch())} {}
+        std::atomic<long> requests{0};
+        std::atomic<Clock::rep> waited{0};  // Clock ticks: an atomic duration has no +=
+        Queue(Backend& b, int id, int limit) : backend{b}, id{id}, batch{std::min(limit, b.max_batch())} {}
     };
 
     InferencePool(const std::vector<Backend*>& backends, int batch) {
@@ -66,13 +71,14 @@ public:
         for (auto* backend : backends) {
             if (!backend || backend->lanes() < 1 || backend->max_batch() < 1 || backend->width() != backends.front()->width())
                 throw std::invalid_argument{"invalid actor configuration"};
-            queues_.push_back(std::make_unique<Queue>(*backend, batch));
+            queues_.push_back(std::make_unique<Queue>(*backend, int(queues_.size()), batch));
             for (int i = 0; i < backend->lanes(); ++i) lanes_.push_back(queues_.back().get());
         }
     }
 
     int width() const { return queues_.front()->backend.width(); }
     const auto& lanes() const { return lanes_; }
+    const auto& queues() const { return queues_; }
 
     void submit(Request request, std::vector<std::uint16_t>& packed) {
         std::size_t i = 0;
@@ -82,6 +88,7 @@ public:
         request.input.packed = packed;
         {
             std::lock_guard lock{queue.mutex};
+            request.enqueued = Clock::now();
             queue.pending.push_back(request);
         }
         queue.requested.notify_one();
@@ -190,7 +197,8 @@ class Actor {
             throw std::runtime_error{"invalid tokens from episode " + slot.label};
         slot.phase = Phase::waiting;
         slot.submitted = Clock::now();
-        shared_.inference.submit({id_, i, ++slot.generation, {tokens, {}}, &slot.label}, slot.packed);
+        shared_.inference.submit({id_, i, ++slot.generation, {tokens, {}}, &slot.label, {}}, slot.packed);
+        ++mailbox_.requests;
     }
 
 public:
@@ -208,8 +216,10 @@ public:
                 ready_.pop_front();
                 advance(i);
             } else {
+                const auto blocked = Clock::now();
                 std::unique_lock lock{mailbox_.mutex};
                 mailbox_.replied.wait_for(lock, 10ms, [&] { return shared_.stopped || !mailbox_.replies.empty(); });
+                mailbox_.blocked += (Clock::now() - blocked).count();
             }
         }
         // Slots stay alive (owned by this object) until the servers have joined, even on failure.
@@ -235,6 +245,9 @@ class InferenceServer {
             batch.push_back(queue_.pending.front());
             queue_.pending.pop_front();
         }
+        const auto now = Clock::now();
+        for (const auto& item : batch) queue_.waited += (now - item.enqueued).count();
+        queue_.requests += long(batch.size());
         return batch;
     }
 
@@ -250,6 +263,7 @@ class InferenceServer {
     }
 
     void dispatch(const std::vector<Request>& batch) {
+        const auto begun = Clock::now();
         std::vector<Input> inputs;
         inputs.reserve(batch.size());
         for (const auto& item : batch) inputs.push_back(item.input);
@@ -273,14 +287,19 @@ class InferenceServer {
             mailbox.replied.notify_one();
         }
         ++batches; requests += long(batch.size());
+        capacity += queue_.batch;
+        busy += (Clock::now() - begun).count();
     }
 
 public:
-    long batches = 0, requests = 0;
+    long batches = 0;
+    std::atomic<long> requests{0}, capacity{0};
+    std::atomic<Clock::rep> busy{0};  // Clock ticks: an atomic duration has no +=
     std::atomic<long long> heartbeat{now_ms()};
     std::atomic<bool> done{false};
     double cpu_seconds = std::nan("");
     InferenceServer(Shared& shared, InferencePool::Queue& queue) : shared_{shared}, queue_{queue} {}
+    int queue() const { return queue_.id; }
 
     void run() {
         while (!shared_.stopped) {
@@ -298,10 +317,22 @@ std::string describe(std::exception_ptr error) {
     catch (...) { return "unknown error"; }
 }
 
-// The calling thread: heartbeats, cancellation, and the hard exit if native code will not return.
+void publish(const Shared& shared, const std::vector<std::unique_ptr<InferenceServer>>& servers) {
+    if (!shared.config.on_counters) return;
+    Counters counters{std::chrono::system_clock::now(), {}, {}, {}};
+    for (const auto& mailbox : shared.mailboxes) counters.actors.push_back({mailbox->requests, Clock::duration{mailbox->blocked}});
+    for (const auto& queue : shared.inference.queues()) counters.queues.push_back({queue->requests, Clock::duration{queue->waited}});
+    for (const auto& server : servers)
+        counters.lanes.push_back({server->queue(), server->requests, server->capacity, Clock::duration{server->busy}});
+    shared.config.on_counters(counters);
+}
+
+// The calling thread: heartbeats, cancellation, counters, and the hard exit if native code will not return.
 void supervise(Shared& shared, const std::vector<std::unique_ptr<InferenceServer>>& servers) {
     std::optional<Clock::time_point> cancelling;
+    auto publish_at = Clock::now() + 1s;
     while (!shared.all_done()) {
+        if (Clock::now() >= publish_at) { publish(shared, servers); publish_at = Clock::now() + 1s; }
         if (!shared.stopped) {
             const long long now = now_ms(), limit = shared.config.timeout.count();
             for (int i = 0; i < shared.config.actors; ++i) {
@@ -367,6 +398,7 @@ void run_actors(const ActorConfig& config, NextEpisode next, const std::vector<B
     supervise(shared, servers);
     server_threads.clear();
     actor_threads.clear();
+    publish(shared, servers);  // final totals
 
     const double seconds = std::chrono::duration<double>(Clock::now() - started).count();
     double actor_cpu = 0;

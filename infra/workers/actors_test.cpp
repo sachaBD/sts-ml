@@ -179,6 +179,33 @@ TEST(Actors, PrepareRunsOnOwnerAndPackedInputStaysStable) {
     EXPECT_EQ(log.finished, 40);
 }
 
+TEST(Actors, CountersCountEveryRequestOnceAndTimeWithinWallTime) {
+    Log log;
+    const auto slow = [](std::span<const Input> inputs) { std::this_thread::sleep_for(1ms); return echo(inputs); };
+    FakeBackend odd{slow, {}, 1, [](const Tokens& t) { return int(t.data[0] * 1000 + .5f) % 2 == 1; }}, rest{slow};
+    Counters last;
+    auto config = small();
+    config.on_counters = [&last](const Counters& counters) { last = counters; };
+    const auto started = std::chrono::steady_clock::now();
+    run_actors(config, episodes(log, 100), std::vector<Backend*>{&odd, &rest});
+    const std::chrono::duration<double> elapsed = std::chrono::steady_clock::now() - started;
+
+    ASSERT_EQ(last.actors.size(), std::size_t(config.actors));
+    long requests = 0;
+    for (const auto& a : last.actors) { requests += a.requests; EXPECT_LE(a.blocked, elapsed); }
+    EXPECT_EQ(requests, log.evaluated) << "the final counters count every request exactly once";
+
+    ASSERT_EQ(last.queues.size(), 2u);
+    requests = 0;
+    for (const auto& q : last.queues) { requests += q.requests; EXPECT_LE(q.waited, q.requests * elapsed); }
+    EXPECT_EQ(requests, log.evaluated) << "every request leaves exactly one queue";
+
+    ASSERT_EQ(last.lanes.size(), 2u);
+    requests = 0;
+    for (const auto& l : last.lanes) { requests += l.requests; EXPECT_LE(l.requests, l.capacity); EXPECT_LE(l.busy, elapsed); }
+    EXPECT_EQ(requests, log.evaluated) << "every request is evaluated by exactly one lane";
+}
+
 TEST(Actors, NoEpisodes) {
     Log log;
     FakeBackend backend;

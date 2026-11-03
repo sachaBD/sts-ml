@@ -38,9 +38,10 @@ in memory since dashboard launch, but the resource frame deliberately only shows
 No training code or native worker instrumentation is changed by dashboard sampling.
 
 The **Execution** diagram shows individual actors, a shared queue, dispatchers, and GPU lanes.
-The component-state visual is currently a mock prototype: production workers do not yet publish the
-per-component snapshot, so the real-run view marks component telemetry unavailable rather than
-inventing activity. Existing resource metrics remain live. Native instrumentation is a separate next step.
+The component-state visual is currently a mock prototype: it is not yet connected to the production
+telemetry API, so the real-run diagram marks component telemetry unavailable rather than inventing
+activity. Existing resource metrics remain live. The `/api/actors`, `/api/queues`, and `/api/lanes`
+endpoints remain available; connecting the diagram to them is a separate next step.
 
 The normal mock moves through a 48-second loop: balanced, queueing, GPU-starved, and draining.
 Five-second rolling summaries refresh once per second. Slot-state proportions, queue average/peak,

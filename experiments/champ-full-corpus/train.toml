@@ -36,6 +36,8 @@ layers = 4
 heads = 6
 gpu_tokens = 64
 gpu_attended = 24
+gpu_wide_tokens = 128
+gpu_wide_attended = 64
 gpu_mixed_precision = true
 export_reuse = false
 
@@ -43,6 +45,7 @@ export_reuse = false
 actors = 9
 slots = 224
 gpu_batch = 512
+gpu_wide_batch = 32
 gpu_bank = [256, 32]
 gpu_wait_us = 100
 timeout_ms = 60000
