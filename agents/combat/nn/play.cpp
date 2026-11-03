@@ -9,6 +9,7 @@
 #include "sim/search/PublicBeliefCombatSearch.h"
 #include <atomic>
 #include <chrono>
+#include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <fstream>
@@ -185,7 +186,7 @@ int main(int argc, char** argv) try {
         std::cerr << "usage: nn_play play MODEL.onnx SAMPLES.bin [--threads T] [--parallel G] [--gpu-model FIXED.onnx\n"
                      "                    --gpu-batch B] [--gpu-bank SMALLER.onnx,...] [--gpu-wait-us U]\n"
                      "                    [--gpu-attended A] [--gpu-wide-model WIDE.onnx] [--gpu-wide-attended A]\n"
-                     "                    [--sims S] [--rollout-mix M]\n"
+                     "                    [--sims S] [--rollout-mix M] [--value-scale V]\n"
                      "                    [--gumbel-scale G] [--particles P] [--timeout-ms M] [--shutdown-timeout-ms M]\n"
                      "                    [--telemetry TELEMETRY.jsonl]\n"
                      "       nn_play import SAMPLES.bin\n";
@@ -220,14 +221,16 @@ int main(int argc, char** argv) try {
         else if (k == "--gpu-wide-model") gpu_wide_model = v;
         else if (k == "--gpu-wide-attended") gpu_wide_attended = std::stoi(v);
         else if (k == "--sims") settings.simulations = std::stoi(v);
+        else if (k == "--value-scale") settings.value_scale = std::stod(v);
         else if (k == "--rollout-mix") rollout_mix = std::stod(v);
         else if (k == "--gumbel-scale") settings.gumbel_scale = std::stod(v);
         else if (k == "--particles") settings.particles = std::stoi(v);
         else throw std::invalid_argument{"unknown option " + k};
     }
     if (threads < 1 || parallel < 1 || gpu_batch < 1 || gpu_wait_us < 0 || timeout_ms <= 0 || shutdown_timeout_ms <= 0 ||
-        settings.simulations < 0 || settings.particles < 1 || rollout_mix < 0 || rollout_mix > 1 || settings.gumbel_scale < 0)
-        throw std::invalid_argument{"positive threads/slots/batch/particles/timeouts, nonnegative sims, rollout mix in [0,1], nonnegative noise/wait required"};
+        settings.simulations < 0 || settings.particles < 1 || rollout_mix < 0 || rollout_mix > 1 || settings.gumbel_scale < 0 ||
+        !std::isfinite(settings.value_scale) || settings.value_scale < 0)
+        throw std::invalid_argument{"positive threads/slots/batch/particles/timeouts, nonnegative sims, rollout mix in [0,1], nonnegative noise/wait, finite nonnegative value scale required"};
     if (gpu_model.empty() && (!gpu_bank.empty() || !gpu_wide_model.empty()))
         throw std::invalid_argument{"GPU bank and wide model require gpu-model"};
     if (gpu_attended < 0 || gpu_wide_attended < 0) throw std::invalid_argument{"nonnegative attention capacities required"};
