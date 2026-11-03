@@ -2,9 +2,10 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>Training</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Training · Run health</title>
+<link rel="stylesheet" href="health.css">
 <script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
-<script src="telemetry.js"></script>
 <style>
   :root { --bg:#0e1013; --card:#161a1f; --line:#232830; --dim:#7d8590; --text:#e6e8eb;
           --train:#6ea8fe; --test:#f0b46a; --good:#5fd39a; --bad:#ef6b6b; }
@@ -20,10 +21,10 @@
   .smooth { margin-left:auto; display:flex; align-items:center; gap:10px; font-size:12px; color:var(--dim); }
   .smooth input { accent-color:var(--train); width:120px; }
   .grid { display:grid; gap:14px; margin-top:14px; }
-  .g5 { grid-template-columns:repeat(5, 1fr); margin-top:0; }
-  .g3 { grid-template-columns:repeat(3, 1fr); }
+  .metrics { grid-template-columns:repeat(auto-fit, minmax(150px, 1fr)); margin-top:0; }
+  .g2 { grid-template-columns:repeat(2, 1fr); }
   .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:18px 20px; }
-  main > .card { margin-top:14px; }
+  main > .card, #qualityPanel > .card { margin-top:14px; }
   .label { font-size:11px; text-transform:uppercase; letter-spacing:1.2px; color:var(--dim); margin-bottom:10px; }
   .big { font-size:30px; font-weight:600; font-variant-numeric:tabular-nums; }
   .sub { font-size:12px; color:var(--dim); font-variant-numeric:tabular-nums; min-height:17px; }
@@ -44,6 +45,15 @@
           font:inherit; font-size:12px; cursor:pointer; }
   .chip.on { color:var(--bg); }
   .plot { height:240px; }
+  .head { display:flex; justify-content:space-between; align-items:baseline; }
+  .pick { font-size:12px; color:var(--dim); }
+  .controls { display:flex; flex-wrap:wrap; align-items:center; gap:10px; margin-bottom:12px; }
+  input[type="search"] { background:var(--bg); color:var(--text); border:1px solid var(--line); border-radius:6px; padding:7px 10px; font:inherit; }
+  button { cursor:pointer; background:var(--card); color:var(--text); border:1px solid var(--line); border-radius:6px; padding:5px 10px; }
+  button:disabled { opacity:.4; cursor:default; }
+  .table-wrap { overflow-x:auto; }
+  @media (max-width:700px) { main { padding:18px 12px; } header { flex-wrap:wrap; } .g2 { grid-template-columns:1fr; } .head { flex-wrap:wrap; } }
+  select { background:var(--card); color:var(--text); border:1px solid var(--line); border-radius:6px; font:inherit; padding:2px 6px; }
 </style>
 </head>
 <body>
@@ -52,10 +62,49 @@
     <h1 id="run">—</h1>
     <span class="muted" id="state"><span class="dot"></span><span id="stateText">connecting</span></span>
     <span class="muted" id="stage"></span>
-    <label class="smooth">smoothing <input id="smooth" type="range" min="1" max="10" value="1"><span id="smoothVal">1</span></label>
+    <label class="smooth" id="qualitySmooth" hidden>smoothing <input id="smooth" type="range" min="1" max="10" value="1"><span id="smoothVal">1</span></label>
   </header>
 
-  <div class="grid g5">
+  <nav class="view-tabs" aria-label="Dashboard view">
+    <button id="healthTab" class="active" aria-selected="true">Run health</button>
+    <button id="qualityTab" aria-selected="false">Agent quality</button>
+    <span class="muted" id="healthFreshness">Starting telemetry…</span>
+  </nav>
+  <section id="healthPanel" aria-label="Resource headroom">
+    <div class="card resource-frame">
+      <div class="head"><h2>Resource headroom</h2><span class="sub">Host-wide · GPU device 0 · run filesystem</span></div>
+      <div class="resource-grid">
+        <section class="resource"><h3>CPUs</h3><div id="resourceCpu"></div>
+          <div id="resourceCores" class="resource-cores" aria-label="Per logical CPU busy time"></div>
+          </section>
+        <section class="resource"><h3>GPU</h3><div id="resourceGpu"></div><div id="resourceVram"></div>
+          <div class="sub" id="resourceGpuNote" title="Device-wide kernel-active time, not percent of peak compute throughput."></div></section>
+        <section class="resource"><h3>RAM</h3><div id="resourceRam"></div><div class="sub" id="resourceRamNote"></div></section>
+        <section class="resource"><h3>Disk space</h3><div id="resourceDisk"></div><div class="sub" id="resourceDiskNote"></div></section>
+      </div>
+      <div class="sub resource-status" id="resourceStatus" role="status">Waiting for measurements…</div>
+    </div>
+    <div class="card execution-frame" id="executionFrame">
+      <div class="head"><h2>Execution</h2><span class="sub" id="executionFreshness">Waiting for telemetry</span></div>
+      <div class="execution-driver" id="executionDriver" aria-label="Training phases"></div>
+      <div class="sub execution-stage" id="executionStage"></div>
+      <div class="topology" id="executionTopology">
+        <section class="topology-actors"><div class="topology-heading"><h3>Actors</h3><span>Slots <span class="topology-rate-label">Requests/s</span></span></div><div id="executionActors"></div></section>
+        <div class="topology-wire" aria-hidden="true">→</div>
+        <section class="topology-service"><h3>Inference server</h3>
+          <div id="executionQueue"></div><div class="topology-service-arrow" aria-hidden="true">↓</div>
+          <div class="topology-dispatch-title">Dispatchers</div><div id="executionDispatchers"></div>
+        </section>
+        <div class="topology-wire" aria-hidden="true">→</div>
+        <section class="topology-lanes"><h3>GPU lanes</h3><div id="executionLanes"></div>
+          <div class="topology-fallback" id="executionFallback"></div></section>
+      </div>
+      <div class="topology-legend"><span class="legend-ready">Ready</span><span class="legend-waiting">Awaiting inference</span><span class="legend-empty">Empty</span><span id="executionMode"></span></div>
+      <div class="execution-return" aria-label="Predictions returned to actors"><span>← Predictions</span></div>
+    </div>
+  </section>
+  <section id="qualityPanel" aria-label="Agent quality" hidden>
+  <div class="grid metrics">
     <div class="card"><div class="label" id="progLabel">Games</div><div class="big" id="done">—</div>
       <div class="sub" id="doneSub"></div><div class="bar"><div id="bar"></div></div></div>
     <div class="card"><div class="label" id="liveLabel">Batch win rate</div><div class="big" id="liveWin">—</div>
@@ -64,20 +113,38 @@
       <div class="sub" id="evalSub"></div></div>
     <div class="card"><div class="label">Games / s</div><div class="big" id="rate">—</div>
       <div class="sub" id="rateSub"></div></div>
+    <div class="card"><div class="label">NN evals / s</div><div class="big" id="nn">—</div>
+      <div class="sub" id="nnSub"></div></div>
+    <div class="card" title="Share of inference requests evaluated on CPU: oversized rows plus GPU precision/capacity retries.">
+      <div class="label">CPU fallback</div><div class="big" id="fallback">—</div>
+      <div class="sub" id="fallbackSub"></div></div>
     <div class="card"><div class="label">GPU</div><div class="big" id="gpu">—</div>
       <div class="sub" id="gpuSub"></div></div>
   </div>
 
-  <div class="card"><div class="label">Execution · last 5 s</div><div id="execution"></div></div>
-  <div class="card"><div class="label">Still improving? · change with 95% CI</div><table id="trend"></table></div>
+  <div class="card">
+    <div class="controls">
+      <label>Find deck <input id="deckSearch" type="search" placeholder="Filter by deck name"></label>
+      <span class="muted" id="deckCount"></span>
+      <button id="prevDecks" type="button">Previous</button><span class="muted" id="deckPage"></span><button id="nextDecks" type="button">Next</button>
+    </div>
+    <div class="sub">Overall rows always shown · 25 decks per page · filter applies to both tables and the chart picker</div>
+  </div>
+  <div class="card" id="compareCard" hidden>
+    <div class="head"><div class="label" id="compareLabel">Comparison</div>
+      <div class="pick"><select id="cmpA"></select> − <select id="cmpB"></select></div></div>
+    <div class="table-wrap"><table id="compare"></table></div></div>
+  <div class="card"><div class="label">Still improving? · change with 95% CI</div><div class="table-wrap"><table id="trend"></table></div></div>
   <div class="card"><div class="label">Win rate · 95% CI</div><div id="overall" style="height:300px"></div></div>
   <div class="card"><div class="label">Per deck · training batches · 95% CI</div>
-    <div class="chips" id="chips"></div><div id="decks" style="height:360px"></div></div>
-  <div class="grid g3">
+    <div class="sub" id="chartHint"></div><div class="chips" id="selectedChips"></div><div class="chips" id="chips"></div><div id="decks" style="height:360px"></div></div>
+  <div class="grid g2">
     <div class="card"><div class="label">Loss</div><div id="loss" class="plot"></div></div>
     <div class="card"><div class="label">Time per iteration</div><div id="time" class="plot"></div></div>
     <div class="card"><div class="label">GPU per iteration</div><div id="gpuPlot" class="plot"></div></div>
+    <div class="card"><div class="label">NN evaluations / s per iteration</div><div id="nnPlot" class="plot"></div></div>
   </div>
+  </section>
 </main>
 
 <script>
@@ -94,15 +161,19 @@ const tw = {};
 const T = (k, v) => { (tw[k] ??= { v, t: v }).t = v; };
 const V = k => tw[k] ? tw[k].v : 0;
 
+let activeView = 'health';
 let data = null, chartKey = '', smooth = +(localStorage.getItem('smooth') || 1);
 let selected = JSON.parse(localStorage.getItem('decks') || 'null');
+const PAGE_SIZE = 25, MAX_CHART_DECKS = 6;
+let deckPage = 0, visibleDecks = new Set();
 const color = d => PALETTE[data.decks.indexOf(d) % PALETTE.length];
 
 async function poll() {
+  if (activeView !== 'quality') { setTimeout(poll, 2000); return; }
   try {
     const d = await (await fetch('api', { cache: 'no-store' })).json();
     if (d.error) throw new Error(d.error);
-    update(d);
+    if (activeView === 'quality') update(d);
   } catch (e) { $('stateText').textContent = 'offline'; $('state').className = 'muted interrupted'; }
   setTimeout(poll, 2000);
 }
@@ -113,16 +184,35 @@ function update(d) {
   $('run').textContent = d.run;
   $('stateText').textContent = d.state;
   $('state').className = 'muted ' + d.state;
-  $('stage').textContent = [p.stage, p.phase, p.detail].filter(Boolean).join(' · ');
+  $('stage').textContent = [...new Set([p.stage, p.phase, p.detail].filter(x => x && x !== d.state))].join(' · ');
   if (live) { T('done', live.done); T('live', live.rates.all.p || 0); }
   if (lt) T('eval', lt.rates.all.p);
   if (d.speed.stage != null) T('rate', d.speed.stage);
+  if (d.speed.nn != null) T('nn', d.speed.nn);
   if (sys.gpu != null) { T('gpu', sys.gpu); T('vram', sys.vram); }
   T('ram', sys.ram);
-  selected ??= d.decks.slice(0, 3);
-  trendTable();
+  selected = (selected ?? d.decks.slice(0, 3)).filter(x => d.decks.includes(x)).slice(0, MAX_CHART_DECKS);
+  deckTables();
   const key = [d.train.length, d.test.length, selected, smooth].join('|');
   if (key !== chartKey) { chartKey = key; charts(); }
+}
+
+function deckTables() {
+  const query = $('deckSearch').value.trim().toLowerCase();
+  const matches = data.decks.filter(d => d.toLowerCase().includes(query));
+  const pages = Math.max(1, Math.ceil(matches.length / PAGE_SIZE));
+  deckPage = Math.min(deckPage, pages - 1);
+  visibleDecks = new Set(matches.slice(deckPage * PAGE_SIZE, (deckPage + 1) * PAGE_SIZE));
+  $('deckCount').textContent = `${int(matches.length)} of ${int(data.decks.length)} decks`;
+  $('deckPage').textContent = `${deckPage + 1} / ${pages}`;
+  $('prevDecks').disabled = deckPage === 0;
+  $('nextDecks').disabled = deckPage === pages - 1;
+  trendTable(); compareTable(); deckPicker();
+}
+const visibleRow = r => r.deck === 'all' || visibleDecks.has(r.deck);
+$('deckSearch').oninput = () => { deckPage = 0; if (data) deckTables(); };
+for (const [id, delta] of [['prevDecks', -1], ['nextDecks', 1]]) {
+  $(id).onclick = () => { deckPage += delta; deckTables(); };
 }
 
 function ciCell(x, scale) {
@@ -141,9 +231,33 @@ function trendTable() {
   const ts = scale('train_d'), es = scale('eval_d');
   $('trend').innerHTML = `<tr><th>deck</th><th>train ${last - w + 1}–${last}</th><th>vs ${last - 2 * w + 1}–${last - w}</th>
       <th>eval ${ne ?? ''}</th><th>vs ${oe ?? ''} (paired)</th></tr>` +
-    d.trend.map(r => `<tr class="${r.deck}"><td>${r.deck}</td><td>${pct(r.train && r.train.p)}</td>${ciCell(r.train_d, ts)}
+    d.trend.filter(visibleRow).map(r => `<tr class="${r.deck}"><td>${r.deck}</td><td>${pct(r.train && r.train.p)}</td>${ciCell(r.train_d, ts)}
       <td>${pct(r.eval && r.eval.p)}</td>${ciCell(r.eval_d, es)}</tr>`).join('');
 }
+
+function compareTable() {
+  const c = data.compare;
+  $('compareCard').hidden = !c;
+  if (!c) return;
+  $('compareLabel').textContent = `Comparison · same ${c.n} starts · paired 95% CI`;
+  const cols = c.columns.join();
+  if ($('cmpA').dataset.cols !== cols) {
+    const opts = c.columns.map(x => `<option>${x}</option>`).join('');
+    for (const [id, i] of [['cmpA', c.columns.length - 1], ['cmpB', c.columns.length - 2]]) {
+      const saved = localStorage.getItem(id + ':' + cols);
+      $(id).innerHTML = opts; $(id).dataset.cols = cols;
+      $(id).value = c.columns.includes(saved) ? saved : c.columns[i];
+    }
+  }
+  const a = $('cmpA').value, b = $('cmpB').value, diff = a !== b && c.diffs[a][b];
+  const scale = diff ? Math.max(0.02, ...Object.values(diff).filter(Boolean).map(x => Math.max(-x.lo, x.hi))) : 1;
+  $('compare').innerHTML = `<tr><th>deck</th>${c.columns.map(x => `<th>${x}</th>`).join('')}<th>${a} − ${b}</th></tr>` +
+    c.rows.filter(visibleRow).map(r => `<tr class="${r.deck}"><td>${r.deck}</td>${c.columns.map(x => `<td>${pct(r.rates[x].p)}</td>`).join('')}
+      ${ciCell(diff && diff[r.deck], scale)}</tr>`).join('');
+}
+for (const id of ['cmpA', 'cmpB']) $(id).onchange = e => {
+  localStorage.setItem(id + ':' + e.target.dataset.cols, e.target.value); compareTable();
+};
 
 // Smoothing: trailing window of `smooth` iterations. Win rates pool wins/games (exact Wilson CI); other series average.
 function wilson(w, n) {
@@ -210,9 +324,7 @@ function charts() {
   Plotly.react('overall', [...band('all', '#6ea8fe', 'training'), evalPoints('all', '#f0b46a', 'evaluation', true)],
                LAYOUT, CONFIG);
 
-  $('chips').innerHTML = data.decks.map(d => `<button class="chip ${selected.includes(d) ? 'on' : ''}" data-d="${d}"
-      style="${selected.includes(d) ? `background:${color(d)};border-color:${color(d)}` : ''}">${d}</button>`).join('') +
-    `<button class="chip" data-d="*all">all</button><button class="chip" data-d="*none">none</button>`;
+  deckPicker();
   const decks = selected.filter(d => data.decks.includes(d));
   Plotly.react('decks', decks.flatMap(d => [...band(d, color(d), d), evalPoints(d, color(d), d + ' eval', false)]),
                { ...LAYOUT, showlegend: false }, CONFIG);
@@ -237,15 +349,33 @@ function charts() {
     line(rolling(b => b.gpu.vram), 'VRAM peak', '#4fd1d9', { yaxis: 'y2', hovertemplate: '%{y:.1f} GiB' }),
   ], { ...SMALL, yaxis: { ...SMALL.yaxis, range: [0, 100], ticksuffix: '%' },
        yaxis2: { ...SMALL.yaxis2, ticksuffix: ' G', range: [0, data.system.vram_total || null] } }, CONFIG);
+  Plotly.react('nnPlot', [line(rolling(b => b.nn), 'NN evals/s', '#ff9f5a', { hovertemplate: '%{y:,.0f}', showlegend: false })],
+               { ...SMALL, yaxis: { ...SMALL.yaxis, tickformat: '~s' } }, CONFIG);
 }
 
-$('chips').onclick = e => {
+function deckPicker() {
+  const chip = d => {
+    const button = document.createElement('button');
+    button.className = 'chip' + (selected.includes(d) ? ' on' : '');
+    button.textContent = d;
+    button.dataset.d = d;
+    button.disabled = !selected.includes(d) && selected.length >= MAX_CHART_DECKS;
+    if (selected.includes(d)) { button.style.background = color(d); button.style.borderColor = color(d); }
+    return button;
+  };
+  $('selectedChips').replaceChildren(...selected.map(chip));
+  $('chips').replaceChildren(...[...visibleDecks].filter(d => !selected.includes(d)).map(chip));
+  $('chartHint').textContent = `${selected.length} / ${MAX_CHART_DECKS} chart decks · click a selected deck to remove it; add from the current page`;
+}
+function pickDeck(e) {
   const d = e.target.dataset.d; if (!d) return;
-  selected = d === '*all' ? [...data.decks] : d === '*none' ? [] :
-    selected.includes(d) ? selected.filter(x => x !== d) : [...selected, d];
+  selected = selected.includes(d) ? selected.filter(x => x !== d) :
+    selected.length < MAX_CHART_DECKS ? [...selected, d] : selected;
   localStorage.setItem('decks', JSON.stringify(selected));
   chartKey = ''; charts();
-};
+}
+$('chips').onclick = pickDeck;
+$('selectedChips').onclick = pickDeck;
 $('smooth').value = smooth; $('smoothVal').textContent = smooth;
 $('smooth').oninput = e => {
   smooth = +e.target.value; $('smoothVal').textContent = smooth;
@@ -253,11 +383,13 @@ $('smooth').oninput = e => {
   if (data) { chartKey = ''; charts(); }
 };
 
+// Ease across several 2-second polls to soften changes in the incoming targets.
+const NUMBER_EASE_MS = 6000;
 let last = performance.now();
 function frame(now) {
-  const k = 1 - Math.exp(-(now - last) / 350); last = now;
+  const k = 1 - Math.exp(-(now - last) / NUMBER_EASE_MS); last = now;
   for (const t of Object.values(tw)) t.v += (t.t - t.v) * k;
-  if (data) {
+  if (data && activeView === 'quality') {
     const live = data.live, sp = data.speed, sys = data.system, lt = data.test[data.test.length - 1];
     $('progLabel').textContent = live ? (live.test ? 'Evaluation games' : 'Training games') : 'Games';
     $('done').textContent = live ? int(V('done')) : '—';
@@ -281,6 +413,11 @@ function frame(now) {
     $('rate').textContent = sp.stage != null ? V('rate').toFixed(1) : '—';
     $('rateSub').textContent = [sp.typical && `typical ${sp.typical.toFixed(1)}`, u && u.play && `iteration ${dur(u.play + u.fit)}`,
                                 sp.eta != null && `${dur(sp.eta)} left`].filter(Boolean).join(' · ');
+    const k = x => `${(x / 1000).toFixed(0)}k`;
+    $('nn').textContent = sp.nn != null ? k(V('nn')) : '—';
+    $('nnSub').textContent = sp.nn_typical ? `typical ${k(sp.nn_typical)}` : '';
+    $('fallback').textContent = sp.cpu_fallback != null ? `${(100 * sp.cpu_fallback).toFixed(3)}%` : '—';
+    $('fallbackSub').textContent = sp.cpu_fallback != null ? `${sp.fallback_source} · cumulative` : 'awaiting worker stats';
     $('gpu').textContent = sys.gpu != null ? `${Math.round(V('gpu'))}%` : '—';
     $('gpuSub').textContent = (sys.gpu != null ? `VRAM ${V('vram').toFixed(1)} / ${sys.vram_total.toFixed(0)} G · ` : '') +
       `RAM ${V('ram').toFixed(1)} / ${sys.ram_total.toFixed(0)} G`;
@@ -289,8 +426,8 @@ function frame(now) {
 }
 
 poll();
-telemetryPanel($('execution'));
 requestAnimationFrame(frame);
 </script>
+<script src="health.js"></script>
 </body>
 </html>

@@ -23,24 +23,35 @@ watch -n 10 "$APP" status "$RUN"            # --json for agents
 The preset runs until stopped. Stop finishes the current iteration and its scheduled evaluation, then exits
 cleanly; allow several minutes. Ctrl-C/kill can leave partial output.
 
-## Independent value sampling
+## Web dashboard
 
-`[training].value_batch = 128` keeps the existing policy replay batch, but trains value on
-128 independently selected distinct combats per optimizer step, one random retained state each.
-Combats and states are resampled every step. Both losses are means with coefficient one;
-the shared trunk receives both gradients before one joint clip and optimizer update.
-This is separate supervision, not separate networks or a frozen policy representation.
+The **Run health** resource frame and **Execution** diagram are mock-only previews in this PR.
+There is no live health sampler or `/api/health` endpoint. The preview uses `/api/mock`, available
+only when launched with `--mock`. Live-run wiring is deliberately deferred; this view will not
+work for real runs yet. **Agent quality** remains a separate view.
 
-The default `value_batch = 0` preserves joint policy/value training on the same states.
-Value sampling respects the replay window and `max_train_rows`: combats without retained states
-are excluded. A positive value batch must not exceed the number of eligible combats;
-otherwise training fails before updating the model. `balanced_replay` continues to control
-policy sampling only when independent value sampling is enabled.
+The existing `/api`, `/api/actors`, `/api/queues`, and `/api/lanes` routes remain available for real runs.
 
-Changing `value_batch` defines a new experiment, not a resumable setting. Architecture,
-checkpoint layout, and inference are unchanged. Training value loss then measures the
-combat-balanced value samples, while fresh/held-out scoring retains the original replay
-sampling distribution; the two logged losses are not directly comparable.
+The normal mock moves through a 48-second loop: balanced, queueing, GPU-starved, and draining.
+Five-second rolling summaries refresh once per second. Slot-state proportions, queue average/peak,
+dispatcher batch fill, and lane time breakdowns transition smoothly; actor and lane labels show throughput.
+All component values are synthetic and visibly labeled DEMO.
+
+A mock backend exercises the UI without run files or a GPU. Mock data is
+visibly labeled and the quality tab is disabled:
+
+```sh
+.venv/bin/python -m apps.gumbel_nn_combat_expert_iteration.web --mock normal --port 8003
+# Other scenarios: --mock fallback, --mock stale, --mock missing
+```
+
+Tests:
+
+```sh
+.venv/bin/python -m unittest apps.gumbel_nn_combat_expert_iteration.web.test_health_mock
+node --test apps/gumbel_nn_combat_expert_iteration/web/ui/test_health_ui.cjs apps/gumbel_nn_combat_expert_iteration/web/ui/test_web_ui.cjs
+```
+
 
 ## Recovery
 

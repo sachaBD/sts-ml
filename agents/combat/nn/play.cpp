@@ -13,6 +13,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <fstream>
+#include <filesystem>
 #include <iostream>
 #include <map>
 #include <mutex>
@@ -74,6 +75,7 @@ struct Shared {
     std::atomic<std::size_t> next{0};
     std::mutex output;
     std::ofstream samples;
+    std::string sample_file;
     std::atomic<std::size_t> completed{0}, searched_decisions{0};
 
     std::unique_ptr<Game> next_game() {
@@ -86,13 +88,18 @@ struct Shared {
         const float won = state.outcome == sts::Outcome::PLAYER_VICTORY;
         const double seconds = std::chrono::duration<double>(Clock::now() - g.begin).count();
         std::lock_guard lock{output};
+        const auto begin = static_cast<std::streamoff>(samples.tellp());
+        if (begin < 0) throw std::runtime_error{"failed to locate game samples"};
         for (const auto& [tokens, policy] : g.decisions) write(samples, tokens, policy, won);
         samples.flush();
+        const auto end = static_cast<std::streamoff>(samples.tellp());
+        if (!samples || end < begin) throw std::runtime_error{"failed to write game samples"};
         const double finished = std::chrono::duration<double>(std::chrono::system_clock::now().time_since_epoch()).count();
         std::cout << Json{{"fight_id", g.record.at("fight_id")}, {"won", won > 0}, {"hp", state.player.curHp},
                           {"decisions", g.decisions.size()}, {"seconds", seconds}, {"turns", state.turn},
                           {"steps", g.fight.steps()}, {"capped", state.outcome == sts::Outcome::UNDECIDED},
-                          {"finished_unix", finished}}.dump() << std::endl;
+                          {"finished_unix", finished},
+                          {"sample_range", {{"file", sample_file}, {"begin", begin}, {"end", end}}}}.dump() << std::endl;
         if (!samples || !std::cout) throw std::runtime_error{"failed to write game samples/results"};
         ++completed;
         searched_decisions += g.decisions.size();
@@ -244,7 +251,9 @@ int main(int argc, char** argv) try {
         if (backend->width() != width) throw std::invalid_argument{"model token width does not match combat encoder"};
     std::cerr << "timing: evaluator setup "
               << std::chrono::duration<double>(Clock::now() - setup_begin).count() << " s\n";
-    Shared shared{settings, rollout_mix, {}, {}, {}, std::ofstream{argv[3], std::ios::binary | std::ios::app}};
+    Shared shared{settings, rollout_mix, {}, {}, {},
+                  std::ofstream{argv[3], std::ios::binary | std::ios::app | std::ios::ate},
+                  std::filesystem::path{argv[3]}.filename().string()};
     for (std::string line; std::getline(std::cin, line);)
         if (!line.empty()) shared.fights.push_back(Json::parse(line));
     const auto play_begin = Clock::now();
