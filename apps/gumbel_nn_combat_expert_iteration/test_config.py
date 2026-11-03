@@ -29,6 +29,17 @@ class ConfigTests(unittest.TestCase):
         self.rejects(CONFIG.replace('per_iteration = 5', 'per_iteration = 5\nhp_jitter = -0.1'), 'hp_jitter')
         self.rejects(CONFIG.replace('rollout_mix = 0.5', 'rollout_mix = 0.5\nrollout_mix_decay = -1'), 'rollout_mix_decay')
 
+    def test_value_sampling_is_opt_in_and_defines_the_experiment(self):
+        base = load(CONFIG)
+        explicit_default = load(CONFIG.replace('steps = 1', 'steps = 1\nvalue_batch = 0'))
+        self.assertEqual(base, explicit_default)
+        sparse = load(CONFIG.replace('steps = 1', 'steps = 1\nvalue_batch = 128'))
+        self.assertEqual(experiment_changes(base, sparse), ['[training].value_batch'])
+        self.rejects(CONFIG.replace('steps = 1', 'steps = 1\nvalue_batch = -1'), 'value_batch')
+        self.rejects(CONFIG.replace('steps = 1', 'steps = 1\nvalue_batch = 1.5'), 'value_batch')
+        self.rejects(CONFIG.replace('steps = 1', 'steps = 1\nvalue_batch = 128')
+                     .replace('max_train_rows = 0', 'max_train_rows = 500000'), 'max_train_rows')
+
     def test_rollout_mix_decays_to_zero_and_stays(self):
         for decay in (0, 1, 7, 30):
             search = load(CONFIG.replace('rollout_mix = 0.5', f'rollout_mix = 0.5\nrollout_mix_decay = {decay}')).search

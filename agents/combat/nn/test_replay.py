@@ -21,6 +21,7 @@ def samples(directory, decks):
     results = []
     with path.open('wb') as stream:
         for deck, count, identity, won in decks:
+            begin = stream.tell()
             for i in range(count):
                 n = 3 + i % 3
                 tokens = np.zeros((n, WIDTH), dtype=np.float32)
@@ -29,7 +30,8 @@ def samples(directory, decks):
                 stream.write(struct.pack('<iif', n, 2, won))
                 stream.write(tokens.tobytes())
                 stream.write(np.array([.25, .75], dtype=np.float32).tobytes())
-            results.append(dict(fight_id=f'test:1:{deck}:0', won=bool(won), decisions=count))
+            results.append(dict(fight_id=f'test:1:{deck}:0', won=bool(won), decisions=count,
+                                sample_range=dict(file=path.name, begin=begin, end=stream.tell())))
     (directory / 'results.jsonl').write_text(''.join(json.dumps(r) + '\n' for r in results))
     return path
 
@@ -84,6 +86,21 @@ class ReplayTests(unittest.TestCase):
                 self.assertEqual(len(replay.sample(2)), 2)
                 self.assertEqual(sum(replay.drawn.values()), 2)
 
+    def test_value_samples_one_state_per_combat_without_affecting_policy_accounting(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            a = samples(root / 'a', [('same', 40, 1, 1), ('same', 2, 2, 0), ('empty', 0, 9, 0)])
+            b = samples(root / 'b', [('other', 1, 3, 1)])
+            for balanced in (False, True):
+                with self.subTest(balanced=balanced), Replay([a, b], balanced=balanced) as replay:
+                    for size in (1, 2, 3):
+                        records = replay.sample_combats(size)
+                        identities = [int(t[0, 1]) for t, _, _ in records]
+                        self.assertEqual(len(identities), size)
+                        self.assertEqual(len(set(identities)), size)
+                        self.assertTrue(set(identities) <= {1, 2, 3})
+                    self.assertEqual(sum(replay.drawn.values()), 0)
+
     def test_reject_incomplete_binary(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = samples(Path(tmp) / 'iter001', [('a', 3, 1, 1)])
@@ -100,16 +117,18 @@ class ReplayTests(unittest.TestCase):
                 t = np.zeros((length, WIDTH), dtype=np.float32)
                 t[0, :2] = [1, i]; t[-2:, 0] = 6
                 records.append((t, np.array([.5, .5], np.float32), float(i % 2)))
-            with patch.object(replay, 'sample', return_value=records):
-                chunks = list(replay.batches(8, attention_cells=900))
-            self.assertEqual(sum(len(w) for _, _, w in chunks), 8)
-            self.assertEqual(len(chunks), 4)
-            identities = []
-            for t, p, w in chunks:
-                self.assertLessEqual(len(w) * t.shape[1] ** 2, 900)
-                identities += t[:, 0, 1].int().tolist()
-                torch.testing.assert_close(p.sum(1), torch.ones(len(w)))
-            self.assertEqual(sorted(identities), list(range(8)))
+            for combat_balanced in (False, True):
+                sampler = 'sample_combats' if combat_balanced else 'sample'
+                with patch.object(replay, sampler, return_value=records):
+                    chunks = list(replay.batches(8, attention_cells=900, combat_balanced=combat_balanced))
+                self.assertEqual(sum(len(w) for _, _, w in chunks), 8)
+                self.assertEqual(len(chunks), 4)
+                identities = []
+                for t, p, w in chunks:
+                    self.assertLessEqual(len(w) * t.shape[1] ** 2, 900)
+                    identities += t[:, 0, 1].int().tolist()
+                    torch.testing.assert_close(p.sum(1), torch.ones(len(w)))
+                self.assertEqual(sorted(identities), list(range(8)))
 
     def test_replay_preserves_values_outside_fp16_range(self):
         t = np.zeros((3, WIDTH), dtype=np.float32)

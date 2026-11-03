@@ -23,6 +23,16 @@ watch -n 10 "$APP" status "$RUN"            # --json for agents
 The preset runs until stopped. Stop finishes the current iteration and its scheduled evaluation, then exits
 cleanly; allow several minutes. Ctrl-C/kill can leave partial output.
 
+## Value sampling
+
+Set `[training].value_batch = 128` to give combats equal value weight rather than
+weighting them by length: one random state per selected combat, resampled each step.
+`0` keeps joint policy/value sampling. Policy sampling is unchanged.
+
+Requires `max_train_rows = 0` and replay with recorded combat ranges (new collection).
+Changing this setting defines a new experiment. Combat-balanced training value loss
+and the existing row/deck-weighted held-out loss measure different distributions.
+
 ## Web dashboard
 
 The default **Run health** view shows live execution telemetry from the existing

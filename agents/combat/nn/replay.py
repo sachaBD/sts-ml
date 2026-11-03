@@ -1,6 +1,7 @@
 """Disk-indexed replay with uniform or deck-balanced sampling. Only the current minibatch is read and padded."""
 import json
 import os
+import random
 from pathlib import Path
 import struct
 
@@ -19,7 +20,7 @@ def index(path):
     if cache.exists():
         with np.load(cache) as stored:
             return {name: stored[name] for name in stored.files}
-    raw = np.memmap(path, dtype=np.uint8, mode='r')
+    raw = np.memmap(path, dtype=np.uint8, mode='r') if path.stat().st_size else b''
     groups, at = {}, 0
     for line in (path.parent / 'results.jsonl').read_text().splitlines():
         game = json.loads(line)
@@ -49,6 +50,9 @@ class Replay:
 
     def __init__(self, paths, max_rows=0, balanced=True):
         paths, groups = [Path(p) for p in paths], {}
+        self.paths = paths
+        self.max_rows = max_rows
+        self.combats = None
         for file, path in enumerate(paths):
             decks = index(path)
             if not decks:
@@ -114,6 +118,55 @@ class Replay:
             counts = np.bincount(self.uniform_decks[selected], minlength=len(self.groups))
             for name, count in zip(self.groups, counts):
                 self.drawn[name] += int(count)
+        return self._read(picked)
+
+    def _index_combats(self):
+        if self.max_rows:
+            raise ValueError('combat-balanced value sampling requires max_train_rows = 0')
+        rows = np.concatenate(list(self.groups.values()))
+        self.combat_rows = rows[np.lexsort((rows[:, 1], rows[:, 0]))]
+        spans = []
+        for file, path in enumerate(self.paths):
+            lo, hi = np.searchsorted(self.combat_rows[:, 0], [file, file + 1])
+            offsets = np.append(self.combat_rows[lo:hi, 1], np.uint64(path.stat().st_size))
+            for line in (path.parent / 'results.jsonl').read_text().splitlines():
+                game = json.loads(line)
+                span = game.get('sample_range')
+                if span is None:
+                    raise ValueError(f'{path}: value sampling requires recorded sample_range metadata')
+                if span['file'] != path.name:
+                    continue
+                begin, end = span['begin'], span['end']
+                if not 0 <= begin <= end <= offsets[-1]:
+                    raise ValueError(f'{path}: invalid combat sample range')
+                first, last = np.searchsorted(offsets, [begin, end])
+                if offsets[first] != begin or offsets[last] != end or last - first != game['decisions']:
+                    raise ValueError(f'{path}: combat range does not match sample records')
+                if last > first:
+                    spans.append((lo + first, lo + last))
+        combats = np.asarray(sorted(spans), dtype=np.int64).reshape(-1, 2)
+        if (not len(combats) or combats[0, 0] != 0 or combats[-1, 1] != len(rows)
+                or np.any(combats[1:, 0] != combats[:-1, 1])):
+            raise ValueError('combat ranges must partition replay records')
+        self.combats = combats
+
+    @property
+    def combat_count(self):
+        if self.combats is None:
+            self._index_combats()
+        return len(self.combats)
+
+    def sample_combats(self, size):
+        """Uniform distinct combats, one uniform state each; policy accounting is untouched."""
+        if not 0 < size <= self.combat_count:
+            raise ValueError('value batch must be positive and no larger than the combat count')
+        # random.sample avoids a full replay-sized permutation; its seed is checkpointed through Torch.
+        rng = random.Random(torch.randint(2**63 - 1, ()).item())
+        selected = rng.sample(range(self.combat_count), size)
+        positions = [rng.randrange(int(begin), int(end)) for begin, end in self.combats[selected]]
+        return self._read(self.combat_rows[positions])
+
+    def _read(self, picked):
         records = []
         for raw in self.reader.read(picked.tolist()):
             count, actions, won = HEADER.unpack_from(raw)
@@ -138,13 +191,14 @@ class Replay:
     def batch(self, size):
         return self.collate(self.sample(size))
 
-    def batches(self, size, attention_cells=2048 * 64 * 64):
+    def batches(self, size, attention_cells=2048 * 64 * 64, *, combat_balanced=False):
         """Keep B*T*T bounded; rare long states never pad the entire effective batch.
 
         All sampled rows are retained. The trainer accumulates weighted gradients
         across these microbatches before one optimizer step.
         """
-        records = sorted(self.sample(size), key=lambda r: len(r[0]))
+        records = sorted(self.sample_combats(size) if combat_balanced else self.sample(size),
+                         key=lambda r: len(r[0]))
         chunk = []
         for record in records:
             length = len(record[0])

@@ -14,8 +14,9 @@ class Learner:
         self.optimizer = torch.optim.AdamW(self.net.parameters(), lr=lr, weight_decay=1e-4)
         self.device = device
 
-    def fit(self, replay, steps, batch, log=print):
-        return train(self.net, self.optimizer, replay, None, None, steps, batch, self.device, log=log)
+    def fit(self, replay, steps, batch, log=print, *, value_batch=0):
+        return train(self.net, self.optimizer, replay, None, None, steps, batch, self.device,
+                     log=log, value_batch=value_batch)
 
     def score(self, replay, rows, batch):
         return score(self.net, replay, rows, batch, self.device)

@@ -93,7 +93,8 @@ class ExpertIterationInvariants(unittest.TestCase):
         for path in (files['dynamic'], files['gpu'], *files['bank']):
             path.touch()
 
-    def play(self, binary, models, fights, directory, search, workers, progress):
+    def play(self, binary, models, fights, directory, search, workers, progress,
+             gpu_attended=0, gpu_wide_attended=0):
         results = [dict(fight_id=f['fight_id'], won=i % 2 == 0, capped=False, finished_unix=1.0)
                    for i, f in enumerate(fights)]
         self.plays.append(dict(models=models, directory=directory, search=search, fights=fights, results=results))
