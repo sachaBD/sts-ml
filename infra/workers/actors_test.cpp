@@ -199,6 +199,11 @@ TEST(Actors, CountersCountEveryRequestOnceAndTimeWithinWallTime) {
     requests = 0;
     for (const auto& q : last.queues) { requests += q.requests; EXPECT_LE(q.waited, q.requests * elapsed); }
     EXPECT_EQ(requests, log.evaluated) << "every request leaves exactly one queue";
+
+    ASSERT_EQ(last.lanes.size(), 2u);
+    requests = 0;
+    for (const auto& l : last.lanes) { requests += l.requests; EXPECT_LE(l.requests, l.capacity); EXPECT_LE(l.busy, elapsed); }
+    EXPECT_EQ(requests, log.evaluated) << "every request is evaluated by exactly one lane";
 }
 
 TEST(Actors, NoEpisodes) {

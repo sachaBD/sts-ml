@@ -19,8 +19,11 @@ public:
         for (const auto& a : counters.actors) actors.push_back({{"requests", a.requests}, {"blocked_seconds", a.blocked.count()}});
         nlohmann::json queues = nlohmann::json::array();
         for (const auto& q : counters.queues) queues.push_back({{"requests", q.requests}, {"waited_seconds", q.waited.count()}});
+        nlohmann::json lanes = nlohmann::json::array();
+        for (const auto& l : counters.lanes)
+            lanes.push_back({{"queue", l.queue}, {"requests", l.requests}, {"capacity", l.capacity}, {"busy_seconds", l.busy.count()}});
         const std::chrono::duration<double> time = counters.time.time_since_epoch();
-        out_ << nlohmann::json{{"time", time.count()}, {"actors", actors}, {"queues", queues}}.dump() << std::endl;
+        out_ << nlohmann::json{{"time", time.count()}, {"actors", actors}, {"queues", queues}, {"lanes", lanes}}.dump() << std::endl;
     }
 
 private:

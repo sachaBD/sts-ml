@@ -57,13 +57,13 @@ class InferencePool {
 public:
     struct Queue {
         Backend& backend;
-        const int batch;
+        const int id, batch;
         std::mutex mutex;
         std::condition_variable requested;
         std::deque<Request> pending;
         std::atomic<long> requests{0};
         std::atomic<Clock::rep> waited{0};  // Clock ticks: an atomic duration has no +=
-        Queue(Backend& b, int limit) : backend{b}, batch{std::min(limit, b.max_batch())} {}
+        Queue(Backend& b, int id, int limit) : backend{b}, id{id}, batch{std::min(limit, b.max_batch())} {}
     };
 
     InferencePool(const std::vector<Backend*>& backends, int batch) {
@@ -71,7 +71,7 @@ public:
         for (auto* backend : backends) {
             if (!backend || backend->lanes() < 1 || backend->max_batch() < 1 || backend->width() != backends.front()->width())
                 throw std::invalid_argument{"invalid actor configuration"};
-            queues_.push_back(std::make_unique<Queue>(*backend, batch));
+            queues_.push_back(std::make_unique<Queue>(*backend, int(queues_.size()), batch));
             for (int i = 0; i < backend->lanes(); ++i) lanes_.push_back(queues_.back().get());
         }
     }
@@ -263,6 +263,7 @@ class InferenceServer {
     }
 
     void dispatch(const std::vector<Request>& batch) {
+        const auto begun = Clock::now();
         std::vector<Input> inputs;
         inputs.reserve(batch.size());
         for (const auto& item : batch) inputs.push_back(item.input);
@@ -286,14 +287,19 @@ class InferenceServer {
             mailbox.replied.notify_one();
         }
         ++batches; requests += long(batch.size());
+        capacity += queue_.batch;
+        busy += (Clock::now() - begun).count();
     }
 
 public:
-    long batches = 0, requests = 0;
+    long batches = 0;
+    std::atomic<long> requests{0}, capacity{0};
+    std::atomic<Clock::rep> busy{0};  // Clock ticks: an atomic duration has no +=
     std::atomic<long long> heartbeat{now_ms()};
     std::atomic<bool> done{false};
     double cpu_seconds = std::nan("");
     InferenceServer(Shared& shared, InferencePool::Queue& queue) : shared_{shared}, queue_{queue} {}
+    int queue() const { return queue_.id; }
 
     void run() {
         while (!shared_.stopped) {
@@ -311,11 +317,13 @@ std::string describe(std::exception_ptr error) {
     catch (...) { return "unknown error"; }
 }
 
-void publish(const Shared& shared) {
+void publish(const Shared& shared, const std::vector<std::unique_ptr<InferenceServer>>& servers) {
     if (!shared.config.on_counters) return;
-    Counters counters{std::chrono::system_clock::now(), {}, {}};
+    Counters counters{std::chrono::system_clock::now(), {}, {}, {}};
     for (const auto& mailbox : shared.mailboxes) counters.actors.push_back({mailbox->requests, Clock::duration{mailbox->blocked}});
     for (const auto& queue : shared.inference.queues()) counters.queues.push_back({queue->requests, Clock::duration{queue->waited}});
+    for (const auto& server : servers)
+        counters.lanes.push_back({server->queue(), server->requests, server->capacity, Clock::duration{server->busy}});
     shared.config.on_counters(counters);
 }
 
@@ -324,7 +332,7 @@ void supervise(Shared& shared, const std::vector<std::unique_ptr<InferenceServer
     std::optional<Clock::time_point> cancelling;
     auto publish_at = Clock::now() + 1s;
     while (!shared.all_done()) {
-        if (Clock::now() >= publish_at) { publish(shared); publish_at = Clock::now() + 1s; }
+        if (Clock::now() >= publish_at) { publish(shared, servers); publish_at = Clock::now() + 1s; }
         if (!shared.stopped) {
             const long long now = now_ms(), limit = shared.config.timeout.count();
             for (int i = 0; i < shared.config.actors; ++i) {
@@ -390,7 +398,7 @@ void run_actors(const ActorConfig& config, NextEpisode next, const std::vector<B
     supervise(shared, servers);
     server_threads.clear();
     actor_threads.clear();
-    publish(shared);  // final totals
+    publish(shared, servers);  // final totals
 
     const double seconds = std::chrono::duration<double>(Clock::now() - started).count();
     double actor_cpu = 0;
