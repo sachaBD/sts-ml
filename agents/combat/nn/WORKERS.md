@@ -26,29 +26,9 @@ deadline and 5-second shutdown grace. Archive interrupted stages; never append
 partial replay. A poisoned CUDA context exits without teardown for the app's
 bounded process supervisor to handle.
 
-### Combat sample locations
-
-Each `nn_play play` result includes `sample_range`, for example:
-
-```json
-"sample_range": {"file": "samples-0.bin", "begin": 1234, "end": 5678}
-```
-
-`begin` and `end` are absolute byte offsets, defining the half-open range
-`[begin, end)` in `file`. The range contains exactly `decisions` unchanged binary
-records, each labeled with this combat's outcome. A zero-decision combat has
-`begin == end`. Native CLI appends use offsets from the existing file's end.
-
-`file` is the sample-file basename, resolved relative to `results.jsonl`.
-The Python collector already colocates these files; direct CLI callers must also
-save stdout's result journal beside the sample file.
-
-Ranges and results are captured under the same output lock, in completion order.
-A result is emitted only after its samples are successfully written and flushed.
-This is not crash-atomic across files or a durability guarantee: an interruption
-can leave sample bytes without a journal result. Those bytes are not evidence of
-a completed combat. Existing replay and training behavior is unchanged; legacy
-journals are not modified.
+Combat sample ranges let replay identify combats without inferring boundaries
+from journal order. Keep the result journal beside its sample file. The two files
+are not crash-atomic; trailing sample bytes alone do not prove a completed combat.
 
 Training always uses agent-owned disk-indexed, `Replay`, backed by
 `infra.Reader` and `infra.prefetch`. Only length-bounded FP32 minibatches enter
