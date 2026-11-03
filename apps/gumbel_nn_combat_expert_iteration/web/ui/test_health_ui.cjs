@@ -24,7 +24,7 @@ async function dashboard(input, failure = false, mode = 'mock') {
   const context = vm.createContext({
     document: { body: { dataset: { mode } }, getElementById: get, createElement: element }, activeView: 'health', data: null,
     telemetryPanel: (...args) => livePanels.push(args),
-    Plotly: { react() {} },
+    Plotly: { react() {} }, performance: { now: () => 0 }, requestAnimationFrame() {},
     update() {}, charts() {}, Event: class {}, window: { dispatchEvent() {} }, setTimeout() {},
     fetch: async url => {
       requests.push(url);
@@ -32,6 +32,7 @@ async function dashboard(input, failure = false, mode = 'mock') {
       return { ok: true, json: async () => input };
     },
   });
+  vm.runInContext(readFileSync(`${__dirname}/motion.js`, 'utf8'), context);
   vm.runInContext(readFileSync(`${__dirname}/health.js`, 'utf8'), context);
   await new Promise(resolve => setImmediate(resolve));
   return { elements, requests, context, livePanels };

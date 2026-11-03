@@ -47,9 +47,20 @@
     for (const item of items) update(group.nodes.get(item.id), item);
   }
 
+  const showFightRate = smoothView(el('fightRate'), p => { el('fightRate').textContent = fmt(p.rate); });
+  const showFightProgress = smoothView(el('fightProgress'), p => {
+    const percent = Math.max(0, Math.min(100, 100 * p.done / p.total));
+    el('fightCount').textContent = `${fmt(Math.round(p.done))} / ${fmt(p.total)} · ${Math.round(percent)}%`;
+    el('fightFill').style.width = `${percent}%`;
+    el('fightProgress').setAttribute('aria-valuemin', '0');
+    el('fightProgress').setAttribute('aria-valuemax', String(p.total));
+    el('fightProgress').setAttribute('aria-valuenow', String(Math.round(p.done)));
+  });
+
   let lastFightStage = '', fightStart = null;
   const fightSamples = [], fightRates = [];
   function plotFightRate() {
+    if (activeView !== 'health') return;
     Plotly.react(el('fightRatePlot'), [{
       x: fightRates.map(p => p.time - fightStart), y: fightRates.map(p => p.rate),
       name: 'Combats/s', type: 'scatter', mode: 'lines', line: { color: '#6ea8fe', width: 2 },
@@ -72,10 +83,11 @@
   }
   function fightProgress(p) {
     if (p.phase === 'play' && valid(p.done) && valid(p.total) && p.total > 0) {
-      if (p.stage !== lastFightStage || (fightSamples.length && p.done < fightSamples[fightSamples.length - 1].done)) {
+      const reset = p.stage !== lastFightStage || (fightSamples.length && p.done < fightSamples[fightSamples.length - 1].done);
+      if (reset) {
         fightSamples.length = fightRates.length = 0;
         fightStart = null;
-        el('fightRate').textContent = '—';
+        showFightRate({ rate: null }, true);
       }
       lastFightStage = p.stage;
       if (valid(p.time) && (!fightSamples.length || p.time > fightSamples[fightSamples.length - 1].time)) {
@@ -86,17 +98,12 @@
         const rate = p.time > first.time ? (p.done - first.done) / (p.time - first.time) : null;
         fightRates.push({ time: p.time, rate, done: p.done });
         if (fightRates.length > 1800) fightRates.shift();
-        el('fightRate').textContent = fmt(rate);
+        showFightRate({ rate });
         plotFightRate();
       }
       el('fightRateStage').textContent = p.stage;
-      const percent = Math.max(0, Math.min(100, 100 * p.done / p.total));
       el('fightLabel').textContent = `Fights · ${p.stage}`;
-      el('fightCount').textContent = `${fmt(p.done)} / ${fmt(p.total)} · ${Math.round(percent)}%`;
-      el('fightFill').style.width = `${percent}%`;
-      el('fightProgress').setAttribute('aria-valuemin', '0');
-      el('fightProgress').setAttribute('aria-valuemax', String(p.total));
-      el('fightProgress').setAttribute('aria-valuenow', String(p.done));
+      showFightProgress({ done: p.done, total: p.total }, reset);
     } else if (lastFightStage) {
       el('fightRateStage').textContent = `Last reported throughput · ${lastFightStage}`;
       el('fightLabel').textContent = `Last reported fights · ${lastFightStage}`;
@@ -298,7 +305,8 @@
       el(name + 'Tab').classList.toggle('active', view === name);
       el(name + 'Tab').setAttribute('aria-selected', String(view === name));
     }
-    if (view === 'quality' && data) { update(data); charts(); }
+    if (data) charts();
+    if (view === 'health') plotFightRate();
     window.dispatchEvent(new Event('resize'));
   }
   el('healthTab').onclick = () => switchView('health');

@@ -123,4 +123,7 @@
 .execution-progress-track { height:6px; overflow:hidden; border-radius:3px; background:var(--line); }
 .execution-progress-track > div { width:0; height:100%; background:var(--train); transition:width .8s ease; }
 
-.fight-progress-frame { margin-top:16px; }
+.training-metrics-frame { margin-top:16px; min-width:0; }
+
+/* JavaScript owns live easing; do not stack another transition on each frame. */
+body[data-mode="live"] .topology *, .execution-progress-track > div { transition:none; }
