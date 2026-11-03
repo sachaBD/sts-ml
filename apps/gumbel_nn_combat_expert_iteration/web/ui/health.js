@@ -30,7 +30,7 @@
     el(id).replaceChildren(row);
   }
 
-  let mock = false;
+  const mock = document.body.dataset.mode === 'mock';
   const componentNodes = new Map();
   let queueNodes = null;
 
@@ -184,7 +184,6 @@
     el('resourceStatus').textContent = stale ? 'Measurements stale' : '';
     el('resourceStatus').hidden = !stale;
     el('healthPanel').classList.remove('offline');
-    mock = !!d.mock;
     el('qualityTab').disabled = mock;
     execution(d, stale);
   }
@@ -220,5 +219,16 @@
   }
   el('healthTab').onclick = () => switchView('health');
   el('qualityTab').onclick = () => switchView('quality');
-  pollHealth();
+  if (mock) {
+    pollHealth();
+  } else {
+    el('resourceFrame').hidden = true;
+    el('executionDriver').hidden = true;
+    el('executionStage').hidden = true;
+    el('executionLegend').hidden = true;
+    el('healthFreshness').textContent = 'Live execution';
+    el('run').textContent = 'Training';
+    el('stateText').textContent = '';
+    telemetryPanel(el('executionTopology'), el('executionFreshness'));
+  }
 })();

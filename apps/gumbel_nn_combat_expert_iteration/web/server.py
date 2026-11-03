@@ -231,7 +231,8 @@ def main():
                 elif route.path == '/health.css':
                     body = PAGE.with_name('health.css').read_bytes()
                 elif route.path == '/':
-                    body = PAGE.read_bytes()
+                    body = PAGE.read_bytes().replace(b'<body>', b'<body data-mode="mock">' if mock is not None
+                                                     else b'<body data-mode="live">')
                 else:
                     self.send_error(404)
                     return
