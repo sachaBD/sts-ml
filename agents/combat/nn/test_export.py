@@ -10,6 +10,7 @@ import torch
 from ._test_support import combat_tokens, small_spec, train_once
 from .export import ExportSpec, ModelExporter
 from .learner import Learner
+from .model import ModelSpec
 
 
 def onnx_predictions(path, tokens):
@@ -95,7 +96,8 @@ class PooledTransformerExportTests(ExportContract, unittest.TestCase):
 class OutcomeExportTests(unittest.TestCase):
     def test_exported_value_is_the_win_probability(self):
         torch.set_num_threads(1)
-        model = Learner(small_spec('entity', 'outcome'), lr=1e-3, device='cpu').net.eval()
+        spec = ModelSpec('entity', dim=16, layers=1, heads=2, value='outcome', auxiliary=True)
+        model = Learner(spec, lr=1e-3, device='cpu').net.eval()
         tokens = combat_tokens()
         with tempfile.TemporaryDirectory() as temporary:
             ModelExporter(model.spec, ExportSpec(tokens=10))._write(model, Path(temporary) / 'model.onnx', None)
