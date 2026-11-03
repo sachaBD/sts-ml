@@ -52,6 +52,7 @@ def play(binary, models, fights, directory, search, workers, progress=lambda don
                '--gpu-model', str(files['gpu']), '--gpu-batch', str(workers.gpu_batch),
                '--gpu-wait-us', str(workers.gpu_wait_us), '--timeout-ms', str(workers.timeout_ms),
                '--shutdown-timeout-ms', str(workers.shutdown_timeout_ms),
+               '--telemetry', str(directory / 'telemetry.jsonl'),
                '--sims', str(search.sims), '--gumbel-scale', str(search.gumbel_scale),
                '--rollout-mix', str(search.rollout_mix), '--particles', str(search.particles)]
     if gpu_attended:

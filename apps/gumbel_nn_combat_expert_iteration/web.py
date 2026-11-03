@@ -1,5 +1,6 @@
 """Live web dashboard.  .venv/bin/python -m apps.gumbel_nn_combat_expert_iteration.web RUN [--port 8740]"""
 import argparse
+from dataclasses import asdict
 from functools import lru_cache
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
@@ -8,6 +9,8 @@ import subprocess
 from pathlib import Path
 from statistics import median
 import time
+
+from monitoring.telemetry import actors
 
 from .dashboard import snapshot
 from .reporting import by_deck, deck_of, jsonl, outcomes, paired, pool, rate, unpaired
@@ -110,6 +113,19 @@ def api(out):
                 windows=dict(train=WINDOW, eval=[new_eval, old_eval]))
 
 
+def playing(states):
+    """A route serving one run_actors component of the playing stage; none outside play."""
+    def route(out):
+        progress = json.loads((out / 'training/status.json').read_text())
+        if progress['phase'] != 'play':
+            return []
+        return [asdict(s) for s in states(Path(progress['directory']) / 'telemetry.jsonl')]
+    return route
+
+
+ROUTES = {'/api': api, '/api/actors': playing(actors)}
+
+
 def main():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument('run', type=Path)
@@ -120,12 +136,19 @@ def main():
 
     class Handler(BaseHTTPRequestHandler):
         def do_GET(self):
-            try:
-                body = json.dumps(api(out)).encode() if self.path.startswith('/api') else PAGE.read_bytes()
-            except Exception as e:  # files mid-write or run not initialized: report, keep serving
-                body = json.dumps(dict(error=repr(e))).encode()
+            if self.path == '/':
+                body, kind = PAGE.read_bytes(), 'text/html'
+            elif self.path in ROUTES:
+                try:
+                    body = json.dumps(ROUTES[self.path](out)).encode()
+                except Exception as e:  # files mid-write or run not initialized: report, keep serving
+                    body = json.dumps(dict(error=repr(e))).encode()
+                kind = 'application/json'
+            else:
+                self.send_error(404)
+                return
             self.send_response(200)
-            self.send_header('Content-Type', 'application/json' if self.path.startswith('/api') else 'text/html')
+            self.send_header('Content-Type', kind)
             self.send_header('Cache-Control', 'no-store')
             self.end_headers()
             self.wfile.write(body)

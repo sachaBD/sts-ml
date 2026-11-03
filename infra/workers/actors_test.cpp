@@ -179,6 +179,22 @@ TEST(Actors, PrepareRunsOnOwnerAndPackedInputStaysStable) {
     EXPECT_EQ(log.finished, 40);
 }
 
+TEST(Actors, CountersCountEveryRequestOnceAndBlockWithinWallTime) {
+    Log log;
+    FakeBackend backend{[](std::span<const Input> inputs) { std::this_thread::sleep_for(1ms); return echo(inputs); }};
+    Counters last;
+    auto config = small();
+    config.on_counters = [&last](const Counters& counters) { last = counters; };
+    const auto started = std::chrono::steady_clock::now();
+    run_actors(config, episodes(log, 100), backend);
+    const std::chrono::duration<double> elapsed = std::chrono::steady_clock::now() - started;
+
+    ASSERT_EQ(last.actors.size(), std::size_t(config.actors));
+    long requests = 0;
+    for (const auto& a : last.actors) { requests += a.requests; EXPECT_LE(a.blocked, elapsed); }
+    EXPECT_EQ(requests, log.evaluated) << "the final counters count every request exactly once";
+}
+
 TEST(Actors, NoEpisodes) {
     Log log;
     FakeBackend backend;
