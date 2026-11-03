@@ -9,10 +9,7 @@ import subprocess
 from pathlib import Path
 from statistics import median
 import time
-import threading
-from urllib.parse import parse_qs, urlsplit
-
-from .health import Health
+from urllib.parse import urlsplit
 
 from monitoring.telemetry import actors, lanes, queues
 
@@ -208,23 +205,19 @@ def main():
     a = p.parse_args()
     if bool(a.run) == bool(a.mock):
         p.error('provide either RUN or --mock SCENARIO')
-    out, sampler = None, None
+    out, mock = None, None
     if a.mock:
         from .health_mock import MockHealth
-        health = MockHealth(a.mock)
+        mock = MockHealth(a.mock)
     else:
         out = (a.run / 'out' if (a.run / 'out').is_dir() else a.run).resolve()
-        health = Health(out)
-        sampler = threading.Thread(target=health.run, name='dashboard-health', daemon=True)
-        sampler.start()
 
     class Handler(BaseHTTPRequestHandler):
         def do_GET(self):
             try:
                 route = urlsplit(self.path)
-                if route.path == '/api/health':
-                    window = int(parse_qs(route.query).get('window', ['900'])[0])
-                    body = json.dumps(health.view(window), allow_nan=False).encode()
+                if route.path == '/api/mock' and mock is not None:
+                    body = json.dumps(mock.view(), allow_nan=False).encode()
                 elif route.path in ROUTES:
                     if out is None:
                         result = dict(error='Quality view unavailable in mock mode') if route.path == '/api' else []
@@ -261,9 +254,6 @@ def main():
     try:
         server.serve_forever()
     finally:
-        if sampler:
-            health.stop.set()
-            sampler.join(timeout=3)
         server.server_close()
 
 

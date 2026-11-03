@@ -192,7 +192,7 @@
   async function pollHealth() {
     if (activeView === 'health') {
       try {
-        const response = await fetch('api/health', { cache: 'no-store' });
+        const response = await fetch('api/mock', { cache: 'no-store' });
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
         const d = await response.json();
         if (d.error) throw new Error(d.error);

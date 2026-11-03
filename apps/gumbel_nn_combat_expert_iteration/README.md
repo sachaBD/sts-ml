@@ -25,30 +25,19 @@ cleanly; allow several minutes. Ctrl-C/kill can leave partial output.
 
 ## Web dashboard
 
-The default **Run health** view contains a resource-headroom frame and an execution-diagram prototype: host CPU busy
-and per-logical-CPU activity, GPU device 0 busy time and VRAM occupancy, RAM used/available, and
-run-filesystem disk used/available. Machine sampling is approximately every two seconds. Missing
-or stale measurements are labeled, not displayed as zero usage. These are machine-wide counters,
-including other workloads; GPU kernel-active time is not percent of peak compute throughput.
-Available RAM includes reclaimable cache; available disk space excludes reserved filesystem space.
+The **Run health** resource frame and **Execution** diagram are mock-only previews in this PR.
+There is no live health sampler or `/api/health` endpoint. The preview uses `/api/mock`, available
+only when launched with `--mock`. Live-run wiring is deliberately deferred; this view will not
+work for real runs yet. **Agent quality** remains a separate view.
 
-**Agent quality** remains a separate view. The health sampler and `GET /api/health` do not call the
-expensive per-deck scoring endpoint. The sampler retains phase-local history for up to 30 minutes,
-in memory since dashboard launch, but the resource frame deliberately only shows current usage.
-No training code or native worker instrumentation is changed by dashboard sampling.
-
-The **Execution** diagram shows individual actors, a shared queue, dispatchers, and GPU lanes.
-The component-state visual is currently a mock prototype: it is not yet connected to the production
-telemetry API, so the real-run diagram marks component telemetry unavailable rather than inventing
-activity. Existing resource metrics remain live. The `/api/actors`, `/api/queues`, and `/api/lanes`
-endpoints remain available; connecting the diagram to them is a separate next step.
+The existing `/api`, `/api/actors`, `/api/queues`, and `/api/lanes` routes remain available for real runs.
 
 The normal mock moves through a 48-second loop: balanced, queueing, GPU-starved, and draining.
 Five-second rolling summaries refresh once per second. Slot-state proportions, queue average/peak,
 dispatcher batch fill, and lane time breakdowns transition smoothly; actor and lane labels show throughput.
 All component values are synthetic and visibly labeled DEMO.
 
-A deterministic mock backend exercises the same API/UI without run files or a GPU. Mock data is
+A mock backend exercises the UI without run files or a GPU. Mock data is
 visibly labeled and the quality tab is disabled:
 
 ```sh
@@ -59,7 +48,7 @@ visibly labeled and the quality tab is disabled:
 Tests:
 
 ```sh
-.venv/bin/python -m unittest apps.gumbel_nn_combat_expert_iteration.web.test_health
+.venv/bin/python -m unittest apps.gumbel_nn_combat_expert_iteration.web.test_health_mock
 node --test apps/gumbel_nn_combat_expert_iteration/web/ui/test_health_ui.cjs apps/gumbel_nn_combat_expert_iteration/web/ui/test_web_ui.cjs
 ```
 

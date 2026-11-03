@@ -40,7 +40,7 @@ const fill = (elements, id) => reading(elements, id).children[1].children[0];
 
 test('only resource usage is rendered, without a chart dependency', async () => {
   const { elements, requests } = await dashboard(fixture());
-  assert.deepEqual(requests, ['api/health']);
+  assert.deepEqual(requests, ['api/mock']);
   assert.equal(elements.get('run').textContent, '<unsafe>');
   assert.equal(valueText(elements, 'resourceCpu'), '40%');
   assert.equal(valueText(elements, 'resourceVram'), '6 / 8 GiB');

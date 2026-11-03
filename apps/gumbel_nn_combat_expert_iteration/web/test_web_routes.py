@@ -53,14 +53,15 @@ class WebRouteTests(unittest.TestCase):
                 actual, body = self.get(base, path)
                 self.assertEqual(actual, kind)
                 self.assertTrue(body)
-            _, body = self.get(base, '/api/health?window=300')
+            _, body = self.get(base, '/api/mock')
             self.assertTrue(json.loads(body)['ready'])
             for component in ('actors', 'queues', 'lanes'):
                 _, body = self.get(base, f'/api/{component}')
                 self.assertEqual(json.loads(body), [])  # no synthetic production counters
-            with self.assertRaises(HTTPError) as error:
-                self.get(base, '/api/unknown')
-            self.assertEqual(error.exception.code, 404)
+            for path in ('/api/health', '/api/unknown'):
+                with self.assertRaises(HTTPError) as error:
+                    self.get(base, path)
+                self.assertEqual(error.exception.code, 404)
 
     def test_live_routes_still_read_native_counters(self):
         with TemporaryDirectory() as tmp:
@@ -76,6 +77,10 @@ class WebRouteTests(unittest.TestCase):
                        for t in (0, 5)]
             (stage / 'telemetry.jsonl').write_text(''.join(json.dumps(r) + '\n' for r in records))
             with dashboard(str(out)) as base:
+                for path in ('/api/health', '/api/mock'):
+                    with self.assertRaises(HTTPError) as error:
+                        self.get(base, path)
+                    self.assertEqual(error.exception.code, 404)
                 for component in ('actors', 'queues', 'lanes'):
                     _, body = self.get(base, f'/api/{component}')
                     self.assertEqual(json.loads(body)[0]['requests_s'], 10)

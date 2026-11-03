@@ -2,8 +2,6 @@
 import math
 import time
 
-from .health import inference_delta
-
 SCENARIOS = ('normal', 'fallback', 'stale', 'missing')
 
 
@@ -88,15 +86,15 @@ class MockHealth:
                                wait_p95_ms=waits[int(.95 * (len(waits) - 1))], samples=len(waits)),
                     dispatchers=dispatchers, lanes=lanes)
 
-    def view(self, window=900):
+    def view(self):
         now = time.time()
         elapsed = max(0, now - self.started)
         topology = self.topology(now)
         oversized, retries = (4000, 2000) if self.scenario == 'fallback' else (30, 15)
-        previous = dict(seconds=60, leaves=0, cpu_leaves=0, cpu_precision_retries=0, capacity=0)
-        current = dict(seconds=120, lanes=2, leaves=60000, cpu_leaves=oversized,
-                       cpu_precision_retries=retries, capacity=65536)
-        native_values = inference_delta(previous, current)
+        requests = 60000 + oversized
+        native_values = dict(nn_s=requests / 60, gpu_s=1000, cpu_oversized_s=oversized / 60,
+                             precision_retry_s=retries / 60, fallback=100 * (oversized + retries) / requests,
+                             batch_fill=100 * 60000 / 65536)
         age = 300 if self.scenario == 'stale' else 3
         metrics = {key: dict(current=value, age=age, stale=age > 130) for key, value in native_values.items()}
         cpu = 35 + 15 * math.sin(elapsed * .2)
@@ -115,8 +113,6 @@ class MockHealth:
                                             gpu_bank=[256, 32], gpu_wait_us=100)},
                     progress=dict(stage='iteration 42', phase='play', done=7400 + int(elapsed * 5) % 2600, total=10000),
                     metrics=metrics, topology=topology,
-                    native={} if self.scenario == 'missing' else {'gpu_stats': current},
-                    native_interval=None if self.scenario == 'missing' else dict(seconds=60, requests=current['leaves'] + oversized, observed=now - age),
                     machine=dict(cores=[max(0, min(100, 45 + 40 * math.sin(elapsed * .4 + i))) for i in range(12)],
                                  gpu_name='Mock GPU', vram_total=8, ram_total=32, ram_available=20,
                                  disk_total=256, disk_used=210))
