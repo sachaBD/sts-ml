@@ -74,7 +74,7 @@ class WebRouteTests(unittest.TestCase):
             status.write_text(json.dumps(dict(phase='play', directory=str(stage))))
             records = [dict(time=t,
                             actors=[dict(requests=10*t, blocked_seconds=.5*t)],
-                            queues=[dict(requests=10*t, waited_seconds=.1*t)],
+                            queues=[dict(requests=10*t, waited_seconds=.1*t, depth=5-t, peak_depth=5)],
                             lanes=[dict(queue=0, requests=10*t, capacity=20*t, busy_seconds=.8*t)])
                        for t in (0, 5)]
             (stage / 'telemetry.jsonl').write_text(''.join(json.dumps(r) + '\n' for r in records))
@@ -88,6 +88,9 @@ class WebRouteTests(unittest.TestCase):
                 for component in ('actors', 'queues', 'lanes'):
                     _, body = self.get(base, f'/api/{component}')
                     self.assertEqual(json.loads(body)[0]['requests_s'], 10)
+                _, body = self.get(base, '/api/queues')
+                queue, = json.loads(body)
+                self.assertEqual((queue['depth'], queue['peak_depth']), (0, 5))
                 status.write_text(json.dumps(dict(phase='train')))
                 for component in ('actors', 'queues', 'lanes'):
                     _, body = self.get(base, f'/api/{component}')

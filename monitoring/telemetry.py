@@ -18,6 +18,8 @@ class QueueState:
     id: int                # backend index
     requests_s: float      # requests leaving in a batch per second
     wait_ms: float | None  # mean submit-to-batch time; None when nothing left
+    depth: int | None = None       # pending count at latest sample; None for older telemetry
+    peak_depth: int | None = None  # highest pending count since run_actors began; None for older telemetry
 
 
 @dataclass(frozen=True)
@@ -38,8 +40,9 @@ def actors(telemetry: Path) -> list[ActorState]:
 def queues(telemetry: Path) -> list[QueueState]:
     rows, dt = deltas(telemetry, 'queues')
     return [QueueState(id=i, requests_s=d['requests'] / dt,
-                       wait_ms=1000 * d['waited_seconds'] / d['requests'] if d['requests'] else None)
-            for i, (_, d) in enumerate(rows)]
+                       wait_ms=1000 * d['waited_seconds'] / d['requests'] if d['requests'] else None,
+                       depth=latest.get('depth'), peak_depth=latest.get('peak_depth'))
+            for i, (latest, d) in enumerate(rows)]
 
 
 def lanes(telemetry: Path) -> list[LaneState]:
