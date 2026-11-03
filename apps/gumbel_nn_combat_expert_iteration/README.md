@@ -33,6 +33,13 @@ Requires `max_train_rows = 0` and replay with recorded combat ranges (new collec
 Changing this setting defines a new experiment. Combat-balanced training value loss
 and the existing row/deck-weighted held-out loss measure different distributions.
 
+## Value head
+
+`[model].value = "outcome"` predicts the combat's outcome as 20 bins: losses by enemy HP left, then wins
+by player HP fraction. Search still receives the win probability (the win bins' mass), so export and native
+inference are unchanged. `value_loss` is then the outcome cross-entropy; `win_loss` is the win BCE in either
+mode and is the comparable number across runs. Requires sample format 2 (cold start).
+
 ## Web dashboard
 
 The default **Run health** view shows live execution telemetry from the existing

@@ -1,7 +1,6 @@
 """Native-format replay indexing, balanced sampling, and bounded CPU minibatches."""
 import json
 from pathlib import Path
-import struct
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -11,7 +10,7 @@ import torch
 
 from .model import ModelSpec, build_model
 from .tokens import WIDTH
-from .replay import Replay, index
+from .replay import HEADER, SAMPLE_FORMAT, TARGETS, Replay, index
 from .train import score, train
 
 
@@ -27,10 +26,10 @@ def samples(directory, decks):
                 tokens = np.zeros((n, WIDTH), dtype=np.float32)
                 tokens[0, :2] = [1, identity]
                 tokens[-2:, 0] = 6
-                stream.write(struct.pack('<iif', n, 2, won))
+                stream.write(HEADER.pack(n, 2, won, *[.5] * (len(TARGETS) - 1)))
                 stream.write(tokens.tobytes())
                 stream.write(np.array([.25, .75], dtype=np.float32).tobytes())
-            results.append(dict(fight_id=f'test:1:{deck}:0', won=bool(won), decisions=count,
+            results.append(dict(fight_id=f'test:1:{deck}:0', won=bool(won), decisions=count, sample_format=SAMPLE_FORMAT,
                                 sample_range=dict(file=path.name, begin=begin, end=stream.tell())))
     (directory / 'results.jsonl').write_text(''.join(json.dumps(r) + '\n' for r in results))
     return path
@@ -43,13 +42,13 @@ class ReplayTests(unittest.TestCase):
             replay = Replay([path], max_rows=16)
             self.assertEqual(replay.available, dict(long=90, short=10))
             self.assertEqual(replay.selected, dict(long=8, short=8))
-            tokens, policy, won = replay.batch(12)
+            tokens, policy, targets = replay.batch(12)
             self.assertEqual(tokens.device.type, 'cpu')
             self.assertEqual(tokens.dtype, torch.float32)
             self.assertEqual(int((tokens[:, 0, 1] == 11).sum()), 6)
             self.assertEqual(int((tokens[:, 0, 1] == 22).sum()), 6)
             torch.testing.assert_close(policy.sum(1), torch.ones(12))
-            torch.testing.assert_close(won, (tokens[:, 0, 1] == 11).float())
+            torch.testing.assert_close(targets[:, TARGETS.index('won')], (tokens[:, 0, 1] == 11).float())
             self.assertTrue(torch.equal(policy > 0, tokens[:, :, 0] == 6))
             self.assertTrue(path.with_suffix('.index.npz').exists())
             self.assertEqual({k: len(v) for k, v in index(path).items()}, replay.available)
@@ -108,6 +107,13 @@ class ReplayTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, 'truncated'): index(path)
             self.assertFalse(path.with_suffix('.index.npz').exists())
 
+    def test_reject_other_sample_formats(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = samples(Path(tmp) / 'iter001', [('a', 3, 1, 1)])
+            results = path.parent / 'results.jsonl'
+            results.write_text(results.read_text().replace(f'"sample_format": {SAMPLE_FORMAT}', '"sample_format": 1'))
+            with self.assertRaisesRegex(ValueError, 'sample format'): index(path)
+
     def test_attention_buckets_keep_every_row(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = samples(Path(tmp) / 'iter001', [('a', 4, 1, 1), ('b', 4, 2, 0)])
@@ -150,10 +156,11 @@ class ReplayTests(unittest.TestCase):
 
     def test_unequal_microbatches_match_one_effective_update(self):
         class Tiny(torch.nn.Module):
+            spec = ModelSpec('transformer', 1, 1, 1)
             def __init__(self):
                 super().__init__(); self.scale = torch.nn.Parameter(torch.tensor(.2))
-            def forward(self, t):
-                return (self.scale * t[:, 0, 3]).sigmoid(), (self.scale * t[:, :, 3]).masked_fill(t[:, :, 0] != 6, -1e9)
+            def heads(self, t):
+                return self.scale * t[:, :1, 3], (self.scale * t[:, :, 3]).masked_fill(t[:, :, 0] != 6, -1e9)
         with tempfile.TemporaryDirectory() as tmp:
             path = samples(Path(tmp) / 'iter001', [('a', 4, 1, 1), ('b', 4, 2, 0)])
             replay = Replay([path])

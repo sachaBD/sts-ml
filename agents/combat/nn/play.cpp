@@ -1,5 +1,6 @@
 // Combat episodes own simulator/search state; infra owns scheduling and inference.
 #include "agents/combat/nn/decision.hpp"
+#include "agents/combat/nn/targets.hpp"
 #include "agents/combat/nn/tokens.hpp"
 #include "agents/combat/search/gumbel/gumbel.hpp"
 #include "environments/combat/public.hpp"
@@ -19,6 +20,7 @@
 #include <mutex>
 #include <nlohmann/json.hpp>
 #include <optional>
+#include <span>
 #include <thread>
 
 using namespace stsrl::nn;
@@ -26,10 +28,22 @@ using Json = nlohmann::json;
 using Clock = std::chrono::steady_clock;
 
 namespace {
-void write(std::ofstream& out, const stsrl::infra::Tokens& t, const std::vector<float>& policy, float won) {
+constexpr int sample_format = 2;  // Targets after the token and action counts
+
+struct Sample {
+    stsrl::infra::Tokens tokens;
+    std::vector<float> policy;
+    Vitals vitals;
+};
+
+void write(std::ofstream& out, const Sample& sample, std::span<const Vitals> turn_starts, const sts::BattleContext& end) {
+    static_assert(sizeof(Targets) == 6 * 4);
+    const auto& t = sample.tokens;
+    const auto& policy = sample.policy;
+    const auto target = targets(sample.vitals, turn_starts, end);
     out.write(reinterpret_cast<const char*>(&t.count), 4);
     out.write(reinterpret_cast<const char*>(&t.actions), 4);
-    out.write(reinterpret_cast<const char*>(&won), 4);
+    out.write(reinterpret_cast<const char*>(&target), sizeof target);
     out.write(reinterpret_cast<const char*>(t.data.data()), std::streamsize(t.data.size() * 4));
     out.write(reinterpret_cast<const char*>(policy.data()), std::streamsize(policy.size() * 4));
 }
@@ -39,7 +53,7 @@ struct Game {
     Fight fight;
     double rollout_mix;
     std::optional<Decision> decision;
-    std::vector<std::pair<stsrl::infra::Tokens, std::vector<float>>> decisions;  // (state, improved policy) per searched move
+    std::vector<Sample> decisions;  // state, improved policy and vitals per searched move
     Clock::time_point begin = Clock::now();
 
     Game(Json r, double mix)
@@ -53,7 +67,7 @@ struct Game {
             if (decision) {
                 if (const auto query = decision->pending()) return query;
                 auto r = decision->result();
-                decisions.emplace_back(encode(fight.state(), r.actions), std::move(r.policy));
+                decisions.push_back({encode(fight.state(), r.actions), std::move(r.policy), vitals(fight.state())});
                 decision.reset();
                 fight.play(r.action);
             }
@@ -90,7 +104,7 @@ struct Shared {
         std::lock_guard lock{output};
         const auto begin = static_cast<std::streamoff>(samples.tellp());
         if (begin < 0) throw std::runtime_error{"failed to locate game samples"};
-        for (const auto& [tokens, policy] : g.decisions) write(samples, tokens, policy, won);
+        for (const auto& sample : g.decisions) write(samples, sample, g.fight.turn_starts(), state);
         samples.flush();
         const auto end = static_cast<std::streamoff>(samples.tellp());
         if (!samples || end < begin) throw std::runtime_error{"failed to write game samples"};
@@ -98,7 +112,7 @@ struct Shared {
         std::cout << Json{{"fight_id", g.record.at("fight_id")}, {"won", won > 0}, {"hp", state.player.curHp},
                           {"decisions", g.decisions.size()}, {"seconds", seconds}, {"turns", state.turn},
                           {"steps", g.fight.steps()}, {"capped", state.outcome == sts::Outcome::UNDECIDED},
-                          {"finished_unix", finished},
+                          {"finished_unix", finished}, {"sample_format", sample_format},
                           {"sample_range", {{"file", sample_file}, {"begin", begin}, {"end", end}}}}.dump() << std::endl;
         if (!samples || !std::cout) throw std::runtime_error{"failed to write game samples/results"};
         ++completed;
@@ -129,7 +143,10 @@ void import(std::ofstream& samples) {
         std::map<int, const Json*> searched;
         for (const auto& row : record.at("search")) searched[row.at("step").get<int>()] = &row;
         auto state = stsrl::combat_v4::start_battle(fight.at("start"));
-        const float won = fight.at("won").get<bool>();
+        const bool won = fight.at("won").get<bool>();
+        std::vector<Sample> decisions;
+        std::vector<Vitals> turn_starts;
+        observe(turn_starts, state);
         int step = 0;
         for (const auto& bits : fight.at("actions")) {
             if (searched.contains(step)) {
@@ -158,13 +175,15 @@ void import(std::ofstream& samples) {
                 }
                 if (actions.size() > 1 && total > 0) {
                     for (auto& p : policy) p /= total;
-                    write(samples, encode(state, actions), policy, won);
+                    decisions.push_back({encode(state, actions), std::move(policy), vitals(state)});
                 }
             }
             sts::search::Action{bits.get<std::uint32_t>()}.execute(state);
+            observe(turn_starts, state);
             ++step;
         }
-        if ((state.outcome == sts::Outcome::PLAYER_VICTORY) != (won > 0)) throw std::runtime_error{"import: fight did not replay"};
+        if ((state.outcome == sts::Outcome::PLAYER_VICTORY) != won) throw std::runtime_error{"import: fight did not replay"};
+        for (const auto& sample : decisions) write(samples, sample, turn_starts, state);
     }
 }
 }  // namespace

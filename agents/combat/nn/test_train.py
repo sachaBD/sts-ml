@@ -6,22 +6,25 @@ from unittest.mock import patch
 
 import torch
 
-from .replay import Replay
+from .model import LOSS_BINS, WIN_BINS, ModelSpec
+from .replay import Replay, TARGETS
 from .test_replay import samples
 from .tokens import WIDTH
-from .train import losses, train
+from .train import losses, outcome_bin, train
 
 
 class Tiny(torch.nn.Module):
+    spec = ModelSpec('transformer', 1, 1, 1)
+
     def __init__(self):
         super().__init__()
         self.trunk = torch.nn.Parameter(torch.tensor(.2))
         self.value = torch.nn.Parameter(torch.tensor(.3))
         self.policy = torch.nn.Parameter(torch.tensor(.4))
 
-    def forward(self, tokens):
+    def heads(self, tokens):
         hidden = self.trunk * tokens[:, :, 3]
-        return (self.value * hidden[:, 0]).sigmoid(), (self.policy * hidden).masked_fill(tokens[:, :, 0] != 6, -1e9)
+        return self.value * hidden[:, :1], (self.policy * hidden).masked_fill(tokens[:, :, 0] != 6, -1e9)
 
 
 def batch(size, scale):
@@ -29,8 +32,9 @@ def batch(size, scale):
     tokens[:, :, 0] = torch.tensor([1, 6, 6])
     tokens[:, :, 3] = scale * torch.arange(1, size + 1)[:, None] * torch.tensor([1., 2., -1.])
     policy = torch.tensor([0., .25, .75]).expand(size, -1)
-    won = torch.arange(size).remainder(2).float()
-    return tokens, policy, won
+    targets = torch.zeros(size, len(TARGETS))
+    targets[:, TARGETS.index('won')] = torch.arange(size).remainder(2).float()
+    return tokens, policy, targets
 
 
 def chunks(tensors, sizes):
@@ -60,9 +64,24 @@ class TrainingTests(unittest.TestCase):
                     with patch.object(replay, 'batches', side_effect=batches):
                         logged = train(actual, optimizer, replay, None, None, 1, 5, 'cpu',
                                        log=lambda _: None, value_batch=3)
-                    torch.testing.assert_close(logged, (v.item(), p.item()))
+                    torch.testing.assert_close(logged, (v.item(), p.item(), v.item()))
                     for name, parameter in actual.named_parameters():
                         torch.testing.assert_close(parameter, dict(expected.named_parameters())[name])
+
+
+class OutcomeBinTests(unittest.TestCase):
+    def test_bins_order_every_loss_below_every_win_by_margin(self):
+        torch.manual_seed(0)
+        targets = torch.rand(4096, len(TARGETS))
+        targets[:, TARGETS.index('won')] = (targets[:, 0] < .5).float()
+        targets[:2, TARGETS.index('hp')], targets[2:4, TARGETS.index('enemy_hp')] = 1., torch.tensor([0., 1.])
+        bins = outcome_bin(targets)
+        won = targets[:, TARGETS.index('won')] > 0
+        self.assertTrue(((0 <= bins) & (bins < LOSS_BINS + WIN_BINS)).all())
+        self.assertTrue(torch.equal(bins >= LOSS_BINS, won))
+        for margin, mask in ((targets[:, TARGETS.index('hp')], won), (-targets[:, TARGETS.index('enemy_hp')], ~won)):
+            order = margin[mask].argsort()
+            self.assertTrue((bins[mask][order].diff() >= 0).all())
 
 
 if __name__ == '__main__':

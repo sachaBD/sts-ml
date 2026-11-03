@@ -3,7 +3,7 @@ from dataclasses import asdict
 
 import torch
 
-from .model import build_model
+from .model import ModelSpec, build_model
 from .train import score, train
 
 
@@ -29,7 +29,7 @@ class Learner:
     def load(self, path):
         """Restores weights, optimizer and RNG, so training continues exactly where the checkpoint left off."""
         checkpoint = torch.load(path, map_location='cpu', weights_only=True)
-        if checkpoint['spec'] != asdict(self.net.spec):
+        if ModelSpec(**checkpoint['spec']) != self.net.spec:  # specs saved before a field existed take its default
             raise ValueError(f'{path}: architecture {checkpoint["spec"]} differs from {self.net.spec}')
         self.net.load_state_dict(checkpoint['net'])
         self.optimizer.load_state_dict(checkpoint['optimizer'])
