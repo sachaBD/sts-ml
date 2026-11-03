@@ -26,6 +26,10 @@ deadline and 5-second shutdown grace. Archive interrupted stages; never append
 partial replay. A poisoned CUDA context exits without teardown for the app's
 bounded process supervisor to handle.
 
+Combat sample ranges let replay identify combats without inferring boundaries
+from journal order. Keep the result journal beside its sample file. The two files
+are not crash-atomic; trailing sample bytes alone do not prove a completed combat.
+
 Training always uses agent-owned disk-indexed, `Replay`, backed by
 `infra.Reader` and `infra.prefetch`. Only length-bounded FP32 minibatches enter
 RAM/GPU. Sampling, binary format, targets and optimizer remain agent-owned.
