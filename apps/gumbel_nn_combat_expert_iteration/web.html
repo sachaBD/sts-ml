@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <title>Training</title>
 <script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
+<script src="telemetry.js"></script>
 <style>
   :root { --bg:#0e1013; --card:#161a1f; --line:#232830; --dim:#7d8590; --text:#e6e8eb;
           --train:#6ea8fe; --test:#f0b46a; --good:#5fd39a; --bad:#ef6b6b; }
@@ -67,6 +68,7 @@
       <div class="sub" id="gpuSub"></div></div>
   </div>
 
+  <div class="card"><div class="label">Execution · last 5 s</div><div id="execution"></div></div>
   <div class="card"><div class="label">Still improving? · change with 95% CI</div><table id="trend"></table></div>
   <div class="card"><div class="label">Win rate · 95% CI</div><div id="overall" style="height:300px"></div></div>
   <div class="card"><div class="label">Per deck · training batches · 95% CI</div>
@@ -287,6 +289,7 @@ function frame(now) {
 }
 
 poll();
+telemetryPanel($('execution'));
 requestAnimationFrame(frame);
 </script>
 </body>

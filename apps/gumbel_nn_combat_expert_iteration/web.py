@@ -10,12 +10,14 @@ from pathlib import Path
 from statistics import median
 import time
 
-from monitoring.telemetry import actors, queues
+import monitoring
+from monitoring.telemetry import actors, lanes, queues
 
 from .dashboard import snapshot
 from .reporting import by_deck, deck_of, jsonl, outcomes, paired, pool, rate, unpaired
 
 PAGE = Path(__file__).with_name('web.html')
+TELEMETRY_PANEL = Path(monitoring.__file__).with_name('telemetry.js')
 WINDOW = 5      # training trend: last WINDOW batches pooled vs the WINDOW before
 EVAL_BACK = 3   # evaluation trend: latest vs the evaluation EVAL_BACK earlier (same seeds, paired)
 
@@ -123,7 +125,7 @@ def playing(states):
     return route
 
 
-ROUTES = {'/api': api, '/api/actors': playing(actors), '/api/queues': playing(queues)}
+ROUTES = {'/api': api, '/api/actors': playing(actors), '/api/queues': playing(queues), '/api/lanes': playing(lanes)}
 
 
 def main():
@@ -138,6 +140,8 @@ def main():
         def do_GET(self):
             if self.path == '/':
                 body, kind = PAGE.read_bytes(), 'text/html'
+            elif self.path == '/telemetry.js':
+                body, kind = TELEMETRY_PANEL.read_bytes(), 'text/javascript'
             elif self.path in ROUTES:
                 try:
                     body = json.dumps(ROUTES[self.path](out)).encode()
