@@ -197,13 +197,48 @@ TEST(Actors, CountersCountEveryRequestOnceAndTimeWithinWallTime) {
 
     ASSERT_EQ(last.queues.size(), 2u);
     requests = 0;
-    for (const auto& q : last.queues) { requests += q.requests; EXPECT_LE(q.waited, q.requests * elapsed); }
+    for (const auto& q : last.queues) {
+        requests += q.requests;
+        EXPECT_LE(q.waited, q.requests * elapsed);
+        EXPECT_EQ(q.depth, 0u);
+        EXPECT_GT(q.peak_depth, 0u);
+        EXPECT_LE(q.peak_depth, std::size_t(config.actors * config.slots));
+    }
     EXPECT_EQ(requests, log.evaluated) << "every request leaves exactly one queue";
 
     ASSERT_EQ(last.lanes.size(), 2u);
     requests = 0;
     for (const auto& l : last.lanes) { requests += l.requests; EXPECT_LE(l.requests, l.capacity); EXPECT_LE(l.busy, elapsed); }
     EXPECT_EQ(requests, log.evaluated) << "every request is evaluated by exactly one lane";
+}
+
+TEST(Actors, QueueDepthExcludesEvaluatingBatchAndPeakSurvivesDrain) {
+    Log log;
+    std::atomic<bool> sampled{false};
+    FakeBackend backend{[&](std::span<const Input> inputs) {
+        const auto deadline = std::chrono::steady_clock::now() + 3s;
+        while (!sampled && std::chrono::steady_clock::now() < deadline) std::this_thread::sleep_for(1ms);
+        require(sampled, "no counters published while evaluation was blocked");
+        return echo(inputs);
+    }};
+    auto config = small(4, 1);
+    config.actors = 1;
+    config.timeout = 5s;
+    std::vector<Counters> snapshots;
+    config.on_counters = [&](const Counters& counters) {
+        snapshots.push_back(counters);
+        sampled = true;
+    };
+    run_actors(config, episodes(log, config.slots, [](int) { return 1; }), backend);
+
+    ASSERT_GE(snapshots.size(), 2u);
+    const auto& waiting = snapshots.front().queues.at(0);
+    const auto& drained = snapshots.back().queues.at(0);
+    EXPECT_EQ(waiting.depth, std::size_t(config.slots - 1)) << "the evaluating request is no longer queued";
+    EXPECT_GE(waiting.peak_depth, waiting.depth);
+    EXPECT_LE(waiting.peak_depth, std::size_t(config.slots));
+    EXPECT_EQ(drained.depth, 0u);
+    EXPECT_EQ(drained.peak_depth, waiting.peak_depth) << "draining must not reset the high-water mark";
 }
 
 TEST(Actors, NoEpisodes) {

@@ -19,7 +19,7 @@ public:
     virtual std::string label() const = 0;    // names the episode in errors
 };
 
-// Cumulative since run_actors began.
+// Counters since run_actors began; queue depth is sampled at publication.
 struct ActorCounters {
     long requests = 0;                        // inference requests submitted
     std::chrono::duration<double> blocked{};  // waiting for inference replies
@@ -27,6 +27,8 @@ struct ActorCounters {
 struct QueueCounters {
     long requests = 0;                       // requests that left in a batch
     std::chrono::duration<double> waited{};  // their total time from submit to leaving
+    std::size_t depth = 0;                  // pending requests, excluding gathered batches
+    std::size_t peak_depth = 0;             // largest pending count since run_actors began
 };
 struct LaneCounters {
     int queue = 0;                         // index into Counters::queues

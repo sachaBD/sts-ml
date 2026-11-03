@@ -61,6 +61,7 @@ public:
         std::mutex mutex;
         std::condition_variable requested;
         std::deque<Request> pending;
+        std::size_t peak_depth = 0;  // guarded by mutex, like pending
         std::atomic<long> requests{0};
         std::atomic<Clock::rep> waited{0};  // Clock ticks: an atomic duration has no +=
         Queue(Backend& b, int id, int limit) : backend{b}, id{id}, batch{std::min(limit, b.max_batch())} {}
@@ -90,6 +91,7 @@ public:
             std::lock_guard lock{queue.mutex};
             request.enqueued = Clock::now();
             queue.pending.push_back(request);
+            queue.peak_depth = std::max(queue.peak_depth, queue.pending.size());
         }
         queue.requested.notify_one();
     }
@@ -321,7 +323,10 @@ void publish(const Shared& shared, const std::vector<std::unique_ptr<InferenceSe
     if (!shared.config.on_counters) return;
     Counters counters{std::chrono::system_clock::now(), {}, {}, {}};
     for (const auto& mailbox : shared.mailboxes) counters.actors.push_back({mailbox->requests, Clock::duration{mailbox->blocked}});
-    for (const auto& queue : shared.inference.queues()) counters.queues.push_back({queue->requests, Clock::duration{queue->waited}});
+    for (const auto& queue : shared.inference.queues()) {
+        std::lock_guard lock{queue->mutex};
+        counters.queues.push_back({queue->requests, Clock::duration{queue->waited}, queue->pending.size(), queue->peak_depth});
+    }
     for (const auto& server : servers)
         counters.lanes.push_back({server->queue(), server->requests, server->capacity, Clock::duration{server->busy}});
     shared.config.on_counters(counters);
