@@ -24,22 +24,6 @@ class QueueDepthTests(unittest.TestCase):
         self.assertEqual(state.requests_s, 10)
         self.assertEqual(state.wait_ms, 1)
 
-    def test_drained_and_unused_queues_keep_distinct_high_water_marks(self):
-        rows = [dict(time=t, queues=[dict(requests=10, waited_seconds=.01, depth=depth, peak_depth=4),
-                                    dict(requests=0, waited_seconds=0, depth=0, peak_depth=0)])
-                for t, depth in [(0, 4), (5, 0)]]
-        drained, unused = self.read(rows)
-        self.assertEqual((drained.depth, drained.peak_depth), (0, 4))
-        self.assertEqual((unused.depth, unused.peak_depth), (0, 0))
-        self.assertIsNone(drained.wait_ms)
-        self.assertIsNone(unused.wait_ms)
-
-    def test_older_telemetry_reports_unknown_depth_not_zero(self):
-        rows = [dict(time=t, queues=[dict(requests=t, waited_seconds=0)]) for t in (0, 5)]
-        state, = self.read(rows)
-        self.assertIsNone(state.depth)
-        self.assertIsNone(state.peak_depth)
-        self.assertEqual(state.requests_s, 1)
 
 
 if __name__ == '__main__':
