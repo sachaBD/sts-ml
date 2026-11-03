@@ -28,10 +28,17 @@ struct QueueCounters {
     long requests = 0;                       // requests that left in a batch
     std::chrono::duration<double> waited{};  // their total time from submit to leaving
 };
+struct LaneCounters {
+    int queue = 0;                         // index into Counters::queues
+    long requests = 0;                     // requests evaluated
+    long capacity = 0;                     // batch cap summed over batches
+    std::chrono::duration<double> busy{};  // evaluating and replying
+};
 struct Counters {
     std::chrono::system_clock::time_point time;  // when captured
     std::vector<ActorCounters> actors;
     std::vector<QueueCounters> queues;           // one per backend, in order
+    std::vector<LaneCounters> lanes;             // one per InferenceServer
 };
 
 struct ActorConfig {
