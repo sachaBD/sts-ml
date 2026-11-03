@@ -112,7 +112,8 @@
   .topology *, .resource-meter > div { transition:none !important; }
 }
 
-.live-metric { display:grid; grid-template-columns:45px 1fr 42px; align-items:center; gap:8px; margin-top:12px; font-size:11px; color:var(--dim); }
-.live-metric > span:last-child { text-align:right; font-variant-numeric:tabular-nums; }
-.live-meter { height:7px; background:var(--line); border-radius:3px; overflow:hidden; }
-.live-meter > span { display:block; height:100%; background:var(--train); transition:width .9s ease-in-out; }
+/* Live views reuse the mock's topology, but actor bars measure blocked wall time. */
+.topology-actor .slot-waiting { font-size:10px; text-align:center; line-height:15px; color:var(--text); white-space:nowrap; overflow:hidden; }
+.topology-service .topology-queue + .topology-queue { border-top:1px solid var(--line); padding-top:16px; }
+.topology-service .topology-queue-heading { flex-wrap:wrap; }
+.topology-lane > .topology-dispatch-batch { margin-top:8px; }

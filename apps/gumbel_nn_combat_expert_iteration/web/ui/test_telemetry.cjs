@@ -5,7 +5,7 @@ const vm = require('node:vm');
 
 const sample = () => ({
   actors: [{ id: 0, requests_s: 1200, blocked_pct: 35 }],
-  queues: [{ id: 0, requests_s: 1200, wait_ms: 1.25 }],
+  queues: [{ id: 0, requests_s: 1200, wait_ms: 1.25, depth: 3, peak_depth: 7 }],
   lanes: [{ id: 0, queue: 0, requests_s: 1200, busy_pct: 80, fill_pct: 75 }],
 });
 const element = () => ({ children: [], style: {}, classes: new Set(),
@@ -36,9 +36,9 @@ test('live diagram renders only API metrics and retains nodes across refreshes',
   const view = await panel();
   assert.deepEqual(view.requests, ['api/actors', 'api/queues', 'api/lanes']);
   const output = text(view.root);
-  for (const expected of ['A0', 'Blocked', '35%', 'Q0', '1.25 ms', 'L0 · Q0', 'Busy', '80%', 'Fill', '75%', '1,200 req/s'])
+  for (const expected of ['A0', 'blocked time', '35%', 'Inference server', 'Q0 · Narrow', 'Depth 3', 'Peak 7', 'Display scale 0–8 requests', '1.25 ms', 'L0 · Q0', 'Busy', '80%', '75% batch fill', '1,200 req/s'])
     assert.ok(output.includes(expected), expected);
-  assert.doesNotMatch(output, /Slots|p95|Dispatchers|H2D|Peak|CPU fallback/);
+  assert.doesNotMatch(output, /Slots|p95|Dispatchers|H2D|CPU fallback/);
   const actor = view.root.children[0].children[1].children[0];
   const data = sample(); data.actors[0].blocked_pct = 50;
   await view.refresh(data);
@@ -48,9 +48,13 @@ test('live diagram renders only API metrics and retains nodes across refreshes',
 
 test('unknown wait and fill remain unknown, not zero', async () => {
   const data = sample(); data.queues[0].wait_ms = null; data.lanes[0].fill_pct = null;
+  data.queues[0].depth = data.queues[0].peak_depth = null;
   const view = await panel(data);
   assert.match(text(view.root.children[2]), /Mean wait · — ms/);
-  assert.match(text(view.root.children[4]), /Fill\s+—/);
+  assert.match(text(view.root.children[2]), /Depth —.*Peak —/);
+  const queue = view.root.children[2].children[1].children[0];
+  assert.equal(queue.children[2].hidden, true);
+  assert.match(text(view.root.children[4]), /— batch fill/);
 });
 
 test('empty telemetry removes prior values without fabricating components', async () => {
