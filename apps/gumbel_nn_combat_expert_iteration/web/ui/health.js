@@ -31,6 +31,7 @@
   }
 
   const mock = document.body.dataset.mode === 'mock';
+  let showTrainingPhase = () => {};
   const componentNodes = new Map();
   let queueNodes = null;
 
@@ -276,6 +277,7 @@
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const p = await response.json();
       if (p.error) throw new Error(p.error);
+      showTrainingPhase(p);
       fightProgress(p);
       const phase = p.phase === 'play' ? (p.stage?.startsWith('test') ? 'Evaluate' : 'Collect') :
         p.phase === 'export' ? 'Export' : ['score', 'load', 'train'].includes(p.phase) ? 'Fit' : null;
@@ -313,6 +315,7 @@
   el('qualityTab').onclick = () => switchView('quality');
   plotFightRate();
   if (mock) {
+    el('trainingPanel').hidden = true;
     pollHealth();
   } else {
     el('resourceFrame').hidden = true;
@@ -320,6 +323,7 @@
     el('healthFreshness').textContent = 'Live execution';
     el('run').textContent = 'Training';
     el('stateText').textContent = '';
+    showTrainingPhase = trainingPanel();
     pollProgress();
     telemetryPanel(el('executionTopology'), el('executionFreshness'));
   }

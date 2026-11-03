@@ -96,6 +96,24 @@
           <div id="fightFill"></div>
         </div>
       </div>
+      <section class="fit-panel" id="trainingPanel" aria-label="Live training">
+        <div class="head"><h3>Training</h3><span class="sub" id="trainingStatus">Waiting for phase</span></div>
+        <div id="trainingValues">
+          <div class="execution-progress-heading"><span>Optimizer steps</span><span id="trainingSteps">—</span></div>
+          <div class="execution-progress-track" id="trainingProgress" role="progressbar" aria-label="Training steps"><div id="trainingFill"></div></div>
+          <div class="fit-grid">
+            <div><div class="label">Steps / s</div><div class="fit-value" id="trainingRate">—</div></div>
+            <div><div class="label">Value loss</div><div class="fit-value" id="trainingValueLoss">—</div></div>
+            <div><div class="label">Policy loss</div><div class="fit-value" id="trainingPolicyLoss">—</div></div>
+          </div>
+        </div>
+        <div class="fit-grid" id="trainingResources">
+          <div><div class="label">GPU busy</div><div class="fit-value" id="trainingGpu">—</div></div>
+          <div><div class="label">VRAM · GiB</div><div class="fit-value" id="trainingVram">—</div></div>
+          <div><div class="label">RAM · GiB</div><div class="fit-value" id="trainingRam">—</div></div>
+        </div>
+        <div class="sub fit-note" id="trainingSystemStatus">Device-wide GPU · host RAM</div>
+      </section>
       <div class="topology" id="executionTopology">
         <section class="topology-actors"><div class="topology-heading"><h3>Actors</h3><span>Slots <span class="topology-rate-label">Requests/s</span></span></div><div id="executionActors"></div></section>
         <div class="topology-wire" aria-hidden="true">→</div>
@@ -294,6 +312,7 @@ poll();
 requestAnimationFrame(frame);
 </script>
 <script src="telemetry.js"></script>
+<script src="training.js"></script>
 <script src="health.js"></script>
 </body>
 </html>

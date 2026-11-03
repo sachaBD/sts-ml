@@ -127,3 +127,12 @@
 
 /* JavaScript owns live easing; do not stack another transition on each frame. */
 body[data-mode="live"] .topology *, .execution-progress-track > div { transition:none; }
+
+.fit-panel { margin-top:20px; padding:16px 0; border-top:1px solid var(--line); border-bottom:1px solid var(--line); }
+.fit-panel h3 { margin:0 0 12px; font-size:14px; font-weight:500; }
+.fit-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:16px; margin-top:16px; }
+.fit-grid .label { margin-bottom:5px; }
+.fit-value { font-size:20px; font-variant-numeric:tabular-nums; }
+.fit-note { margin-top:12px; }
+#trainingValues.unavailable { opacity:.45; }
+@media (max-width:700px) { .fit-panel .head { flex-wrap:wrap; gap:8px; } .fit-value { font-size:16px; } }
