@@ -4,11 +4,12 @@ import unittest
 import torch
 
 from ._test_support import combat_tokens, small_spec
-from .model import LOSS_BINS, WIN_BINS, ModelSpec, build_model
+from .model import AUXILIARY, LOSS_BINS, WIN_BINS, ModelSpec, build_model
 from .tokens import TokenKind, TokenRows, WIDTH
 
 
 SPECS = [(kind, value) for kind in ('transformer', 'entity') for value in ('win', 'outcome')]
+
 
 
 class ModelTests(unittest.TestCase):
@@ -54,14 +55,16 @@ class ModelTests(unittest.TestCase):
                     torch.testing.assert_close(actual, expected)
 
     def test_outcome_win_probability_is_the_win_bin_mass(self):
-        for kind in ('transformer', 'entity'):
-            with self.subTest(kind=kind):
-                model = build_model(small_spec(kind, 'outcome')).eval()
+        for kind, auxiliary in [(kind, auxiliary) for kind in ('transformer', 'entity') for auxiliary in (False, True)]:
+            with self.subTest(kind=kind, auxiliary=auxiliary):
+                spec = ModelSpec(kind, dim=16, layers=1, heads=2, value='outcome', auxiliary=auxiliary)
+                model = build_model(spec).eval()
                 tokens = combat_tokens()
-                value_head, _ = model.heads(tokens)
+                context, _ = model.heads(tokens)
                 values, _ = model(tokens)
-                self.assertEqual(value_head.shape, (len(tokens), LOSS_BINS + WIN_BINS))
-                torch.testing.assert_close(values, value_head.softmax(-1)[:, LOSS_BINS:].sum(-1))
+                bins = LOSS_BINS + WIN_BINS
+                self.assertEqual(context.shape, (len(tokens), bins + len(AUXILIARY) * auxiliary))
+                torch.testing.assert_close(values, context[:, :bins].softmax(-1)[:, LOSS_BINS:].sum(-1))
 
     def test_invalid_architectures_are_rejected(self):
         for invalid in [dict(kind='unknown'), dict(dim=0), dict(layers=0), dict(heads=0), dict(dim=15), dict(value='hp')]:

@@ -40,6 +40,9 @@ by player HP fraction. Search still receives the win probability (the win bins' 
 inference are unchanged. `value_loss` is then the outcome cross-entropy; `win_loss` is the win BCE in either
 mode and is the comparable number across runs. Requires sample format 2 (cold start).
 
+`[model].auxiliary = true` adds training-only heads, weighted 0.25: HP lost and enemy HP lost by the start
+of our next turn (`round_loss`, on policy batches) and turns remaining (`turns_loss`, on value batches).
+
 ## Web dashboard
 
 The default **Run health** view shows live execution telemetry from the existing

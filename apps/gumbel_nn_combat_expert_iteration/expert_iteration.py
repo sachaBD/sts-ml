@@ -14,6 +14,7 @@ from pathlib import Path
 import time
 
 from agents.combat.nn.learner import Learner
+from agents.combat.nn.train import LOSSES
 from agents.combat.nn.export import ModelExporter
 from agents.combat.nn.play import Search, play
 from agents.combat.nn.replay import Replay
@@ -151,8 +152,8 @@ class ExpertIteration:
         self.learner.save(self.control.iteration(it) / 'model.pt')
         self.control.status(stage=stage, phase='export')
         self.export(self.control.iteration(it))
-        loss = dict(heldout_value_loss=heldout[0], heldout_policy_loss=heldout[1], heldout_win_loss=heldout[2],
-                    train_value_loss=trained[0], train_policy_loss=trained[1], train_win_loss=trained[2])
+        loss = {f'{split}_{name}_loss': value for split, losses in (('heldout', heldout), ('train', trained))
+                for name, value in zip(LOSSES, losses)}
         return states, {k: round(v, 4) for k, v in loss.items()}
 
     def export(self, directory):
