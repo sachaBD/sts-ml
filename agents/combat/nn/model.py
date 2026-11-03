@@ -7,6 +7,8 @@ from torch import Tensor, nn
 
 # Outcome bins on one margin axis: losses by enemy HP left (most first), then wins by player HP (least first).
 LOSS_BINS = WIN_BINS = 10
+# Training-only predictions after the value logits when spec.auxiliary; replay.TARGETS names.
+AUXILIARY = ('hp_lost', 'enemy_hp_lost', 'turns_remaining')
 
 
 @dataclass(frozen=True)
@@ -16,6 +18,7 @@ class ModelSpec:
     layers: int
     heads: int
     value: str = 'win'  # win: one win logit; outcome: LOSS_BINS + WIN_BINS outcome logits
+    auxiliary: bool = False  # AUXILIARY predictions follow the value logits
 
     def __post_init__(self):
         if self.kind not in ('transformer', 'entity'):
@@ -30,12 +33,16 @@ def value_width(spec: ModelSpec) -> int:
     return 1 if spec.value == 'win' else LOSS_BINS + WIN_BINS
 
 
-def win_probability(value_head: Tensor, spec: ModelSpec) -> Tensor:
-    """[B, value_width] -> [B]; a NaN row stays NaN."""
-    value_head = value_head.float()
+def context_width(spec: ModelSpec) -> int:
+    return value_width(spec) + len(AUXILIARY) * spec.auxiliary
+
+
+def win_probability(context: Tensor, spec: ModelSpec) -> Tensor:
+    """Context readout [B, context_width] -> [B]; a NaN row stays NaN."""
+    value = context.float()[:, :value_width(spec)]
     if spec.value == 'win':
-        return torch.sigmoid(value_head[:, 0])
-    return value_head.softmax(-1)[:, LOSS_BINS:].sum(-1)
+        return torch.sigmoid(value[:, 0])
+    return value.softmax(-1)[:, LOSS_BINS:].sum(-1)
 
 
 class CombatModel(nn.Module, ABC):
@@ -50,12 +57,12 @@ class CombatModel(nn.Module, ABC):
         self.spec = spec
 
     def forward(self, tokens: Tensor) -> tuple[Tensor, Tensor]:
-        value_head, logits = self.heads(tokens)
-        return win_probability(value_head, self.spec), logits
+        context, logits = self.heads(tokens)
+        return win_probability(context, self.spec), logits
 
     @abstractmethod
     def heads(self, tokens: Tensor) -> tuple[Tensor, Tensor]:
-        """Value head [B, value_width(spec)] and action logits [B,T]."""
+        """Context readout [B, context_width(spec)] (value logits, then AUXILIARY) and action logits [B,T]."""
         raise NotImplementedError
 
 

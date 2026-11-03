@@ -6,10 +6,19 @@ import torch
 import torch.nn.functional as F
 
 from infra.workers.reader import prefetch
-from .model import LOSS_BINS, WIN_BINS, win_probability
+from .model import AUXILIARY, LOSS_BINS, WIN_BINS, value_width, win_probability
 from .replay import Replay, TARGETS
 
 WON, HP, ENEMY_HP = (TARGETS.index(name) for name in ('won', 'hp', 'enemy_hp'))
+MAX_TURNS = 50  # Fight::max_turns; scales the turns-remaining target
+AUXILIARY_WEIGHT = 0.25
+
+# losses() order. Policy batches train policy and the per-round heads, which differ for every state;
+# value batches train value and turns, which are shared by a whole combat. Win BCE is only measured.
+LOSSES = ('value', 'policy', 'win', 'round', 'turns')
+OBJECTIVE = torch.tensor([1., 1., 0., AUXILIARY_WEIGHT, AUXILIARY_WEIGHT])
+POLICY_SIDE = torch.tensor([0., 1., 0., 1., 0.])
+VALUE_SIDE = 1 - POLICY_SIDE
 
 
 def outcome_bin(targets):
@@ -20,35 +29,43 @@ def outcome_bin(targets):
 
 
 def losses(net, x, target, y, device):
-    """Mean (value, policy, win BCE) of one microbatch; the optimizer sees value and policy.
-    Value is win BCE for spec.value == 'win', otherwise outcome-bin cross-entropy."""
+    """Mean LOSSES of one microbatch. Value is win BCE for spec.value == 'win', otherwise outcome-bin
+    cross-entropy; round (HP and enemy HP lost) and turns are MSE, zero without spec.auxiliary."""
     x, target, y = x.to(device), target.to(device), y.to(device)
     with torch.autocast(device, torch.bfloat16):
-        value_head, logits = net.heads(x.float())
-    value_head = value_head.float()
-    win = win_probability(value_head, net.spec).clamp(1e-6, 1 - 1e-6)
+        context, logits = net.heads(x.float())
+    context = context.float()
+    win = win_probability(context, net.spec).clamp(1e-6, 1 - 1e-6)
     won = y[:, WON]
     win_loss = -(won * win.log() + (1 - won) * (1 - win).log()).mean()
-    value_loss = win_loss if net.spec.value == 'win' else F.cross_entropy(value_head, outcome_bin(y))
+    width = value_width(net.spec)
+    value_loss = win_loss if net.spec.value == 'win' else F.cross_entropy(context[:, :width], outcome_bin(y))
     policy_loss = -(target * logits.float().log_softmax(-1)).sum(-1).mean()
-    return value_loss, policy_loss, win_loss
+    round_loss = turns_loss = torch.zeros((), device=device)
+    if net.spec.auxiliary:
+        predicted = context[:, width:]
+        scale = torch.tensor([MAX_TURNS if name == 'turns_remaining' else 1. for name in AUXILIARY], device=device)
+        squared = dict(zip(AUXILIARY, (predicted - y[:, [TARGETS.index(name) for name in AUXILIARY]] / scale)
+                           .square().mean(0)))
+        round_loss, turns_loss = squared['hp_lost'] + squared['enemy_hp_lost'], squared['turns_remaining']
+    return torch.stack((value_loss, policy_loss, win_loss, round_loss, turns_loss))
 
 
 @torch.no_grad()
 def score(net, replay, rows, batch, device='cuda'):
-    """Mean (value, policy, win BCE) loss using replay's policy sampling distribution; changes nothing."""
+    """Mean LOSSES using replay's policy sampling distribution; changes nothing."""
     net.eval()
-    totals, count = torch.zeros(3, device=device), 0
+    totals, count = torch.zeros(len(LOSSES), device=device), 0
     for _ in range(-(-rows // batch)):
-        for x, target, w in replay.batches(batch):
-            totals += len(w) * torch.stack(losses(net, x, target, w, device))
-            count += len(w)
+        for x, target, y in replay.batches(batch):
+            totals += len(y) * losses(net, x, target, y, device)
+            count += len(y)
     return tuple((totals / count).tolist())
 
 
 def train(net, optimizer, tokens, policy, targets, steps, batch=512, device='cuda', log=print, *, value_batch=0):
     """tokens/policy/targets from data.read (any device); trains net (already on `device`) in place.
-    Returns the mean (value, policy, win BCE) loss of the last logged window."""
+    Returns the mean LOSSES of the last logged window."""
     replay = tokens if isinstance(tokens, Replay) else None
     if value_batch < 0 or (value_batch and replay is None):
         raise ValueError('value_batch must be nonnegative and requires Replay when enabled')
@@ -65,7 +82,16 @@ def train(net, optimizer, tokens, policy, targets, steps, batch=512, device='cud
 
     # One producer owns sampling for both objectives; checkpoint RNG covers both streams.
     ready = prefetch(prepare, steps) if replay is not None else None
-    start, totals = time.time(), torch.zeros(3, device=device)
+    objective, policy_side, value_side = OBJECTIVE.to(device), POLICY_SIDE.to(device), VALUE_SIDE.to(device)
+    if not value_batch:
+        policy_side = torch.ones_like(policy_side)  # one shared batch trains and measures everything
+
+    def accumulate(x, target, y, side, weight):
+        measured = side * losses(net, x, target, y, device)
+        ((objective * measured).sum() * weight).backward()
+        totals.add_(weight * measured.detach())
+
+    start, totals = time.time(), torch.zeros(len(LOSSES), device=device)
     try:
         for step in range(1, steps + 1):
             if replay is not None:
@@ -75,28 +101,17 @@ def train(net, optimizer, tokens, policy, targets, steps, batch=512, device='cud
                 batches, value_batches = [(tokens[i], policy[i], targets[i])], []
             optimizer.zero_grad(set_to_none=True)
             for x, target, y in batches:
-                value_loss, policy_loss, win_loss = losses(net, x, target, y, device)
-                weight = len(y) / batch
-                if value_batch:
-                    (policy_loss * weight).backward()
-                    totals[1] += weight * policy_loss.detach()
-                else:
-                    ((value_loss + policy_loss) * weight).backward()
-                    totals += weight * torch.stack((value_loss.detach(), policy_loss.detach(), win_loss.detach()))
+                accumulate(x, target, y, policy_side, len(y) / batch)
             for x, target, y in value_batches:
-                value_loss, _, win_loss = losses(net, x, target, y, device)
-                weight = len(y) / value_batch
-                (value_loss * weight).backward()
-                totals[0] += weight * value_loss.detach()
-                totals[2] += weight * win_loss.detach()
+                accumulate(x, target, y, value_side, len(y) / value_batch)
             torch.nn.utils.clip_grad_norm_(net.parameters(), 1.0, error_if_nonfinite=True)
             optimizer.step()
             if step % 500 == 0 or step == steps:
-                v, p, w = (totals / ((step - 1) % 500 + 1)).tolist()
-                log(f'step {step}/{steps}: value {v:.4f} policy {p:.4f} win {w:.4f} '
-                    f'({step * batch / (time.time() - start):.0f} states/s)')
+                mean = (totals / ((step - 1) % 500 + 1)).tolist()
+                log(f'step {step}/{steps}: ' + ' '.join(f'{k} {v:.4f}' for k, v in zip(LOSSES, mean))
+                    + f' ({step * batch / (time.time() - start):.0f} states/s)')
                 totals.zero_()
     finally:
         if ready is not None:
             ready.close()
-    return v, p, w
+    return tuple(mean)

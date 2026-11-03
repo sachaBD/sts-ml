@@ -1,7 +1,7 @@
 """Full-token combat transformer."""
 from torch import nn
 
-from .model import CombatModel, value_width
+from .model import CombatModel, context_width
 from .tokens import ID_CAPACITY, KIND_CAPACITY, MASKED_LOGIT, TokenKind, TokenRows, WIDTH
 
 
@@ -16,7 +16,7 @@ class Transformer(CombatModel):
         layer = nn.TransformerEncoderLayer(dim, heads, 4 * dim, dropout=0.0, batch_first=True, norm_first=True)
         self.encoder = nn.TransformerEncoder(layer, layers, enable_nested_tensor=False)
         self.norm = nn.LayerNorm(dim)
-        self.value = nn.Linear(dim, value_width(spec))
+        self.value = nn.Linear(dim, context_width(spec))
         self.policy = nn.Linear(dim, 1)
 
     def heads(self, tokens):
