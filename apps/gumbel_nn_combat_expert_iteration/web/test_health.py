@@ -81,10 +81,10 @@ class HealthTests(unittest.TestCase):
         (self.out / 'config.toml').write_text('[run]\nid="test"\n')
         self.health = Health(self.out)
         self.health.machine.sample = lambda pids, now: ({'gpu': now % 100}, {'cores': []})
-        self.clock = patch('apps.gumbel_nn_combat_expert_iteration.health.time.time', return_value=100)
+        self.clock = patch('apps.gumbel_nn_combat_expert_iteration.web.health.time.time', return_value=100)
         self.now = self.clock.start()
         self.addCleanup(self.clock.stop)
-        active = patch('apps.gumbel_nn_combat_expert_iteration.health.running', return_value=True)
+        active = patch('apps.gumbel_nn_combat_expert_iteration.web.health.running', return_value=True)
         active.start()
         self.addCleanup(active.stop)
         self.stage('iteration 1', 'play')
@@ -186,7 +186,7 @@ class MockBackendTests(unittest.TestCase):
 class MachineTests(unittest.TestCase):
     def test_absent_sources_are_unknown_not_idle(self):
         with tempfile.TemporaryDirectory() as directory, \
-             patch('apps.gumbel_nn_combat_expert_iteration.health.subprocess.run', side_effect=FileNotFoundError):
+             patch('apps.gumbel_nn_combat_expert_iteration.web.health.subprocess.run', side_effect=FileNotFoundError):
             values, details = Machine(Path(directory)).sample([123], 1)
         self.assertEqual(values, {})
         self.assertEqual(details['processes'], [])

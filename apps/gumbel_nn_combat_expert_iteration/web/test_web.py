@@ -1,7 +1,7 @@
 """CPU fallback counts each inference request once, including GPU-to-CPU retries."""
 import unittest
 
-from .web import cpu_fallback
+from .server import cpu_fallback
 
 
 class FallbackTests(unittest.TestCase):

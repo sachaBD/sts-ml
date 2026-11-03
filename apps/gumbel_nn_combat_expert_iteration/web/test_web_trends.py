@@ -3,7 +3,7 @@ from pathlib import Path
 import unittest
 from unittest.mock import patch
 
-from . import web
+from . import server as web
 
 
 class EvaluationTrendTests(unittest.TestCase):

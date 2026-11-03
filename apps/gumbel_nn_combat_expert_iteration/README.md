@@ -59,8 +59,8 @@ visibly labeled and the quality tab is disabled:
 Tests:
 
 ```sh
-.venv/bin/python -m unittest apps.gumbel_nn_combat_expert_iteration.test_health
-node --test apps/gumbel_nn_combat_expert_iteration/ui/test_health_ui.cjs apps/gumbel_nn_combat_expert_iteration/ui/test_web_ui.cjs
+.venv/bin/python -m unittest apps.gumbel_nn_combat_expert_iteration.web.test_health
+node --test apps/gumbel_nn_combat_expert_iteration/web/ui/test_health_ui.cjs apps/gumbel_nn_combat_expert_iteration/web/ui/test_web_ui.cjs
 ```
 
 ## Recovery

@@ -16,8 +16,8 @@ from .health import Health
 
 from monitoring.telemetry import actors, lanes, queues
 
-from .dashboard import snapshot
-from .reporting import baselines, by_deck, deck_of, jsonl, outcomes, paired, pool, rate, unpaired
+from ..dashboard import snapshot
+from ..reporting import baselines, by_deck, deck_of, jsonl, outcomes, paired, pool, rate, unpaired
 
 PAGE = Path(__file__).with_name('ui') / 'web.html'
 TELEMETRY_PANEL = PAGE.with_name('telemetry.js')

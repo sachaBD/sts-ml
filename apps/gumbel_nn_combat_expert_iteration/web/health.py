@@ -17,7 +17,7 @@ import time
 import tomllib
 
 from agents.combat.nn.metrics import last_json
-from .dashboard import running
+from ..dashboard import running
 
 INTERVAL = 2
 RETENTION = 1800
