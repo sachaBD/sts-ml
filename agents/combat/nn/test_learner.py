@@ -61,6 +61,18 @@ class CheckpointTests(unittest.TestCase):
 
                 torch.testing.assert_close(resumed.net.eval()(tokens), expected, rtol=0, atol=0)
 
+    def test_checkpoints_saved_before_the_value_field_still_load(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            checkpoint = Path(temporary) / 'model.pt'
+            learner = Learner(small_spec('entity'), lr=1e-3, device='cpu')
+            learner.save(checkpoint)
+            saved = torch.load(checkpoint, weights_only=True)
+            del saved['spec']['value']
+            torch.save(saved, checkpoint)
+            Learner(small_spec('entity'), lr=1e-3, device='cpu').load(checkpoint)
+            with self.assertRaisesRegex(ValueError, 'architecture'):
+                Learner(small_spec('entity', 'outcome'), lr=1e-3, device='cpu').load(checkpoint)
+
 
 if __name__ == '__main__':
     unittest.main()
