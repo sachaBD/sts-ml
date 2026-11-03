@@ -84,6 +84,54 @@ class ReplayTests(unittest.TestCase):
                 self.assertEqual(len(replay.sample(2)), 2)
                 self.assertEqual(sum(replay.drawn.values()), 2)
 
+    def test_value_sampling_balances_combats_not_decks_or_lengths(self):
+        torch.manual_seed(7)
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            a = samples(root / 'a', [('same', 40, 1, 1), ('same', 2, 2, 0), ('empty', 0, 9, 0)])
+            b = samples(root / 'b', [('other', 1, 3, 1)])
+            with Replay([a, b], balanced=False) as replay:
+                seen_lengths = set()
+                for size in (1, 2, 3):
+                    for _ in range(20):
+                        records = replay.sample_combats(size)
+                        identities = [int(t[0, 1]) for t, _, _ in records]
+                        self.assertEqual(len(identities), size)
+                        self.assertEqual(len(set(identities)), size)
+                        self.assertTrue(set(identities) <= {1, 2, 3})
+                        seen_lengths.update(len(t) for t, _, _ in records if t[0, 1] == 1)
+                self.assertGreater(len(seen_lengths), 1)  # states are resampled, not fixed per combat
+                self.assertEqual(sum(replay.drawn.values()), 0)  # value does not alter policy accounting
+                with self.assertRaisesRegex(ValueError, 'combat count'):
+                    replay.sample_combats(4)
+
+    def test_value_sampling_only_uses_retained_rows(self):
+        torch.manual_seed(3)
+        with tempfile.TemporaryDirectory() as tmp:
+            path = samples(Path(tmp) / 'a', [('same', 10, 1, 1), ('same', 3, 2, 0), ('other', 5, 3, 1)])
+            for balanced in (False, True):
+                with self.subTest(balanced=balanced), Replay([path], max_rows=4, balanced=balanced) as replay:
+                    retained = replay._read(np.concatenate(list(replay.groups.values())))
+                    keys = {(t.tobytes(), p.tobytes(), w) for t, p, w in retained}
+                    identities = {int(t[0, 1]) for t, _, _ in retained}
+                    self.assertEqual(replay.combat_count, len(identities))
+                    for _ in range(10):
+                        records = replay.sample_combats(replay.combat_count)
+                        self.assertEqual({int(t[0, 1]) for t, _, _ in records}, identities)
+                        self.assertTrue(all((t.tobytes(), p.tobytes(), w) in keys for t, p, w in records))
+
+    def test_value_sampling_rejects_mismatched_cached_game_boundaries(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = samples(Path(tmp) / 'a', [('same', 4, 1, 1)])
+            index(path)
+            result = path.parent / 'results.jsonl'
+            game = json.loads(result.read_text())
+            game['decisions'] += 1
+            result.write_text(json.dumps(game) + '\n')
+            with Replay([path], balanced=False) as replay:
+                with self.assertRaisesRegex(ValueError, 'samples do not match'):
+                    replay.sample_combats(1)
+
     def test_reject_incomplete_binary(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = samples(Path(tmp) / 'iter001', [('a', 3, 1, 1)])
@@ -100,16 +148,18 @@ class ReplayTests(unittest.TestCase):
                 t = np.zeros((length, WIDTH), dtype=np.float32)
                 t[0, :2] = [1, i]; t[-2:, 0] = 6
                 records.append((t, np.array([.5, .5], np.float32), float(i % 2)))
-            with patch.object(replay, 'sample', return_value=records):
-                chunks = list(replay.batches(8, attention_cells=900))
-            self.assertEqual(sum(len(w) for _, _, w in chunks), 8)
-            self.assertEqual(len(chunks), 4)
-            identities = []
-            for t, p, w in chunks:
-                self.assertLessEqual(len(w) * t.shape[1] ** 2, 900)
-                identities += t[:, 0, 1].int().tolist()
-                torch.testing.assert_close(p.sum(1), torch.ones(len(w)))
-            self.assertEqual(sorted(identities), list(range(8)))
+            for combat_balanced in (False, True):
+                sampler = 'sample_combats' if combat_balanced else 'sample'
+                with patch.object(replay, sampler, return_value=records):
+                    chunks = list(replay.batches(8, attention_cells=900, combat_balanced=combat_balanced))
+                self.assertEqual(sum(len(w) for _, _, w in chunks), 8)
+                self.assertEqual(len(chunks), 4)
+                identities = []
+                for t, p, w in chunks:
+                    self.assertLessEqual(len(w) * t.shape[1] ** 2, 900)
+                    identities += t[:, 0, 1].int().tolist()
+                    torch.testing.assert_close(p.sum(1), torch.ones(len(w)))
+                self.assertEqual(sorted(identities), list(range(8)))
 
     def test_replay_preserves_values_outside_fp16_range(self):
         t = np.zeros((3, WIDTH), dtype=np.float32)

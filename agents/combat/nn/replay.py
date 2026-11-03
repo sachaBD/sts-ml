@@ -49,6 +49,8 @@ class Replay:
 
     def __init__(self, paths, max_rows=0, balanced=True):
         paths, groups = [Path(p) for p in paths], {}
+        self.paths = paths
+        self.combats = None
         for file, path in enumerate(paths):
             decks = index(path)
             if not decks:
@@ -114,6 +116,47 @@ class Replay:
             counts = np.bincount(self.uniform_decks[selected], minlength=len(self.groups))
             for name, count in zip(self.groups, counts):
                 self.drawn[name] += int(count)
+        return self._read(picked)
+
+    def _index_combats(self):
+        """Locate each combat's retained rows without changing the existing replay/cache format."""
+        rows = np.concatenate(list(self.groups.values()))
+        self.combat_rows = rows[np.lexsort((rows[:, 1], rows[:, 0]))]
+        spans = []
+        for file, path in enumerate(self.paths):
+            lo, hi = np.searchsorted(self.combat_rows[:, 0], [file, file + 1])
+            if lo == hi:
+                continue
+            decks = index(path)
+            starts = np.sort(np.concatenate(list(decks.values())))
+            games = [json.loads(line) for line in (path.parent / 'results.jsonl').read_text().splitlines()]
+            counts = np.asarray([g['decisions'] for g in games], dtype=np.int64)
+            if np.any(counts < 0) or counts.sum() != len(starts):
+                raise ValueError(f'{path}: samples do not match completed game results')
+            boundaries = np.concatenate(([0], counts.cumsum()))
+            offsets = np.append(starts, np.uint64(path.stat().st_size))[boundaries]
+            retained = lo + np.searchsorted(self.combat_rows[lo:hi, 1], offsets)
+            spans.append(np.column_stack((retained[:-1], retained[1:])))
+        self.combats = np.concatenate(spans)
+        self.combats = self.combats[self.combats[:, 1] > self.combats[:, 0]]
+
+    @property
+    def combat_count(self):
+        if self.combats is None:
+            self._index_combats()
+        return len(self.combats)
+
+    def sample_combats(self, size):
+        """Distinct uniform combats, one uniform retained state each; resampled on every call."""
+        if not 0 < size <= self.combat_count:
+            raise ValueError('value batch must be positive and no larger than the retained combat count')
+        selected = torch.randperm(self.combat_count)[:size].numpy()
+        starts, ends = self.combats[selected].T
+        positions = starts + np.asarray([torch.randint(int(end - start), ()).item()
+                                        for start, end in zip(starts, ends)])
+        return self._read(self.combat_rows[positions])
+
+    def _read(self, picked):
         records = []
         for raw in self.reader.read(picked.tolist()):
             count, actions, won = HEADER.unpack_from(raw)
@@ -138,13 +181,14 @@ class Replay:
     def batch(self, size):
         return self.collate(self.sample(size))
 
-    def batches(self, size, attention_cells=2048 * 64 * 64):
+    def batches(self, size, attention_cells=2048 * 64 * 64, *, combat_balanced=False):
         """Keep B*T*T bounded; rare long states never pad the entire effective batch.
 
         All sampled rows are retained. The trainer accumulates weighted gradients
         across these microbatches before one optimizer step.
         """
-        records = sorted(self.sample(size), key=lambda r: len(r[0]))
+        records = sorted(self.sample_combats(size) if combat_balanced else self.sample(size),
+                         key=lambda r: len(r[0]))
         chunk = []
         for record in records:
             length = len(record[0])

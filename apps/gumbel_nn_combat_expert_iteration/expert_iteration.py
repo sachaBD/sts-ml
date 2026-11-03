@@ -143,7 +143,7 @@ class ExpertIteration:
             if not set(replay.groups) <= {d['fight_id'] for d in self.pool}:
                 raise ValueError('replay contains a deck outside the training decks')
             self.control.status(stage=stage, phase='train', done=0, total=t.steps)
-            trained = self.learner.fit(replay, t.steps, t.batch, log=lambda line: (
+            trained = self.learner.fit(replay, t.steps, t.batch, value_batch=t.value_batch, log=lambda line: (
                 print(f'  {line}', flush=True), self.control.status(stage=stage, phase='train', detail=line)))
             (self.control.iteration(it) / 'replay.json').write_text(json.dumps(dict(
                 available=replay.available, selected=replay.selected, drawn=replay.drawn), indent=2))

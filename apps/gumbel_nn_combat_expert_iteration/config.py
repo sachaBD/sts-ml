@@ -60,6 +60,7 @@ class Training:
     balanced_replay: bool
     prune_replay: bool = resumable()
     device: str
+    value_batch: int = 0  # 0: shared samples; positive: one state from each of this many distinct combats
 
 
 @dataclass(frozen=True)
@@ -151,8 +152,9 @@ def validate(c):
     need(st.per_iteration > 0 and st.hp_jitter >= 0, 'starts: positive per_iteration, nonnegative hp_jitter')
     need(s.sims >= 0 and s.gumbel_scale >= 0 and 0 <= s.rollout_mix <= 1 and s.particles > 0 and s.rollout_mix_decay >= 0,
          'search: nonnegative sims, gumbel_scale and rollout_mix_decay, rollout_mix in [0, 1], positive particles')
-    need(t.steps > 0 and t.batch > 0 and t.lr > 0 and t.replay_window > 0 and t.max_train_rows >= 0,
-         'training: positive steps, batch, lr, replay_window; nonnegative max_train_rows')
+    need(t.steps > 0 and t.batch > 0 and t.lr > 0 and t.replay_window > 0 and t.max_train_rows >= 0
+         and t.value_batch >= 0,
+         'training: positive steps, batch, lr, replay_window; nonnegative max_train_rows, value_batch')
     try:
         m.deployment().validate(m.architecture())
         need(m.gpu_wide_tokens >= 0, 'nonnegative gpu_wide_tokens required')
