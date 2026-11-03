@@ -37,6 +37,8 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(experiment_changes(base, sparse), ['[training].value_batch'])
         self.rejects(CONFIG.replace('steps = 1', 'steps = 1\nvalue_batch = -1'), 'value_batch')
         self.rejects(CONFIG.replace('steps = 1', 'steps = 1\nvalue_batch = 1.5'), 'value_batch')
+        self.rejects(CONFIG.replace('steps = 1', 'steps = 1\nvalue_batch = 128')
+                     .replace('max_train_rows = 0', 'max_train_rows = 500000'), 'max_train_rows')
 
     def test_rollout_mix_decays_to_zero_and_stays(self):
         for decay in (0, 1, 7, 30):

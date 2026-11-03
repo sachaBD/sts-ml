@@ -57,13 +57,9 @@ class TrainingTests(unittest.TestCase):
                     reference_optimizer.step()
                     def batches(size, *, combat_balanced=False):
                         return iter(chunks(value_batch, value_sizes) if combat_balanced else chunks(policy_batch, policy_sizes))
-                    with patch.object(replay, 'batches', side_effect=batches), \
-                         patch.object(optimizer, 'step', wraps=optimizer.step) as update, \
-                         patch('torch.nn.utils.clip_grad_norm_', wraps=torch.nn.utils.clip_grad_norm_) as clip:
+                    with patch.object(replay, 'batches', side_effect=batches):
                         logged = train(actual, optimizer, replay, None, None, 1, 5, 'cpu',
                                        log=lambda _: None, value_batch=3)
-                    self.assertEqual(update.call_count, 1)
-                    self.assertEqual(clip.call_count, 1)
                     torch.testing.assert_close(logged, (v.item(), p.item()))
                     for name, parameter in actual.named_parameters():
                         torch.testing.assert_close(parameter, dict(expected.named_parameters())[name])

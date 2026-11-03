@@ -155,6 +155,7 @@ def validate(c):
     need(t.steps > 0 and t.batch > 0 and t.lr > 0 and t.replay_window > 0 and t.max_train_rows >= 0
          and t.value_batch >= 0,
          'training: positive steps, batch, lr, replay_window; nonnegative max_train_rows, value_batch')
+    need(not t.value_batch or t.max_train_rows == 0, 'value_batch requires max_train_rows = 0')
     try:
         m.deployment().validate(m.architecture())
         need(m.gpu_wide_tokens >= 0, 'nonnegative gpu_wide_tokens required')

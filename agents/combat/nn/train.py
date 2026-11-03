@@ -33,15 +33,12 @@ def score(net, replay, rows, batch, device='cuda'):
 
 def train(net, optimizer, tokens, policy, won, steps, batch=512, device='cuda', log=print, *, value_batch=0):
     """tokens/policy/won from data.read (any device); trains net (already on `device`) in place.
-    Returns the mean (value, policy) loss of the last logged window.
-    value_batch > 0 uses independent combat-balanced value samples, not a smaller loss coefficient.
-    Both losses update the shared trunk; clipping and optimizer.step happen once per effective batch.
-    """
+    Returns the mean (value, policy) loss of the last logged window."""
     replay = tokens if isinstance(tokens, Replay) else None
     if value_batch < 0 or (value_batch and replay is None):
         raise ValueError('value_batch must be nonnegative and requires Replay when enabled')
     if value_batch and value_batch > replay.combat_count:
-        raise ValueError('value batch exceeds the retained combat count')
+        raise ValueError('value batch exceeds the combat count')
     net.train()
     if replay is None:
         tokens, policy, won = tokens.to(device), policy.to(device), won.to(device)
