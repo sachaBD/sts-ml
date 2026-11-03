@@ -48,6 +48,8 @@ struct Mailbox {
     std::atomic<int> current_slot{-1};
     std::atomic<bool> done{false};
     double cpu_seconds = std::nan("");  // written by the Actor, read after join
+    std::atomic<long> requests{0};
+    std::atomic<Clock::rep> blocked{0};  // Clock ticks: an atomic duration has no +=
 };
 
 class InferencePool {
@@ -191,6 +193,7 @@ class Actor {
         slot.phase = Phase::waiting;
         slot.submitted = Clock::now();
         shared_.inference.submit({id_, i, ++slot.generation, {tokens, {}}, &slot.label}, slot.packed);
+        ++mailbox_.requests;
     }
 
 public:
@@ -208,8 +211,10 @@ public:
                 ready_.pop_front();
                 advance(i);
             } else {
+                const auto blocked = Clock::now();
                 std::unique_lock lock{mailbox_.mutex};
                 mailbox_.replied.wait_for(lock, 10ms, [&] { return shared_.stopped || !mailbox_.replies.empty(); });
+                mailbox_.blocked += (Clock::now() - blocked).count();
             }
         }
         // Slots stay alive (owned by this object) until the servers have joined, even on failure.
@@ -298,10 +303,19 @@ std::string describe(std::exception_ptr error) {
     catch (...) { return "unknown error"; }
 }
 
-// The calling thread: heartbeats, cancellation, and the hard exit if native code will not return.
+void publish(const Shared& shared) {
+    if (!shared.config.on_counters) return;
+    Counters counters{std::chrono::system_clock::now(), {}};
+    for (const auto& mailbox : shared.mailboxes) counters.actors.push_back({mailbox->requests, Clock::duration{mailbox->blocked}});
+    shared.config.on_counters(counters);
+}
+
+// The calling thread: heartbeats, cancellation, counters, and the hard exit if native code will not return.
 void supervise(Shared& shared, const std::vector<std::unique_ptr<InferenceServer>>& servers) {
     std::optional<Clock::time_point> cancelling;
+    auto publish_at = Clock::now() + 1s;
     while (!shared.all_done()) {
+        if (Clock::now() >= publish_at) { publish(shared); publish_at = Clock::now() + 1s; }
         if (!shared.stopped) {
             const long long now = now_ms(), limit = shared.config.timeout.count();
             for (int i = 0; i < shared.config.actors; ++i) {
@@ -367,6 +381,7 @@ void run_actors(const ActorConfig& config, NextEpisode next, const std::vector<B
     supervise(shared, servers);
     server_threads.clear();
     actor_threads.clear();
+    publish(shared);  // final totals
 
     const double seconds = std::chrono::duration<double>(Clock::now() - started).count();
     double actor_cpu = 0;

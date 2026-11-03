@@ -4,6 +4,7 @@
 #include "agents/combat/search/gumbel/gumbel.hpp"
 #include "environments/combat/public.hpp"
 #include "infra/workers/actors.hpp"
+#include "monitoring/telemetry.hpp"
 #include "environments/combat/record_v4.hpp"
 #include "sim/search/PublicBeliefCombatSearch.h"
 #include <atomic>
@@ -186,12 +187,13 @@ int main(int argc, char** argv) try {
                      "                    [--gpu-attended A] [--gpu-wide-model WIDE.onnx] [--gpu-wide-attended A]\n"
                      "                    [--sims S] [--rollout-mix M]\n"
                      "                    [--gumbel-scale G] [--particles P] [--timeout-ms M] [--shutdown-timeout-ms M]\n"
+                     "                    [--telemetry TELEMETRY.jsonl]\n"
                      "       nn_play import SAMPLES.bin\n";
         return 2;
     }
     int threads = 9, parallel = 224, gpu_batch = 512, gpu_wait_us = 100;
     int timeout_ms = 60'000, shutdown_timeout_ms = 5'000;
-    std::string gpu_model, gpu_wide_model;
+    std::string gpu_model, gpu_wide_model, telemetry;
     int gpu_attended = 0, gpu_wide_attended = 0;
     std::vector<std::filesystem::path> gpu_bank;
     stsrl::search::Gumbel::Settings settings;
@@ -202,6 +204,7 @@ int main(int argc, char** argv) try {
         else if (k == "--parallel") parallel = std::stoi(v);
         else if (k == "--timeout-ms") timeout_ms = std::stoi(v);
         else if (k == "--shutdown-timeout-ms") shutdown_timeout_ms = std::stoi(v);
+        else if (k == "--telemetry") telemetry = v;
         else if (k == "--gpu-wait-us") gpu_wait_us = std::stoi(v);
         else if (k == "--gpu-bank") {
             std::size_t begin = 0;
@@ -248,6 +251,11 @@ int main(int argc, char** argv) try {
     config.batch_wait = std::chrono::microseconds{gpu_wait_us};
     config.timeout = std::chrono::milliseconds{timeout_ms};
     config.shutdown_timeout = std::chrono::milliseconds{shutdown_timeout_ms};
+    std::optional<stsrl::monitoring::TelemetryFile> telemetry_file;
+    if (!telemetry.empty()) {
+        telemetry_file.emplace(telemetry);
+        config.on_counters = [&](const stsrl::infra::Counters& counters) { telemetry_file->write(counters); };
+    }
     try {
         stsrl::infra::run_actors(config, [&]() -> std::unique_ptr<stsrl::infra::Episode> {
             auto game = shared.next_game();

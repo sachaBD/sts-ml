@@ -6,6 +6,7 @@
 #include <functional>
 #include <memory>
 #include <string>
+#include <vector>
 
 namespace stsrl::infra {
 class Episode {
@@ -18,6 +19,16 @@ public:
     virtual std::string label() const = 0;    // names the episode in errors
 };
 
+// Cumulative since run_actors began.
+struct ActorCounters {
+    long requests = 0;                        // inference requests submitted
+    std::chrono::duration<double> blocked{};  // waiting for inference replies
+};
+struct Counters {
+    std::chrono::system_clock::time_point time;  // when captured
+    std::vector<ActorCounters> actors;
+};
+
 struct ActorConfig {
     int actors = 9;
     int slots = 224;                           // episodes in flight per Actor
@@ -25,6 +36,8 @@ struct ActorConfig {
     std::chrono::microseconds batch_wait{100}; // how long a partial batch waits for more requests
     std::chrono::milliseconds timeout{60'000}; // an Actor, request or the server stalled this long is an error
     std::chrono::milliseconds shutdown_timeout{5'000};
+    // Called on the supervising thread about once a second and once at the end; must return promptly and not throw.
+    std::function<void(const Counters&)> on_counters;
 };
 
 // Thread-safe source of episodes; nullptr when there are none left. Runs on the Actor that will own the episode.

@@ -243,6 +243,8 @@ endif()
 add_subdirectory(infra/inference)
 add_subdirectory(infra/workers)
 add_subdirectory(infra/benchmarks)
+# Consumes what infra publishes: telemetry format and rates.
+add_subdirectory(monitoring)
 # Thin ONNX-backed policy/value combat agent.
 add_subdirectory(agents/combat/pv)
 add_subdirectory(agents/combat/search)
