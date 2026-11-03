@@ -18,6 +18,7 @@ from agents.combat.nn.export import ModelExporter
 from agents.combat.nn.play import Search, play
 from agents.combat.nn.replay import Replay
 from apps.common.app import read_jsonl
+from monitoring.training import write as write_training
 
 from .config import experiment_changes, load
 from .reporting import deck_of
@@ -142,9 +143,15 @@ class ExpertIteration:
         with Replay(samples, max_rows=t.max_train_rows, balanced=t.balanced_replay) as replay:
             if not set(replay.groups) <= {d['fight_id'] for d in self.pool}:
                 raise ValueError('replay contains a deck outside the training decks')
-            self.control.status(stage=stage, phase='train', done=0, total=t.steps)
-            trained = self.learner.fit(replay, t.steps, t.batch, value_batch=t.value_batch, log=lambda line: (
-                print(f'  {line}', flush=True), self.control.status(stage=stage, phase='train', detail=line)))
+            directory = self.control.iteration(it)
+            self.control.status(stage=stage, phase='train', done=0, total=t.steps, directory=str(directory))
+            with (directory / 'training.jsonl').open('w') as telemetry:
+                def report(counters):
+                    write_training(telemetry, counters)
+                    self.control.status(stage=stage, phase='train', done=counters.step,
+                                        total=counters.total, directory=str(directory))
+                trained = self.learner.fit(replay, t.steps, t.batch, value_batch=t.value_batch,
+                                          log=lambda line: print(f'  {line}', flush=True), on_counters=report)
             (self.control.iteration(it) / 'replay.json').write_text(json.dumps(dict(
                 available=replay.available, selected=replay.selected, drawn=replay.drawn), indent=2))
             states = len(replay)

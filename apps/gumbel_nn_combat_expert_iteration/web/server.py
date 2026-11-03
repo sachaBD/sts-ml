@@ -12,6 +12,7 @@ import time
 from urllib.parse import urlsplit
 
 from monitoring.telemetry import actors, lanes, queues
+from monitoring.training import training
 
 from ..dashboard import running, snapshot
 from ..reporting import baselines, by_deck, deck_of, jsonl, outcomes, paired, pool, rate, unpaired
@@ -194,11 +195,23 @@ def playing(states):
 
 
 def progress(out):
-    training = out / 'training'
-    return json.loads((training / 'status.json').read_text()) | dict(running=running(training))
+    training_dir = out / 'training'
+    return json.loads((training_dir / 'status.json').read_text()) | dict(running=running(training_dir))
 
 
-ROUTES = {'/api/progress': progress, '/api': api, '/api/actors': playing(actors), '/api/queues': playing(queues), '/api/lanes': playing(lanes)}
+def training_state(out):
+    progress = json.loads((out / 'training/status.json').read_text())
+    if progress['phase'] != 'train' or not progress.get('directory'):
+        return None
+    state = training(Path(progress['directory']) / 'training.jsonl')
+    return asdict(state) if state else None
+
+
+ROUTES = {
+    '/api': api, '/api/progress': progress, '/api/training': training_state,
+    '/api/system': lambda out: system(),
+    '/api/actors': playing(actors), '/api/queues': playing(queues), '/api/lanes': playing(lanes),
+}
 
 
 def main():
