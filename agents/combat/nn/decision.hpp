@@ -1,4 +1,5 @@
 #pragma once
+#include "agents/combat/nn/targets.hpp"
 #include "agents/combat/search/rollout_blend/rollout_blend.hpp"
 #include "agents/combat/search/search.hpp"
 #include "infra/inference/backend.hpp"
@@ -15,6 +16,7 @@ public:
     Fight(const sts::BattleContext& start, std::uint64_t seed);
     const sts::BattleContext& state() const { return state_; }
     int steps() const { return steps_; }  // forced moves included
+    const std::vector<Vitals>& turn_starts() const { return turn_starts_; }
     bool over() const;
     void play(search::Action);  // then every forced move
     // Depends on the fight and step alone, so a decision replays from its state without the ones before it.
@@ -25,6 +27,7 @@ private:
     sts::BattleContext state_;
     std::uint64_t seed_;
     int steps_ = 0;
+    std::vector<Vitals> turn_starts_;
 };
 
 // A search answered by the network, with leaf values blended with guided rollouts when rollout_mix > 0.

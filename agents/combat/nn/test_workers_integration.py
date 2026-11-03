@@ -6,13 +6,14 @@ NN_TEST_GPU_BATCH (default512), NN_TEST_OUT preserve native smoke artifacts.
 import json
 import os
 from pathlib import Path
-import struct
 import subprocess
 import sys
 import tempfile
 import unittest
 
 import numpy as np
+
+from agents.combat.nn.replay import HEADER, TARGETS
 
 ROOT = Path(__file__).resolve().parents[3]
 
@@ -56,11 +57,15 @@ class WorkerIntegrationTests(unittest.TestCase):
         # Validate output format, complete sample records, probability targets, and sample counts.
         samples, offsets, outcomes = 0, [0], []
         with (directory / 'samples.bin').open('rb') as source:
-            while header := source.read(12):
-                self.assertEqual(len(header), 12)
-                tokens, actions, won = struct.unpack('iif', header)
+            while header := source.read(HEADER.size):
+                self.assertEqual(len(header), HEADER.size)
+                tokens, actions, *values = HEADER.unpack(header)
+                targets = dict(zip(TARGETS, values))
+                won = targets['won']
                 self.assertTrue(0 < actions <= tokens)
                 self.assertIn(won, (0., 1.))
+                self.assertTrue(0 <= targets['hp'] <= 1 and 0 <= targets['enemy_hp'] <= 1)
+                self.assertTrue(targets['enemy_hp_lost'] <= 1 and targets['turns_remaining'] >= 0)
                 data = source.read(tokens * 68 * 4)
                 self.assertEqual(len(data), tokens * 68 * 4)
                 self.assertTrue(np.isfinite(np.frombuffer(data, np.float32)).all())

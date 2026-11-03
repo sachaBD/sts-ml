@@ -3,7 +3,10 @@
 #include "environments/combat/public.hpp"
 
 namespace stsrl::nn {
-Fight::Fight(const sts::BattleContext& start, std::uint64_t seed) : state_{start}, seed_{seed} { play_forced(); }
+Fight::Fight(const sts::BattleContext& start, std::uint64_t seed) : state_{start}, seed_{seed} {
+    observe(turn_starts_, state_);
+    play_forced();
+}
 
 bool Fight::over() const {
     return state_.outcome != sts::Outcome::UNDECIDED || state_.turn >= max_turns || steps_ >= max_steps;
@@ -12,6 +15,7 @@ bool Fight::over() const {
 void Fight::play(search::Action action) {
     action.execute(state_);
     ++steps_;
+    observe(turn_starts_, state_);
     play_forced();
 }
 
@@ -21,6 +25,7 @@ void Fight::play_forced() {
         if (actions.size() != 1) return;
         actions[0].execute(state_);
         ++steps_;
+        observe(turn_starts_, state_);
     }
 }
 
