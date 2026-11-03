@@ -12,8 +12,8 @@ function fixture() {
       ram_available: 20, disk_total: 100, disk_used: 65 } };
 }
 
-async function dashboard(input, failure = false) {
-  const elements = new Map(), requests = [];
+async function dashboard(input, failure = false, mode = 'mock') {
+  const elements = new Map(), requests = [], livePanels = [];
   const element = () => ({ hidden: false, children: [], style: { setProperty(key, value) { this[key] = value; } }, attrs: {},
     classList: { toggle() {}, add() {}, remove() {} },
     append(...children) { this.children.push(...children); },
@@ -22,7 +22,8 @@ async function dashboard(input, failure = false) {
   });
   const get = id => { if (!elements.has(id)) elements.set(id, element()); return elements.get(id); };
   const context = vm.createContext({
-    document: { getElementById: get, createElement: element }, activeView: 'health', data: null,
+    document: { body: { dataset: { mode } }, getElementById: get, createElement: element }, activeView: 'health', data: null,
+    telemetryPanel: (...args) => livePanels.push(args),
     update() {}, charts() {}, Event: class {}, window: { dispatchEvent() {} }, setTimeout() {},
     fetch: async url => {
       requests.push(url);
@@ -32,7 +33,7 @@ async function dashboard(input, failure = false) {
   });
   vm.runInContext(readFileSync(`${__dirname}/health.js`, 'utf8'), context);
   await new Promise(resolve => setImmediate(resolve));
-  return { elements, requests, context };
+  return { elements, requests, context, livePanels };
 }
 const reading = (elements, id) => elements.get(id).children[0];
 const valueText = (elements, id) => reading(elements, id).children[0].children[1].textContent;
@@ -109,3 +110,14 @@ for (const scenario of ['stale', 'missing']) {
     assert.match(elements.get('executionFreshness').textContent, scenario === 'stale' ? /stale/ : /unavailable/);
   });
 }
+
+
+test('live mode uses telemetry renderer, hides mock-only views and never polls mock API', async () => {
+  const { elements, requests, livePanels } = await dashboard(null, false, 'live');
+  assert.deepEqual(requests, []);
+  assert.equal(livePanels.length, 1);
+  assert.equal(livePanels[0][0], elements.get('executionTopology'));
+  for (const id of ['resourceFrame', 'executionDriver', 'executionStage', 'executionLegend'])
+    assert.equal(elements.get(id).hidden, true);
+  assert.notEqual(elements.get('qualityTab').disabled, true);
+});

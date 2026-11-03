@@ -1,0 +1,74 @@
+const { test } = require('node:test');
+const assert = require('node:assert/strict');
+const { readFileSync } = require('node:fs');
+const vm = require('node:vm');
+
+const sample = () => ({
+  actors: [{ id: 0, requests_s: 1200, blocked_pct: 35 }],
+  queues: [{ id: 0, requests_s: 1200, wait_ms: 1.25 }],
+  lanes: [{ id: 0, queue: 0, requests_s: 1200, busy_pct: 80, fill_pct: 75 }],
+});
+const element = () => ({ children: [], style: {}, classes: new Set(),
+  append(...children) { this.children.push(...children); },
+  replaceChildren(...children) { this.children = children; },
+  get classList() { return { add: name => this.classes.add(name), remove: name => this.classes.delete(name) }; },
+});
+const text = node => [node.textContent || '', ...node.children.map(text)].join(' ');
+
+async function panel(data = sample()) {
+  const root = element(), status = element(), requests = [], timers = [];
+  let response = { data, ok: true };
+  const context = vm.createContext({ document: { createElement: element },
+    fetch: async url => { requests.push(url); return { ok: response.ok, status: 503,
+      json: async () => response.data[url.split('/').pop()] }; },
+    setTimeout: callback => timers.push(callback),
+  });
+  vm.runInContext(readFileSync(`${__dirname}/telemetry.js`, 'utf8'), context);
+  context.telemetryPanel(root, status);
+  const settle = () => new Promise(resolve => setImmediate(resolve));
+  await settle();
+  return { root, status, requests, async refresh(data, ok = true) {
+    response = { data, ok }; timers.shift()(); await settle();
+  } };
+}
+
+test('live diagram renders only API metrics and retains nodes across refreshes', async () => {
+  const view = await panel();
+  assert.deepEqual(view.requests, ['api/actors', 'api/queues', 'api/lanes']);
+  const output = text(view.root);
+  for (const expected of ['A0', 'Blocked', '35%', 'Q0', '1.25 ms', 'L0 · Q0', 'Busy', '80%', 'Fill', '75%', '1,200 req/s'])
+    assert.ok(output.includes(expected), expected);
+  assert.doesNotMatch(output, /Slots|p95|Dispatchers|H2D|Peak|CPU fallback/);
+  const actor = view.root.children[0].children[1].children[0];
+  const data = sample(); data.actors[0].blocked_pct = 50;
+  await view.refresh(data);
+  assert.equal(view.root.children[0].children[1].children[0], actor);
+  assert.match(text(actor), /50%/);
+});
+
+test('unknown wait and fill remain unknown, not zero', async () => {
+  const data = sample(); data.queues[0].wait_ms = null; data.lanes[0].fill_pct = null;
+  const view = await panel(data);
+  assert.match(text(view.root.children[2]), /Mean wait · — ms/);
+  assert.match(text(view.root.children[4]), /Fill\s+—/);
+});
+
+test('empty telemetry removes prior values without fabricating components', async () => {
+  const view = await panel();
+  await view.refresh({ actors: [], queues: [], lanes: [] });
+  assert.match(view.status.textContent, /no telemetry/);
+  assert.doesNotMatch(text(view.root), /A0|Q0|L0/);
+});
+
+test('HTTP and API errors clear prior readings rather than leaving them live', async () => {
+  const view = await panel();
+  await view.refresh(sample(), false);
+  assert.equal(view.status.textContent, 'Telemetry unavailable');
+  assert.ok(view.root.classes.has('unavailable'));
+  assert.doesNotMatch(text(view.root), /A0|Q0|L0/);
+  await view.refresh(sample());
+  assert.ok(!view.root.classes.has('unavailable'));
+  await view.refresh({ ...sample(), actors: { error: 'file unavailable' } });
+  assert.equal(view.status.textContent, 'Telemetry unavailable');
+  assert.doesNotMatch(text(view.root), /A0|Q0|L0/);
+});

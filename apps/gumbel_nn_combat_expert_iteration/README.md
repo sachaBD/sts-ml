@@ -25,12 +25,21 @@ cleanly; allow several minutes. Ctrl-C/kill can leave partial output.
 
 ## Web dashboard
 
-The **Run health** resource frame and **Execution** diagram are mock-only previews in this PR.
-There is no live health sampler or `/api/health` endpoint. The preview uses `/api/mock`, available
-only when launched with `--mock`. Live-run wiring is deliberately deferred; this view will not
-work for real runs yet. **Agent quality** remains a separate view.
+The default **Run health** view shows live execution telemetry from the existing
+`/api/actors`, `/api/queues`, and `/api/lanes` endpoints, refreshed every second:
 
-The existing `/api`, `/api/actors`, `/api/queues`, and `/api/lanes` routes remain available for real runs.
+- Actors: inference requests/s and blocked wall-time percentage.
+- Queues: requests/s and mean submit-to-batch wait in milliseconds.
+- Inference lanes: requests/s, busy wall-time percentage, batch fill, and queue assignment.
+
+Only measured metrics are displayed. Live mode hides the resource cards and mock-only slot counts,
+dispatchers, latency percentiles, and lane phase breakdowns. Empty telemetry shows “Not playing / no
+telemetry”; failed requests clear prior readings. The API does not expose sample timestamps, so the
+view cannot independently detect an old telemetry file. Busy time is not GPU compute utilisation.
+
+**Agent quality** remains a separate view using `/api`. No new production endpoint or sampler is added.
+The separate `--mock` preview uses `/api/mock`; only mock mode displays synthetic resource cards and
+the richer execution prototype. There is no `/api/health` endpoint.
 
 The normal mock moves through a 48-second loop: balanced, queueing, GPU-starved, and draining.
 Five-second rolling summaries refresh once per second. Slot-state proportions, queue average/peak,
@@ -49,7 +58,7 @@ Tests:
 
 ```sh
 .venv/bin/python -m unittest apps.gumbel_nn_combat_expert_iteration.web.test_health_mock
-node --test apps/gumbel_nn_combat_expert_iteration/web/ui/test_health_ui.cjs apps/gumbel_nn_combat_expert_iteration/web/ui/test_web_ui.cjs
+node --test apps/gumbel_nn_combat_expert_iteration/web/ui/test_*.cjs
 ```
 
 ## Recovery

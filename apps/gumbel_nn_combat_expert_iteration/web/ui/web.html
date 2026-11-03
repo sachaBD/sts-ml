@@ -71,7 +71,7 @@
     <span class="muted" id="healthFreshness">Starting telemetry…</span>
   </nav>
   <section id="healthPanel" aria-label="Resource headroom">
-    <div class="card resource-frame">
+    <div class="card resource-frame" id="resourceFrame">
       <div class="head"><h2>Resource headroom</h2><span class="sub">Host-wide · GPU device 0 · run filesystem</span></div>
       <div class="resource-grid">
         <section class="resource"><h3>CPUs</h3><div id="resourceCpu"></div>
@@ -99,7 +99,7 @@
         <section class="topology-lanes"><h3>GPU lanes</h3><div id="executionLanes"></div>
           <div class="topology-fallback" id="executionFallback"></div></section>
       </div>
-      <div class="topology-legend"><span class="legend-ready">Ready</span><span class="legend-waiting">Awaiting inference</span><span class="legend-empty">Empty</span><span id="executionMode"></span></div>
+      <div class="topology-legend" id="executionLegend"><span class="legend-ready">Ready</span><span class="legend-waiting">Awaiting inference</span><span class="legend-empty">Empty</span><span id="executionMode"></span></div>
       <div class="execution-return" aria-label="Predictions returned to actors"><span>← Predictions</span></div>
     </div>
   </section>
@@ -428,6 +428,7 @@ function frame(now) {
 poll();
 requestAnimationFrame(frame);
 </script>
+<script src="telemetry.js"></script>
 <script src="health.js"></script>
 </body>
 </html>

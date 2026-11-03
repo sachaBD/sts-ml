@@ -53,6 +53,8 @@ class WebRouteTests(unittest.TestCase):
                 actual, body = self.get(base, path)
                 self.assertEqual(actual, kind)
                 self.assertTrue(body)
+            _, page = self.get(base, '/')
+            self.assertIn(b'data-mode="mock"', page)
             _, body = self.get(base, '/api/mock')
             self.assertTrue(json.loads(body)['ready'])
             for component in ('actors', 'queues', 'lanes'):
@@ -77,6 +79,8 @@ class WebRouteTests(unittest.TestCase):
                        for t in (0, 5)]
             (stage / 'telemetry.jsonl').write_text(''.join(json.dumps(r) + '\n' for r in records))
             with dashboard(str(out)) as base:
+                _, page = self.get(base, '/')
+                self.assertIn(b'data-mode="live"', page)
                 for path in ('/api/health', '/api/mock'):
                     with self.assertRaises(HTTPError) as error:
                         self.get(base, path)
