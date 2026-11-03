@@ -117,3 +117,10 @@
 .topology-service .topology-queue + .topology-queue { border-top:1px solid var(--line); padding-top:16px; }
 .topology-service .topology-queue-heading { flex-wrap:wrap; }
 .topology-lane > .topology-dispatch-batch { margin-top:8px; }
+
+.execution-progress { margin-top:18px; }
+.execution-progress-heading { display:flex; justify-content:space-between; gap:12px; margin-bottom:8px; font-size:12px; color:var(--dim); font-variant-numeric:tabular-nums; }
+.execution-progress-track { height:6px; overflow:hidden; border-radius:3px; background:var(--line); }
+.execution-progress-track > div { width:0; height:100%; background:var(--train); transition:width .8s ease; }
+
+.fight-progress-frame { margin-top:16px; }

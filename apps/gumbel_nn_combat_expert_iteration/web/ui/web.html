@@ -88,6 +88,12 @@
       <div class="head"><h2>Execution</h2><span class="sub" id="executionFreshness">Waiting for telemetry</span></div>
       <div class="execution-driver" id="executionDriver" aria-label="Training phases"></div>
       <div class="sub execution-stage" id="executionStage"></div>
+      <div class="execution-progress">
+        <div class="execution-progress-heading"><span id="fightLabel">Fights</span><span id="fightCount">Waiting for fight progress</span></div>
+        <div class="execution-progress-track" id="fightProgress" role="progressbar" aria-label="Completed fights">
+          <div id="fightFill"></div>
+        </div>
+      </div>
       <div class="topology" id="executionTopology">
         <section class="topology-actors"><div class="topology-heading"><h3>Actors</h3><span>Slots <span class="topology-rate-label">Requests/s</span></span></div><div id="executionActors"></div></section>
         <div class="topology-wire" aria-hidden="true">→</div>
@@ -101,6 +107,11 @@
       </div>
       <div class="topology-legend" id="executionLegend"><span class="legend-ready">Ready</span><span class="legend-waiting">Awaiting inference</span><span class="legend-empty">Empty</span><span id="executionMode"></span></div>
       <div class="execution-return" aria-label="Predictions returned to actors"><span>← Predictions</span></div>
+    </div>
+    <div class="card resource-frame fight-progress-frame">
+      <div class="head"><h2>Fight throughput</h2><span class="sub"><strong id="fightRate">—</strong> combats/s · ~10 s smoothing</span></div>
+      <div class="sub" id="fightRateStage">Waiting for fight samples</div>
+      <div id="fightRatePlot" style="height:240px"></div>
     </div>
   </section>
   <section id="qualityPanel" aria-label="Agent quality" hidden>

@@ -47,9 +47,66 @@
     for (const item of items) update(group.nodes.get(item.id), item);
   }
 
+  let lastFightStage = '', fightStart = null;
+  const fightSamples = [], fightRates = [];
+  function plotFightRate() {
+    Plotly.react(el('fightRatePlot'), [{
+      x: fightRates.map(p => p.time - fightStart), y: fightRates.map(p => p.rate),
+      name: 'Combats/s', type: 'scatter', mode: 'lines', line: { color: '#6ea8fe', width: 2 },
+      fill: 'tozeroy', fillcolor: '#6ea8fe18',
+      hovertemplate: '%{x:.0f} s · %{y:.1f} combats/s<extra></extra>',
+    }, {
+      x: fightRates.map(p => p.time - fightStart), y: fightRates.map(p => p.done),
+      name: 'Fights completed', yaxis: 'y2', type: 'scatter', mode: 'lines',
+      line: { color: '#f0b46a', width: 2 },
+      hovertemplate: '%{x:.0f} s · %{y:,.0f} fights completed<extra></extra>',
+    }], {
+      paper_bgcolor: 'transparent', plot_bgcolor: 'transparent',
+      font: { color: '#7d8590', size: 11 }, margin: { l: 55, r: 65, t: 30, b: 45 },
+      xaxis: { title: 'Seconds since first sample in stage', gridcolor: '#232830' },
+      yaxis: { title: { text: 'Combats/s', font: { color: '#6ea8fe' } }, rangemode: 'tozero', gridcolor: '#232830' },
+      yaxis2: { title: { text: 'Fights completed', font: { color: '#f0b46a' } },
+        overlaying: 'y', side: 'right', rangemode: 'tozero', showgrid: false },
+      legend: { orientation: 'h', x: 0, y: 1.2 },
+    }, { responsive: true, displayModeBar: false });
+  }
+  function fightProgress(p) {
+    if (p.phase === 'play' && valid(p.done) && valid(p.total) && p.total > 0) {
+      if (p.stage !== lastFightStage || (fightSamples.length && p.done < fightSamples[fightSamples.length - 1].done)) {
+        fightSamples.length = fightRates.length = 0;
+        fightStart = null;
+        el('fightRate').textContent = '—';
+      }
+      lastFightStage = p.stage;
+      if (valid(p.time) && (!fightSamples.length || p.time > fightSamples[fightSamples.length - 1].time)) {
+        fightStart ??= p.time;
+        fightSamples.push({ time: p.time, done: p.done });
+        while (fightSamples.length > 2 && fightSamples[1].time <= p.time - 10) fightSamples.shift();
+        const first = fightSamples[0];
+        const rate = p.time > first.time ? (p.done - first.done) / (p.time - first.time) : null;
+        fightRates.push({ time: p.time, rate, done: p.done });
+        if (fightRates.length > 1800) fightRates.shift();
+        el('fightRate').textContent = fmt(rate);
+        plotFightRate();
+      }
+      el('fightRateStage').textContent = p.stage;
+      const percent = Math.max(0, Math.min(100, 100 * p.done / p.total));
+      el('fightLabel').textContent = `Fights · ${p.stage}`;
+      el('fightCount').textContent = `${fmt(p.done)} / ${fmt(p.total)} · ${Math.round(percent)}%`;
+      el('fightFill').style.width = `${percent}%`;
+      el('fightProgress').setAttribute('aria-valuemin', '0');
+      el('fightProgress').setAttribute('aria-valuemax', String(p.total));
+      el('fightProgress').setAttribute('aria-valuenow', String(p.done));
+    } else if (lastFightStage) {
+      el('fightRateStage').textContent = `Last reported throughput · ${lastFightStage}`;
+      el('fightLabel').textContent = `Last reported fights · ${lastFightStage}`;
+    }
+  }
+
   function execution(d, samplerStale) {
     const config = d.config.workers || {}, progress = d.progress || {}, snapshot = d.topology;
     const running = ['running', 'stopping'].includes(d.state), playing = running && progress.phase === 'play';
+    fightProgress({ ...progress, time: d.time });
     const age = snapshot ? Math.max(0, Date.now() / 1000 - snapshot.time) : null;
     const fresh = playing && !samplerStale && age != null && age < 5;
     const state = fresh ? snapshot : null;
@@ -212,6 +269,7 @@
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const p = await response.json();
       if (p.error) throw new Error(p.error);
+      fightProgress(p);
       const phase = p.phase === 'play' ? (p.stage?.startsWith('test') ? 'Evaluate' : 'Collect') :
         p.phase === 'export' ? 'Export' : ['score', 'load', 'train'].includes(p.phase) ? 'Fit' : null;
       el('executionDriver').replaceChildren(node('span', 'Phase'),
@@ -223,7 +281,7 @@
         }));
       el('executionStage').textContent = [!p.running ? 'Not running' : null,
         p.stage, p.phase, p.detail,
-        valid(p.done) && valid(p.total) ? `${fmt(p.done)} / ${fmt(p.total)}` : null,
+        p.phase !== 'play' && valid(p.done) && valid(p.total) ? `${fmt(p.done)} / ${fmt(p.total)}` : null,
       ].filter(Boolean).join(' · ');
     } catch (error) {
       el('executionDriver').replaceChildren();
@@ -245,6 +303,7 @@
   }
   el('healthTab').onclick = () => switchView('health');
   el('qualityTab').onclick = () => switchView('quality');
+  plotFightRate();
   if (mock) {
     pollHealth();
   } else {
