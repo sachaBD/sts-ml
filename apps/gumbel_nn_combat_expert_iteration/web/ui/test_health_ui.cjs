@@ -113,11 +113,12 @@ for (const scenario of ['stale', 'missing']) {
 
 
 test('live mode uses telemetry renderer, hides mock-only views and never polls mock API', async () => {
-  const { elements, requests, livePanels } = await dashboard(null, false, 'live');
-  assert.deepEqual(requests, []);
+  const { elements, requests, livePanels } = await dashboard({ phase: 'play', stage: 'iteration 4', running: true, done: 12, total: 100 }, false, 'live');
+  assert.deepEqual(requests, ['api/progress']);
+  assert.match(elements.get('executionStage').textContent, /iteration 4.*12 \/ 100/);
   assert.equal(livePanels.length, 1);
   assert.equal(livePanels[0][0], elements.get('executionTopology'));
-  for (const id of ['resourceFrame', 'executionDriver', 'executionStage', 'executionLegend'])
+  for (const id of ['resourceFrame', 'executionLegend'])
     assert.equal(elements.get(id).hidden, true);
   assert.notEqual(elements.get('qualityTab').disabled, true);
 });

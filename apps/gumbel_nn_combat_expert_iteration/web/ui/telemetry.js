@@ -112,16 +112,19 @@ function telemetryPanel(root, status) {
         if (!Array.isArray(data)) throw new Error('Invalid telemetry');
         return data;
       }));
-      update(sections[0], actors, actorView);
-      update(sections[1], queues, queueView, lanes);
-      update(sections[2], lanes, laneView);
-      status.textContent = actors.length || queues.length || lanes.length ?
-        'Rates over last 5 s · 1 s refresh' : 'Not playing / no telemetry';
-      root.classList.remove('unavailable');
+      if (actors.length && queues.length && lanes.length) {
+        update(sections[0], actors, actorView);
+        update(sections[1], queues, queueView, lanes);
+        update(sections[2], lanes, laneView);
+        status.textContent = 'Rates over last 5 s · 1 s refresh';
+        root.classList.remove('unavailable');
+      } else {
+        root.classList.add('unavailable');
+        status.textContent = 'No active inference · showing last sample';
+      }
     } catch (error) {
-      sections.forEach(section => { section.rows.replaceChildren(); section.nodes.clear(); });
       root.classList.add('unavailable');
-      status.textContent = 'Telemetry unavailable';
+      status.textContent = 'Telemetry unavailable · showing last sample';
     }
     setTimeout(refresh, 1000);
   }

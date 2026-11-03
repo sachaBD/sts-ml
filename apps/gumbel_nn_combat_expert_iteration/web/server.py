@@ -13,7 +13,7 @@ from urllib.parse import urlsplit
 
 from monitoring.telemetry import actors, lanes, queues
 
-from ..dashboard import snapshot
+from ..dashboard import running, snapshot
 from ..reporting import baselines, by_deck, deck_of, jsonl, outcomes, paired, pool, rate, unpaired
 
 PAGE = Path(__file__).with_name('ui') / 'web.html'
@@ -193,7 +193,12 @@ def playing(states):
     return route
 
 
-ROUTES = {'/api': api, '/api/actors': playing(actors), '/api/queues': playing(queues), '/api/lanes': playing(lanes)}
+def progress(out):
+    training = out / 'training'
+    return json.loads((training / 'status.json').read_text()) | dict(running=running(training))
+
+
+ROUTES = {'/api/progress': progress, '/api': api, '/api/actors': playing(actors), '/api/queues': playing(queues), '/api/lanes': playing(lanes)}
 
 
 def main():

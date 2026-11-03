@@ -57,22 +57,24 @@ test('unknown wait and fill remain unknown, not zero', async () => {
   assert.match(text(view.root.children[4]), /— batch fill/);
 });
 
-test('empty telemetry removes prior values without fabricating components', async () => {
+test('empty telemetry keeps the last layout without presenting it as live', async () => {
   const view = await panel();
   await view.refresh({ actors: [], queues: [], lanes: [] });
-  assert.match(view.status.textContent, /no telemetry/);
-  assert.doesNotMatch(text(view.root), /A0|Q0|L0/);
+  assert.match(view.status.textContent, /showing last sample/);
+  assert.ok(view.root.classes.has('unavailable'));
+  assert.match(text(view.root), /A0/);
+  assert.match(text(view.root), /L0 · Q0/);
 });
 
-test('HTTP and API errors clear prior readings rather than leaving them live', async () => {
+test('HTTP and API errors retain the layout but mark readings as previous', async () => {
   const view = await panel();
   await view.refresh(sample(), false);
-  assert.equal(view.status.textContent, 'Telemetry unavailable');
+  assert.equal(view.status.textContent, 'Telemetry unavailable · showing last sample');
   assert.ok(view.root.classes.has('unavailable'));
-  assert.doesNotMatch(text(view.root), /A0|Q0|L0/);
+  assert.match(text(view.root), /A0/);
   await view.refresh(sample());
   assert.ok(!view.root.classes.has('unavailable'));
   await view.refresh({ ...sample(), actors: { error: 'file unavailable' } });
-  assert.equal(view.status.textContent, 'Telemetry unavailable');
-  assert.doesNotMatch(text(view.root), /A0|Q0|L0/);
+  assert.equal(view.status.textContent, 'Telemetry unavailable · showing last sample');
+  assert.match(text(view.root), /A0/);
 });

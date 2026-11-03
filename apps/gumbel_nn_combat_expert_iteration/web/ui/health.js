@@ -206,6 +206,32 @@
     }
     setTimeout(pollHealth, mock ? 1000 : 2000);
   }
+  async function pollProgress() {
+    try {
+      const response = await fetch('api/progress', { cache: 'no-store' });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const p = await response.json();
+      if (p.error) throw new Error(p.error);
+      const phase = p.phase === 'play' ? (p.stage?.startsWith('test') ? 'Evaluate' : 'Collect') :
+        p.phase === 'export' ? 'Export' : ['score', 'load', 'train'].includes(p.phase) ? 'Fit' : null;
+      el('executionDriver').replaceChildren(node('span', 'Phase'),
+        ...['Collect', 'Fit', 'Export', 'Evaluate'].map((name, i) => {
+          const step = node('span', name, 'execution-phase');
+          step.classList.toggle('active', p.running && phase === name);
+          if (i < 3) step.append(node('span', '→', 'execution-phase-arrow'));
+          return step;
+        }));
+      el('executionStage').textContent = [!p.running ? 'Not running' : null,
+        p.stage, p.phase, p.detail,
+        valid(p.done) && valid(p.total) ? `${fmt(p.done)} / ${fmt(p.total)}` : null,
+      ].filter(Boolean).join(' · ');
+    } catch (error) {
+      el('executionDriver').replaceChildren();
+      el('executionStage').textContent = 'Phase unavailable';
+    }
+    setTimeout(pollProgress, 1000);
+  }
+
   function switchView(view) {
     activeView = view;
     el('healthPanel').hidden = view !== 'health'; el('qualityPanel').hidden = view !== 'quality';
@@ -223,12 +249,11 @@
     pollHealth();
   } else {
     el('resourceFrame').hidden = true;
-    el('executionDriver').hidden = true;
-    el('executionStage').hidden = true;
     el('executionLegend').hidden = true;
     el('healthFreshness').textContent = 'Live execution';
     el('run').textContent = 'Training';
     el('stateText').textContent = '';
+    pollProgress();
     telemetryPanel(el('executionTopology'), el('executionFreshness'));
   }
 })();
