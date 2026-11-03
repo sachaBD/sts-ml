@@ -31,6 +31,7 @@ struct Request {
     std::uint64_t generation;
     Input input;
     const std::string* label;  // owned by the slot, unchanged until the reply
+    Clock::time_point enqueued;
 };
 struct Reply {
     std::size_t slot;
@@ -60,6 +61,8 @@ public:
         std::mutex mutex;
         std::condition_variable requested;
         std::deque<Request> pending;
+        std::atomic<long> requests{0};
+        std::atomic<Clock::rep> waited{0};  // Clock ticks: an atomic duration has no +=
         Queue(Backend& b, int limit) : backend{b}, batch{std::min(limit, b.max_batch())} {}
     };
 
@@ -75,6 +78,7 @@ public:
 
     int width() const { return queues_.front()->backend.width(); }
     const auto& lanes() const { return lanes_; }
+    const auto& queues() const { return queues_; }
 
     void submit(Request request, std::vector<std::uint16_t>& packed) {
         std::size_t i = 0;
@@ -84,6 +88,7 @@ public:
         request.input.packed = packed;
         {
             std::lock_guard lock{queue.mutex};
+            request.enqueued = Clock::now();
             queue.pending.push_back(request);
         }
         queue.requested.notify_one();
@@ -192,7 +197,7 @@ class Actor {
             throw std::runtime_error{"invalid tokens from episode " + slot.label};
         slot.phase = Phase::waiting;
         slot.submitted = Clock::now();
-        shared_.inference.submit({id_, i, ++slot.generation, {tokens, {}}, &slot.label}, slot.packed);
+        shared_.inference.submit({id_, i, ++slot.generation, {tokens, {}}, &slot.label, {}}, slot.packed);
         ++mailbox_.requests;
     }
 
@@ -240,6 +245,9 @@ class InferenceServer {
             batch.push_back(queue_.pending.front());
             queue_.pending.pop_front();
         }
+        const auto now = Clock::now();
+        for (const auto& item : batch) queue_.waited += (now - item.enqueued).count();
+        queue_.requests += long(batch.size());
         return batch;
     }
 
@@ -305,8 +313,9 @@ std::string describe(std::exception_ptr error) {
 
 void publish(const Shared& shared) {
     if (!shared.config.on_counters) return;
-    Counters counters{std::chrono::system_clock::now(), {}};
+    Counters counters{std::chrono::system_clock::now(), {}, {}};
     for (const auto& mailbox : shared.mailboxes) counters.actors.push_back({mailbox->requests, Clock::duration{mailbox->blocked}});
+    for (const auto& queue : shared.inference.queues()) counters.queues.push_back({queue->requests, Clock::duration{queue->waited}});
     shared.config.on_counters(counters);
 }
 

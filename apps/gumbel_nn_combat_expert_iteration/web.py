@@ -10,7 +10,7 @@ from pathlib import Path
 from statistics import median
 import time
 
-from monitoring.telemetry import actors
+from monitoring.telemetry import actors, queues
 
 from .dashboard import snapshot
 from .reporting import by_deck, deck_of, jsonl, outcomes, paired, pool, rate, unpaired
@@ -123,7 +123,7 @@ def playing(states):
     return route
 
 
-ROUTES = {'/api': api, '/api/actors': playing(actors)}
+ROUTES = {'/api': api, '/api/actors': playing(actors), '/api/queues': playing(queues)}
 
 
 def main():
