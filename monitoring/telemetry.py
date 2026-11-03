@@ -13,9 +13,23 @@ class ActorState:
     blocked_pct: float  # percent of wall time waiting on inference replies
 
 
+@dataclass(frozen=True)
+class QueueState:
+    id: int                # backend index
+    requests_s: float      # requests leaving in a batch per second
+    wait_ms: float | None  # mean submit-to-batch time; None when nothing left
+
+
 def actors(telemetry: Path) -> list[ActorState]:
     rows, dt = deltas(telemetry, 'actors')
     return [ActorState(id=i, requests_s=d['requests'] / dt, blocked_pct=100 * d['blocked_seconds'] / dt)
+            for i, d in enumerate(rows)]
+
+
+def queues(telemetry: Path) -> list[QueueState]:
+    rows, dt = deltas(telemetry, 'queues')
+    return [QueueState(id=i, requests_s=d['requests'] / dt,
+                       wait_ms=1000 * d['waited_seconds'] / d['requests'] if d['requests'] else None)
             for i, d in enumerate(rows)]
 
 

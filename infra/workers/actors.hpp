@@ -24,9 +24,14 @@ struct ActorCounters {
     long requests = 0;                        // inference requests submitted
     std::chrono::duration<double> blocked{};  // waiting for inference replies
 };
+struct QueueCounters {
+    long requests = 0;                       // requests that left in a batch
+    std::chrono::duration<double> waited{};  // their total time from submit to leaving
+};
 struct Counters {
     std::chrono::system_clock::time_point time;  // when captured
     std::vector<ActorCounters> actors;
+    std::vector<QueueCounters> queues;           // one per backend, in order
 };
 
 struct ActorConfig {
