@@ -86,9 +86,9 @@ test('view switching preserves the separate quality view', async () => {
 
 const { execFileSync } = require('node:child_process');
 const { resolve } = require('node:path');
-const mockScenarios = JSON.parse(execFileSync(resolve(__dirname, '../../.venv/bin/python'), ['-c',
+const mockScenarios = JSON.parse(execFileSync(resolve(__dirname, '../../../.venv/bin/python'), ['-c',
   'import json; from apps.gumbel_nn_combat_expert_iteration.health_mock import MockHealth, SCENARIOS; print(json.dumps({s: MockHealth(s).view() for s in SCENARIOS}))'],
-  { cwd: resolve(__dirname, '../..'), encoding: 'utf8' }));
+  { cwd: resolve(__dirname, '../../..'), encoding: 'utf8' }));
 for (const scenario of ['normal', 'fallback']) {
   test(`execution renders individual components for ${scenario}`, async () => {
     const input = structuredClone(mockScenarios[scenario]);

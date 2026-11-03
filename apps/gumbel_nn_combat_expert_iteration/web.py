@@ -14,14 +14,13 @@ from urllib.parse import parse_qs, urlsplit
 
 from .health import Health
 
-import monitoring
 from monitoring.telemetry import actors, lanes, queues
 
 from .dashboard import snapshot
 from .reporting import baselines, by_deck, deck_of, jsonl, outcomes, paired, pool, rate, unpaired
 
-PAGE = Path(__file__).with_name('web.html')
-TELEMETRY_PANEL = Path(monitoring.__file__).with_name('telemetry.js')
+PAGE = Path(__file__).with_name('ui') / 'web.html'
+TELEMETRY_PANEL = PAGE.with_name('telemetry.js')
 WINDOW = 5      # training trend: last WINDOW batches pooled vs the WINDOW before
 EVAL_BACK = 3   # evaluation trend: latest vs the evaluation EVAL_BACK earlier (same seeds, paired)
 LABELS = dict(mcts20k='MCTS20k', puct='PUCT')

@@ -60,7 +60,7 @@ Tests:
 
 ```sh
 .venv/bin/python -m unittest apps.gumbel_nn_combat_expert_iteration.test_health
-node --test apps/gumbel_nn_combat_expert_iteration/test_health_ui.cjs apps/gumbel_nn_combat_expert_iteration/test_web_ui.cjs
+node --test apps/gumbel_nn_combat_expert_iteration/ui/test_health_ui.cjs apps/gumbel_nn_combat_expert_iteration/ui/test_web_ui.cjs
 ```
 
 ## Recovery
