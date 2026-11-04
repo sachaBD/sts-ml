@@ -69,7 +69,7 @@ function telemetryPanel(root, status) {
       wait.title = 'Enqueue to batch gathered; excludes evaluation and replies';
       lanes.textContent = '→ ' + laneStates.filter(lane => lane.queue === queue.id).map(lane => `L${lane.id}`).join(' · ');
     });
-    return { root, pause: render.pause, update(queue, lanes, snap) {
+    return { root, pause: render.pause, update(queue, snap, lanes) {
       laneStates = lanes;
       const scale = Number.isFinite(queue.depth) && Number.isFinite(queue.peak_depth) ?
         2 ** Math.ceil(Math.log2(Math.max(1, queue.depth, queue.peak_depth))) : null;
@@ -105,16 +105,14 @@ function telemetryPanel(root, status) {
     return { root, update: render, pause: render.pause };
   }
 
-  function update(section, items, create, lanes, snap) {
+  function update(section, items, create, snap, lanes) {
     const ids = new Set(items.map(item => item.id));
     for (const id of section.nodes.keys()) if (!ids.has(id)) {
       section.nodes.get(id).pause(); section.nodes.delete(id);
     }
     for (const item of items) {
       if (!section.nodes.has(item.id)) section.nodes.set(item.id, create());
-      const view = section.nodes.get(item.id);
-      if (create === queueView) view.update(item, lanes, snap);
-      else view.update(item, snap);
+      section.nodes.get(item.id).update(item, snap, lanes);
     }
     const order = items.map(item => item.id).join(',');
     if (order !== section.order) {
@@ -123,7 +121,7 @@ function telemetryPanel(root, status) {
     }
   }
 
-  let resume = false;
+  let resume = false, active = true, generation = 0, phaseKey;
   let previousQueues = [];
   function pause() {
     resume = true;
@@ -131,7 +129,9 @@ function telemetryPanel(root, status) {
   }
 
   async function refresh() {
+    const requestedGeneration = generation;
     try {
+      if (!active) return;
       const [actors, queues, lanes] = await Promise.all(['actors', 'queues', 'lanes'].map(async name => {
         const response = await fetch('api/' + name, { cache: 'no-store' });
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
@@ -139,28 +139,45 @@ function telemetryPanel(root, status) {
         if (!Array.isArray(data)) throw new Error('Invalid telemetry');
         return data;
       }));
+      if (requestedGeneration !== generation || !active) return;
       if (actors.length && queues.length && lanes.length) {
         // A falling lifetime peak indicates a restarted self-play worker.
         resume ||= queues.some(q => previousQueues.some(old => old.id === q.id &&
           Number.isFinite(q.peak_depth) && Number.isFinite(old.peak_depth) && q.peak_depth < old.peak_depth));
         previousQueues = queues.map(({ id, peak_depth }) => ({ id, peak_depth }));
-        update(sections[0], actors, actorView, null, resume);
-        update(sections[1], queues, queueView, lanes, resume);
-        update(sections[2], lanes, laneView, null, resume);
+        update(sections[0], actors, actorView, resume);
+        update(sections[1], queues, queueView, resume, lanes);
+        update(sections[2], lanes, laneView, resume);
         resume = false;
         status.textContent = 'Rates over last 5 s · 1 s refresh · 1.5 s playback delay';
         root.classList.remove('unavailable');
       } else {
         pause();
         root.classList.add('unavailable');
-        status.textContent = 'No active inference · showing last sample';
+        status.textContent = 'No active inference · holding display';
       }
     } catch (error) {
-      pause();
-      root.classList.add('unavailable');
-      status.textContent = 'Telemetry unavailable · showing last sample';
+      if (requestedGeneration === generation) {
+        pause();
+        root.classList.add('unavailable');
+        status.textContent = 'Telemetry unavailable · holding display';
+      }
+    } finally {
+      setTimeout(refresh, 1000);
     }
-    setTimeout(refresh, 1000);
   }
   refresh();
+  return progress => {
+    const nextActive = Boolean(progress.running && progress.phase === 'play');
+    const key = [progress.stage, progress.phase, nextActive].join('|');
+    if ((phaseKey !== undefined && phaseKey !== key) || active !== nextActive) {
+      generation++;
+      pause();
+      previousQueues = [];
+      root.classList.add('unavailable');
+      status.textContent = nextActive ? 'Waiting for current stage telemetry' : 'No active inference';
+    }
+    phaseKey = key;
+    active = nextActive;
+  };
 }

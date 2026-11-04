@@ -6,8 +6,8 @@ const reducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)')?.m
 // The second render argument is the latest exact sample (counts, IDs, peaks).
 function smoothView(element, render, delay = 1500) {
   let samples = [], latest;
-  const frame = now => {
-    if (element.isConnected === false) { animatedViews.delete(frame); return; }
+  const frame = (now, initial = false) => {
+    if (!initial && element.isConnected === false) { animatedViews.delete(frame); return; }
     const time = now - delay;
     while (samples.length > 1 && samples[1].time <= time) samples.shift();
     const a = samples[0], b = samples[1] || a;
@@ -27,7 +27,8 @@ function smoothView(element, render, delay = 1500) {
     if (snap || reducedMotion || !previous || now - previous.time > 3 * delay) samples = [];
     if (samples.length && previous.time === now) samples.pop();
     samples.push({ time: now, values: latest });
-    frame(now);
+    // New rows are populated before their owner attaches them to the document.
+    frame(now, true);
     if (!reducedMotion && samples.length > 1) animatedViews.add(frame);
   };
   // Stop playback on failure/phase changes; the next sample starts a new timeline.

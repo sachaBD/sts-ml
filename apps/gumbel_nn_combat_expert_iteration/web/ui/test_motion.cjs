@@ -60,3 +60,16 @@ test('reduced motion presents samples directly and disconnected views stop rende
   p.context.element.isConnected = false; p.at(2000);
   assert.equal(p.value.rate, 0);
 });
+
+
+test('new detached rows render immediately, animate after mounting and stop after removal', () => {
+  const p = playback();
+  p.context.element.isConnected = false;
+  p.update({ rate: 12 });
+  assert.equal(p.value.rate, 12, 'initial content does not depend on a future poll');
+  p.context.element.isConnected = true;
+  p.at(1000); p.update({ rate: 24 }); p.at(2000);
+  assert.equal(p.value.rate, 18);
+  p.context.element.isConnected = false; p.at(2500);
+  assert.equal(p.value.rate, 18);
+});

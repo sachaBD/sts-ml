@@ -26,11 +26,11 @@ async function panel(data = sample()) {
   });
   vm.runInContext(readFileSync(`${__dirname}/motion.js`, 'utf8'), context);
   vm.runInContext(readFileSync(`${__dirname}/telemetry.js`, 'utf8'), context);
-  context.telemetryPanel(root, status);
+  const progress = context.telemetryPanel(root, status);
   const settle = () => new Promise(resolve => setImmediate(resolve));
   await settle();
-  return { root, status, requests, advance(ms) { now += ms; nextFrame(now); }, async refresh(data, ok = true) {
-    response = { data, ok }; timers.shift()(); await settle();
+  return { root, status, requests, progress, advance(ms) { now += ms; nextFrame(now); }, async refresh(data, ok = true, during = () => {}) {
+    response = { data, ok }; timers.shift()(); during(); await settle();
   } };
 }
 
@@ -69,7 +69,7 @@ test('unknown wait and fill remain unknown, not zero', async () => {
 test('empty telemetry keeps the last layout without presenting it as live', async () => {
   const view = await panel();
   await view.refresh({ actors: [], queues: [], lanes: [] });
-  assert.match(view.status.textContent, /showing last sample/);
+  assert.match(view.status.textContent, /holding display/);
   assert.ok(view.root.classes.has('unavailable'));
   assert.match(text(view.root), /A0/);
   assert.match(text(view.root), /L0 · Q0/);
@@ -78,13 +78,13 @@ test('empty telemetry keeps the last layout without presenting it as live', asyn
 test('HTTP and API errors retain the layout but mark readings as previous', async () => {
   const view = await panel();
   await view.refresh(sample(), false);
-  assert.equal(view.status.textContent, 'Telemetry unavailable · showing last sample');
+  assert.equal(view.status.textContent, 'Telemetry unavailable · holding display');
   assert.ok(view.root.classes.has('unavailable'));
   assert.match(text(view.root), /A0/);
   await view.refresh(sample());
   assert.ok(!view.root.classes.has('unavailable'));
   await view.refresh({ ...sample(), actors: { error: 'file unavailable' } });
-  assert.equal(view.status.textContent, 'Telemetry unavailable · showing last sample');
+  assert.equal(view.status.textContent, 'Telemetry unavailable · holding display');
   assert.match(text(view.root), /A0/);
 });
 
@@ -106,4 +106,26 @@ test('worker reset snaps every section and failures stop buffered animation', as
   data.actors[0].blocked_pct = 10; data.queues[0].peak_depth = 1;
   await view.refresh(data);
   assert.match(text(actor), /10%/);
+});
+
+
+test('phase identity resets playback and rejects responses from the previous phase', async () => {
+  const view = await panel();
+  view.progress({ stage: 'iteration 1', phase: 'play', running: true });
+  const actor = view.root.children[0].children[1].children[0];
+  const data = sample(); data.actors[0].blocked_pct = 90;
+  view.advance(1000);
+  await view.refresh(data, true, () => {
+    view.progress({ stage: 'iteration 2', phase: 'play', running: true });
+  });
+  view.advance(3000);
+  assert.match(text(actor), /35%/, 'late previous-stage response never reaches the display');
+  assert.ok(view.root.classes.has('unavailable'));
+  await view.refresh(data);
+  assert.match(text(actor), /90%/, 'first new-stage sample snaps rather than blending');
+  assert.ok(!view.root.classes.has('unavailable'));
+  view.progress({ stage: 'iteration 2', phase: 'train', running: true });
+  const count = view.requests.length;
+  await view.refresh(data);
+  assert.equal(view.requests.length, count, 'inactive inference does not poll');
 });

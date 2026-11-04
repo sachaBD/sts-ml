@@ -31,7 +31,7 @@
   }
 
   const mock = document.body.dataset.mode === 'mock';
-  let showTrainingPhase = () => {};
+  let showTrainingPhase = () => {}, showTelemetryPhase = () => {};
   const componentNodes = new Map();
   let queueNodes = null;
 
@@ -291,6 +291,7 @@
       if (p.error) throw new Error(p.error);
       phasePanels(p);
       showTrainingPhase(p);
+      showTelemetryPhase(p);
       fightProgress(p);
       const phase = p.phase === 'play' ? (p.stage?.startsWith('test') ? 'Evaluate' : 'Collect') :
         p.phase === 'export' ? 'Export' : ['score', 'load', 'train'].includes(p.phase) ? 'Fit' : null;
@@ -309,6 +310,7 @@
       el('executionDriver').replaceChildren();
       el('executionStage').textContent = 'Phase unavailable';
       phasePanels({});
+      showTrainingPhase({}); showTelemetryPhase({});
     }
     setTimeout(pollProgress, 1000);
   }
@@ -338,7 +340,7 @@
     el('run').textContent = 'Training';
     el('stateText').textContent = '';
     showTrainingPhase = trainingPanel();
+    showTelemetryPhase = telemetryPanel(el('executionTopology'), el('executionFreshness'));
     pollProgress();
-    telemetryPanel(el('executionTopology'), el('executionFreshness'));
   }
 })();
