@@ -2,13 +2,15 @@
 from statistics import median
 import unittest
 
-from sts_lightspeed.enums import POTIONS
+from sts_lightspeed.enums import CARDS, POTIONS
 
 from .starts import EMPTY_POTION_SLOT, IRONCLAD_POTIONS, POTION_BELT, Starts
 
+PURITY = dict(id=CARDS.index('PURITY'), upgraded=False, misc=0)
 POOL = [dict(fight_id=name, start=dict(hp=hp, max_hp=80, seed=0, ascension=20, relics=relics, potion_capacity=2,
-                                       potions=[EMPTY_POTION_SLOT] * 2))
-        for name, hp, relics in (('low', 2, []), ('mid', 40, []), ('full', 80, [dict(id=POTION_BELT, data=0)]))]
+                                       potions=[EMPTY_POTION_SLOT] * 2, deck=deck))
+        for name, hp, relics, deck in (('low', 2, [], []), ('mid', 40, [], [PURITY]),
+                                       ('full', 80, [dict(id=POTION_BELT, data=0)], []))]
 DECKS = {d['fight_id']: d['start'] for d in POOL}
 SEEDS = {'seed', 'misc_rng', 'potion_rng'}
 VARIED = SEEDS | {'hp', 'potion_capacity', 'potions'}
@@ -59,6 +61,22 @@ class DrawInvariants(unittest.TestCase):
             self.assertTrue(set(start['potions']) <= ironclad | {EMPTY_POTION_SLOT})
         full = sum(EMPTY_POTION_SLOT not in f['start']['potions'] for f in fights) / len(fights)
         self.assertAlmostEqual(full, 0.75, delta=0.03)
+
+    def test_excluded_potions_are_never_drawn(self):
+        excluded = ('ELIXIR_POTION', 'GAMBLERS_BREW')
+        for f in Starts(potions=True, excluded_potions=excluded).draw(POOL, 'ns:1', 4000):
+            self.assertFalse({POTIONS[p] for p in f['start']['potions']} & set(excluded))
+
+    def test_decks_holding_excluded_cards_are_never_drawn(self):
+        fights = Starts(excluded_cards=('PURITY',)).draw(POOL, 'ns:1', 300)
+        self.assertTrue(all(PURITY not in deck(f)['deck'] for f in fights))
+        with self.assertRaises(ValueError):
+            Starts(excluded_cards=('PURITY',)).draw(POOL[1:2], 'ns:1', 1)
+
+    def test_unknown_exclusions_are_rejected(self):
+        for excluded in (dict(excluded_potions=('PURITY',)), dict(excluded_cards=('ELIXIR_POTION',))):
+            with self.assertRaises(ValueError):
+                Starts(**excluded)
 
 
 if __name__ == '__main__':

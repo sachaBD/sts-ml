@@ -6,7 +6,7 @@ import hashlib
 import random
 from statistics import NormalDist
 
-from sts_lightspeed.enums import POTIONS, RELICS
+from sts_lightspeed.enums import CARDS, POTIONS, RELICS
 
 MASK = (1 << 64) - 1
 # A normal draw lies beyond this many standard deviations half the time.
@@ -54,10 +54,21 @@ def fights(base, name, n):
 class Starts:
     hp_jitter: float = 0.0  # half of starts move their deck's HP by more than this fraction of max HP
     potions: bool = False  # fill potion slots as a human Ironclad enters Champ
+    excluded_potions: tuple[str, ...] = ()  # never drawn into potion slots
+    excluded_cards: tuple[str, ...] = ()  # decks holding any of these are left out of the pool
+
+    def __post_init__(self):
+        for names, known in ((self.excluded_potions, POTIONS), (self.excluded_cards, CARDS)):
+            if unknown := sorted(set(names) - set(known)):
+                raise ValueError(f'unknown names: {unknown}')
 
     def draw(self, pool, name, n):
         """n fights named name:deck:i, each on a deck ({fight_id: deck, start}) drawn uniformly, with replacement,
-        from pool, then varied."""
+        from pool without the decks holding excluded cards, then varied."""
+        if self.excluded_cards:
+            pool = [d for d in pool if not self.holds_excluded_card(d['start'])]
+            if not pool:
+                raise ValueError('every deck in the pool holds an excluded card')
         rng = random.Random(name)
         picks = rng.choices(pool, k=n)
         fights = [seeded(deck, f'{name}:{deck["fight_id"]}:{i}') for i, deck in enumerate(picks)]
@@ -65,11 +76,15 @@ class Starts:
             self.vary(f['start'], rng)
         return fights
 
+    def holds_excluded_card(self, start):
+        excluded = {CARDS.index(c) for c in self.excluded_cards}
+        return any(card['id'] in excluded for card in start['deck'])
+
     def vary(self, start, rng):
         """Each variation of a start, in turn."""
         jitter_hp(start, rng, self.hp_jitter)
         if self.potions:
-            fill_potions(start, rng)
+            fill_potions(start, rng, self.excluded_potions)
 
 
 def jitter_hp(start, rng, median):
@@ -78,12 +93,13 @@ def jitter_hp(start, rng, median):
     start['hp'] = min(start['max_hp'], max(1, round(rng.gauss(start['hp'], sd))))
 
 
-def fill_potions(start, rng):
+def fill_potions(start, rng, excluded=()):
     """The game's potion slots (2 from Ascension 11, +2 with Potion Belt), all but a few empty ones holding potions
-    drawn as the game draws them."""
+    drawn as the game draws them, never an excluded one."""
     belt = any(r['id'] == POTION_BELT for r in start['relics'])
     slots = (2 if start['ascension'] >= 11 else 3) + 2 * belt
     held = max(0, slots - rng.choices(list(EMPTY_SLOTS), weights=list(EMPTY_SLOTS.values()))[0])
-    weights, rarities = zip(*IRONCLAD_POTIONS)
+    allowed = [(weight, kept) for weight, rarity in IRONCLAD_POTIONS if (kept := [p for p in rarity if p not in excluded])]
+    weights, rarities = zip(*allowed)
     potions = [POTIONS.index(rng.choice(rarity)) for rarity in rng.choices(rarities, weights, k=held)]
     start.update(potion_capacity=slots, potions=potions + [EMPTY_POTION_SLOT] * (slots - held))

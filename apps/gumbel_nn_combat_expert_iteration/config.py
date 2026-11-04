@@ -125,13 +125,17 @@ def section(cls, table, name):
         if isinstance(kind, types.UnionType):  # optional: X | None
             kind = next(t for t in get_args(kind) if t is not type(None))
         if getattr(kind, '__origin__', None) is tuple:
+            item = get_args(kind)[0]
             items = required(table, f.name, name, list)
-            if not all(isinstance(x, int) and not isinstance(x, bool) for x in items):
-                sys.exit(f'[{name}].{f.name} must be a list of integers')
+            if not all(isinstance(x, item) and not isinstance(x, bool) for x in items):
+                sys.exit(f'[{name}].{f.name} must be a list of {item.__name__}')
             values[f.name] = tuple(items)
         else:
             values[f.name] = required(table, f.name, name, kind)
-    return cls(**values)
+    try:
+        return cls(**values)
+    except ValueError as error:
+        sys.exit(f'[{name}]: {error}')
 
 
 def load(text):
