@@ -40,7 +40,7 @@ class DrawInvariants(unittest.TestCase):
     def test_a_name_always_draws_the_same_fights(self):
         self.assertEqual(Starts(hp_jitter=0.1).draw(POOL, 'ns:1', 50), Starts(hp_jitter=0.1).draw(POOL, 'ns:1', 50))
 
-    def test_weighted_draws_preserve_seeds_variation_and_pool(self):
+    def test_weighted_draws_are_repeatable_and_preserve_the_pool(self):
         original = copy.deepcopy(POOL)
         starts = Starts(hp_jitter=0.1, potions=True)
         weights = [0, 1, 3]
@@ -99,6 +99,10 @@ class DrawInvariants(unittest.TestCase):
         self.assertEqual({f['fight_id'].split(':')[-2] for f in fights}, {'low'})
         with self.assertRaises(ValueError):
             starts.draw(POOL[1:], 'ns:1', 1)
+        for starts in (Starts(excluded_cards=('PURITY',)), Starts(excluded_relics=('POTION_BELT',))):
+            kept = [i for i, d in enumerate(POOL) if not starts.excludes(d['start'])]
+            self.assertEqual(starts.draw(POOL, 'ns:1', 300, weights=[1, 2, 3]),
+                             starts.draw([POOL[i] for i in kept], 'ns:1', 300, weights=[i + 1 for i in kept]))
 
     def test_unknown_exclusions_are_rejected(self):
         for excluded in (dict(excluded_potions=('PURITY',)), dict(excluded_relics=('PURITY',)),
