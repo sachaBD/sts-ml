@@ -51,7 +51,7 @@ class SelfPlayStarts(Starts):
     per_iteration: int
     history_iterations: int = 10
     win_rate_prior_strength: float = 1.0
-    weighted_sampling_fraction: float = 0.0
+    sampling_concentration: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -161,7 +161,7 @@ def validate(c):
     need(st.history_iterations > 0, 'starts: positive history_iterations')
     need(math.isfinite(st.win_rate_prior_strength) and st.win_rate_prior_strength > 0,
          'starts: finite positive win_rate_prior_strength')
-    need(0 <= st.weighted_sampling_fraction <= 1, 'starts: weighted_sampling_fraction in [0, 1]')
+    need(0 <= st.sampling_concentration <= 1, 'starts: sampling_concentration in [0, 1]')
     need(s.sims >= 0 and s.gumbel_scale >= 0 and 0 <= s.rollout_mix <= 1 and s.particles > 0 and s.rollout_mix_decay >= 0,
          'search: nonnegative sims, gumbel_scale and rollout_mix_decay, rollout_mix in [0, 1], positive particles')
     need(t.steps > 0 and t.batch > 0 and t.lr > 0 and t.replay_window > 0 and t.max_train_rows >= 0
