@@ -127,26 +127,3 @@ test('live mode uses telemetry renderer, hides mock-only views and never polls m
     assert.equal(elements.get(id).hidden, true);
   assert.notEqual(elements.get('qualityTab').disabled, true);
 });
-
-for (const [phase, stage, running, collecting, fitting] of [
-  ['play', 'iteration 4', true, true, false],
-  ['play', 'test 4', true, true, false],
-  ['train', 'iteration 4', true, false, true],
-  ['load', 'iteration 4', true, false, true],
-  ['score', 'iteration 4', true, false, true],
-  ['export', 'iteration 4', true, false, false],
-  ['train', 'iteration 4', false, false, false],
-]) {
-  test(`phase panels match ${stage}/${phase}, running=${running}`, async () => {
-    const { elements } = await dashboard({ phase, stage, running }, false, 'live');
-    assert.equal(elements.get('collectionPanel').hidden, !collecting);
-    assert.equal(elements.get('fightThroughputPanel').hidden, !collecting);
-    assert.equal(elements.get('trainingPanel').hidden, !fitting);
-  });
-}
-
-test('unavailable phase does not leave phase panels visible', async () => {
-  const { elements } = await dashboard({}, true, 'live');
-  for (const id of ['collectionPanel', 'fightThroughputPanel', 'trainingPanel'])
-    assert.equal(elements.get(id).hidden, true);
-});

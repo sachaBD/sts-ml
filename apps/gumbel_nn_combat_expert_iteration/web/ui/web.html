@@ -90,7 +90,13 @@
       <div class="head"><h2>Execution</h2><span class="sub" id="executionFreshness">Waiting for telemetry</span></div>
       <div class="execution-driver" id="executionDriver" aria-label="Training phases"></div>
       <div class="sub execution-stage" id="executionStage"></div>
-      <section class="fit-panel" id="trainingPanel" hidden aria-label="Live training">
+      <div class="execution-progress">
+        <div class="execution-progress-heading"><span id="fightLabel">Fights</span><span id="fightCount">Waiting for fight progress</span></div>
+        <div class="execution-progress-track" id="fightProgress" role="progressbar" aria-label="Completed fights">
+          <div id="fightFill"></div>
+        </div>
+      </div>
+      <section class="fit-panel" id="trainingPanel" aria-label="Live training">
         <div class="head"><h3>Training</h3><span class="sub" id="trainingStatus">Waiting for phase</span></div>
         <div id="trainingValues">
           <div class="execution-progress-heading"><span>Optimizer steps</span><span id="trainingSteps">—</span></div>
@@ -108,13 +114,6 @@
         </div>
         <div class="sub fit-note" id="trainingSystemStatus">Device-wide GPU · host RAM</div>
       </section>
-      <section id="collectionPanel" aria-label="Collection and evaluation" hidden>
-      <div class="execution-progress">
-        <div class="execution-progress-heading"><span id="fightLabel">Fights</span><span id="fightCount">Waiting for fight progress</span></div>
-        <div class="execution-progress-track" id="fightProgress" role="progressbar" aria-label="Completed fights">
-          <div id="fightFill"></div>
-        </div>
-      </div>
       <div class="topology" id="executionTopology">
         <section class="topology-actors"><div class="topology-heading"><h3>Actors</h3><span>Slots <span class="topology-rate-label">Requests/s</span></span></div><div id="executionActors"></div></section>
         <div class="topology-wire" aria-hidden="true">→</div>
@@ -128,22 +127,13 @@
       </div>
       <div class="topology-legend" id="executionLegend"><span class="legend-ready">Ready</span><span class="legend-waiting">Awaiting inference</span><span class="legend-empty">Empty</span><span id="executionMode"></span></div>
       <div class="execution-return" aria-label="Predictions returned to actors"><span>← Predictions</span></div>
-      </section>
     </div>
     <div class="card resource-frame training-metrics-frame">
       <div class="head"><h2>Training metrics</h2><span class="sub"><strong id="fightRate">—</strong> combats/s · ~10 s smoothing</span></div>
-      <section id="fightThroughputPanel" aria-label="Fight throughput" hidden>
       <div class="label" style="margin-top:20px">Current stage · fight throughput</div>
       <div class="sub" id="fightRateStage">Waiting for fight samples</div>
       <div id="fightRatePlot" class="plot"></div>
-      </section>
-      <div style="display:flex; align-items:baseline; flex-wrap:wrap; gap:10px; margin-top:20px">
-        <div class="label">Per iteration</div>
-        <label class="smooth" title="Trailing average over this many iterations; 1 means no smoothing">smoothing
-          <input id="iterationSmooth" type="range" min="1" max="10" value="1" aria-label="Per iteration smoothing window">
-          <span id="iterationSmoothVal">1</span> iterations
-        </label>
-      </div>
+      <div class="label" style="margin-top:20px">Per iteration</div>
       <div class="grid g2">
     <div class="card"><div class="label">Loss</div><div id="loss" class="plot"></div></div>
     <div class="card"><div class="label">Time per iteration</div><div id="time" class="plot"></div></div>
@@ -175,7 +165,6 @@ const V = k => tw[k] ? tw[k].v : 0;
 
 let activeView = 'health';
 let data = null, chartKey = '', smooth = +(localStorage.getItem('smooth') || 1);
-let iterationSmooth = Math.max(1, Math.min(10, Math.round(+localStorage.getItem('iterationSmooth') || 1)));
 async function poll() {
   if (document.body.dataset.mode === 'mock') return;
   try {
@@ -199,11 +188,11 @@ function update(d) {
   $('stage').textContent = [...new Set([p.stage, p.phase].filter(Boolean))].join(' · ');
   if (batch?.n) T('live', batch.p);
   if (evaluation?.n) T('eval', evaluation.p);
-  const key = [activeView, d.train.length, d.test.length, smooth, iterationSmooth].join('|');
+  const key = [activeView, d.train.length, d.test.length, smooth].join('|');
   if (key !== chartKey) { chartKey = key; charts(); }
 }
 
-// Trailing windows: quality pools wins/games (Wilson CI); per-iteration metrics average.
+// Smoothing: trailing window of `smooth` iterations. Win rates pool wins/games (exact Wilson CI); other series average.
 function wilson(w, n) {
   if (!n) return [null, null];
   const z = 1.96, p = w / n, d = 1 + z * z / n, c = (p + z * z / (2 * n)) / d;
@@ -220,7 +209,7 @@ function pooled(key) {
 function rolling(f) {
   const v = data.train.map(f);
   return v.map((_, i) => {
-    const win = v.slice(Math.max(0, i + 1 - iterationSmooth), i + 1).filter(x => x != null);
+    const win = v.slice(Math.max(0, i + 1 - smooth), i + 1).filter(x => x != null);
     return win.length ? win.reduce((a, x) => a + x, 0) / win.length : null;
   });
 }
@@ -274,10 +263,6 @@ function charts() {
   Plotly.react('loss', [
     line(rolling(b => b.loss && b.loss.value), 'value', '#6ea8fe', { hovertemplate: '%{y:.4f}' }),
     line(rolling(b => b.loss && b.loss.policy), 'policy', '#c39bff', { yaxis: 'y2', hovertemplate: '%{y:.4f}' }),
-    line(rolling(b => b.loss?.heldout_value), 'value heldout', '#6ea8fe',
-      { line: { color: '#6ea8fe', width: 2, dash: 'dot' }, hovertemplate: '%{y:.4f}' }),
-    line(rolling(b => b.loss?.heldout_policy), 'policy heldout', '#c39bff',
-      { line: { color: '#c39bff', width: 2, dash: 'dot' }, yaxis: 'y2', hovertemplate: '%{y:.4f}' }),
   ], { ...SMALL, yaxis: { ...SMALL.yaxis, rangemode: 'normal' }, yaxis2: { ...SMALL.yaxis2, rangemode: 'normal' } }, CONFIG);
 
   const play = rolling(b => b.play && b.play / 60), fit = rolling(b => b.fit && b.fit / 60);
@@ -298,13 +283,6 @@ function charts() {
   Plotly.react('nnPlot', [line(rolling(b => b.nn), 'NN evals/s', '#ff9f5a', { hovertemplate: '%{y:,.0f}', showlegend: false })],
                { ...SMALL, yaxis: { ...SMALL.yaxis, tickformat: '~s' } }, CONFIG);
 }
-
-$('iterationSmooth').value = iterationSmooth; $('iterationSmoothVal').textContent = iterationSmooth;
-$('iterationSmooth').oninput = e => {
-  iterationSmooth = +e.target.value; $('iterationSmoothVal').textContent = iterationSmooth;
-  localStorage.setItem('iterationSmooth', iterationSmooth);
-  if (data) { chartKey = ''; charts(); }
-};
 
 $('smooth').value = smooth; $('smoothVal').textContent = smooth;
 $('smooth').oninput = e => {
