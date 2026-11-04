@@ -31,7 +31,7 @@ public:
     virtual ~Backend() = default;
     virtual int width() const = 0;      // floats per token
     virtual int max_batch() const = 0;  // most inputs per evaluate()
-    // Fast-path capacity. The scheduler may send rejected inputs to its final backend for fallback.
+    // Capacity. The scheduler sends inputs no backend accepts to its final backend.
     virtual bool accepts(const Tokens&) const { return true; }
     // Called concurrently by Actors on their own tokens, so must not touch shared state.
     virtual void prepare(const Tokens&, std::vector<std::uint16_t>& packed) const { packed.clear(); }
@@ -39,12 +39,13 @@ public:
     virtual std::vector<Prediction> evaluate(std::span<const Input>) = 0;
 };
 
-// ONNX Runtime on the CPU, one thread: any batch, any token count.
-std::unique_ptr<Backend> cpu_backend(const std::filesystem::path& onnx);
+// ONNX Runtime on the CPU: any batch, any token count; `lanes` concurrent evaluate() calls, one thread each.
+// Reports cpu_stats on stderr.
+std::unique_ptr<Backend> cpu_backend(const std::filesystem::path& onnx, int lanes = 1);
 
 // TensorRT through ONNX Runtime, CUDA graphs, fp16 input.
-//   onnx:  the dynamic-shape fp32 model; evaluates rows longer than the fixed token count, and
-//          re-evaluates any non-finite prediction (never truncated or dropped).
+//   onnx:  the dynamic-shape fp32 model; re-evaluates any non-finite prediction (never dropped).
+//          Inputs it does not accept are an error: put a CPU backend after it.
 //   lanes: independent streams/buffers; attended: retained-position capacity, 0 if unbounded.
 //   fixed: the SAME network exported for fixed [batch, tokens, width] fp16 input, one model per batch size.
 //          The smallest model that fits each batch is used. Engines are cached next to each model,

@@ -182,7 +182,7 @@ public:
     }
 
     void prepare(const Tokens& tokens, std::vector<std::uint16_t>& packed) const override {
-        if (!accepts(tokens)) { packed.clear(); return; }  // full CPU model, no truncation
+        if (!accepts(tokens)) { packed.clear(); return; }  // a later backend evaluates it, untruncated
         packed.assign(std::size_t(tokens_) * width_, 0);
         to_fp16(tokens.data, packed.data());
     }
@@ -192,12 +192,11 @@ public:
         const auto begin = Clock::now();
         Stats stats;
         std::vector<Prediction> out(inputs.size());
-        std::vector<std::size_t> gpu, cpu;
-        for (std::size_t i = 0; i < inputs.size(); ++i) (inputs[i].packed.empty() ? cpu : gpu).push_back(i);
-        if (!cpu.empty()) fallback(inputs, cpu, out, stats);
-        if (!gpu.empty()) {
+        if (std::any_of(inputs.begin(), inputs.end(), [](const Input& i) { return i.packed.empty(); }))
+            throw std::invalid_argument{"gpu backend: input it does not accept"};
+        if (!inputs.empty()) {
             Lane& lane = acquire();
-            try { run(lane, inputs, gpu, out, stats); } catch (...) { release(lane); throw; }
+            try { run(lane, inputs, out, stats); } catch (...) { release(lane); throw; }
             release(lane);
         }
         stats.busy = since(begin);
@@ -210,11 +209,11 @@ public:
 private:
     // Summed over lanes, so the seconds can exceed wall time while lanes overlap.
     struct Stats {
-        long batches = 0, leaves = 0, capacity = 0, cpu_leaves = 0, precision_retries = 0;
+        long batches = 0, leaves = 0, capacity = 0, precision_retries = 0;
         std::map<int, long> shapes;
         double busy = 0, h2d = 0, inference = 0, d2h = 0;
         Stats& operator+=(const Stats& o) {
-            batches += o.batches; leaves += o.leaves; capacity += o.capacity; cpu_leaves += o.cpu_leaves;
+            batches += o.batches; leaves += o.leaves; capacity += o.capacity;
             precision_retries += o.precision_retries; busy += o.busy; h2d += o.h2d; inference += o.inference; d2h += o.d2h;
             for (const auto& [batch, count] : o.shapes) shapes[batch] += count;
             return *this;
@@ -234,19 +233,11 @@ private:
         free_.push_back(&lane);
     }
 
-    void fallback(std::span<const Input> inputs, const std::vector<std::size_t>& rows, std::vector<Prediction>& out, Stats& stats) {
-        std::vector<const Tokens*> tokens;
-        for (auto i : rows) tokens.push_back(inputs[i].tokens);
-        auto predictions = cpu_.evaluate(tokens);
-        for (std::size_t k = 0; k < rows.size(); ++k) out[rows[k]] = std::move(predictions[k]);
-        stats.cpu_leaves += long(rows.size());
-    }
-
-    void run(Lane& lane, std::span<const Input> inputs, const std::vector<std::size_t>& rows, std::vector<Prediction>& out, Stats& stats) {
+    void run(Lane& lane, std::span<const Input> inputs, std::vector<Prediction>& out, Stats& stats) {
         const std::size_t stride = std::size_t(tokens_) * width_;
-        const int n = int(rows.size());
+        const int n = int(inputs.size());
         for (int k = 0; k < n; ++k) {
-            const auto packed = inputs[rows[k]].packed;
+            const auto packed = inputs[k].packed;
             if (packed.size() != stride) throw std::invalid_argument{"gpu backend: packed input has the wrong size"};
             std::memcpy(lane.host_in + k * stride, packed.data(), packed.size_bytes());
         }
@@ -263,9 +254,9 @@ private:
         check(cudaStreamSynchronize(lane.stream));
         stats.d2h += since(t);
         for (int k = 0; k < n; ++k) {
-            const auto& tokens = *inputs[rows[k]].tokens;
+            const auto& tokens = *inputs[k].tokens;
             const float* logits = lane.host_logits + std::size_t(k) * tokens_;
-            auto& p = out[rows[k]] = {lane.host_value[k], {logits + tokens.count - tokens.actions, logits + tokens.count}};
+            auto& p = out[k] = {lane.host_value[k], {logits + tokens.count - tokens.actions, logits + tokens.count}};
             const bool finite = std::isfinite(p.value) && std::all_of(p.logits.begin(), p.logits.end(), [](float x) { return std::isfinite(x); });
             if (!finite) {  // capacity or numerical failure: redo on the full fp32 model
                 const std::array<const Tokens*, 1> retry{&tokens};
@@ -285,9 +276,9 @@ private:
 
     void print() const {  // caller holds stats_mutex_
         const auto& s = total_;
-        std::fprintf(stderr, "gpu_stats: {\"seconds\":%.3f,\"lanes\":%d,\"batches\":%ld,\"leaves\":%ld,\"capacity\":%ld,\"cpu_leaves\":%ld,"
+        std::fprintf(stderr, "gpu_stats: {\"seconds\":%.3f,\"lanes\":%d,\"batches\":%ld,\"leaves\":%ld,\"capacity\":%ld,"
                      "\"cpu_precision_retries\":%ld,\"busy\":%.3f,\"h2d_seconds\":%.3f,\"inference_seconds\":%.3f,\"d2h_seconds\":%.3f,\"shapes\":{",
-                     since(begin_), lane_count_, s.batches, s.leaves, s.capacity, s.cpu_leaves, s.precision_retries, s.busy, s.h2d, s.inference, s.d2h);
+                     since(begin_), lane_count_, s.batches, s.leaves, s.capacity, s.precision_retries, s.busy, s.h2d, s.inference, s.d2h);
         const char* separator = "";
         for (const auto& [batch, count] : s.shapes) { std::fprintf(stderr, "%s\"%d\":%ld", separator, batch, count); separator = ","; }
         std::fprintf(stderr, "}}\n");
