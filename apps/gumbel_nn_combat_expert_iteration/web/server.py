@@ -128,6 +128,16 @@ def api(out):
     test_results = {i: finished(training / f'test/iter{i:03d}/results.jsonl') for i in tests}
     test = [dict(it=i, rates=by_deck(r)) for i, r in test_results.items()]
     loss = losses(out.parent / 'logs')
+    # Structured iteration records take precedence; console logs support older runs.
+    for row in history:
+        if 'iteration' not in row:
+            continue
+        values = {name: row[key] for name, key in (
+            ('value', 'train_value_loss'), ('policy', 'train_policy_loss'),
+            ('heldout_value', 'heldout_value_loss'), ('heldout_policy', 'heldout_policy_loss'),
+        ) if row.get(key) is not None}
+        if values:
+            loss.setdefault(row['iteration'], {}).update(values)
     timing = {r['iteration']: r for r in history if r.get('play_seconds')}
     for b in train:
         r, gpu, worker = timing.get(b['it'], {}), training / f'iter{b["it"]:03d}/gpu.csv', training / f'iter{b["it"]:03d}/worker.log'

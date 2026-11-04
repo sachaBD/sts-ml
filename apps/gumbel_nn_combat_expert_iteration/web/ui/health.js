@@ -111,9 +111,20 @@
     }
   }
 
+  function phasePanels(progress) {
+    const collecting = progress.running && progress.phase === 'play';
+    const fitting = progress.running && ['score', 'load', 'train'].includes(progress.phase);
+    const changed = el('collectionPanel').hidden === collecting || el('trainingPanel').hidden === fitting;
+    el('collectionPanel').hidden = !collecting;
+    el('fightThroughputPanel').hidden = !collecting;
+    el('trainingPanel').hidden = !fitting;
+    if (changed) window.dispatchEvent(new Event('resize'));
+  }
+
   function execution(d, samplerStale) {
     const config = d.config.workers || {}, progress = d.progress || {}, snapshot = d.topology;
     const running = ['running', 'stopping'].includes(d.state), playing = running && progress.phase === 'play';
+    phasePanels({ ...progress, running: running && !samplerStale });
     fightProgress({ ...progress, time: d.time });
     const age = snapshot ? Math.max(0, Date.now() / 1000 - snapshot.time) : null;
     const fresh = playing && !samplerStale && age != null && age < 5;
@@ -277,6 +288,7 @@
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const p = await response.json();
       if (p.error) throw new Error(p.error);
+      phasePanels(p);
       showTrainingPhase(p);
       fightProgress(p);
       const phase = p.phase === 'play' ? (p.stage?.startsWith('test') ? 'Evaluate' : 'Collect') :
@@ -295,6 +307,7 @@
     } catch (error) {
       el('executionDriver').replaceChildren();
       el('executionStage').textContent = 'Phase unavailable';
+      phasePanels({});
     }
     setTimeout(pollProgress, 1000);
   }
