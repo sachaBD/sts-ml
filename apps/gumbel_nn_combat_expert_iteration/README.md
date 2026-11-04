@@ -44,15 +44,13 @@ probability = weight/sum(weights)
 The window must be positive; `s` is a finite positive pseudocount per outcome.
 Unobserved decks have maximum weight; no history means uniform sampling.
 Concentration 0 is uniform; 0.5 uses uncertainty weights directly; 1 selects only
-maximum-uncertainty decks (ties uniform). There is no uniform-coverage floor.
+maximum-uncertainty decks (ties uniform).
 Defaults are window 10, prior 1.0, concentration 0.0; disabled sampling preserves the
 original random stream. All three settings are fixed on resume; warm starts have no history.
 
 Counts, weights, probabilities and window settings are saved atomically before collection
 in `training/sampling/iterNNN.json`, outside interrupted iteration archives, and reused on
 recovery. No external weight file is needed. State variation, replay and evaluation are unchanged.
-The former `weighted_sampling_fraction` setting is not interchangeable with concentration;
-old weighted runs must keep their original code/config or start a new experiment.
 
 ## Value sampling
 
