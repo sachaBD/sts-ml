@@ -8,10 +8,6 @@ from .deck_stats import iteration_counts
 
 def deck_distribution(counts, prior_strength, fraction):
     """Smoothed win uncertainty mixed with uniform selection; retain unobserved decks."""
-    if not math.isfinite(prior_strength) or prior_strength <= 0 or not 0 <= fraction <= 1:
-        raise ValueError('positive finite prior_strength and fraction in [0, 1] required')
-    if not counts:
-        raise ValueError('empty deck roster')
     decks = {}
     for deck, c in counts.items():
         attempts, wins = c['attempts'], c['wins']

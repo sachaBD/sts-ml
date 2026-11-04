@@ -25,42 +25,30 @@ cleanly; allow several minutes. Ctrl-C/kill can leave partial output.
 
 ## Adaptive deck sampling
 
-Self-play can favor decks with uncertain win rates while retaining uniform coverage:
-
 ```toml
-[starts]
-# Alongside fights, per_iteration, hp_jitter and potions:
+[starts] # add to existing starts settings
 history_iterations = 10
 win_rate_prior_strength = 1.0
-weighted_sampling_fraction = 0.5
+weighted_sampling_fraction = 0.5 # default 0.0: disabled; range [0, 1]
 ```
 
-Before iteration `t`, aggregate attempts and wins from this experiment's previous
-`history_iterations` completed self-play batches (or all available batches). For each deck:
+Before each self-play iteration, use this experiment's preceding `history_iterations`
+completed batches (or all available). For each deck, with prior strength `s`:
 
 ```text
-estimated_win_rate = (wins + win_rate_prior_strength) / (attempts + 2 * win_rate_prior_strength)
-weight = estimated_win_rate * (1 - estimated_win_rate)
-probability = (1 - weighted_sampling_fraction) / deck_count
-            + weighted_sampling_fraction * weight / sum(weights)
+p = (wins + s) / (attempts + 2*s)
+weight = p * (1-p)
+probability = (1-fraction)/deck_count + fraction*weight/sum(weights)
 ```
 
-The prior strength is a positive, finite pseudocount **for each outcome** (win and loss).
-Unobserved decks have estimated win rate 0.5 and maximum weight; the first iteration
-therefore samples uniformly. This prioritizes intermediate difficulty, not measured learning progress.
+The window must be positive; `s` is a finite positive pseudocount per outcome.
+Unobserved decks have maximum weight; no history means uniform sampling.
+Defaults are window 10, prior 1.0, fraction 0.0; disabled sampling preserves the
+original random stream. All three settings are fixed on resume; warm starts have no history.
 
-Defaults are a 10-iteration window, prior strength 1.0, and fraction **0.0** (disabled).
-Disabled sampling keeps the original random stream and creates no sampling files.
-The window must be positive and the fraction must be in `[0, 1]`.
-All three settings define the experiment and cannot change on resume; enabling this on
-an existing uniform experiment requires a new run (optionally warm-started).
-
-Enabled runs atomically save counts, weights, probabilities, settings, and source-window
-boundaries to `training/sampling/iterNNN.json` **before** starting collection. These files
-remain outside archived interrupted iteration directories, so recovery reuses the saved
-policy. No external weight file or script invocation is needed, and no other experiment's
-history is used. Warm starts begin with no sampling history. Start-state variation, replay
-sampling, training losses, and evaluation selection are unchanged.
+Counts, weights, probabilities and window settings are saved atomically before collection
+in `training/sampling/iterNNN.json`, outside interrupted iteration archives, and reused on
+recovery. No external weight file is needed. State variation, replay and evaluation are unchanged.
 
 ## Value sampling
 

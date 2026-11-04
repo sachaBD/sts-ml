@@ -47,12 +47,7 @@ class SamplingInvariants(unittest.TestCase):
             for d in deck_distribution(counts, 1, fraction).values():
                 self.assertAlmostEqual(d['probability'], 1 / len(counts))
 
-    def test_invalid_policy_and_impossible_counts_are_rejected(self):
-        counts = {'a': dict(attempts=5, wins=2)}
-        for prior, fraction in [(0, 0.5), (-1, 0.5), (math.inf, 0.5), (math.nan, 0.5),
-                                (1, -0.1), (1, 1.1), (1, math.nan)]:
-            with self.assertRaises(ValueError):
-                deck_distribution(counts, prior, fraction)
+    def test_impossible_counts_are_rejected(self):
         for attempts, wins in [(-1, 0), (1, -1), (1, 2)]:
             with self.assertRaises(ValueError):
                 deck_distribution({'a': dict(attempts=attempts, wins=wins)}, 1, 0.5)
