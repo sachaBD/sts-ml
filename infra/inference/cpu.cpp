@@ -1,21 +1,36 @@
-// ONNX Runtime on the CPU: dynamic batch and token count, one intra-op thread.
+// ONNX Runtime on the CPU: dynamic batch and token count, one intra-op thread per lane.
 #include "infra/inference/cpu.hpp"
 #include <onnxruntime_cxx_api.h>
 #include <algorithm>
 #include <array>
+#include <chrono>
+#include <cstdio>
+#include <mutex>
 #include <numeric>
 #include <stdexcept>
 
 namespace stsrl::infra {
 namespace {
+using Clock = std::chrono::steady_clock;
+double since(Clock::time_point t) { return std::chrono::duration<double>(Clock::now() - t).count(); }
 // B*T*T attention cells per call: one unusually long row must not pad a whole batch to its length.
 constexpr std::size_t attention_cells = 2048 * 64 * 64;
 }
 
 struct CpuBackend::Impl {
     Ort::Env env{ORT_LOGGING_LEVEL_WARNING, "infra-cpu"};
-    Ort::Session session{nullptr};
+    Ort::Session session{nullptr};  // Run is safe to call concurrently, so lanes share it
     int width = 0;
+    // Summed over lanes, so busy can exceed wall time while lanes overlap.
+    std::mutex stats_mutex;
+    long batches = 0, leaves = 0;
+    double busy = 0, reported = 0;
+    const Clock::time_point begin = Clock::now();
+
+    void print(int lanes) const {  // caller holds stats_mutex
+        std::fprintf(stderr, "cpu_stats: {\"seconds\":%.3f,\"lanes\":%d,\"batches\":%ld,\"leaves\":%ld,\"busy\":%.3f}\n",
+                     since(begin), lanes, batches, leaves, busy);
+    }
 
     std::vector<Prediction> run(std::span<const Tokens* const> rows) {
         int longest = 0;
@@ -41,7 +56,8 @@ struct CpuBackend::Impl {
     }
 };
 
-CpuBackend::CpuBackend(const std::filesystem::path& onnx) : impl_{std::make_unique<Impl>()} {
+CpuBackend::CpuBackend(const std::filesystem::path& onnx, int lanes) : impl_{std::make_unique<Impl>()}, lanes_{lanes} {
+    if (lanes < 1) throw std::invalid_argument{"cpu backend: positive lanes required"};
     Ort::SessionOptions options;
     options.SetIntraOpNumThreads(1);
     options.SetInterOpNumThreads(1);
@@ -52,7 +68,10 @@ CpuBackend::CpuBackend(const std::filesystem::path& onnx) : impl_{std::make_uniq
     if (shape.size() != 3 || shape[2] <= 0) throw std::invalid_argument{"cpu backend: input must be [batch, tokens, width]"};
     impl_->width = int(shape[2]);
 }
-CpuBackend::~CpuBackend() = default;
+CpuBackend::~CpuBackend() {
+    std::lock_guard lock{impl_->stats_mutex};
+    if (impl_->batches) impl_->print(lanes_);
+}
 
 int CpuBackend::width() const { return impl_->width; }
 
@@ -77,11 +96,18 @@ std::vector<Prediction> CpuBackend::evaluate(std::span<const Tokens* const> rows
 }
 
 std::vector<Prediction> CpuBackend::evaluate(std::span<const Input> inputs) {
+    const auto begin = Clock::now();
     std::vector<const Tokens*> rows;
     rows.reserve(inputs.size());
     for (const auto& input : inputs) rows.push_back(input.tokens);
-    return evaluate(rows);
+    auto out = evaluate(rows);
+    std::lock_guard lock{impl_->stats_mutex};
+    ++impl_->batches; impl_->leaves += long(rows.size()); impl_->busy += since(begin);
+    if (since(impl_->begin) - impl_->reported >= 60) { impl_->print(lanes_); impl_->reported = since(impl_->begin); }
+    return out;
 }
 
-std::unique_ptr<Backend> cpu_backend(const std::filesystem::path& onnx) { return std::make_unique<CpuBackend>(onnx); }
+std::unique_ptr<Backend> cpu_backend(const std::filesystem::path& onnx, int lanes) {
+    return std::make_unique<CpuBackend>(onnx, lanes);
+}
 }  // namespace stsrl::infra

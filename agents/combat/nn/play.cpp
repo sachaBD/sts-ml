@@ -192,14 +192,14 @@ int main(int argc, char** argv) try {
     if (mode != "play" || argc < 4 || argc % 2) {
         std::cerr << "usage: nn_play play MODEL.onnx SAMPLES.bin [--threads T] [--parallel G] [--gpu-model FIXED.onnx\n"
                      "                    --gpu-batch B] [--gpu-bank SMALLER.onnx,...] [--gpu-wait-us U]\n"
-                     "                    [--gpu-attended A] [--gpu-wide-model WIDE.onnx] [--gpu-wide-attended A]\n"
+                     "                    [--gpu-attended A] [--gpu-wide-model WIDE.onnx] [--gpu-wide-attended A] [--cpu-lanes L]\n"
                      "                    [--sims S] [--rollout-mix M] [--value-scale V]\n"
                      "                    [--gumbel-scale G] [--particles P] [--timeout-ms M] [--shutdown-timeout-ms M]\n"
                      "                    [--telemetry TELEMETRY.jsonl]\n"
                      "       nn_play import SAMPLES.bin\n";
         return 2;
     }
-    int threads = 9, parallel = 224, gpu_batch = 512, gpu_wait_us = 100;
+    int threads = 9, parallel = 224, gpu_batch = 512, gpu_wait_us = 100, cpu_lanes = 2;
     int timeout_ms = 60'000, shutdown_timeout_ms = 5'000;
     std::string gpu_model, gpu_wide_model, telemetry;
     int gpu_attended = 0, gpu_wide_attended = 0;
@@ -209,6 +209,7 @@ int main(int argc, char** argv) try {
     for (int i = 4; i + 1 < argc; i += 2) {
         const std::string k = argv[i], v = argv[i + 1];
         if (k == "--threads") threads = std::stoi(v);
+        else if (k == "--cpu-lanes") cpu_lanes = std::stoi(v);
         else if (k == "--parallel") parallel = std::stoi(v);
         else if (k == "--timeout-ms") timeout_ms = std::stoi(v);
         else if (k == "--shutdown-timeout-ms") shutdown_timeout_ms = std::stoi(v);
@@ -234,7 +235,7 @@ int main(int argc, char** argv) try {
         else if (k == "--particles") settings.particles = std::stoi(v);
         else throw std::invalid_argument{"unknown option " + k};
     }
-    if (threads < 1 || parallel < 1 || gpu_batch < 1 || gpu_wait_us < 0 || timeout_ms <= 0 || shutdown_timeout_ms <= 0 ||
+    if (threads < 1 || parallel < 1 || gpu_batch < 1 || cpu_lanes < 1 || gpu_wait_us < 0 || timeout_ms <= 0 || shutdown_timeout_ms <= 0 ||
         settings.simulations < 0 || settings.particles < 1 || rollout_mix < 0 || rollout_mix > 1 || settings.gumbel_scale < 0 ||
         !std::isfinite(settings.value_scale) || settings.value_scale < 0)
         throw std::invalid_argument{"positive threads/slots/batch/particles/timeouts, nonnegative sims, rollout mix in [0,1], nonnegative noise/wait, finite nonnegative value scale required"};
@@ -245,8 +246,11 @@ int main(int argc, char** argv) try {
     if (!gpu_model.empty()) gpu_bank.push_back(gpu_model);
     auto narrow = gpu_model.empty() ? stsrl::infra::cpu_backend(argv[2]) : stsrl::infra::gpu_backend(argv[2], gpu_bank, 2, gpu_attended);
     auto wide = gpu_wide_model.empty() ? nullptr : stsrl::infra::gpu_backend(argv[2], {gpu_wide_model}, 1, gpu_wide_attended);
+    // Rows no GPU model accepts get their own queue, so they never hold up a GPU lane.
+    auto overflow = gpu_model.empty() ? nullptr : stsrl::infra::cpu_backend(argv[2], cpu_lanes);
     std::vector<stsrl::infra::Backend*> backends{narrow.get()};
     if (wide) backends.push_back(wide.get());
+    if (overflow) backends.push_back(overflow.get());
     for (const auto* backend : backends)
         if (backend->width() != width) throw std::invalid_argument{"model token width does not match combat encoder"};
     std::cerr << "timing: evaluator setup "

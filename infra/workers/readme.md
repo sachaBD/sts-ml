@@ -20,7 +20,7 @@ used by the InferenceServer during play and by the Learner during train.
 |---|---|---|---|---|
 | Loop | 1 | python `loop` | both | starts play, runs train, exports models, prunes old replay |
 | Actor | 9 (`--workers`) | native `nn_play` | play | plays K games each (`--parallel`): search + simulator, requests NN evals, writes samples |
-| InferenceServer | 2 (GPU) / 1 (CPU) | native `nn_play` | play | overlapping batch preparation and inference |
+| InferenceServer | one per backend lane: 2 narrow GPU + 1 wide GPU + 2 CPU (`--cpu-lanes`) / 1 (CPU only) | native `nn_play` | play | one queue per backend; a request goes to the first backend that accepts it, else the last (CPU) |
 | Reader | 4 threads | python `loop` | train | reads sampled rows with coarse `pread` tasks; Replay builds padded batches |
 | Learner | 1 | python `loop` | train | takes ready batches, runs the GPU training step |
 
@@ -40,7 +40,7 @@ used by the InferenceServer during play and by the Learner during train.
      ▼         │    │                        │              ▼
  ┌─────────────┴─┐  │   ┌──────────────┐     │      ┌───────────────┐
  │InferenceServer│  └──►│ DISK replay  ├─────┘      │ batch queue   │
- │ 2 GPU lanes   │      │ samples-*.bin│            │ (2-3 batches) │
+ │ GPU+CPU lanes │      │ samples-*.bin│            │ (2-3 batches) │
  └──────┬────────┘      └──────────────┘            └───────┬───────┘
         │                                                   ▼
         │                                              ┌─────────┐
@@ -51,7 +51,7 @@ used by the InferenceServer during play and by the Learner during train.
                             └──────────────┘
 ```
 
-`gpu_stats` timings (except wall-clock `seconds`) are summed over lanes, not GPU utilization; they can
+`gpu_stats` and `cpu_stats` timings (except wall-clock `seconds`) are summed over lanes, not device utilization; they can
 exceed wall time. `actors_stats.server_cpu_pct` is average CPU use per server lane.
 
 ## Communication

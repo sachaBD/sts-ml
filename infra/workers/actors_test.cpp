@@ -384,3 +384,31 @@ TEST(Actors, MixedBackendsPreserveRepliesWithoutWideWorkBlockingNarrow) {
         EXPECT_EQ(log.alive, 0);
     }
 }
+
+TEST(Actors, RowsNoBackendAcceptsReachOnlyTheLastWithoutBlockingTheOthers) {
+    Log log;
+    std::atomic<int> wide_calls{0}, rows{0};
+    const auto kind = [](const Tokens& t) { return (int(t.data[0] * 1000 + .5f) + int(t.data[1])) % 3; };
+    const auto only = [&](int k, const char* name) {
+        return [&, k, name](std::span<const Input> inputs) {
+            for (const auto& i : inputs) require(kind(*i.tokens) == k, name);
+            rows += int(inputs.size());
+            return echo(inputs);
+        };
+    };
+    FakeBackend narrow{only(0, "narrow got a row it does not accept"), {}, 1, [&](const Tokens& t) { return kind(t) == 0; }, 7};
+    FakeBackend wide{[&, check = only(1, "wide got a row it does not accept")](auto inputs) {
+        ++wide_calls;
+        return check(inputs);
+    }, {}, 1, [&](const Tokens& t) { return kind(t) == 1; }, 7};
+    FakeBackend overflow{[&, check = only(2, "overflow got an accepted row")](auto inputs) {
+        const auto deadline = std::chrono::steady_clock::now() + 1s;
+        while (wide_calls < 2 && std::chrono::steady_clock::now() < deadline) std::this_thread::sleep_for(1ms);
+        require(wide_calls >= 2, "overflow work blocked the wide lane");
+        return check(inputs);
+    }, {}, 1, [](const Tokens&) { return false; }, 7};
+    run_actors(small(7, 7), episodes(log, 100), {&narrow, &wide, &overflow});
+    EXPECT_EQ(log.finished, 100);
+    EXPECT_EQ(rows, total_steps(100));
+    EXPECT_EQ(log.alive, 0);
+}
