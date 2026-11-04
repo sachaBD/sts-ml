@@ -146,7 +146,7 @@ class ExpertIterationInvariants(unittest.TestCase):
 
     def test_adaptive_sampling_survives_resume_without_changing_evaluation(self):
         config = CONFIG.replace('per_iteration = 5',
-            'per_iteration = 5\nhistory_iterations = 1\nweighted_sampling_fraction = 0.5')
+            'per_iteration = 5\nhistory_iterations = 1\nsampling_concentration = 0.5')
         self.run_loop(config=config.replace('iterations = 2', 'iterations = 1'))
         control = self.run_loop(resume_from=1, config=config)
         for p in self.self_play():

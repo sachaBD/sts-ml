@@ -32,7 +32,7 @@ class SamplingInvariants(unittest.TestCase):
                 for key in ('attempts', 'wins'):
                     self.assertEqual(whole[d][key], first[d][key] + last[d][key])
             settings = load(CONFIG.replace('per_iteration = 5',
-                'per_iteration = 5\nhistory_iterations = 3\nweighted_sampling_fraction = 0.5')).starts
+                'per_iteration = 5\nhistory_iterations = 3\nsampling_concentration = 0.5')).starts
             weights = sampling_weights(training, 7, settings)
             artifact = json.loads((training / 'sampling/iter007.json').read_text())
             for d in counts:

@@ -126,7 +126,7 @@ class ExpertIteration:
     def self_play(self, it):
         previous, directory = self.control.iteration(it - 1), self.control.iteration(it)
         s = self.config.starts
-        weights = sampling_weights(self.control.directory, it, s) if s.weighted_sampling_fraction else None
+        weights = sampling_weights(self.control.directory, it, s) if s.sampling_concentration else None
         fights = s.draw(self.pool, f'{self.config.run.seed_namespace}:{it}', s.per_iteration,
                         weights=[weights[d['fight_id']] for d in self.pool] if weights is not None else None)
         results = self.play(f'iteration {it}', previous, fights, directory, self.config.search.at(it))

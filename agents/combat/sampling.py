@@ -1,9 +1,9 @@
-"""Combat training selection: smoothed win uncertainty mixed with uniform sampling."""
+"""Combat training selection: win uncertainty with tunable concentration."""
 import math
 
 
-def deck_distribution(counts, prior_strength, fraction):
-    """Smoothed win uncertainty mixed with uniform selection; retain unobserved decks."""
+def deck_distribution(counts, prior_strength, concentration):
+    """Concentration 0 is uniform; 1 selects only maximum-uncertainty decks (ties uniform)."""
     decks = {}
     for deck, c in counts.items():
         attempts, wins = c['attempts'], c['wins']
@@ -14,7 +14,12 @@ def deck_distribution(counts, prior_strength, fraction):
         win_rate = (wins / 2 + prior_strength / 2) / denominator
         loss_rate = ((attempts - wins) / 2 + prior_strength / 2) / denominator
         decks[deck] = dict(c, weight=win_rate * loss_rate)
+    peak = max(d['weight'] for d in decks.values())
+    for d in decks.values():
+        # Scale before exponentiation so at least one weight stays 1, even near concentration 1.
+        d['weight'] = (float(d['weight'] == peak) if concentration == 1 else
+                       (d['weight'] / peak) ** (concentration / (1 - concentration)))
     total = math.fsum(d['weight'] for d in decks.values())
     for d in decks.values():
-        d['probability'] = (1 - fraction) / len(decks) + fraction * d['weight'] / total
+        d['probability'] = d['weight'] / total
     return decks

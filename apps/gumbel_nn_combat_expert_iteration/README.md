@@ -29,7 +29,7 @@ cleanly; allow several minutes. Ctrl-C/kill can leave partial output.
 [starts] # add to existing starts settings
 history_iterations = 10
 win_rate_prior_strength = 1.0
-weighted_sampling_fraction = 0.5 # default 0.0: disabled; range [0, 1]
+sampling_concentration = 0.5 # 0: uniform (default); 1: maximum uncertainty only
 ```
 
 Before each self-play iteration, use this experiment's preceding `history_iterations`
@@ -37,18 +37,22 @@ completed batches (or all available). For each deck, with prior strength `s`:
 
 ```text
 p = (wins + s) / (attempts + 2*s)
-weight = p * (1-p)
-probability = (1-fraction)/deck_count + fraction*weight/sum(weights)
+weight = [4*p*(1-p)] ** [concentration/(1-concentration)]
+probability = weight/sum(weights)
 ```
 
 The window must be positive; `s` is a finite positive pseudocount per outcome.
 Unobserved decks have maximum weight; no history means uniform sampling.
-Defaults are window 10, prior 1.0, fraction 0.0; disabled sampling preserves the
+Concentration 0 is uniform; 0.5 uses uncertainty weights directly; 1 selects only
+maximum-uncertainty decks (ties uniform). There is no uniform-coverage floor.
+Defaults are window 10, prior 1.0, concentration 0.0; disabled sampling preserves the
 original random stream. All three settings are fixed on resume; warm starts have no history.
 
 Counts, weights, probabilities and window settings are saved atomically before collection
 in `training/sampling/iterNNN.json`, outside interrupted iteration archives, and reused on
 recovery. No external weight file is needed. State variation, replay and evaluation are unchanged.
+The former `weighted_sampling_fraction` setting is not interchangeable with concentration;
+old weighted runs must keep their original code/config or start a new experiment.
 
 ## Value sampling
 
