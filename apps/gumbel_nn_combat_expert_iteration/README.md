@@ -23,6 +23,45 @@ watch -n 10 "$APP" status "$RUN"            # --json for agents
 The preset runs until stopped. Stop finishes the current iteration and its scheduled evaluation, then exits
 cleanly; allow several minutes. Ctrl-C/kill can leave partial output.
 
+## Adaptive deck sampling
+
+Self-play can favor decks with uncertain win rates while retaining uniform coverage:
+
+```toml
+[starts]
+# Alongside fights, per_iteration, hp_jitter and potions:
+history_iterations = 10
+win_rate_prior_strength = 1.0
+weighted_sampling_fraction = 0.5
+```
+
+Before iteration `t`, aggregate attempts and wins from this experiment's previous
+`history_iterations` completed self-play batches (or all available batches). For each deck:
+
+```text
+estimated_win_rate = (wins + win_rate_prior_strength) / (attempts + 2 * win_rate_prior_strength)
+weight = estimated_win_rate * (1 - estimated_win_rate)
+probability = (1 - weighted_sampling_fraction) / deck_count
+            + weighted_sampling_fraction * weight / sum(weights)
+```
+
+The prior strength is a positive, finite pseudocount **for each outcome** (win and loss).
+Unobserved decks have estimated win rate 0.5 and maximum weight; the first iteration
+therefore samples uniformly. This prioritizes intermediate difficulty, not measured learning progress.
+
+Defaults are a 10-iteration window, prior strength 1.0, and fraction **0.0** (disabled).
+Disabled sampling keeps the original random stream and creates no sampling files.
+The window must be positive and the fraction must be in `[0, 1]`.
+All three settings define the experiment and cannot change on resume; enabling this on
+an existing uniform experiment requires a new run (optionally warm-started).
+
+Enabled runs atomically save counts, weights, probabilities, settings, and source-window
+boundaries to `training/sampling/iterNNN.json` **before** starting collection. These files
+remain outside archived interrupted iteration directories, so recovery reuses the saved
+policy. No external weight file or script invocation is needed, and no other experiment's
+history is used. Warm starts begin with no sampling history. Start-state variation, replay
+sampling, training losses, and evaluation selection are unchanged.
+
 ## Value sampling
 
 Set `[training].value_batch = 128` to give combats equal value weight rather than

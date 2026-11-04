@@ -43,6 +43,19 @@ class ConfigTests(unittest.TestCase):
         self.rejects(CONFIG.replace('steps = 1', 'steps = 1\nvalue_batch = 128')
                      .replace('max_train_rows = 0', 'max_train_rows = 500000'), 'max_train_rows')
 
+    def test_sampling_policy_is_validated_and_cannot_change_on_resume(self):
+        base = load(CONFIG)
+        for key, value in [('history_iterations', 3), ('win_rate_prior_strength', 2.0),
+                           ('weighted_sampling_fraction', 0.5)]:
+            changed = CONFIG.replace('per_iteration = 5', f'per_iteration = 5\n{key} = {value}')
+            self.assertEqual(experiment_changes(base, load(changed)), [f'[starts].{key}'])
+        for key, values in [('history_iterations', (0, -1)),
+                            ('win_rate_prior_strength', (0, -1, 'inf', 'nan')),
+                            ('weighted_sampling_fraction', (-0.1, 1.1, 'nan'))]:
+            for value in values:
+                self.rejects(CONFIG.replace('per_iteration = 5', f'per_iteration = 5\n{key} = {value}'), key)
+        self.assertEqual(base.starts.weighted_sampling_fraction, 0)
+
     def test_rollout_mix_decays_to_zero_and_stays(self):
         for decay in (0, 1, 7, 30):
             search = load(CONFIG.replace('rollout_mix = 0.5', f'rollout_mix = 0.5\nrollout_mix_decay = {decay}')).search

@@ -1,10 +1,12 @@
 """Invariants of starts drawn from a pool, for any pool, name and variation."""
+import copy
+import random
 from statistics import median
 import unittest
 
 from sts_lightspeed.enums import CARDS, POTIONS
 
-from .starts import EMPTY_POTION_SLOT, IRONCLAD_POTIONS, POTION_BELT, Starts
+from .starts import EMPTY_POTION_SLOT, IRONCLAD_POTIONS, POTION_BELT, Starts, seeded
 
 PURITY = dict(id=CARDS.index('PURITY'), upgraded=False, misc=0)
 POOL = [dict(fight_id=name, start=dict(hp=hp, max_hp=80, seed=0, ascension=20, relics=relics, potion_capacity=2,
@@ -37,6 +39,29 @@ class DrawInvariants(unittest.TestCase):
 
     def test_a_name_always_draws_the_same_fights(self):
         self.assertEqual(Starts(hp_jitter=0.1).draw(POOL, 'ns:1', 50), Starts(hp_jitter=0.1).draw(POOL, 'ns:1', 50))
+
+    def test_weighted_draws_preserve_seeds_variation_and_pool(self):
+        original = copy.deepcopy(POOL)
+        starts = Starts(hp_jitter=0.1, potions=True)
+        weights = [0, 1, 3]
+        first = starts.draw(POOL, 'weighted:1', 100, weights=weights)
+        self.assertEqual(first, starts.draw(POOL, 'weighted:1', 100, weights=weights))
+        self.assertEqual(first, starts.draw(POOL, 'weighted:1', 100, weights=[0, 2, 6]))
+        self.assertTrue(all(f['fight_id'].split(':')[-2] != POOL[0]['fight_id'] for f in first))
+        self.assertEqual(POOL, original)
+        stable = lambda start: {k: v for k, v in start.items() if k not in VARIED}
+        for f in first:
+            self.assertEqual(stable(f['start']), stable(deck(f)))
+
+    def test_disabled_weights_preserve_the_original_random_stream(self):
+        starts = Starts(hp_jitter=0.1, potions=True)
+        name, n = 'compatibility:1', 100
+        rng = random.Random(name)
+        expected = [seeded(d, f'{name}:{d["fight_id"]}:{i}')
+                    for i, d in enumerate(rng.choices(POOL, k=n))]
+        for f in expected:
+            starts.vary(f['start'], rng)
+        self.assertEqual(starts.draw(POOL, name, n), expected)
 
     def test_hp_stays_playable(self):
         for hp_jitter in (0, 0.1, 2):

@@ -144,6 +144,27 @@ class ExpertIterationInvariants(unittest.TestCase):
                 expected[deck_of(r['fight_id'])]['wins'] += r['won']
             self.assertEqual(json.loads((control.iteration(it) / 'decks.json').read_text()), expected)
 
+    def test_adaptive_sampling_survives_resume_without_changing_evaluation(self):
+        config = CONFIG.replace('per_iteration = 5',
+            'per_iteration = 5\nhistory_iterations = 1\nweighted_sampling_fraction = 0.5')
+        self.run_loop(config=config.replace('iterations = 2', 'iterations = 1'))
+        control = self.run_loop(resume_from=1, config=config)
+        for p in self.self_play():
+            it = int(p['directory'].name[4:])
+            artifact = json.loads((control.directory / 'sampling' / f'iter{it:03d}.json').read_text())
+            counts = artifact['decks']
+            starts = load(config).starts
+            expected = starts.draw(self.decks, f'test:{it}', starts.per_iteration,
+                                   weights=[counts[d['fight_id']]['probability'] for d in self.decks])
+            self.assertEqual(p['fights'], expected)
+            self.assertTrue(all(0 <= c['wins'] <= c['attempts'] for c in counts.values()))
+            if it == 1:
+                self.assertTrue(all(c['attempts'] == 0 for c in counts.values()))
+            else:
+                self.assertEqual(sum(c['attempts'] for c in counts.values()), starts.per_iteration)
+        for p in self.evaluations():
+            self.assertEqual(p['fights'], [dict(fight_id='t', start={})])
+
     def test_evaluation_never_explores(self):
         self.run_loop(config=CONFIG.replace('every = 0', 'every = 1'))
         self.assertEqual(len(self.evaluations()), 3)
