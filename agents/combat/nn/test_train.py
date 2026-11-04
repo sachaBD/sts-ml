@@ -71,7 +71,7 @@ class TrainingTests(unittest.TestCase):
         final = reports[-1]
         torch.testing.assert_close(
             (final.value_loss_sum - before.value_loss_sum, final.policy_loss_sum - before.policy_loss_sum),
-            runs[1][0], atol=1e-4, rtol=1e-4)
+            runs[1][0][:2], atol=1e-4, rtol=1e-4)
 
     def test_independent_losses_match_explicit_objective_for_any_microbatch_partition(self):
         policy_batch, value_batch = batch(5, 2.), batch(3, -3.)
