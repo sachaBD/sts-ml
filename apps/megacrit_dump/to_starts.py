@@ -158,22 +158,24 @@ def part(play_id):
     return "validation" if x < 0.02 else "final" if x < 0.04 else "train"
 
 
-def decks(fights):
-    """{part: decks}: {fight_id: mc-<play_id>, start} per run (its first copy), without a NOT_DECKS relic."""
+def decks(fights, starts):
+    """{part: decks}: {fight_id: mc-<play_id>, start} per run (its first copy), without a NOT_DECKS relic or a card
+    starts excludes."""
     out = {"train": [], "validation": [], "final": []}
     for f in fights:
-        if f["copy"] == 1 and not {r["id"] for r in f["start"]["relics"]} & NOT_DECKS:
+        if (f["copy"] == 1 and not {r["id"] for r in f["start"]["relics"]} & NOT_DECKS
+                and not starts.holds_excluded_card(f["start"])):
             out[part(f["play_id"])].append({"fight_id": f"mc-{f['play_id']}", "start": f["start"]})
     return out
 
 
-def held_out_fights(held_out, name, n):
-    """n fixed fights per deck, named name:deck:i, at the deck's HP with potions as at Champ."""
+def held_out_fights(held_out, name, n, starts):
+    """n fixed fights per deck, named name:deck:i, at the deck's HP with potions as at Champ, varied by starts."""
     out = []
     for deck in held_out:
         rng = random.Random(f"{name}:{deck['fight_id']}")
         for f in copies(deck, f"{name}:{deck['fight_id']}", n):
-            Starts(potions=True).vary(f["start"], rng)
+            starts.vary(f["start"], rng)
             out.append(f)
     return out
 
@@ -188,8 +190,11 @@ def main():
     ap.add_argument("--include", choices=["exact", "base-exact"], default="base-exact")
     ap.add_argument("--limit", type=int, default=None, help="keep only the first N fights (smoke tests)")
     ap.add_argument("--held-out-fights", type=int, default=10, help="fights per validation or final deck")
+    ap.add_argument("--excluded-potions", nargs="*", default=[], help="never drawn into held-out potion slots")
+    ap.add_argument("--excluded-cards", nargs="*", default=[], help="decks holding these are left out of every part")
     ap.add_argument("--out", required=True)
     a = ap.parse_args()
+    starts = Starts(potions=True, excluded_potions=tuple(a.excluded_potions), excluded_cards=tuple(a.excluded_cards))
     out = Path(a.out)
     out.mkdir(parents=True, exist_ok=True)
     rows = []
@@ -206,14 +211,17 @@ def main():
     pv = [f for f in fights if not any(r["id"] == dome for r in f["start"]["relics"])]
     for name, fs in (("starts.parquet", fights), ("starts_pv.parquet", pv)):
         pq.write_table(pa.Table.from_pylist(fs, schema=schema), out / name, compression="zstd")
-    parts = decks(fights)
-    files = {"decks": parts["train"], "validation": held_out_fights(parts["validation"], "megacrit", a.held_out_fights),
-             "final": held_out_fights(parts["final"], "megacrit", a.held_out_fights)}
+    parts = decks(fights, starts)
+    files = {"decks": parts["train"],
+             "validation": held_out_fights(parts["validation"], "megacrit", a.held_out_fights, starts),
+             "final": held_out_fights(parts["final"], "megacrit", a.held_out_fights, starts)}
     for name, written in files.items():
         (out / f"{name}.jsonl").write_text("".join(json.dumps(r) + "\n" for r in written))
     summary = {"champ_rows_in": len(rows), **stats, "fights": len(fights), "fights_pv_no_dome": len(pv),
                "dome_fights_dropped_for_pv": len(fights) - len(pv),
                "dome_decks": (len(fights) - len(pv)) // max(1, a.k), "k": a.k, "seed0": a.seed0, "include": a.include,
+               "excluded_potions": a.excluded_potions, "excluded_cards": a.excluded_cards,
+               "excluded_card_decks": sum(f["copy"] == 1 and starts.holds_excluded_card(f["start"]) for f in fights),
                "deck_parts": {p: len(d) for p, d in parts.items()}}
     (out / "summary.json").write_text(json.dumps(summary, indent=2))
     print(json.dumps(summary, indent=2))

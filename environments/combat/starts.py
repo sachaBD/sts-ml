@@ -66,8 +66,7 @@ class Starts:
         """n fights named name:deck:i, each on a deck ({fight_id: deck, start}) drawn uniformly, with replacement,
         from pool without the decks holding excluded cards, then varied."""
         if self.excluded_cards:
-            excluded = {CARDS.index(c) for c in self.excluded_cards}
-            pool = [d for d in pool if not excluded & {card['id'] for card in d['start']['deck']}]
+            pool = [d for d in pool if not self.holds_excluded_card(d['start'])]
             if not pool:
                 raise ValueError('every deck in the pool holds an excluded card')
         rng = random.Random(name)
@@ -76,6 +75,10 @@ class Starts:
         for f in fights:
             self.vary(f['start'], rng)
         return fights
+
+    def holds_excluded_card(self, start):
+        excluded = {CARDS.index(c) for c in self.excluded_cards}
+        return any(card['id'] in excluded for card in start['deck'])
 
     def vary(self, start, rng):
         """Each variation of a start, in turn."""
