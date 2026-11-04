@@ -41,7 +41,7 @@ MISC_CARDS = {"ritual_dagger", "genetic_algorithm"}  # carry a per-card `misc` v
 COPY_KEYS = ("ascension", "act", "floor", "encounter", "cur_room", "last_room", "burning_elite_buff", "gold",
              "misc_rng", "potion_rng")
 # Runic Dome hides intents; Prismatic Shard brings other characters' cards.
-NOT_DECKS = {enums.RELICS.index("RUNIC_DOME"), enums.RELICS.index("PRISMATIC_SHARD")}
+EXCLUDED_RELICS = ("RUNIC_DOME", "PRISMATIC_SHARD")
 
 
 def enum_index():
@@ -159,12 +159,10 @@ def part(play_id):
 
 
 def decks(fights, starts):
-    """{part: decks}: {fight_id: mc-<play_id>, start} per run (its first copy), without a NOT_DECKS relic or a card
-    starts excludes."""
+    """{part: decks}: {fight_id: mc-<play_id>, start} per run (its first copy) that starts does not exclude."""
     out = {"train": [], "validation": [], "final": []}
     for f in fights:
-        if (f["copy"] == 1 and not {r["id"] for r in f["start"]["relics"]} & NOT_DECKS
-                and not starts.holds_excluded_card(f["start"])):
+        if f["copy"] == 1 and not starts.excludes(f["start"]):
             out[part(f["play_id"])].append({"fight_id": f"mc-{f['play_id']}", "start": f["start"]})
     return out
 
@@ -191,10 +189,13 @@ def main():
     ap.add_argument("--limit", type=int, default=None, help="keep only the first N fights (smoke tests)")
     ap.add_argument("--held-out-fights", type=int, default=10, help="fights per validation or final deck")
     ap.add_argument("--excluded-potions", nargs="*", default=[], help="never drawn into held-out potion slots")
+    ap.add_argument("--excluded-relics", nargs="*", default=list(EXCLUDED_RELICS),
+                    help="decks holding these are left out of every part")
     ap.add_argument("--excluded-cards", nargs="*", default=[], help="decks holding these are left out of every part")
     ap.add_argument("--out", required=True)
     a = ap.parse_args()
-    starts = Starts(potions=True, excluded_potions=tuple(a.excluded_potions), excluded_cards=tuple(a.excluded_cards))
+    starts = Starts(potions=True, excluded_potions=tuple(a.excluded_potions), excluded_relics=tuple(a.excluded_relics),
+                    excluded_cards=tuple(a.excluded_cards))
     out = Path(a.out)
     out.mkdir(parents=True, exist_ok=True)
     rows = []
@@ -220,8 +221,9 @@ def main():
     summary = {"champ_rows_in": len(rows), **stats, "fights": len(fights), "fights_pv_no_dome": len(pv),
                "dome_fights_dropped_for_pv": len(fights) - len(pv),
                "dome_decks": (len(fights) - len(pv)) // max(1, a.k), "k": a.k, "seed0": a.seed0, "include": a.include,
-               "excluded_potions": a.excluded_potions, "excluded_cards": a.excluded_cards,
-               "excluded_card_decks": sum(f["copy"] == 1 and starts.holds_excluded_card(f["start"]) for f in fights),
+               "excluded_potions": a.excluded_potions, "excluded_relics": a.excluded_relics,
+               "excluded_cards": a.excluded_cards,
+               "excluded_decks": sum(f["copy"] == 1 and starts.excludes(f["start"]) for f in fights),
                "deck_parts": {p: len(d) for p, d in parts.items()}}
     (out / "summary.json").write_text(json.dumps(summary, indent=2))
     print(json.dumps(summary, indent=2))
