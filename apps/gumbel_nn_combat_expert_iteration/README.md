@@ -23,6 +23,33 @@ watch -n 10 "$APP" status "$RUN"            # --json for agents
 The preset runs until stopped. Stop finishes the current iteration and its scheduled evaluation, then exits
 cleanly; allow several minutes. Ctrl-C/kill can leave partial output.
 
+## Adaptive deck sampling
+
+```toml
+[starts] # add to existing starts settings
+history_iterations = 10
+win_rate_prior_strength = 1.0
+weighted_sampling_fraction = 0.5 # default 0.0: disabled; range [0, 1]
+```
+
+Before each self-play iteration, use this experiment's preceding `history_iterations`
+completed batches (or all available). For each deck, with prior strength `s`:
+
+```text
+p = (wins + s) / (attempts + 2*s)
+weight = p * (1-p)
+probability = (1-fraction)/deck_count + fraction*weight/sum(weights)
+```
+
+The window must be positive; `s` is a finite positive pseudocount per outcome.
+Unobserved decks have maximum weight; no history means uniform sampling.
+Defaults are window 10, prior 1.0, fraction 0.0; disabled sampling preserves the
+original random stream. All three settings are fixed on resume; warm starts have no history.
+
+Counts, weights, probabilities and window settings are saved atomically before collection
+in `training/sampling/iterNNN.json`, outside interrupted iteration archives, and reused on
+recovery. No external weight file is needed. State variation, replay and evaluation are unchanged.
+
 ## Value sampling
 
 Set `[training].value_batch = 128` to give combats equal value weight rather than

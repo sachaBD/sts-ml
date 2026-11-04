@@ -7,6 +7,7 @@ copied with the run, never played. Fights files and baselines are built offline 
 A run may resume with different `resumable()` settings; any other change would be a different experiment.
 """
 from dataclasses import MISSING, dataclass, field, fields
+import math
 import sys
 import tomllib
 import types
@@ -48,6 +49,9 @@ class SelfPlay(Search):
 class SelfPlayStarts(Starts):
     fights: str  # the deck pool: one fight per deck, fight_id = deck name
     per_iteration: int
+    history_iterations: int = 10
+    win_rate_prior_strength: float = 1.0
+    weighted_sampling_fraction: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -154,6 +158,10 @@ def validate(c):
     need(r.iterations >= 0 and r.recovery_retries >= 0 and r.min_free_gib >= 0,
          'nonnegative iterations, recovery_retries, min_free_gib')
     need(st.per_iteration > 0 and st.hp_jitter >= 0, 'starts: positive per_iteration, nonnegative hp_jitter')
+    need(st.history_iterations > 0, 'starts: positive history_iterations')
+    need(math.isfinite(st.win_rate_prior_strength) and st.win_rate_prior_strength > 0,
+         'starts: finite positive win_rate_prior_strength')
+    need(0 <= st.weighted_sampling_fraction <= 1, 'starts: weighted_sampling_fraction in [0, 1]')
     need(s.sims >= 0 and s.gumbel_scale >= 0 and 0 <= s.rollout_mix <= 1 and s.particles > 0 and s.rollout_mix_decay >= 0,
          'search: nonnegative sims, gumbel_scale and rollout_mix_decay, rollout_mix in [0, 1], positive particles')
     need(t.steps > 0 and t.batch > 0 and t.lr > 0 and t.replay_window > 0 and t.max_train_rows >= 0

@@ -23,6 +23,7 @@ from monitoring.training import write as write_training
 from .config import experiment_changes, load
 from .reporting import deck_of
 from .run_control import RunControl, delete_samples
+from .sampling import sampling_weights
 
 # Rows of an iteration's own samples scored before training on them: a few seconds, and enough to compare
 # with the training loss.
@@ -125,7 +126,9 @@ class ExpertIteration:
     def self_play(self, it):
         previous, directory = self.control.iteration(it - 1), self.control.iteration(it)
         s = self.config.starts
-        fights = s.draw(self.pool, f'{self.config.run.seed_namespace}:{it}', s.per_iteration)
+        weights = sampling_weights(self.control.directory, it, s) if s.weighted_sampling_fraction else None
+        fights = s.draw(self.pool, f'{self.config.run.seed_namespace}:{it}', s.per_iteration,
+                        weights=[weights[d['fight_id']] for d in self.pool] if weights is not None else None)
         results = self.play(f'iteration {it}', previous, fights, directory, self.config.search.at(it))
         counts = json.loads((previous / 'decks.json').read_text())
         (directory / 'decks.json').write_text(json.dumps(tally(counts, results)))

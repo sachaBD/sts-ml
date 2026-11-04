@@ -63,15 +63,17 @@ class Starts:
             if unknown := sorted(set(names) - set(known)):
                 raise ValueError(f'unknown names: {unknown}')
 
-    def draw(self, pool, name, n):
-        """n fights named name:deck:i, each on a deck ({fight_id: deck, start}) drawn uniformly, with replacement,
-        from pool without the decks it excludes, then varied."""
+    def draw(self, pool, name, n, weights=None):
+        """Draw with replacement (uniformly unless weighted), excluding forbidden decks, then vary starts."""
         if self.excluded_relics or self.excluded_cards:
-            pool = [d for d in pool if not self.excludes(d['start'])]
+            kept = [i for i, d in enumerate(pool) if not self.excludes(d['start'])]
+            pool = [pool[i] for i in kept]
+            if weights is not None:
+                weights = [weights[i] for i in kept]
             if not pool:
                 raise ValueError('every deck in the pool holds an excluded relic or card')
         rng = random.Random(name)
-        picks = rng.choices(pool, k=n)
+        picks = rng.choices(pool, weights=weights, k=n)
         fights = [seeded(deck, f'{name}:{deck["fight_id"]}:{i}') for i, deck in enumerate(picks)]
         for f in fights:
             self.vary(f['start'], rng)
