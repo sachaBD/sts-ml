@@ -27,15 +27,15 @@ function telemetryPanel(root, status) {
     const bar = node('div', null, 'topology-slots'), fill = node('span', null, 'slot-waiting');
     const rate = node('span', null, 'topology-rate');
     bar.append(fill); root.append(name, bar, rate);
-    const render = smoothView(root, actor => {
-      name.textContent = `A${actor.id}`;
+    const render = smoothView(root, (actor, latest) => {
+      name.textContent = `A${latest.id}`;
       width(fill, actor.blocked_pct);
       fill.textContent = percent(actor.blocked_pct);
       bar.title = `Blocked wall time: ${percent(actor.blocked_pct)}; no episode ready to advance`;
       rate.textContent = number(actor.requests_s);
       rate.title = 'Inference requests submitted per second';
     });
-    return { root, update: render };
+    return { root, update: render, pause: render.pause };
   }
 
   function queueView() {
@@ -49,12 +49,12 @@ function telemetryPanel(root, status) {
     const wait = node('div', null, 'topology-queue-wait'), rate = node('div', null, 'topology-queue-wait');
     const lanes = node('div', null, 'topology-service-arrow');
     root.append(name, heading, meter, scaleText, rate, wait, lanes);
-    let laneStates = [], lastPeak = null;
-    const render = smoothView(root, queue => {
+    let laneStates = [], lastPeak = null, lastScale = null;
+    const render = smoothView(root, (queue, latest) => {
       name.textContent = queue.id === 0 ? 'Q0 · Narrow' : queue.id === 1 ? 'Q1 · Wide / oversized' : `Q${queue.id}`;
-      depth.textContent = `Depth ${number(queue.depth)}`;
+      depth.textContent = `Depth ${number(latest.depth)}`;
       depth.title = 'Pending requests at the latest sample; excludes batches already gathered';
-      peakText.textContent = `Peak ${number(queue.peak_depth)}`;
+      peakText.textContent = `Peak ${number(latest.peak_depth)}`;
       peakText.title = 'Highest pending count since worker start';
       const known = Number.isFinite(queue.depth) && Number.isFinite(queue.peak_depth);
       meter.hidden = scaleText.hidden = !known;
@@ -69,13 +69,14 @@ function telemetryPanel(root, status) {
       wait.title = 'Enqueue to batch gathered; excludes evaluation and replies';
       lanes.textContent = '→ ' + laneStates.filter(lane => lane.queue === queue.id).map(lane => `L${lane.id}`).join(' · ');
     });
-    return { root, update(queue, lanes) {
+    return { root, pause: render.pause, update(queue, lanes, snap) {
       laneStates = lanes;
       const scale = Number.isFinite(queue.depth) && Number.isFinite(queue.peak_depth) ?
         2 ** Math.ceil(Math.log2(Math.max(1, queue.depth, queue.peak_depth))) : null;
       const reset = Number.isFinite(lastPeak) && Number.isFinite(queue.peak_depth) && queue.peak_depth < lastPeak;
       lastPeak = queue.peak_depth;
-      render({ ...queue, scale }, reset);
+      render({ ...queue, scale }, snap || reset || scale !== lastScale);
+      lastScale = scale;
     } };
   }
 
@@ -89,8 +90,8 @@ function telemetryPanel(root, status) {
     const rate = node('div', null, 'topology-lane-throughput'), fillText = node('div', null, 'topology-lane-footer');
     const bar = node('div', null, 'topology-dispatch-batch'), fill = node('span', null, 'dispatch-fill');
     bar.append(fill); root.append(heading, timeline, rate, fillText, bar);
-    const render = smoothView(root, lane => {
-      name.textContent = `L${lane.id} · Q${lane.queue}`;
+    const render = smoothView(root, (lane, latest) => {
+      name.textContent = `L${latest.id} · Q${latest.queue}`;
       busyText.textContent = `${percent(lane.busy_pct)} busy`;
       busyText.title = 'Evaluation and reply wall time, including CPU fallback; not GPU utilisation';
       busy.textContent = lane.busy_pct >= 6.5 ? 'Busy' : '';
@@ -101,17 +102,32 @@ function telemetryPanel(root, status) {
       fillText.textContent = `${percent(lane.fill_pct)} batch fill`;
       width(fill, lane.fill_pct);
     });
-    return { root, update: render };
+    return { root, update: render, pause: render.pause };
   }
 
-  function update(section, items, create, lanes) {
+  function update(section, items, create, lanes, snap) {
     const ids = new Set(items.map(item => item.id));
-    for (const id of section.nodes.keys()) if (!ids.has(id)) section.nodes.delete(id);
+    for (const id of section.nodes.keys()) if (!ids.has(id)) {
+      section.nodes.get(id).pause(); section.nodes.delete(id);
+    }
     for (const item of items) {
       if (!section.nodes.has(item.id)) section.nodes.set(item.id, create());
-      section.nodes.get(item.id).update(item, lanes);
+      const view = section.nodes.get(item.id);
+      if (create === queueView) view.update(item, lanes, snap);
+      else view.update(item, snap);
     }
-    section.rows.replaceChildren(...items.map(item => section.nodes.get(item.id).root));
+    const order = items.map(item => item.id).join(',');
+    if (order !== section.order) {
+      section.rows.replaceChildren(...items.map(item => section.nodes.get(item.id).root));
+      section.order = order;
+    }
+  }
+
+  let resume = false;
+  let previousQueues = [];
+  function pause() {
+    resume = true;
+    for (const section of sections) for (const view of section.nodes.values()) view.pause();
   }
 
   async function refresh() {
@@ -124,16 +140,23 @@ function telemetryPanel(root, status) {
         return data;
       }));
       if (actors.length && queues.length && lanes.length) {
-        update(sections[0], actors, actorView);
-        update(sections[1], queues, queueView, lanes);
-        update(sections[2], lanes, laneView);
-        status.textContent = 'Rates over last 5 s · 1 s refresh';
+        // A falling lifetime peak indicates a restarted self-play worker.
+        resume ||= queues.some(q => previousQueues.some(old => old.id === q.id &&
+          Number.isFinite(q.peak_depth) && Number.isFinite(old.peak_depth) && q.peak_depth < old.peak_depth));
+        previousQueues = queues.map(({ id, peak_depth }) => ({ id, peak_depth }));
+        update(sections[0], actors, actorView, null, resume);
+        update(sections[1], queues, queueView, lanes, resume);
+        update(sections[2], lanes, laneView, null, resume);
+        resume = false;
+        status.textContent = 'Rates over last 5 s · 1 s refresh · 1.5 s playback delay';
         root.classList.remove('unavailable');
       } else {
+        pause();
         root.classList.add('unavailable');
         status.textContent = 'No active inference · showing last sample';
       }
     } catch (error) {
+      pause();
       root.classList.add('unavailable');
       status.textContent = 'Telemetry unavailable · showing last sample';
     }

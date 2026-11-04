@@ -49,13 +49,13 @@
   }
 
   const showFightRate = smoothView(el('fightRate'), p => { el('fightRate').textContent = fmt(p.rate); });
-  const showFightProgress = smoothView(el('fightProgress'), p => {
+  const showFightProgress = smoothView(el('fightProgress'), (p, latest) => {
     const percent = Math.max(0, Math.min(100, 100 * p.done / p.total));
-    el('fightCount').textContent = `${fmt(Math.round(p.done))} / ${fmt(p.total)} · ${Math.round(percent)}%`;
+    el('fightCount').textContent = `${fmt(latest.done)} / ${fmt(latest.total)} · ${Math.round(100 * latest.done / latest.total)}%`;
     el('fightFill').style.width = `${percent}%`;
     el('fightProgress').setAttribute('aria-valuemin', '0');
     el('fightProgress').setAttribute('aria-valuemax', String(p.total));
-    el('fightProgress').setAttribute('aria-valuenow', String(Math.round(p.done)));
+    el('fightProgress').setAttribute('aria-valuenow', String(latest.done));
   });
 
   let lastFightStage = '', fightStart = null;
@@ -106,6 +106,7 @@
       el('fightLabel').textContent = `Fights · ${p.stage}`;
       showFightProgress({ done: p.done, total: p.total }, reset);
     } else if (lastFightStage) {
+      showFightProgress.pause(); showFightRate.pause();
       el('fightRateStage').textContent = `Last reported throughput · ${lastFightStage}`;
       el('fightLabel').textContent = `Last reported fights · ${lastFightStage}`;
     }

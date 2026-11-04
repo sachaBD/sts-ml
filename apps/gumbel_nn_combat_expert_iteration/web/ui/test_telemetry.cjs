@@ -10,7 +10,7 @@ const sample = () => ({
 });
 const element = () => ({ isConnected: true, children: [], style: {}, classes: new Set(),
   append(...children) { this.children.push(...children); },
-  replaceChildren(...children) { this.children = children; },
+  replaceChildren(...children) { this.children = children; this.replacements = (this.replacements || 0) + 1; },
   get classList() { return { add: name => this.classes.add(name), remove: name => this.classes.delete(name) }; },
 });
 const text = node => [node.textContent || '', ...node.children.map(text)].join(' ');
@@ -43,13 +43,16 @@ test('live diagram renders only API metrics and retains nodes across refreshes',
   assert.doesNotMatch(output, /Slots|p95|Dispatchers|H2D|CPU fallback/);
   const actor = view.root.children[0].children[1].children[0];
   const data = sample(); data.actors[0].blocked_pct = 50;
+  view.advance(1000);
   await view.refresh(data);
   assert.equal(view.root.children[0].children[1].children[0], actor);
+  assert.equal(view.root.children[0].children[1].replacements, 1, 'unchanged rows are never remounted');
   assert.match(text(actor), /35%/);
-  view.advance(1500);
-  view.advance(1500);
+  view.advance(1000);
   const fill = actor.children[1].children[0];
-  assert.ok(Math.abs(parseFloat(fill.style.width) - 42.5) < 1e-9, 'half the gap closed after three seconds');
+  assert.ok(Math.abs(parseFloat(fill.style.width) - 42.5) < 1e-9, 'playback is halfway between the two samples');
+  view.advance(500);
+  assert.equal(fill.style.width, '50%', 'reaches the sample exactly; no exponential tail');
 });
 
 test('unknown wait and fill remain unknown, not zero', async () => {
@@ -83,4 +86,24 @@ test('HTTP and API errors retain the layout but mark readings as previous', asyn
   await view.refresh({ ...sample(), actors: { error: 'file unavailable' } });
   assert.equal(view.status.textContent, 'Telemetry unavailable · showing last sample');
   assert.match(text(view.root), /A0/);
+});
+
+test('worker reset snaps every section and failures stop buffered animation', async () => {
+  const view = await panel();
+  view.advance(1000);
+  const data = sample(); data.actors[0].blocked_pct = 60;
+  await view.refresh(data);
+  view.advance(1000);
+  const actor = view.root.children[0].children[1].children[0];
+  assert.match(text(actor), /48%/);
+  await view.refresh(sample(), false);
+  view.advance(5000);
+  assert.match(text(actor), /48%/);
+  data.actors[0].blocked_pct = 90;
+  await view.refresh(data);
+  assert.match(text(actor), /90%/);
+  view.advance(1000);
+  data.actors[0].blocked_pct = 10; data.queues[0].peak_depth = 1;
+  await view.refresh(data);
+  assert.match(text(actor), /10%/);
 });

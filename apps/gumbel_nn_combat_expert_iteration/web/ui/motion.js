@@ -1,34 +1,42 @@
-const UI_HALF_LIFE_MS = 3000;
+const UI_HALF_LIFE_MS = 3000; // Quality headline only.
 const animatedViews = new Set();
 const reducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches;
 
-// Polls only replace targets; the animation clock never restarts between polls.
-function smoothView(element, render) {
-  let current = null, target = null;
-  const frame = k => {
-    if (!element.isConnected) { animatedViews.delete(frame); return; }
-    for (const key of Object.keys(target)) {
-      current[key] = Number.isFinite(current[key]) && Number.isFinite(target[key]) ?
-        current[key] + (target[key] - current[key]) * k : target[key];
+// Play receipt-timestamped samples 1.5 s behind polling, without extrapolation.
+// The second render argument is the latest exact sample (counts, IDs, peaks).
+function smoothView(element, render, delay = 1500) {
+  let samples = [], latest;
+  const frame = now => {
+    if (element.isConnected === false) { animatedViews.delete(frame); return; }
+    const time = now - delay;
+    while (samples.length > 1 && samples[1].time <= time) samples.shift();
+    const a = samples[0], b = samples[1] || a;
+    const fraction = b.time > a.time ? Math.max(0, Math.min(1, (time - a.time) / (b.time - a.time))) : 1;
+    const values = { ...latest };
+    for (const key of Object.keys(latest)) {
+      // Missing readings are immediate; never blend them through zero.
+      if (Number.isFinite(latest[key]) && Number.isFinite(a.values[key]) && Number.isFinite(b.values[key]))
+        values[key] = a.values[key] + (b.values[key] - a.values[key]) * fraction;
     }
-    render(current);
+    render(values, latest);
+    if (samples.length === 1) animatedViews.delete(frame);
   };
-  return (values, snap = false) => {
-    target = values;
-    if (current === null || snap || reducedMotion) current = { ...target };
-    // Unknown values and categorical changes are immediate, never eased through zero.
-    for (const key of Object.keys(target))
-      if (!Number.isFinite(target[key]) || !Number.isFinite(current[key])) current[key] = target[key];
-    render(current);
-    if (!reducedMotion) animatedViews.add(frame);
+  const update = (values, snap = false) => {
+    const now = performance.now(), previous = samples[samples.length - 1];
+    latest = { ...values };
+    if (snap || reducedMotion || !previous || now - previous.time > 3 * delay) samples = [];
+    if (samples.length && previous.time === now) samples.pop();
+    samples.push({ time: now, values: latest });
+    frame(now);
+    if (!reducedMotion && samples.length > 1) animatedViews.add(frame);
   };
+  // Stop playback on failure/phase changes; the next sample starts a new timeline.
+  update.pause = () => { samples = []; animatedViews.delete(frame); };
+  return update;
 }
 
-let motionTime = performance.now();
 function animateViews(now) {
-  const k = -Math.expm1(-Math.LN2 * (now - motionTime) / UI_HALF_LIFE_MS);
-  motionTime = now;
-  for (const frame of animatedViews) frame(k);
+  for (const frame of animatedViews) frame(now);
   requestAnimationFrame(animateViews);
 }
 requestAnimationFrame(animateViews);
