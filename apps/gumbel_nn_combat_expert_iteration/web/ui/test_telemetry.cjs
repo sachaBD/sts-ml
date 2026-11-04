@@ -8,7 +8,7 @@ const sample = () => ({
   queues: [{ id: 0, requests_s: 1200, wait_ms: 1.25, depth: 3, peak_depth: 7 }],
   lanes: [{ id: 0, queue: 0, requests_s: 1200, busy_pct: 80, fill_pct: 75 }],
 });
-const element = () => ({ children: [], style: {}, classes: new Set(),
+const element = () => ({ isConnected: true, children: [], style: {}, classes: new Set(),
   append(...children) { this.children.push(...children); },
   replaceChildren(...children) { this.children = children; },
   get classList() { return { add: name => this.classes.add(name), remove: name => this.classes.delete(name) }; },
@@ -17,17 +17,19 @@ const text = node => [node.textContent || '', ...node.children.map(text)].join('
 
 async function panel(data = sample()) {
   const root = element(), status = element(), requests = [], timers = [];
-  let response = { data, ok: true };
-  const context = vm.createContext({ document: { createElement: element },
+  let response = { data, ok: true }, now = 0, nextFrame;
+  const context = vm.createContext({ window: {}, performance: { now: () => now },
+    requestAnimationFrame: callback => { nextFrame = callback; }, document: { createElement: element },
     fetch: async url => { requests.push(url); return { ok: response.ok, status: 503,
       json: async () => response.data[url.split('/').pop()] }; },
     setTimeout: callback => timers.push(callback),
   });
+  vm.runInContext(readFileSync(`${__dirname}/motion.js`, 'utf8'), context);
   vm.runInContext(readFileSync(`${__dirname}/telemetry.js`, 'utf8'), context);
   context.telemetryPanel(root, status);
   const settle = () => new Promise(resolve => setImmediate(resolve));
   await settle();
-  return { root, status, requests, async refresh(data, ok = true) {
+  return { root, status, requests, advance(ms) { now += ms; nextFrame(now); }, async refresh(data, ok = true) {
     response = { data, ok }; timers.shift()(); await settle();
   } };
 }
@@ -43,7 +45,11 @@ test('live diagram renders only API metrics and retains nodes across refreshes',
   const data = sample(); data.actors[0].blocked_pct = 50;
   await view.refresh(data);
   assert.equal(view.root.children[0].children[1].children[0], actor);
-  assert.match(text(actor), /50%/);
+  assert.match(text(actor), /35%/);
+  view.advance(1500);
+  view.advance(1500);
+  const fill = actor.children[1].children[0];
+  assert.ok(Math.abs(parseFloat(fill.style.width) - 42.5) < 1e-9, 'half the gap closed after three seconds');
 });
 
 test('unknown wait and fill remain unknown, not zero', async () => {
@@ -57,22 +63,24 @@ test('unknown wait and fill remain unknown, not zero', async () => {
   assert.match(text(view.root.children[4]), /— batch fill/);
 });
 
-test('empty telemetry removes prior values without fabricating components', async () => {
+test('empty telemetry keeps the last layout without presenting it as live', async () => {
   const view = await panel();
   await view.refresh({ actors: [], queues: [], lanes: [] });
-  assert.match(view.status.textContent, /no telemetry/);
-  assert.doesNotMatch(text(view.root), /A0|Q0|L0/);
+  assert.match(view.status.textContent, /showing last sample/);
+  assert.ok(view.root.classes.has('unavailable'));
+  assert.match(text(view.root), /A0/);
+  assert.match(text(view.root), /L0 · Q0/);
 });
 
-test('HTTP and API errors clear prior readings rather than leaving them live', async () => {
+test('HTTP and API errors retain the layout but mark readings as previous', async () => {
   const view = await panel();
   await view.refresh(sample(), false);
-  assert.equal(view.status.textContent, 'Telemetry unavailable');
+  assert.equal(view.status.textContent, 'Telemetry unavailable · showing last sample');
   assert.ok(view.root.classes.has('unavailable'));
-  assert.doesNotMatch(text(view.root), /A0|Q0|L0/);
+  assert.match(text(view.root), /A0/);
   await view.refresh(sample());
   assert.ok(!view.root.classes.has('unavailable'));
   await view.refresh({ ...sample(), actors: { error: 'file unavailable' } });
-  assert.equal(view.status.textContent, 'Telemetry unavailable');
-  assert.doesNotMatch(text(view.root), /A0|Q0|L0/);
+  assert.equal(view.status.textContent, 'Telemetry unavailable · showing last sample');
+  assert.match(text(view.root), /A0/);
 });
