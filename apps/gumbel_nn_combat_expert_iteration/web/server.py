@@ -14,7 +14,7 @@ from urllib.parse import urlsplit
 from monitoring.telemetry import actors, lanes, queues
 from monitoring.training import training
 
-from ..dashboard import running, snapshot
+from ..dashboard import snapshot
 from ..reporting import baselines, by_deck, deck_of, jsonl, outcomes, paired, pool, rate, unpaired
 
 PAGE = Path(__file__).with_name('ui') / 'web.html'
@@ -204,11 +204,6 @@ def playing(states):
     return route
 
 
-def progress(out):
-    training_dir = out / 'training'
-    return json.loads((training_dir / 'status.json').read_text()) | dict(running=running(training_dir))
-
-
 def training_state(out):
     progress = json.loads((out / 'training/status.json').read_text())
     if progress['phase'] != 'train' or not progress.get('directory'):
@@ -217,11 +212,7 @@ def training_state(out):
     return asdict(state) if state else None
 
 
-ROUTES = {
-    '/api': api, '/api/progress': progress, '/api/training': training_state,
-    '/api/system': lambda out: system(),
-    '/api/actors': playing(actors), '/api/queues': playing(queues), '/api/lanes': playing(lanes),
-}
+ROUTES = {'/api/training': training_state, '/api/system': lambda out: system(), '/api': api, '/api/actors': playing(actors), '/api/queues': playing(queues), '/api/lanes': playing(lanes)}
 
 
 def main():
@@ -254,10 +245,6 @@ def main():
                     body = json.dumps(result).encode()
                 elif route.path == '/telemetry.js':
                     body = TELEMETRY_PANEL.read_bytes()
-                elif route.path == '/training.js':
-                    body = PAGE.with_name('training.js').read_bytes()
-                elif route.path == '/motion.js':
-                    body = PAGE.with_name('motion.js').read_bytes()
                 elif route.path == '/health.js':
                     body = PAGE.with_name('health.js').read_bytes()
                 elif route.path == '/health.css':
@@ -272,7 +259,7 @@ def main():
                 body = json.dumps(dict(error=repr(e))).encode()
             self.send_response(200)
             content_type = ('application/json' if self.path.startswith('/api') else
-                            'text/javascript' if route.path in ('/health.js', '/telemetry.js', '/motion.js', '/training.js') else
+                            'text/javascript' if route.path in ('/health.js', '/telemetry.js') else
                             'text/css' if self.path.startswith('/health.css') else 'text/html')
             self.send_header('Content-Type', content_type + '; charset=utf-8')
             self.send_header('Cache-Control', 'no-store')

@@ -117,22 +117,3 @@
 .topology-service .topology-queue + .topology-queue { border-top:1px solid var(--line); padding-top:16px; }
 .topology-service .topology-queue-heading { flex-wrap:wrap; }
 .topology-lane > .topology-dispatch-batch { margin-top:8px; }
-
-.execution-progress { margin-top:18px; }
-.execution-progress-heading { display:flex; justify-content:space-between; gap:12px; margin-bottom:8px; font-size:12px; color:var(--dim); font-variant-numeric:tabular-nums; }
-.execution-progress-track { height:6px; overflow:hidden; border-radius:3px; background:var(--line); }
-.execution-progress-track > div { width:0; height:100%; background:var(--train); transition:width .8s ease; }
-
-.training-metrics-frame { margin-top:16px; min-width:0; }
-
-/* JavaScript owns live easing; do not stack another transition on each frame. */
-body[data-mode="live"] .topology *, .execution-progress-track > div { transition:none; }
-
-.fit-panel { margin-top:20px; padding:16px 0; border-top:1px solid var(--line); border-bottom:1px solid var(--line); }
-.fit-panel h3 { margin:0 0 12px; font-size:14px; font-weight:500; }
-.fit-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:16px; margin-top:16px; }
-.fit-grid .label { margin-bottom:5px; }
-.fit-value { font-size:20px; font-variant-numeric:tabular-nums; }
-.fit-note { margin-top:12px; }
-#trainingValues.unavailable { opacity:.45; }
-@media (max-width:700px) { .fit-panel .head { flex-wrap:wrap; gap:8px; } .fit-value { font-size:16px; } }

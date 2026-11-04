@@ -23,9 +23,7 @@ async function dashboard(input, failure = false, mode = 'mock') {
   const get = id => { if (!elements.has(id)) elements.set(id, element()); return elements.get(id); };
   const context = vm.createContext({
     document: { body: { dataset: { mode } }, getElementById: get, createElement: element }, activeView: 'health', data: null,
-    trainingPanel: () => () => {},
     telemetryPanel: (...args) => livePanels.push(args),
-    Plotly: { react() {} }, performance: { now: () => 0 }, requestAnimationFrame() {},
     update() {}, charts() {}, Event: class {}, window: { dispatchEvent() {} }, setTimeout() {},
     fetch: async url => {
       requests.push(url);
@@ -33,7 +31,6 @@ async function dashboard(input, failure = false, mode = 'mock') {
       return { ok: true, json: async () => input };
     },
   });
-  vm.runInContext(readFileSync(`${__dirname}/motion.js`, 'utf8'), context);
   vm.runInContext(readFileSync(`${__dirname}/health.js`, 'utf8'), context);
   await new Promise(resolve => setImmediate(resolve));
   return { elements, requests, context, livePanels };
@@ -116,14 +113,11 @@ for (const scenario of ['stale', 'missing']) {
 
 
 test('live mode uses telemetry renderer, hides mock-only views and never polls mock API', async () => {
-  const { elements, requests, livePanels } = await dashboard({ phase: 'play', stage: 'iteration 4', running: true, done: 12, total: 100 }, false, 'live');
-  assert.deepEqual(requests, ['api/progress']);
-  assert.match(elements.get('executionStage').textContent, /iteration 4/);
-  assert.equal(elements.get('fightCount').textContent, '12 / 100 · 12%');
-  assert.equal(elements.get('fightFill').style.width, '12%');
+  const { elements, requests, livePanels } = await dashboard(null, false, 'live');
+  assert.deepEqual(requests, []);
   assert.equal(livePanels.length, 1);
   assert.equal(livePanels[0][0], elements.get('executionTopology'));
-  for (const id of ['resourceFrame', 'executionLegend'])
+  for (const id of ['resourceFrame', 'executionDriver', 'executionStage', 'executionLegend'])
     assert.equal(elements.get(id).hidden, true);
   assert.notEqual(elements.get('qualityTab').disabled, true);
 });
