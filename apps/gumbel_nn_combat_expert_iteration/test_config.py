@@ -27,6 +27,8 @@ class ConfigTests(unittest.TestCase):
         self.rejects(CONFIG.replace('gpu_bank = [256, 32]', 'gpu_bank = [256, 600]'), 'gpu_bank')
         self.rejects(CONFIG.replace('rollout_mix = 0.5', 'rollout_mix = 2'), 'rollout_mix')
         self.rejects(CONFIG.replace('per_iteration = 5', 'per_iteration = 5\nhp_jitter = -0.1'), 'hp_jitter')
+        self.rejects(CONFIG.replace('per_iteration = 5', 'per_iteration = 5\nexcluded_cards = ["PURTY"]'), "['PURTY']")
+        self.rejects(CONFIG.replace('per_iteration = 5', 'per_iteration = 5\nexcluded_potions = [15]'), 'list of str')
         self.rejects(CONFIG.replace('rollout_mix = 0.5', 'rollout_mix = 0.5\nrollout_mix_decay = -1'), 'rollout_mix_decay')
 
     def test_value_sampling_is_opt_in_and_defines_the_experiment(self):
