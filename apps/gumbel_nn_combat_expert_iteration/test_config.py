@@ -28,6 +28,7 @@ class ConfigTests(unittest.TestCase):
         self.rejects(CONFIG.replace('rollout_mix = 0.5', 'rollout_mix = 2'), 'rollout_mix')
         self.rejects(CONFIG.replace('per_iteration = 5', 'per_iteration = 5\nhp_jitter = -0.1'), 'hp_jitter')
         self.rejects(CONFIG.replace('per_iteration = 5', 'per_iteration = 5\nexcluded_cards = ["PURTY"]'), "['PURTY']")
+        self.rejects(CONFIG.replace('per_iteration = 5', 'per_iteration = 5\nexcluded_relics = ["RUNIC_DOOM"]'), "['RUNIC_DOOM']")
         self.rejects(CONFIG.replace('per_iteration = 5', 'per_iteration = 5\nexcluded_potions = [15]'), 'list of str')
         self.rejects(CONFIG.replace('rollout_mix = 0.5', 'rollout_mix = 0.5\nrollout_mix_decay = -1'), 'rollout_mix_decay')
 

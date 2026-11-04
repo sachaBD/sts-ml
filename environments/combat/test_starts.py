@@ -67,14 +67,17 @@ class DrawInvariants(unittest.TestCase):
         for f in Starts(potions=True, excluded_potions=excluded).draw(POOL, 'ns:1', 4000):
             self.assertFalse({POTIONS[p] for p in f['start']['potions']} & set(excluded))
 
-    def test_decks_holding_excluded_cards_are_never_drawn(self):
-        fights = Starts(excluded_cards=('PURITY',)).draw(POOL, 'ns:1', 300)
-        self.assertTrue(all(PURITY not in deck(f)['deck'] for f in fights))
+    def test_decks_holding_an_excluded_relic_or_card_are_never_drawn(self):
+        starts = Starts(excluded_relics=('POTION_BELT',), excluded_cards=('PURITY',))
+        fights = starts.draw(POOL, 'ns:1', 300)
+        self.assertTrue(all(not starts.excludes(deck(f)) for f in fights))
+        self.assertEqual({f['fight_id'].split(':')[-2] for f in fights}, {'low'})
         with self.assertRaises(ValueError):
-            Starts(excluded_cards=('PURITY',)).draw(POOL[1:2], 'ns:1', 1)
+            starts.draw(POOL[1:], 'ns:1', 1)
 
     def test_unknown_exclusions_are_rejected(self):
-        for excluded in (dict(excluded_potions=('PURITY',)), dict(excluded_cards=('ELIXIR_POTION',))):
+        for excluded in (dict(excluded_potions=('PURITY',)), dict(excluded_relics=('PURITY',)),
+                         dict(excluded_cards=('ELIXIR_POTION',))):
             with self.assertRaises(ValueError):
                 Starts(**excluded)
 

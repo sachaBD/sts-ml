@@ -55,20 +55,21 @@ class Starts:
     hp_jitter: float = 0.0  # half of starts move their deck's HP by more than this fraction of max HP
     potions: bool = False  # fill potion slots as a human Ironclad enters Champ
     excluded_potions: tuple[str, ...] = ()  # never drawn into potion slots
+    excluded_relics: tuple[str, ...] = ()  # decks holding any of these are left out of the pool
     excluded_cards: tuple[str, ...] = ()  # decks holding any of these are left out of the pool
 
     def __post_init__(self):
-        for names, known in ((self.excluded_potions, POTIONS), (self.excluded_cards, CARDS)):
+        for names, known in ((self.excluded_potions, POTIONS), (self.excluded_relics, RELICS), (self.excluded_cards, CARDS)):
             if unknown := sorted(set(names) - set(known)):
                 raise ValueError(f'unknown names: {unknown}')
 
     def draw(self, pool, name, n):
         """n fights named name:deck:i, each on a deck ({fight_id: deck, start}) drawn uniformly, with replacement,
-        from pool without the decks holding excluded cards, then varied."""
-        if self.excluded_cards:
-            pool = [d for d in pool if not self.holds_excluded_card(d['start'])]
+        from pool without the decks it excludes, then varied."""
+        if self.excluded_relics or self.excluded_cards:
+            pool = [d for d in pool if not self.excludes(d['start'])]
             if not pool:
-                raise ValueError('every deck in the pool holds an excluded card')
+                raise ValueError('every deck in the pool holds an excluded relic or card')
         rng = random.Random(name)
         picks = rng.choices(pool, k=n)
         fights = [seeded(deck, f'{name}:{deck["fight_id"]}:{i}') for i, deck in enumerate(picks)]
@@ -76,9 +77,11 @@ class Starts:
             self.vary(f['start'], rng)
         return fights
 
-    def holds_excluded_card(self, start):
-        excluded = {CARDS.index(c) for c in self.excluded_cards}
-        return any(card['id'] in excluded for card in start['deck'])
+    def excludes(self, start):
+        """Whether start's deck holds an excluded relic or card."""
+        relics = {RELICS.index(r) for r in self.excluded_relics}
+        cards = {CARDS.index(c) for c in self.excluded_cards}
+        return any(r['id'] in relics for r in start['relics']) or any(c['id'] in cards for c in start['deck'])
 
     def vary(self, start, rng):
         """Each variation of a start, in turn."""

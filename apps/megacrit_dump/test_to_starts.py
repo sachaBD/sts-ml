@@ -44,23 +44,24 @@ class T(unittest.TestCase):
         rows = [row(play_id=f"p{i}", relics=["burning_blood"] +
                     (["runic_dome" if i % 2 else "prismatic_shard"] if i % 5 == 0 else [])) for i in range(400)]
         out, _ = ts.build(rows, {}, TEMPLATE, 2, 5)
-        parts = ts.decks(out, Starts())
+        parts = ts.decks(out, Starts(excluded_relics=ts.EXCLUDED_RELICS))
         kept = {f"mc-p{i}" for i in range(400) if i % 5}
         named = [d["fight_id"] for part in parts.values() for d in part]
         self.assertEqual(sorted(named), sorted(kept))
         firsts = {f"mc-{f['play_id']}": f["start"] for f in out if f["copy"] == 1}
         self.assertTrue(all(d["start"] == firsts[d["fight_id"]] for part in parts.values() for d in part))
-        smaller = ts.decks(out[:200], Starts())
+        smaller = ts.decks(out[:200], Starts(excluded_relics=ts.EXCLUDED_RELICS))
         for name, ds in smaller.items():
             self.assertTrue(all(d in parts[name] for d in ds))
 
-    def test_decks_holding_an_excluded_card_are_left_out(self):
+    def test_decks_holding_an_excluded_relic_or_card_are_left_out(self):
         purity = [{"card": "purity", "upgrades": 0}]
-        rows = [row(play_id=f"p{i}", deck=row()["deck"] + (purity if i % 3 == 0 else [])) for i in range(300)]
+        rows = [row(play_id=f"p{i}", relics=["burning_blood"] + (["kunai"] if i % 5 == 0 else []),
+                    deck=row()["deck"] + (purity if i % 3 == 0 else [])) for i in range(300)]
         out, _ = ts.build(rows, {}, TEMPLATE, 1, 5)
-        parts = ts.decks(out, Starts(excluded_cards=("PURITY",)))
+        parts = ts.decks(out, Starts(excluded_relics=("KUNAI",), excluded_cards=("PURITY",)))
         named = sorted(d["fight_id"] for part in parts.values() for d in part)
-        self.assertEqual(named, sorted(f"mc-p{i}" for i in range(300) if i % 3))
+        self.assertEqual(named, sorted(f"mc-p{i}" for i in range(300) if i % 5 and i % 3))
 
     def test_a_run_keeps_its_part_and_about_two_percent_are_held_out_each(self):
         parts = [ts.part(f"run-{i}") for i in range(20_000)]
