@@ -1,5 +1,6 @@
 """Train the network on self-play samples: a value loss against the combat's result + policy cross-entropy
 against the search's improved policy. Uniform sampling with replacement; a fixed number of steps."""
+from dataclasses import dataclass
 import time
 
 import torch
@@ -19,6 +20,15 @@ LOSSES = ('value', 'policy', 'win', 'round', 'turns')
 OBJECTIVE = torch.tensor([1., 1., 0., AUXILIARY_WEIGHT, AUXILIARY_WEIGHT])
 POLICY_SIDE = torch.tensor([0., 1., 0., 1., 0.])
 VALUE_SIDE = 1 - POLICY_SIDE
+
+
+@dataclass(frozen=True)
+class TrainingCounters:
+    step: int
+    total: int
+    seconds: float
+    value_loss_sum: float   # sum of optimizer-step mean losses since training began
+    policy_loss_sum: float
 
 
 def outcome_bin(targets):
@@ -63,7 +73,7 @@ def score(net, replay, rows, batch, device='cuda'):
     return tuple((totals / count).tolist())
 
 
-def train(net, optimizer, tokens, policy, targets, steps, batch=512, device='cuda', log=print, *, value_batch=0):
+def train(net, optimizer, tokens, policy, targets, steps, batch=512, device='cuda', log=print, *, value_batch=0, on_counters=None):
     """tokens/policy/targets from data.read (any device); trains net (already on `device`) in place.
     Returns the mean LOSSES of the last logged window."""
     replay = tokens if isinstance(tokens, Replay) else None
@@ -91,8 +101,12 @@ def train(net, optimizer, tokens, policy, targets, steps, batch=512, device='cud
         ((objective * measured).sum() * weight).backward()
         totals.add_(weight * measured.detach())
 
-    start, totals = time.time(), torch.zeros(len(LOSSES), device=device)
+    start, totals = time.monotonic(), torch.zeros(len(LOSSES), device=device)
+    next_report = start + 1
+    completed = torch.zeros_like(totals) if on_counters else None
     try:
+        if on_counters:
+            on_counters(TrainingCounters(0, steps, 0., 0., 0.))
         for step in range(1, steps + 1):
             if replay is not None:
                 batches, value_batches = next(ready)
@@ -106,10 +120,17 @@ def train(net, optimizer, tokens, policy, targets, steps, batch=512, device='cud
                 accumulate(x, target, y, value_side, len(y) / value_batch)
             torch.nn.utils.clip_grad_norm_(net.parameters(), 1.0, error_if_nonfinite=True)
             optimizer.step()
+            if on_counters and (step == steps or time.monotonic() >= next_report):
+                value_sum, policy_sum = (completed + totals)[:2].tolist()
+                now = time.monotonic()
+                on_counters(TrainingCounters(step, steps, now - start, value_sum, policy_sum))
+                next_report = now + 1
             if step % 500 == 0 or step == steps:
                 mean = (totals / ((step - 1) % 500 + 1)).tolist()
                 log(f'step {step}/{steps}: ' + ' '.join(f'{k} {v:.4f}' for k, v in zip(LOSSES, mean))
-                    + f' ({step * batch / (time.time() - start):.0f} states/s)')
+                    + f' ({step * batch / (time.monotonic() - start):.0f} states/s)')
+                if on_counters:
+                    completed += totals
                 totals.zero_()
     finally:
         if ready is not None:
