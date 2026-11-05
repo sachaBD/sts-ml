@@ -27,7 +27,11 @@ class Learner:
         sum(losses(self.training_net, tokens, policy, torch.ones(2), self.device)).backward()
         self.optimizer.zero_grad(set_to_none=True)
 
-    def fit(self, replay, steps, batch, log=print, *, value_batch=0, on_counters=None):
+    def fit(self, replay, steps, batch, log=print, *, value_batch=0, on_counters=None, lr=None):
+        """lr, when given, replaces the optimizer's, including one restored from a checkpoint."""
+        if lr is not None:
+            for group in self.optimizer.param_groups:
+                group['lr'] = lr
         return train(self.training_net, self.optimizer, replay, None, None, steps, batch, self.device,
                      log=log, value_batch=value_batch, on_counters=on_counters)
 

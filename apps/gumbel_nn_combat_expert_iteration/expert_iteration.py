@@ -81,7 +81,7 @@ class ExpertIteration:
             played = time.time()
             states, loss = self.train(it)
             self.control.log(iteration=it, games=len(results), wins=sum(r['won'] for r in results), states=states, **loss,
-                             rollout_mix=self.config.search.at(it).rollout_mix,
+                             rollout_mix=self.config.search.at(it).rollout_mix, lr=self.config.training.lr_at(it),
                              play_seconds=round(played - begin), train_seconds=round(time.time() - played),
                              **collection_stats(results))
             self.evaluate(it)
@@ -152,7 +152,7 @@ class ExpertIteration:
                     write_training(telemetry, counters)
                     self.control.status(stage=stage, phase='train', done=counters.step,
                                         total=counters.total, directory=str(directory))
-                trained = self.learner.fit(replay, t.steps, t.batch, value_batch=t.value_batch,
+                trained = self.learner.fit(replay, t.steps, t.batch, value_batch=t.value_batch, lr=t.lr_at(it),
                                           log=lambda line: print(f'  {line}', flush=True), on_counters=report)
             (self.control.iteration(it) / 'replay.json').write_text(json.dumps(dict(
                 available=replay.available, selected=replay.selected, drawn=replay.drawn), indent=2))
