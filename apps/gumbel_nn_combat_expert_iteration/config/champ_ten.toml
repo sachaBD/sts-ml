@@ -35,7 +35,7 @@ dim = 64
 layers = 2
 heads = 2
 gpu_tokens = 48
-export_reuse = false
+export_reuse = true
 
 [workers]
 actors = 9
