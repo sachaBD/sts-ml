@@ -89,17 +89,8 @@ and the existing row/deck-weighted held-out loss measure different distributions
 
 ## Learning rate schedule
 
-```toml
-[training]
-lr = 0.001
-lr_half_life = 30  # iterations; 0 (default) keeps lr constant
-lr_final = 0.0001
-```
-
-Iteration `i` trains at `lr_final + (lr - lr_final) * 0.5 ** (i / lr_half_life)`, logged as
-`lr`. The run's iterations set the schedule, so a warm start begins again at `lr`. The
-configured rate replaces any rate restored from a checkpoint. Changing these settings
-defines a new experiment.
+`[training]` `lr_half_life = 30` and `lr_final = 0.0001`: iteration `i` trains at
+`lr_final + (lr - lr_final) * 0.5 ** (i / lr_half_life)`. `0` (default) keeps `lr` constant.
 
 ## Web dashboard
 
