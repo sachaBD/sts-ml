@@ -56,7 +56,6 @@ shutdown_timeout_ms = 5000
 sims = 64
 at = [0]
 every = 3
-wall_share = 0
 rollout_mix = 0
 fights = "runs/benchmark/champ-full-corpus-v1/frozen/validation.jsonl"
 in_sample_fights = "runs/benchmark/champ-full-corpus-v1/frozen/legacy.jsonl" # secondary channel: legacy retention

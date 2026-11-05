@@ -50,7 +50,6 @@ shutdown_timeout_ms = 5000
 sims = 256 # 0 = the network alone
 at = [0]
 every = 3
-wall_share = 0
 # make_fights teacher <decks.jsonl> combat_v4/2026-10-09/champ-ten-rollout-v1:monitor-teacher <dir> --name mcts20k
 #   --fights-per-deck 50 --baseline puct=combat_v4/2026-10-09/champ-ten-rollout-v1:update006/monitor
 fights = "runs/benchmark/champ-ten/teacher/fights.jsonl"

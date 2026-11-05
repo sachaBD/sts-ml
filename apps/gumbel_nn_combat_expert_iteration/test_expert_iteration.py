@@ -63,7 +63,6 @@ shutdown_timeout_ms = 123
 sims = 0
 at = [0]
 every = 0
-wall_share = 0
 fights = "unused"
 """
 
@@ -165,6 +164,15 @@ class ExpertIterationInvariants(unittest.TestCase):
         for p in self.evaluations():
             self.assertEqual(p['fights'], [dict(fight_id='t', start={})])
 
+    def test_evaluation_schedule_is_periodic_or_explicit(self):
+        loop = object.__new__(expert_iteration.ExpertIteration)
+        for every in (0, 1, 3, 7):
+            loop.config = load(CONFIG.replace('every = 0', f'every = {every}')
+                               .replace('at = [0]', 'at = [0, 5]'))
+            for it in range(20):
+                self.assertEqual(loop.evaluation_due(it),
+                                 it in (0, 5) or bool(every and it % every == 0))
+
     def test_evaluation_never_explores(self):
         self.run_loop(config=CONFIG.replace('every = 0', 'every = 1'))
         self.assertEqual(len(self.evaluations()), 3)
@@ -174,7 +182,7 @@ class ExpertIterationInvariants(unittest.TestCase):
             self.assertEqual((p['search'].gumbel_scale, p['search'].sims), (1.0, 4))
 
     def test_evaluation_keeps_its_mix_while_self_play_decays(self):
-        config = (CONFIG.replace('every = 0', 'every = 1').replace('wall_share = 0\n', 'wall_share = 0\nrollout_mix = 0\n')
+        config = (CONFIG.replace('every = 0', 'every = 1').replace('[evaluation]', '[evaluation]\nrollout_mix = 0')
                   .replace('rollout_mix = 0.5', 'rollout_mix = 0.5\nrollout_mix_decay = 2'))
         self.run_loop(config=config)
         self.assertEqual({p['search'].rollout_mix for p in self.evaluations()}, {0})

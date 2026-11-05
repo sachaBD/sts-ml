@@ -47,7 +47,6 @@ shutdown_timeout_ms = 5000
 sims = 64
 at = [0]
 every = 3
-wall_share = 0
 fights = "runs/benchmark/champ-25-inputs/validation.jsonl"
 baselines = "runs/benchmark/champ-25-inputs/baselines.json"
 cohorts = "runs/benchmark/champ-25-inputs/cohorts.json"

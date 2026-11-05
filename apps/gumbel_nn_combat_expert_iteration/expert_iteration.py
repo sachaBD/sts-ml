@@ -194,11 +194,6 @@ class ExpertIteration:
         e = self.config.evaluation
         if it in e.at:
             return True
-        if e.wall_share:
-            history = self.control.history()
-            validation = sum(r['seconds'] for r in history if 'test' in r)
-            learning = sum(r.get('play_seconds', 0) + r.get('train_seconds', 0) for r in history)
-            return validation < e.wall_share * (learning + validation)
         return bool(e.every) and it % e.every == 0
 
     def play(self, stage, models, games, directory, search):
