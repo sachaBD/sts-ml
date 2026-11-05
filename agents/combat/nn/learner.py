@@ -4,7 +4,8 @@ from dataclasses import asdict
 import torch
 
 from .model import build_model
-from .train import score, train
+from .tokens import TokenKind, WIDTH
+from .train import losses, score, train
 
 
 class Learner:
@@ -13,9 +14,21 @@ class Learner:
         self.net = build_model(spec).to(device)
         self.optimizer = torch.optim.AdamW(self.net.parameters(), lr=lr, weight_decay=1e-4)
         self.device = device
+        self.training_net = self.net  # compile() replaces it; checkpoints, scoring and export use self.net
+
+    def compile(self):
+        """Compile training once per process, paying the cost now with one synthetic forward and backward.
+        Weights, optimizer state and RNG are untouched, so checkpoints and resume are unaffected."""
+        self.training_net = torch.compile(self.net, dynamic=True)
+        tokens = torch.zeros(2, 3, WIDTH)
+        tokens[:, 0, 0], tokens[:, 1:, 0] = TokenKind.CONTEXT, TokenKind.ACTION
+        self.net.train()
+        policy = torch.tensor([[0., .5, .5]] * 2)
+        sum(losses(self.training_net, tokens, policy, torch.ones(2), self.device)).backward()
+        self.optimizer.zero_grad(set_to_none=True)
 
     def fit(self, replay, steps, batch, log=print, *, value_batch=0, on_counters=None):
-        return train(self.net, self.optimizer, replay, None, None, steps, batch, self.device,
+        return train(self.training_net, self.optimizer, replay, None, None, steps, batch, self.device,
                      log=log, value_batch=value_batch, on_counters=on_counters)
 
     def score(self, replay, rows, batch):
