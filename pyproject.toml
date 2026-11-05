@@ -41,6 +41,8 @@ jax = [
 [tool.uv]
 package = false                         # an environment for this repo, not an installable package
 environments = ["sys_platform == 'linux'"]
+# uv's own CPython builds ship Python.h (torch.compile builds kernels against it) and ignore apt upgrades.
+python-preference = "only-managed"
 
 [tool.uv.sources]
 torch = { index = "pytorch-cu126" }
