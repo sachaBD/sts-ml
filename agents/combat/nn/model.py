@@ -20,6 +20,8 @@ class ModelSpec:
     value: str = 'win'  # win: one win logit; outcome: LOSS_BINS + WIN_BINS outcome logits
     auxiliary: bool = False  # AUXILIARY predictions follow the value logits
 
+    target_association: bool = False  # action column 67 references its target monster row
+
     def __post_init__(self):
         if self.kind not in ('transformer', 'entity', 'inventory_v1'):
             raise ValueError('model.kind: transformer, entity or inventory_v1')

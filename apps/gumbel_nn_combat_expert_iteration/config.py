@@ -87,11 +87,12 @@ class Model:
     gpu_mixed_precision: bool = False
     value: str = 'win'  # win: one win logit; outcome: loss/win outcome bins (agents/combat/nn/model.py)
     auxiliary: bool = False  # train HP lost, enemy HP lost and turns remaining heads
+    target_association: bool = False
     gpu_wide_tokens: int = resumable(default=0)
     gpu_wide_attended: int | None = resumable(default=None)
 
     def architecture(self):
-        return ModelSpec(self.kind, self.dim, self.layers, self.heads, self.value, self.auxiliary)
+        return ModelSpec(self.kind, self.dim, self.layers, self.heads, self.value, self.auxiliary, self.target_association)
 
     def deployment(self):
         return ExportSpec(self.gpu_tokens, self.gpu_attended, self.gpu_mixed_precision)

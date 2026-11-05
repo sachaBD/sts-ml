@@ -34,7 +34,7 @@ private:
 class Decision {
 public:
     Decision(const sts::BattleContext& state, std::unique_ptr<search::CombatSearch>, double rollout_mix,
-             std::uint64_t rollout_seed);
+             std::uint64_t rollout_seed, bool target_association = false);
     const infra::Tokens* pending() const { return search_->pending() ? &query_ : nullptr; }
     void evaluated(const infra::Prediction&);
     search::Result result() const { return search_->result(); }
@@ -44,5 +44,6 @@ private:
     std::unique_ptr<search::CombatSearch> search_;
     std::optional<search::RolloutBlend> blend_;
     infra::Tokens query_;
+    bool target_association_;
 };
 }  // namespace stsrl::nn

@@ -194,7 +194,7 @@ CombatEnvironment::~CombatEnvironment() = default;
 CombatEnvironment::CombatEnvironment(CombatEnvironment&&) noexcept = default;
 CombatEnvironment& CombatEnvironment::operator=(CombatEnvironment&&) noexcept = default;
 
-EncodedCombatState encode_state(const sts::BattleContext& state, CardCoverage coverage) {
+EncodedCombatState encode_state(const sts::BattleContext& state, CardCoverage coverage, std::vector<int>* monster_slots) {
     EncodedCombatState encoding;
     const auto& player = state.player;
     int incoming = 0;
@@ -251,7 +251,11 @@ EncodedCombatState encode_state(const sts::BattleContext& state, CardCoverage co
         if (monster.id != sts::MonsterId::INVALID && monster.isAlive()) monsters.push_back({encode_monster(state, monster), slot, &monster});
     }
     std::sort(monsters.begin(), monsters.end(), [](const auto& a, const auto& b) { return monster_less(a.token, b.token); });
-    for (const auto& monster : monsters) encoding.monsters.push_back(monster.token);
+    if (monster_slots) monster_slots->clear();
+    for (const auto& monster : monsters) {
+        encoding.monsters.push_back(monster.token);
+        if (monster_slots) monster_slots->push_back(monster.slot);
+    }
     for (std::size_t ci = 0; ci < cards.size(); ++ci) {
         const auto& source = cards[ci];
         if (source.hand_index < 0) continue;  // (before card_meta: only hand cards interact)

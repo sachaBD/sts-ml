@@ -6,6 +6,7 @@ CardZone applies only to card tokens: other token kinds reuse the numeric column
 from dataclasses import dataclass
 from enum import IntEnum
 
+import torch
 from torch import Tensor
 
 WIDTH = 68
@@ -52,6 +53,19 @@ class TokenRows:
     @property
     def numeric(self) -> Tensor:
         return self.data[..., 3:]
+
+    @property
+    def features(self) -> Tensor:
+        # The final action column is reserved for a row reference, not a scalar input.
+        return self.numeric.masked_fill(
+            self.is_kind(TokenKind.ACTION)[..., None]
+            & (torch.arange(WIDTH - 3, device=self.data.device) == WIDTH - 4), 0)
+
+    def with_targets(self, embedded: Tensor) -> Tensor:
+        """Add the target monster embedding before attention; row zero means no target."""
+        index = (self.data[..., -1] * self.is_kind(TokenKind.ACTION)).long()
+        target = embedded.gather(-2, index[..., None].expand_as(embedded))
+        return embedded + target * (index > 0)[..., None]
 
     @property
     def valid(self) -> Tensor:

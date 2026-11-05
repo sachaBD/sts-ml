@@ -55,7 +55,7 @@ Json explain(const Json& request, const Network& network) {
     auto random = fight.decision_random();
     auto search = std::make_unique<search::Gumbel>(state, settings, random());
     const auto& gumbel = *search;
-    Decision decision{state, std::move(search), mix, random()};
+    Decision decision{state, std::move(search), mix, random(), request.value("target_association", false)};
     Json nodes = Json::array();  // node i answered query i
     while (const auto tokens = decision.pending()) {
         const auto prediction = network(*tokens);

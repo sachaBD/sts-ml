@@ -25,9 +25,11 @@ struct Decision {
 };
 
 // The state part of Decision::encoding (all but legal_actions): what the value net reads.
+// monster_slots, when requested, maps the sorted monster tokens back to simulator slots.
 enum class CardCoverage { legacy_act1, ironclad_events };
 [[nodiscard]] EncodedCombatState encode_state(const sts::BattleContext& state,
-                                             CardCoverage coverage = CardCoverage::legacy_act1);
+                                             CardCoverage coverage = CardCoverage::legacy_act1,
+                                             std::vector<int>* monster_slots = nullptr);
 // The legal action `action_bits` at `state` as a policy token (legal_actions of Decision::encoding;
 // execution_index is the caller's). Search edges are encoded with it too.
 [[nodiscard]] ActionToken encode_action(const sts::BattleContext& state, std::uint32_t action_bits,
