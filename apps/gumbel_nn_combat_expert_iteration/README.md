@@ -152,11 +152,3 @@ To resume by hand: stop any orphan `nn_play`, move the partial `iterNNN` aside, 
 the experiment.
 
 The reserved final fights (`[evaluation].final_fights`) are copied with the run and never played by it.
-
-`[model].target_association = true` links each targeted card/potion action to its monster embedding before
-attention, for both model kinds. It uses action column 67 as a row reference (zero means no target),
-not as a numeric feature; all existing source and damage-interaction features remain unchanged.
-This is an opt-in checkpoint semantic: existing configurations/checkpoints keep the original encoding,
-and cannot resume as target-associated models. Use newly generated self-play samples for target links;
-older replay has no links. Standalone workers need `--target-association 1`; explanation requests need
-`"target_association": true` when using these models.

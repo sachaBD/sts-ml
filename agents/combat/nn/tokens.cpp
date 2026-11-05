@@ -36,7 +36,7 @@ Encoding encoding_from_name(std::string_view name) {
 }
 
 stsrl::infra::Tokens encode(const sts::BattleContext& bc, std::span<const sts::search::Action> actions,
-                            bool target_association, Encoding encoding) {
+                            Encoding encoding) {
     if (encoding == Encoding::inventory_v1) return encode_inventory(bc, actions);
     if (bc.player.hasRelic<sts::RelicId::RUNIC_DOME>()) throw std::invalid_argument{"nn: Runic Dome hides intents"};
     std::vector<int> monster_slots;
@@ -81,7 +81,7 @@ stsrl::infra::Tokens encode(const sts::BattleContext& bc, std::span<const sts::s
             }
         r.put(selected); r.put_all(subset);
         r.put_all(a.potion ? a.potion->numeric : decltype(a.potion->numeric){});
-        if (target_association && a.target_monster) {
+        if (a.target_monster) {
             const auto target = std::find(monster_slots.begin(), monster_slots.end(), move.getTargetIdx());
             if (target == monster_slots.end()) throw std::logic_error{"nn: target monster missing"};
             // Column 67 is a row reference, never a numeric feature. Zero means no target.

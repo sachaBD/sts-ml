@@ -1,5 +1,4 @@
 """A checkpoint must preserve the behavior of continued learning."""
-from dataclasses import replace
 from pathlib import Path
 import tempfile
 import unittest
@@ -62,24 +61,16 @@ class CheckpointTests(unittest.TestCase):
 
                 torch.testing.assert_close(resumed.net.eval()(tokens), expected, rtol=0, atol=0)
 
-    def test_target_association_is_an_explicit_checkpoint_semantic(self):
-        for kind in ('transformer', 'entity'):
-            with self.subTest(kind=kind), tempfile.TemporaryDirectory() as temporary:
-                checkpoint = Path(temporary) / 'model.pt'
-                spec = small_spec(kind)
-                learner = Learner(spec, lr=1e-3, device='cpu')
-                tokens = combat_tokens()
-                tokens[:, 7:, -1] = 0  # legacy native encoder's reserved column
-                expected = learner.net.eval()(tokens)
-                learner.save(checkpoint)
-                saved = torch.load(checkpoint, weights_only=True)
-                del saved['spec']['target_association']
-                torch.save(saved, checkpoint)
-                resumed = Learner(spec, lr=1e-3, device='cpu')
-                resumed.load(checkpoint)
-                torch.testing.assert_close(resumed.net.eval()(tokens), expected, rtol=0, atol=0)
-                with self.assertRaisesRegex(ValueError, 'architecture'):
-                    Learner(replace(spec, target_association=True), lr=1e-3, device='cpu').load(checkpoint)
+    def test_checkpoint_without_target_encoding_version_is_rejected(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            checkpoint = Path(temporary) / 'model.pt'
+            learner = Learner(small_spec('entity'), lr=1e-3, device='cpu')
+            learner.save(checkpoint)
+            saved = torch.load(checkpoint, weights_only=True)
+            del saved['spec']['encoding_version']
+            torch.save(saved, checkpoint)
+            with self.assertRaisesRegex(ValueError, 'architecture'):
+                learner.load(checkpoint)
 
     def test_checkpoints_saved_before_the_value_field_still_load(self):
         with tempfile.TemporaryDirectory() as temporary:

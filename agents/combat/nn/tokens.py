@@ -52,14 +52,9 @@ class TokenRows:
 
     @property
     def numeric(self) -> Tensor:
-        return self.data[..., 3:]
-
-    @property
-    def features(self) -> Tensor:
-        # The final action column is reserved for a row reference, not a scalar input.
-        return self.numeric.masked_fill(
-            self.is_kind(TokenKind.ACTION)[..., None]
-            & (torch.arange(WIDTH - 3, device=self.data.device) == WIDTH - 4), 0)
+        # The final action column is a row reference, not a numeric feature.
+        return torch.cat((self.data[..., 3:-1], self.data[..., -1:].masked_fill(
+            self.is_kind(TokenKind.ACTION)[..., None], 0)), dim=-1)
 
     def with_targets(self, embedded: Tensor) -> Tensor:
         """Add the target monster embedding before attention; row zero means no target."""

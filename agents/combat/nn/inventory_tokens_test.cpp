@@ -80,7 +80,7 @@ TEST(InventoryTokens, EffectsHaveOwnersAndAllEntitiesAttend) {
     state.player.setHasStatus<PS::BARRICADE>(true);
     state.monsters.arr[0].strength = -3;
     const auto actions = stsrl::combat::legal_actions(state);
-    const auto tokens = encode(state, actions, false, Encoding::inventory_v1);
+    const auto tokens = encode(state, actions, Encoding::inventory_v1);
     bool player_strength = false, monster_strength = false;
     for (int i = 0; i < tokens.count; ++i) {
         const auto type = static_cast<InventoryKind>(kind(tokens, i));

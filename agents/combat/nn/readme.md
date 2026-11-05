@@ -22,4 +22,5 @@ for the discussed topology. Omit `gpu_attended` and `gpu_wide_attended`: all tok
 Training selects the native encoder automatically. Standalone native play/import/check
 and explanation requests select `inventory_v1` through `--encoding` or the `encoding` request field.
 This is a new checkpoint architecture and input schema, not a compatible warm start from
-`entity`/`transformer` weights or replay. Legacy models keep their original semantics.
+`entity`/`transformer` weights or replay. Existing model kinds follow main's version-2
+target-linked encoding; checkpoints without that encoding version are rejected.

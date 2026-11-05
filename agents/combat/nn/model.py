@@ -1,6 +1,6 @@
 """Combat prediction contract and persisted architectures. No deployment policy."""
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import torch
 from torch import Tensor, nn
@@ -19,8 +19,7 @@ class ModelSpec:
     heads: int
     value: str = 'win'  # win: one win logit; outcome: LOSS_BINS + WIN_BINS outcome logits
     auxiliary: bool = False  # AUXILIARY predictions follow the value logits
-
-    target_association: bool = False  # action column 67 references its target monster row
+    encoding_version: int = field(default=2, init=False)  # action-to-target row references
 
     def __post_init__(self):
         if self.kind not in ('transformer', 'entity', 'inventory_v1'):

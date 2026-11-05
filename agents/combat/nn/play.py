@@ -37,7 +37,7 @@ def model_files(directory, gpu_bank):
 
 
 def play(binary, models, fights, directory, search, workers, progress=lambda done, pid: None, sample_devices=True,
-         gpu_attended=0, gpu_wide_attended=0, target_association=False, encoding='legacy'):
+         gpu_attended=0, gpu_wide_attended=0, encoding='legacy'):
     """Plays `fights` with nn_play `binary` and the models in `models`; writes samples, results and logs to `directory`.
     Results are journaled as fights finish; progress(done, pid) follows them."""
     directory.mkdir(parents=True, exist_ok=True)
@@ -57,8 +57,6 @@ def play(binary, models, fights, directory, search, workers, progress=lambda don
                '--rollout-mix', str(search.rollout_mix), '--particles', str(search.particles)]
     if encoding != 'legacy':
         command += ['--encoding', encoding]
-    if target_association:
-        command += ['--target-association', '1']
     if gpu_attended:
         command += ['--gpu-attended', str(gpu_attended)]
     if gpu_wide_attended or (models / 'wide/model-gpu.onnx').is_file():

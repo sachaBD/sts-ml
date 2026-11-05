@@ -195,7 +195,6 @@ class ExpertIteration:
     def play(self, stage, models, games, directory, search):
         self.control.status(stage=stage, phase='play', done=0, total=len(games), directory=str(directory))
         return play(self.inputs / 'nn_play', models, games, directory, search, self.config.workers,
-                    target_association=self.config.model.target_association,
                     encoding='inventory_v1' if self.config.model.kind == 'inventory_v1' else 'legacy',
                     gpu_attended=self.config.model.gpu_attended or 0,
                     gpu_wide_attended=self.config.model.gpu_wide_attended or 0,
