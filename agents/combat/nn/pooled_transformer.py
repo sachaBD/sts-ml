@@ -40,8 +40,7 @@ class PooledTransformer(CombatModel):
         rows = TokenRows(tokens)
         groups, keep = self._group_masks(rows)
         embedded = self._embed(rows)
-        if self.spec.target_association:
-            embedded = rows.with_targets(embedded)
+        embedded = rows.with_targets(embedded)
         pooled = self._pool(embedded, groups)
         retained, index, valid = self._compact(embedded, keep, slots)
         hidden = self._attend(retained, pooled, valid)
@@ -58,7 +57,7 @@ class PooledTransformer(CombatModel):
     def _embed(self, rows: TokenRows) -> Tensor:
         kind = rows.kind.long()
         return (self.kind(kind) + self.id(kind * ID_CAPACITY + rows.id)
-                + self.id2(rows.id2) + self.numeric(rows.features if self.spec.target_association else rows.numeric))
+                + self.id2(rows.id2) + self.numeric(rows.numeric))
 
     def _pool(self, embedded: Tensor, groups: Tensor) -> Tensor:
         """Shared item transform, sum per group, then normalize."""

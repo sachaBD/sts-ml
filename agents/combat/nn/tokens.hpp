@@ -2,7 +2,7 @@
 // A combat decision as one sequence of tokens (the network's only input).
 // Token = [type, id, id2, numeric x 65]; types: 1 context, 2 card, 3 monster, 4 potion, 5 relic, 6 legal action.
 // The legal actions are the last tokens, in the order given.
-// With target_association, action column 67 references the target monster row (0 = no target).
+// Action column 67 references the target monster row (0 = no target).
 #include "infra/inference/backend.hpp"
 #include <span>
 #include <vector>
@@ -12,6 +12,5 @@
 namespace stsrl::nn {
 inline constexpr int width = 68;
 
-stsrl::infra::Tokens encode(const sts::BattleContext&, std::span<const sts::search::Action> actions,
-                            bool target_association = false);
+stsrl::infra::Tokens encode(const sts::BattleContext&, std::span<const sts::search::Action> actions);
 }  // namespace stsrl::nn

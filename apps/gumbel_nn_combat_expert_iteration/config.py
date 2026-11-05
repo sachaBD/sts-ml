@@ -85,12 +85,11 @@ class Model:
     export_reuse: bool = resumable()
     gpu_attended: int | None = None
     gpu_mixed_precision: bool = False
-    target_association: bool = False
     gpu_wide_tokens: int = resumable(default=0)
     gpu_wide_attended: int | None = resumable(default=None)
 
     def architecture(self):
-        return ModelSpec(self.kind, self.dim, self.layers, self.heads, self.target_association)
+        return ModelSpec(self.kind, self.dim, self.layers, self.heads)
 
     def deployment(self):
         return ExportSpec(self.gpu_tokens, self.gpu_attended, self.gpu_mixed_precision)
