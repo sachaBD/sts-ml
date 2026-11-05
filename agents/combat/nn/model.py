@@ -11,6 +11,7 @@ class ModelSpec:
     dim: int
     layers: int
     heads: int
+    target_association: bool = False  # action column 67 references its target monster row
 
     def __post_init__(self):
         if self.kind not in ('transformer', 'entity'):

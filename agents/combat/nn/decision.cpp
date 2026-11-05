@@ -30,8 +30,8 @@ std::mt19937_64 Fight::decision_random() const {
 }
 
 Decision::Decision(const sts::BattleContext& state, std::unique_ptr<search::CombatSearch> search,
-                   double rollout_mix, std::uint64_t rollout_seed)
-    : search_{std::move(search)} {
+                   double rollout_mix, std::uint64_t rollout_seed, bool target_association)
+    : search_{std::move(search)}, target_association_{target_association} {
     if (rollout_mix > 0) blend_.emplace(state, rollout_mix, rollout_seed);
     encode_query();
 }
@@ -44,6 +44,6 @@ void Decision::evaluated(const infra::Prediction& prediction) {
 }
 
 void Decision::encode_query() {
-    if (const auto query = search_->pending()) query_ = encode(query->state, query->actions);
+    if (const auto query = search_->pending()) query_ = encode(query->state, query->actions, target_association_);
 }
 }  // namespace stsrl::nn

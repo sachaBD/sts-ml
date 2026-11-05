@@ -10,6 +10,8 @@ import torch
 from ._test_support import combat_tokens, small_spec, train_once
 from .export import ExportSpec, ModelExporter
 from .learner import Learner
+from .model import ModelSpec, build_model
+from .tokens import WIDTH
 
 
 def onnx_predictions(path, tokens):
@@ -90,6 +92,47 @@ class PooledTransformerExportTests(ExportContract, unittest.TestCase):
 
         self.assertTrue(torch.isnan(gpu_values).all())
         torch.testing.assert_close(cpu_predictions, model_predictions(self.model, self.tokens), rtol=2e-4, atol=2e-5)
+
+
+class TargetAssociationExportTests(unittest.TestCase):
+    def test_targets_survive_export_without_learning_monster_order(self):
+        torch.set_num_threads(1)
+        # Same species, different instances; identical source card/potion action features.
+        tokens = torch.zeros(1, 8, WIDTH)
+        tokens[0, :, 0] = torch.tensor([1, 3, 3, 6, 6, 6, 6, 6])
+        tokens[0, 1:3, 1] = 17
+        tokens[0, 1:3, 3] = torch.tensor([.2, .8])
+        tokens[0, 3:5, 1:3] = torch.tensor([23, 1])  # non-damaging card
+        tokens[0, 5:7, 1:3] = torch.tensor([11, 2])  # targeted potion
+        tokens[0, 3:7, -1] = torch.tensor([1, 2, 1, 2])
+        tokens[0, 7, 2] = 5  # no-target End Turn
+        permuted = tokens[:, [0, 2, 1, 3, 4, 5, 6, 7]].clone()
+        permuted[0, 3:7, -1] = torch.tensor([2, 1, 2, 1])
+        swapped = tokens.clone()
+        swapped[0, 3:7, -1] = torch.tensor([2, 1, 2, 1])
+
+        for kind in ('transformer', 'entity'):
+            with self.subTest(kind=kind), tempfile.TemporaryDirectory() as temporary:
+                torch.manual_seed(7)
+                model = build_model(ModelSpec(kind, 16, 1, 2, target_association=True)).eval()
+                directory = Path(temporary)
+                ModelExporter(model.spec, ExportSpec(tokens=8, attended=8 if kind == 'entity' else None)).export(
+                    model, directory, batch=1, bank=())
+                for filename, dtype in [('model.onnx', torch.float32), ('model-gpu.onnx', torch.float16)]:
+                    path = directory / filename
+                    inputs = tokens.to(dtype)
+                    expected = model_predictions(model, tokens)
+                    actual = onnx_predictions(path, inputs)
+                    torch.testing.assert_close(actual, expected, rtol=2e-4, atol=2e-5)
+                    torch.testing.assert_close(onnx_predictions(path, permuted.to(dtype)), actual,
+                                               rtol=2e-4, atol=2e-5)
+                    _, logits = actual
+                    self.assertGreater(abs((logits[0, 3] - logits[0, 4]).item()), 1e-5)
+                    self.assertGreater(abs((logits[0, 5] - logits[0, 6]).item()), 1e-5)
+                    changed = onnx_predictions(path, swapped.to(dtype))
+                    torch.testing.assert_close(changed[1], logits[:, [0, 1, 2, 4, 3, 6, 5, 7]],
+                                               rtol=2e-4, atol=2e-5)
+                    torch.testing.assert_close(changed[0], actual[0], rtol=2e-4, atol=2e-5)
 
 
 if __name__ == '__main__':

@@ -38,14 +38,15 @@ struct Game {
     Json record;  // its fights-file line
     Fight fight;
     double rollout_mix;
+    bool target_association;
     std::optional<Decision> decision;
     std::vector<std::pair<stsrl::infra::Tokens, std::vector<float>>> decisions;  // (state, improved policy) per searched move
     Clock::time_point begin = Clock::now();
 
-    Game(Json r, double mix)
+    Game(Json r, double mix, bool targets)
         : record(std::move(r)),
           fight{stsrl::combat_v4::start_battle(record.at("start")), record.at("start").at("seed").get<std::uint64_t>()},
-          rollout_mix{mix} {}
+          rollout_mix{mix}, target_association{targets} {}
 
     // Play on until the search needs the network (its query) or the game is over (nullptr).
     const stsrl::infra::Tokens* advance(const stsrl::search::Gumbel::Settings& settings) {
@@ -53,14 +54,14 @@ struct Game {
             if (decision) {
                 if (const auto query = decision->pending()) return query;
                 auto r = decision->result();
-                decisions.emplace_back(encode(fight.state(), r.actions), std::move(r.policy));
+                decisions.emplace_back(encode(fight.state(), r.actions, target_association), std::move(r.policy));
                 decision.reset();
                 fight.play(r.action);
             }
             if (fight.over()) return nullptr;
             auto random = fight.decision_random();
             auto search = std::make_unique<stsrl::search::Gumbel>(fight.state(), settings, random());
-            decision.emplace(fight.state(), std::move(search), rollout_mix, random());
+            decision.emplace(fight.state(), std::move(search), rollout_mix, random(), target_association);
         }
     }
 
@@ -71,6 +72,7 @@ struct Game {
 struct Shared {
     stsrl::search::Gumbel::Settings settings;
     double rollout_mix = 0;
+    bool target_association = false;
     std::vector<Json> fights;
     std::atomic<std::size_t> next{0};
     std::mutex output;
@@ -80,7 +82,7 @@ struct Shared {
 
     std::unique_ptr<Game> next_game() {
         const auto i = next++;
-        return i < fights.size() ? std::make_unique<Game>(fights[i], rollout_mix) : nullptr;
+        return i < fights.size() ? std::make_unique<Game>(fights[i], rollout_mix, target_association) : nullptr;
     }
 
     void finish(const Game& g) {
@@ -206,6 +208,7 @@ int main(int argc, char** argv) try {
     std::vector<std::filesystem::path> gpu_bank;
     stsrl::search::Gumbel::Settings settings;
     double rollout_mix = 0.5;
+    bool target_association = false;
     for (int i = 4; i + 1 < argc; i += 2) {
         const std::string k = argv[i], v = argv[i + 1];
         if (k == "--threads") threads = std::stoi(v);
@@ -228,6 +231,7 @@ int main(int argc, char** argv) try {
         else if (k == "--gpu-attended") gpu_attended = std::stoi(v);
         else if (k == "--gpu-wide-model") gpu_wide_model = v;
         else if (k == "--gpu-wide-attended") gpu_wide_attended = std::stoi(v);
+        else if (k == "--target-association") target_association = std::stoi(v) != 0;
         else if (k == "--sims") settings.simulations = std::stoi(v);
         else if (k == "--value-scale") settings.value_scale = std::stod(v);
         else if (k == "--rollout-mix") rollout_mix = std::stod(v);
@@ -255,7 +259,7 @@ int main(int argc, char** argv) try {
         if (backend->width() != width) throw std::invalid_argument{"model token width does not match combat encoder"};
     std::cerr << "timing: evaluator setup "
               << std::chrono::duration<double>(Clock::now() - setup_begin).count() << " s\n";
-    Shared shared{settings, rollout_mix, {}, {}, {},
+    Shared shared{settings, rollout_mix, target_association, {}, {}, {},
                   std::ofstream{argv[3], std::ios::binary | std::ios::app | std::ios::ate},
                   std::filesystem::path{argv[3]}.filename().string()};
     for (std::string line; std::getline(std::cin, line);)
