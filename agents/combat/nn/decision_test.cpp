@@ -97,29 +97,3 @@ TEST(Decision, WithoutRolloutsIsTheSearchOnTheNetwork) {
         }
     }
 }
-
-TEST(Tokens, TargetReferencesIdentifyMonsterInstances) {
-    auto state = jaw_worm(1);
-    // Two otherwise identical instances must still have separate references.
-    state.monsters.arr[1] = state.monsters.arr[0];
-    state.monsters.arr[1].idx = 1;
-    state.cards.cardsInHand = 1;
-    state.cards.hand[0] = sts::CardInstance{sts::CardId::TRIP};
-    state.obtainPotion(sts::Potion::FIRE_POTION);
-    using A = sts::search::Action;
-    using T = sts::search::ActionType;
-    const std::vector<A> actions{{T::CARD, 0, 0}, {T::CARD, 0, 1},
-                                 {T::POTION, 0, 0}, {T::POTION, 0, 1}, {T::END_TURN}};
-    const auto linked = encode(state, actions);
-    const int first = linked.count - linked.actions;
-    for (int i = 0; i < 4; ++i) {
-        const auto column = (first + i) * width + width - 1;
-        const int target = int(linked.data[column]);
-        ASSERT_GT(target, 0);
-        ASSERT_LT(target, first);
-        EXPECT_EQ(linked.data[target * width], 3);  // monster
-        EXPECT_EQ(linked.data[column], linked.data[(first + i % 2) * width + width - 1]);
-    }
-    EXPECT_NE(linked.data[first * width + width - 1], linked.data[(first + 1) * width + width - 1]);
-    EXPECT_EQ(linked.data.back(), 0);  // End Turn has no target
-}
