@@ -31,6 +31,17 @@ class CheckpointTests(unittest.TestCase):
             for name, parameter in learner.net.state_dict().items():
                 torch.testing.assert_close(resumed.net.state_dict()[name], parameter, rtol=0, atol=0)
 
+    def test_a_given_learning_rate_replaces_the_checkpoint_rate(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            path = samples(root / 'data', [('a', 7, 1, 1), ('b', 5, 3, 1)])
+            Learner(small_spec('entity'), lr=1e-3, device='cpu').save(root / 'model.pt')
+            warm = Learner(small_spec('entity'), lr=1e-3, device='cpu')
+            warm.load(root / 'model.pt')
+            with Replay([path], balanced=False) as replay:
+                warm.fit(replay, 1, 5, log=lambda _: None, lr=1e-4)
+            self.assertEqual({group['lr'] for group in warm.optimizer.param_groups}, {1e-4})
+
     def test_resume_matches_uninterrupted_learning(self):
         torch.set_num_threads(1)
         for kind in ('transformer', 'entity'):

@@ -65,6 +65,14 @@ class Training:
     prune_replay: bool = resumable()
     device: str
     value_batch: int = 0  # 0: shared samples; positive: one state from each of this many distinct combats
+    lr_half_life: int = 0  # iterations to halve lr's distance to lr_final; 0 keeps lr constant
+    lr_final: float = 0.0
+
+    def lr_at(self, it):
+        """The learning rate of training iteration `it`."""
+        if not self.lr_half_life:
+            return self.lr
+        return self.lr_final + (self.lr - self.lr_final) * 0.5 ** (it / self.lr_half_life)
 
 
 @dataclass(frozen=True)
@@ -181,6 +189,8 @@ def validate(c):
          and t.value_batch >= 0,
          'training: positive steps, batch, lr, replay_window; nonnegative max_train_rows, value_batch')
     need(not t.value_batch or t.max_train_rows == 0, 'value_batch requires max_train_rows = 0')
+    need(t.lr_half_life >= 0 and 0 <= t.lr_final < t.lr, 'training: nonnegative lr_half_life, lr_final in [0, lr)')
+    need(t.lr_half_life or t.lr_final == 0, 'training: lr_final requires lr_half_life')
     try:
         m.deployment().validate(m.architecture())
         need(m.gpu_wide_tokens >= 0, 'nonnegative gpu_wide_tokens required')

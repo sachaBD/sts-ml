@@ -87,6 +87,11 @@ Requires `max_train_rows = 0` and replay with recorded combat ranges (new collec
 Changing this setting defines a new experiment. Combat-balanced training value loss
 and the existing row/deck-weighted held-out loss measure different distributions.
 
+## Learning rate schedule
+
+`[training]` `lr_half_life = 30` and `lr_final = 0.0001`: iteration `i` trains at
+`lr_final + (lr - lr_final) * 0.5 ** (i / lr_half_life)`. `0` (default) keeps `lr` constant.
+
 ## Web dashboard
 
 The default **Run health** view shows live execution telemetry from the existing

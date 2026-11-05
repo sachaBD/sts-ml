@@ -67,6 +67,23 @@ class ConfigTests(unittest.TestCase):
                 self.assertEqual(search.at(decay).rollout_mix, 0)
                 self.assertGreater(search.at(decay - 1).rollout_mix, 0)
 
+    def test_learning_rate_halves_its_distance_to_lr_final_every_half_life(self):
+        for half_life in (0, 1, 7, 30):
+            schedule = f'lr = 0.001\nlr_half_life = {half_life}\nlr_final = 0.0001' if half_life else 'lr = 0.001'
+            training = load(CONFIG.replace('lr = 0.001', schedule)).training
+            rates = [training.lr_at(it) for it in range(200)]
+            self.assertEqual(rates[0], training.lr)
+            self.assertTrue(all(training.lr_final <= b <= a <= training.lr for a, b in zip(rates, rates[1:])))
+            if half_life:
+                gap = lambda it: training.lr_at(it) - training.lr_final
+                self.assertAlmostEqual(gap(half_life) / gap(0), 0.5)
+                self.assertAlmostEqual(gap(3 * half_life) / gap(2 * half_life), 0.5)
+            else:
+                self.assertEqual(set(rates), {training.lr})
+        self.rejects(CONFIG.replace('lr = 0.001', 'lr = 0.001\nlr_half_life = -1'), 'lr_half_life')
+        self.rejects(CONFIG.replace('lr = 0.001', 'lr = 0.001\nlr_half_life = 10\nlr_final = 0.001'), 'lr_final')
+        self.rejects(CONFIG.replace('lr = 0.001', 'lr = 0.001\nlr_final = 0.0001'), 'lr_final requires lr_half_life')
+
     def test_evaluation_resume_preserves_search_but_allows_scheduling_changes(self):
         base = load(CONFIG)
         evaluation = base.evaluation.sets[0]
