@@ -42,7 +42,8 @@ def win_probability(context: Tensor, spec: ModelSpec) -> Tensor:
     value = context.float()[:, :value_width(spec)]
     if spec.value == 'win':
         return torch.sigmoid(value[:, 0])
-    return value.softmax(-1)[:, LOSS_BINS:].sum(-1)
+    # Summed softmax mass can round above 1 in fp32 or fp16; NaNs must still propagate.
+    return value.softmax(-1)[:, LOSS_BINS:].sum(-1).clamp(0, 1)
 
 
 class CombatModel(nn.Module, ABC):

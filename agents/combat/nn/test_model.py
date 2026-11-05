@@ -4,7 +4,7 @@ import unittest
 import torch
 
 from ._test_support import combat_tokens, small_spec
-from .model import AUXILIARY, LOSS_BINS, WIN_BINS, ModelSpec, build_model
+from .model import AUXILIARY, LOSS_BINS, WIN_BINS, ModelSpec, build_model, win_probability
 from .tokens import TokenKind, TokenRows, WIDTH
 
 
@@ -65,6 +65,19 @@ class ModelTests(unittest.TestCase):
                 bins = LOSS_BINS + WIN_BINS
                 self.assertEqual(context.shape, (len(tokens), bins + len(AUXILIARY) * auxiliary))
                 torch.testing.assert_close(values, context[:, :bins].softmax(-1)[:, LOSS_BINS:].sum(-1))
+
+    def test_saturated_outcome_probabilities_stay_bounded_and_preserve_nans(self):
+        spec = ModelSpec('entity', dim=16, layers=1, heads=2, value='outcome', auxiliary=True)
+        generator = torch.Generator().manual_seed(0)
+        for dtype in (torch.float32, torch.float16, torch.bfloat16):
+            context = torch.randn(4096, LOSS_BINS + WIN_BINS + len(AUXILIARY), generator=generator)
+            context[:2048, :LOSS_BINS] -= 80  # near-certain wins
+            context[2048:, LOSS_BINS:LOSS_BINS + WIN_BINS] -= 80  # near-certain losses
+            context[0] = float('nan')
+            values = win_probability(context.to(dtype), spec)
+            self.assertTrue(torch.isnan(values[0]))
+            self.assertTrue(torch.isfinite(values[1:]).all())
+            self.assertTrue(((0 <= values[1:]) & (values[1:] <= 1)).all())
 
     def test_invalid_architectures_are_rejected(self):
         for invalid in [dict(kind='unknown'), dict(dim=0), dict(layers=0), dict(heads=0), dict(dim=15), dict(value='hp')]:
