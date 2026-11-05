@@ -73,7 +73,8 @@ def score(net, replay, rows, batch, device='cuda'):
     return tuple((totals / count).tolist())
 
 
-def train(net, optimizer, tokens, policy, targets, steps, batch=512, device='cuda', log=print, *, value_batch=0, on_counters=None):
+def train(net, optimizer, tokens, policy, targets, steps, batch=512, device='cuda', log=print, *, value_batch=0,
+          on_counters=None, loss_fn=losses):
     """tokens/policy/targets from data.read (any device); trains net (already on `device`) in place.
     Returns the mean LOSSES of the last logged window."""
     replay = tokens if isinstance(tokens, Replay) else None
@@ -97,7 +98,7 @@ def train(net, optimizer, tokens, policy, targets, steps, batch=512, device='cud
         policy_side = torch.ones_like(policy_side)  # one shared batch trains and measures everything
 
     def accumulate(x, target, y, side, weight):
-        measured = side * losses(net, x, target, y, device)
+        measured = side * loss_fn(net, x, target, y, device)
         ((objective * measured).sum() * weight).backward()
         totals.add_(weight * measured.detach())
 
