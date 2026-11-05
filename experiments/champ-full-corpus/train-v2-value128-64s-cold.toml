@@ -59,12 +59,36 @@ timeout_ms = 60000
 shutdown_timeout_ms = 5000
 
 [evaluation]
-sims = 64
-at = [0]
-every = 3
-wall_share = 0
-rollout_mix = 0
-fights = "runs/benchmark/champ-full-corpus-v2/frozen/validation.jsonl"
-in_sample_fights = "runs/benchmark/champ-full-corpus-v2/frozen/legacy.jsonl" # secondary channel: legacy retention
+baselines = "runs/benchmark/legacy-core50-extended10/baselines.json"
 final_fights = "runs/benchmark/champ-full-corpus-v2/frozen/final.jsonl"
 cohorts = "runs/benchmark/champ-full-corpus-v2/frozen/cohorts.json"
+
+[[evaluation.sets]]
+name = "validation"
+fights = "runs/benchmark/champ-full-corpus-v2/frozen/validation.jsonl"
+sims = 64
+gumbel_scale = 0.0
+rollout_mix = 0
+particles = 8
+at = [0]
+every = 3
+
+[[evaluation.sets]]
+name = "legacy_core"
+fights = "runs/benchmark/legacy-core50-extended10/legacy_core.jsonl"
+sims = 64
+gumbel_scale = 0.0
+rollout_mix = 0
+particles = 8
+at = [0]
+every = 3
+
+[[evaluation.sets]]
+name = "legacy_extended"
+fights = "runs/benchmark/legacy-core50-extended10/legacy_extended.jsonl"
+sims = 64
+gumbel_scale = 0.0
+rollout_mix = 0
+particles = 8
+at = [0]
+every = 3
