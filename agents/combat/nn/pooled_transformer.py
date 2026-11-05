@@ -44,6 +44,7 @@ class PooledTransformer(CombatModel):
         rows = TokenRows(tokens)
         groups, keep = self._group_masks(rows)
         embedded = self._embed(rows)
+        embedded = rows.with_targets(embedded)
         pooled = self._pool(embedded, groups)
         retained, index, valid = self._compact(embedded, keep, slots)
         hidden = self._attend(retained, pooled, valid)

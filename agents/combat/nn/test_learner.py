@@ -61,6 +61,17 @@ class CheckpointTests(unittest.TestCase):
 
                 torch.testing.assert_close(resumed.net.eval()(tokens), expected, rtol=0, atol=0)
 
+    def test_checkpoint_without_target_encoding_version_is_rejected(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            checkpoint = Path(temporary) / 'model.pt'
+            learner = Learner(small_spec('entity'), lr=1e-3, device='cpu')
+            learner.save(checkpoint)
+            saved = torch.load(checkpoint, weights_only=True)
+            del saved['spec']['encoding_version']
+            torch.save(saved, checkpoint)
+            with self.assertRaisesRegex(ValueError, 'architecture'):
+                learner.load(checkpoint)
+
     def test_checkpoints_saved_before_the_value_field_still_load(self):
         with tempfile.TemporaryDirectory() as temporary:
             checkpoint = Path(temporary) / 'model.pt'

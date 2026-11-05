@@ -24,6 +24,7 @@ class Transformer(CombatModel):
         kind = rows.kind.long()
         x = (self.kind(kind) + self.id(kind * ID_CAPACITY + rows.id)
              + self.id2(rows.id2) + self.numeric(rows.numeric))
+        x = rows.with_targets(x)
         h = self.norm(self.encoder(x, src_key_padding_mask=~rows.valid))
         logits = self.policy(h).squeeze(-1).float().masked_fill(~rows.is_kind(TokenKind.ACTION), MASKED_LOGIT)
         return self.value(h[:, 0]).float(), logits
