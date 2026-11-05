@@ -1,7 +1,7 @@
 """The run's settings, typed and validated once when the config loads.
 
 Settings have no defaults, except optional features. A count of 0 means unlimited or off (iterations,
-max_train_rows, evaluation every and wall_share); evaluation sims 0 plays the network alone.
+max_train_rows, evaluation every); evaluation sims 0 plays the network alone.
 [starts] draws self-play's fights from its deck pool and varies them. Evaluation plays [search] without noise; final_fights are
 copied with the run, never played. Fights files and baselines are built offline by make_fights.py.
 A run may resume with different `resumable()` settings; any other change would be a different experiment.
@@ -97,7 +97,6 @@ class Evaluation:
     sims: int
     at: tuple[int, ...]
     every: int = resumable()
-    wall_share: float = resumable()
     fights: str
     rollout_mix: float | None = None  # fixed across the run; None: [search].rollout_mix
     in_sample_fights: str | None = None
@@ -184,9 +183,9 @@ def validate(c):
          'workers: positive counts and timeouts, nonnegative gpu_wait_us')
     need(len(set(w.gpu_bank)) == len(w.gpu_bank) and all(0 < b < w.gpu_batch for b in w.gpu_bank),
          'workers.gpu_bank: distinct batches, each positive and below gpu_batch')
-    need(e.sims >= 0 and e.every >= 0 and 0 <= e.wall_share < 1 and all(i >= 0 for i in e.at)
+    need(e.sims >= 0 and e.every >= 0 and all(i >= 0 for i in e.at)
          and (e.rollout_mix is None or 0 <= e.rollout_mix <= 1),
-         'evaluation: nonnegative sims, every and at; wall_share in [0, 1); rollout_mix in [0, 1]')
+         'evaluation: nonnegative sims, every and at; rollout_mix in [0, 1]')
 
 
 def experiment_changes(old, new):
