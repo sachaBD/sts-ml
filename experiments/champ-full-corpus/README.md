@@ -30,3 +30,14 @@ Config: [`train-v2-inventory48-64s-cold.toml`](train-v2-inventory48-64s-cold.tom
 - New dashboard: port **8002**. Retained previous run/dashboard: port **8001**.
 - Preserve the entire previous warm-run `out/training/iter070`, including its checkpoint, replay and exports.
   Cleanup audit: `runs/analysis/inventory-nightly-cleanup-20261105/` in the primary checkout.
+
+## Wide-batch-128 restart — 2026-11-05
+
+User approved a fresh start (not resume) as
+`gumbel_nn_combat_v1/2026-11-05/champ-full-corpus-v2-inventory48-wide128-outcome-aux-cold`.
+Config: [`train-v2-inventory48-wide128-64s-cold.toml`](train-v2-inventory48-wide128-64s-cold.toml).
+Only deployment change: wide GPU batch **32 → 128**; narrow remains two lanes with batch512/bank256,32,
+wide remains one lane with 128-token capacity. All learning/search settings unchanged.
+Fresh weights, optimizer and replay; prior inventory run is stopped, not overwritten.
+Dashboard **8001** now follows this restart (supersedes the earlier 8002 registration).
+The previous warm iteration70 remains protected in full.
