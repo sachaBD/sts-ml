@@ -62,6 +62,9 @@ class ExpertIteration:
     def run(self, resume_from=None):
         self.control.status(stage='initialization', phase='initialize')
         first = self.start() if resume_from is None else self.resume(resume_from)
+        if self.config.training.device.startswith('cuda'):
+            self.control.status(stage='initialization', phase='compile')
+            self.learner.compile()
         for it in itertools.count(first):
             if self.control.stop_requested():
                 self.control.status(stage='stopped', phase='stopped', last_completed=it - 1)
