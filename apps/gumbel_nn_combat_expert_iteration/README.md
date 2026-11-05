@@ -23,6 +23,31 @@ watch -n 10 "$APP" status "$RUN"            # --json for agents
 The preset runs until stopped. Stop finishes the current iteration and its scheduled evaluation, then exits
 cleanly; allow several minutes. Ctrl-C/kill can leave partial output.
 
+## Evaluation sets
+
+Each set explicitly owns its fights, search, and schedule; nothing is inherited from self-play.
+See the preset for a complete config.
+
+```toml
+[[evaluation.sets]]
+name = "validation"
+fights = "path/to/validation.jsonl"
+sims = 64
+gumbel_scale = 0.0
+rollout_mix = 0.0
+particles = 8
+at = [0]
+every = 3
+```
+
+`at` adds iterations; `every = 0` disables periodic evaluation. `[evaluation] sets = []` disables all sets.
+Schedules and ordering may change on resume; names, fights, and search settings may not.
+Inputs are frozen at `inputs/evaluation/NAME.jsonl`; results go to `training/test/iterNNN/NAME/`,
+with one completion log row per set. Recovery retries only uncommitted sets.
+
+This replaces `evaluation.fights` / `in_sample_fights`; old runs are not automatically migrated.
+Named-set dashboard quality views are a follow-up; health/status remain available.
+
 ## Adaptive deck sampling
 
 ```toml

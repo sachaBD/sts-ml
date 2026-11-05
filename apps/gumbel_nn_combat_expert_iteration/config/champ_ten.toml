@@ -46,14 +46,18 @@ gpu_wait_us = 100
 timeout_ms = 60000
 shutdown_timeout_ms = 5000
 
-[evaluation]
-sims = 256 # 0 = the network alone
-at = [0]
-every = 3
 # make_fights teacher <decks.jsonl> combat_v4/2026-10-09/champ-ten-rollout-v1:monitor-teacher <dir> --name mcts20k
 #   --fights-per-deck 50 --baseline puct=combat_v4/2026-10-09/champ-ten-rollout-v1:update006/monitor
-fights = "runs/benchmark/champ-ten/teacher/fights.jsonl"
-rollout_mix = 0 # every evaluation plays the same search, so the curve follows the network, not the schedule
+[evaluation]
 baselines = "runs/benchmark/champ-ten/teacher/baselines.json"
 cohorts = "runs/benchmark/champ-ten/teacher/cohorts.json"
 
+[[evaluation.sets]]
+name = "validation"
+fights = "runs/benchmark/champ-ten/teacher/fights.jsonl"
+sims = 256 # 0 = the network alone
+gumbel_scale = 0.0
+rollout_mix = 0
+particles = 8
+at = [0]
+every = 3
