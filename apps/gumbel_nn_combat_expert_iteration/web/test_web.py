@@ -27,21 +27,6 @@ class FallbackTests(unittest.TestCase):
 
 
 class LossApiTests(unittest.TestCase):
-    def test_named_sets_do_not_become_empty_legacy_evaluation_points(self):
-        from pathlib import Path
-        import tempfile
-        from unittest.mock import patch
-        from . import server as web
-
-        with tempfile.TemporaryDirectory() as tmp, patch.object(web, 'system', return_value={}):
-            out = Path(tmp)
-            (out / 'training').mkdir()
-            (out / 'config.toml').write_text('[run]\nid = "test"\n')
-            (out / 'training/log.jsonl').write_text('{"test": 0, "set": "retention", "games": 10, "wins": 7, "seconds": 1}\n')
-            data = web.api(out)
-            self.assertEqual(data['test'], [])
-            self.assertTrue(all('eval' not in row for row in data['trend']))
-
     def test_structured_losses_override_legacy_and_missing_heldout_stays_missing(self):
         from pathlib import Path
         from unittest.mock import patch

@@ -15,7 +15,7 @@ import time
 
 from agents.combat.nn.learner import Learner
 from agents.combat.nn.export import ModelExporter
-from agents.combat.nn.play import play
+from agents.combat.nn.play import Search, play
 from agents.combat.nn.replay import Replay
 from apps.common.app import read_jsonl
 from monitoring.training import write as write_training
@@ -180,8 +180,9 @@ class ExpertIteration:
             directory = self.control.directory / 'test' / f'iter{it:03d}' / evaluation.name
             self.control.archive(directory)
             begin = time.time()
+            search = Search(evaluation.sims, evaluation.gumbel_scale, evaluation.rollout_mix, evaluation.particles)
             results = self.play(f'evaluation {evaluation.name} iteration {it}', self.control.iteration(it),
-                                self.tests[evaluation.name], directory, evaluation)
+                                self.tests[evaluation.name], directory, search)
             self.control.log(test=it, set=evaluation.name, games=len(results), wins=sum(r['won'] for r in results),
                              seconds=round(time.time() - begin), **collection_stats(results))
             if self.config.training.prune_replay:

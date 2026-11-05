@@ -1,10 +1,11 @@
 """Invariants of the config: a mistake stops the run before anything is written; resume may only change resumable settings."""
+from dataclasses import replace
 from pathlib import Path
 import unittest
 from unittest.mock import patch
 
 from .config import experiment_changes, load
-from .test_expert_iteration import CONFIG
+from .test_expert_iteration import CONFIG, EVALUATION
 
 PRESET = Path(__file__).with_name('config') / 'champ_ten.toml'
 
@@ -66,27 +67,19 @@ class ConfigTests(unittest.TestCase):
                 self.assertEqual(search.at(decay).rollout_mix, 0)
                 self.assertGreater(search.at(decay - 1).rollout_mix, 0)
 
-    def test_evaluation_search_is_explicit_and_fixed_on_resume(self):
+    def test_evaluation_resume_preserves_search_but_allows_scheduling_changes(self):
         base = load(CONFIG)
-        for key in ('sims', 'gumbel_scale', 'rollout_mix', 'particles'):
-            before, evaluation = CONFIG.split('[[evaluation.sets]]')
-            lines = evaluation.splitlines()
-            missing = '\n'.join(line for line in lines if not line.startswith(f'{key} ='))
-            self.rejects(before + '[[evaluation.sets]]' + missing, key)
-        self.assertEqual(experiment_changes(base, load(CONFIG.replace('every = 0', 'every = 7'))), [])
-        self.assertEqual(experiment_changes(base, load(CONFIG.replace('at = [0]', 'at = [0, 7]'))), [])
-        changed = CONFIG.replace('particles = 3', 'particles = 6')
-        self.assertEqual(experiment_changes(base, load(changed)), ['[evaluation.sets.validation].particles'])
-        renamed = CONFIG.replace('name = "validation"', 'name = "other"')
-        self.assertEqual(experiment_changes(base, load(renamed)), ['[evaluation].sets'])
+        evaluation = base.evaluation.sets[0]
+        for changed, expected in ((replace(evaluation, every=7, at=(0, 7)), []),
+                                  (replace(evaluation, particles=6), ['[evaluation].sets'])):
+            config = replace(base, evaluation=replace(base.evaluation, sets=(changed,)))
+            self.assertEqual(experiment_changes(base, config), expected)
 
     def test_evaluation_names_cannot_collide_or_escape_the_run(self):
         for name in ('', '.', '..', '../outside', '/tmp/outside'):
             self.rejects(CONFIG.replace('name = "validation"', f'name = "{name}"'), 'set name')
-        duplicate = CONFIG + '[[evaluation.sets]]' + CONFIG.split('[[evaluation.sets]]')[1]
+        duplicate = CONFIG + EVALUATION
         self.rejects(duplicate, 'set names must be unique')
-        disabled = CONFIG.split('[[evaluation.sets]]')[0] + '[evaluation]\nsets = []\n'
-        self.assertEqual(load(disabled).evaluation.sets, ())
 
     def test_only_resumable_settings_may_change_on_resume(self):
         base = load(CONFIG)

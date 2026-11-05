@@ -172,8 +172,11 @@ def validate(c):
     need(math.isfinite(st.win_rate_prior_strength) and st.win_rate_prior_strength > 0,
          'starts: finite positive win_rate_prior_strength')
     need(0 <= st.sampling_concentration <= 1, 'starts: sampling_concentration in [0, 1]')
-    need(s.sims >= 0 and s.gumbel_scale >= 0 and 0 <= s.rollout_mix <= 1 and s.particles > 0 and s.rollout_mix_decay >= 0,
-         'search: nonnegative sims, gumbel_scale and rollout_mix_decay, rollout_mix in [0, 1], positive particles')
+    for name, search in [('search', s)] + [(f'evaluation set {x.name}', x) for x in e.sets]:
+        need(search.sims >= 0 and math.isfinite(search.gumbel_scale) and search.gumbel_scale >= 0
+             and 0 <= search.rollout_mix <= 1 and search.particles > 0,
+             f'{name}: nonnegative sims and gumbel_scale, rollout_mix in [0, 1], positive particles')
+    need(s.rollout_mix_decay >= 0, 'search: nonnegative rollout_mix_decay')
     need(t.steps > 0 and t.batch > 0 and t.lr > 0 and t.replay_window > 0 and t.max_train_rows >= 0
          and t.value_batch >= 0,
          'training: positive steps, batch, lr, replay_window; nonnegative max_train_rows, value_batch')
@@ -198,28 +201,20 @@ def validate(c):
     for s in e.sets:
         need(bool(s.name) and s.name not in ('.', '..') and '/' not in s.name and '\0' not in s.name,
              'evaluation: set name must be a nonempty directory name')
-        need(s.sims >= 0 and math.isfinite(s.gumbel_scale) and s.gumbel_scale >= 0
-             and 0 <= s.rollout_mix <= 1 and s.particles > 0,
-             f'evaluation set {s.name}: nonnegative sims and gumbel_scale, rollout_mix in [0, 1], positive particles')
         need(s.every >= 0 and all(i >= 0 for i in s.at),
              f'evaluation set {s.name}: nonnegative every and at')
 
 
 def experiment_changes(old, new):
     """Settings that differ between two configs and may not change on resume, as [section].name."""
+    def fixed(section):
+        return {f.name: getattr(section, f.name) for f in fields(section) if not f.metadata.get('resumable')}
+
     changes = []
     for part in fields(Config):
-        before, after = getattr(old, part.name), getattr(new, part.name)
-        for f in fields(part.type):
-            a, b = getattr(before, f.name), getattr(after, f.name)
-            if part.name == 'evaluation' and f.name == 'sets':
-                a, b = {s.name: s for s in a}, {s.name: s for s in b}
-                if a.keys() != b.keys():
-                    changes.append('[evaluation].sets')
-                else:
-                    changes.extend(f'[evaluation.sets.{name}].{sf.name}' for name in a
-                                   for sf in fields(EvaluationSet) if not sf.metadata.get('resumable')
-                                   and getattr(a[name], sf.name) != getattr(b[name], sf.name))
-            elif not f.metadata.get('resumable') and a != b:
-                changes.append(f'[{part.name}].{f.name}')
+        a, b = fixed(getattr(old, part.name)), fixed(getattr(new, part.name))
+        if part.name == 'evaluation':
+            for evaluation in (a, b):
+                evaluation['sets'] = {s.name: fixed(s) for s in evaluation['sets']}
+        changes.extend(f'[{part.name}].{key}' for key in a if a[key] != b[key])
     return sorted(changes)

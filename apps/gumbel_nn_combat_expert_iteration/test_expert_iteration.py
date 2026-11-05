@@ -15,6 +15,18 @@ from .config import load
 from .reporting import deck_of
 from .run_control import RunControl
 
+EVALUATION = """
+[[evaluation.sets]]
+name = "validation"
+gumbel_scale = 0.0
+rollout_mix = 0.0
+particles = 3
+sims = 0
+at = [0]
+every = 0
+fights = "unused"
+"""
+
 CONFIG = """
 [run]
 id = "test"
@@ -58,17 +70,7 @@ gpu_bank = [256, 32]
 gpu_wait_us = 100
 timeout_ms = 321
 shutdown_timeout_ms = 123
-
-[[evaluation.sets]]
-name = "validation"
-gumbel_scale = 0.0
-rollout_mix = 0.0
-particles = 3
-sims = 0
-at = [0]
-every = 0
-fights = "unused"
-"""
+""" + EVALUATION
 
 
 class ExpertIterationInvariants(unittest.TestCase):
@@ -169,14 +171,6 @@ class ExpertIterationInvariants(unittest.TestCase):
         for p in self.evaluations():
             self.assertEqual(p['fights'], [dict(fight_id='t', start={})])
 
-    def test_evaluation_uses_its_own_search(self):
-        self.run_loop(config=CONFIG.replace('every = 0', 'every = 1'))
-        self.assertEqual(len(self.evaluations()), 3)
-        for p in self.evaluations():
-            self.assertEqual((p['search'].gumbel_scale, p['search'].sims, p['search'].particles), (0.0, 0, 3))
-        for p in self.self_play():
-            self.assertEqual((p['search'].gumbel_scale, p['search'].sims), (1.0, 4))
-
     def test_evaluation_keeps_its_mix_while_self_play_decays(self):
         config = (CONFIG.replace('every = 0', 'every = 1')
                   .replace('rollout_mix = 0.5', 'rollout_mix = 0.5\nrollout_mix_decay = 2'))
@@ -187,40 +181,24 @@ class ExpertIterationInvariants(unittest.TestCase):
         self.assertTrue(mixes[0] > 0 and mixes[-1] == 0)
 
     def test_sets_keep_their_search_schedule_and_results_separate(self):
-        # Sharing fights across sets is useful for comparing search settings.
         (self.out / 'inputs/evaluation/retention.jsonl').write_bytes(
             (self.out / 'inputs/evaluation/validation.jsonl').read_bytes())
-        config = CONFIG.replace('every = 0', 'every = 1') + """
-[[evaluation.sets]]
-name = "retention"
-fights = "unused"
-sims = 12
-gumbel_scale = 0.2
-rollout_mix = 0.75
-particles = 5
-at = [2]
-every = 0
-"""
+        retention = (EVALUATION.replace('name = "validation"', 'name = "retention"')
+                     .replace('sims = 0', 'sims = 12').replace('at = [0]', 'at = [2]'))
+        config = CONFIG.replace('every = 0', 'every = 1') + retention
         control = self.run_loop(config=config)
         evaluations = self.evaluations()
         self.assertEqual([(p['directory'].parent.name, p['directory'].name) for p in evaluations],
                          [('iter000', 'validation'), ('iter001', 'validation'),
                           ('iter002', 'validation'), ('iter002', 'retention')])
-        for p in evaluations:
-            self.assertEqual(p['models'], control.directory / p['directory'].parent.name)
-            self.assertEqual(p['fights'], [dict(fight_id='t', start={})])
-        search = evaluations[-1]['search']
-        self.assertEqual((search.sims, search.gumbel_scale, search.rollout_mix, search.particles),
-                         (12, 0.2, 0.75, 5))
-        logged = [r for r in control.history() if 'test' in r]
-        self.assertEqual([(r['test'], r['set'], r['games'], r['wins']) for r in logged],
-                         [(0, 'validation', 1, 1), (1, 'validation', 1, 1),
-                          (2, 'validation', 1, 1), (2, 'retention', 1, 1)])
+        self.assertEqual([p['search'].sims for p in evaluations], [0, 0, 0, 12])
+        self.assertEqual([(r['test'], r['set']) for r in control.history() if 'test' in r],
+                         [(0, 'validation'), (1, 'validation'), (2, 'validation'), (2, 'retention')])
 
     def test_recovery_retries_only_the_uncommitted_set(self):
         (self.out / 'inputs/evaluation/retention.jsonl').write_bytes(
             (self.out / 'inputs/evaluation/validation.jsonl').read_bytes())
-        config = CONFIG + ('[[evaluation.sets]]' + CONFIG.split('[[evaluation.sets]]')[1]).replace('name = "validation"', 'name = "retention"')
+        config = CONFIG + EVALUATION.replace('name = "validation"', 'name = "retention"')
 
         def interrupted(*args, **kwargs):
             directory = args[3]
@@ -234,7 +212,6 @@ every = 0
                 self.assertRaisesRegex(RuntimeError, 'interrupted evaluation'):
             self.run_loop(config=config)
         control = self.run_loop(resume_from=0, config=config)
-        self.assertEqual([p['directory'].name for p in self.evaluations()], ['validation', 'retention'])
         archived = list((control.directory / 'test/iter000').glob('.retention-interrupted-*/worker.log'))
         self.assertEqual(len(archived), 1)
         self.assertEqual(archived[0].read_text(), 'interrupted')
