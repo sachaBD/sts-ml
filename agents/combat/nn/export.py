@@ -106,4 +106,7 @@ class ModelExporter:
             device = next(net.parameters()).device
             example = torch.zeros(batch, self.deployment.tokens, WIDTH, dtype=torch.float16, device=device)
             model = HalfInput(deployment_view(net, self.deployment), self.deployment.mixed_precision).eval()
+        if net.spec.kind == 'inventory_v1':
+            example[:, 0, 0], example[:, 0, 2] = TokenKind.CONTEXT, 1
+            example[:, -1, 0] = TokenKind.ACTION
         torch.onnx.export(model, (example,), str(path), **options)

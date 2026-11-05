@@ -23,6 +23,7 @@ class InventoryTransformer(CombatModel):
         # Disjoint type-specific feature slices give independent projections in one matrix multiply.
         # The type embedding supplies the type-specific bias.
         self.numeric = nn.Linear(sum(FEATURE_WIDTHS.values()), dim, bias=False)
+        self.effects = nn.Linear(dim, dim, bias=False)
         self.owner = nn.Linear(dim, dim, bias=False)
         self.source = nn.Linear(dim, dim, bias=False)
         self.target = nn.Linear(dim, dim, bias=False)
@@ -37,9 +38,12 @@ class InventoryTransformer(CombatModel):
         rows = TokenRows(tokens)
         kind = rows.kind.long()
         namespace = kind
-        card_source = rows.is_kind(ACTION) & ((rows.id2 == 1) | (rows.id2 == 3) | (rows.id2 == 4))
+        action_kind = tokens[..., 2]
+        card_source = rows.is_kind(ACTION) & (((action_kind - 1).abs() < .5)
+                                              | ((action_kind - 3).abs() < .5)
+                                              | ((action_kind - 4).abs() < .5))
         namespace = torch.where(rows.is_kind(INVENTORY) | card_source, CARD, namespace)
-        namespace = torch.where(rows.is_kind(ACTION) & (rows.id2 == 2), POTION, namespace)
+        namespace = torch.where(rows.is_kind(ACTION) & ((tokens[..., 2] - 2).abs() < .5), POTION, namespace)
         numeric = torch.cat([tokens[..., 3:3 + count] * rows.is_kind(type_)[..., None]
                              for type_, count in FEATURE_WIDTHS.items()], dim=-1)
         return (self.kind(kind) + self.id(namespace * ID_CAPACITY + rows.id)
@@ -48,11 +52,16 @@ class InventoryTransformer(CombatModel):
     def heads(self, tokens):
         rows = TokenRows(tokens)
         embedded = self._embed(tokens)
-        x = embedded
+        # Attach effects to their owners before actions read their sources/targets. Otherwise two
+        # identical monsters with different debuffs would still have identical target embeddings.
+        positions = torch.arange(tokens.shape[1], device=tokens.device, dtype=tokens.dtype) + 1
+        ownership = (tokens[..., OWNER, None] - positions).abs() < .5
+        entities = embedded + ownership.transpose(1, 2).to(embedded.dtype) @ self.effects(embedded)
+        x = entities
         for column, projection in ((OWNER, self.owner), (SOURCE, self.source), (TARGET, self.target)):
             reference = tokens[..., column]
             index = (reference.long() - 1).clamp(min=0)
-            linked = embedded.gather(1, index[..., None].expand_as(embedded))
+            linked = entities.gather(1, index[..., None].expand_as(entities))
             x = x + projection(linked) * (reference > 0)[..., None]
         hidden = self.norm(self.encoder(x, src_key_padding_mask=~rows.valid))
         context = self.value(hidden[:, 0]).float()

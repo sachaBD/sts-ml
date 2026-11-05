@@ -200,9 +200,11 @@ def validate(c):
         need(m.gpu_wide_tokens or m.gpu_wide_attended is None, 'gpu_wide_attended requires gpu_wide_tokens')
         if wide := m.wide_deployment():
             wide.validate(m.architecture())
-            need(m.gpu_attended is not None and m.gpu_wide_attended is not None and
-                 m.gpu_wide_tokens >= m.gpu_tokens and m.gpu_wide_attended >= m.gpu_attended,
-                 'wide deployment must cover narrow token and attention capacities')
+            need(m.gpu_wide_tokens >= m.gpu_tokens, 'wide deployment must cover narrow token capacity')
+            if m.kind == 'entity':
+                need(m.gpu_attended is not None and m.gpu_wide_attended is not None and
+                     m.gpu_wide_attended >= m.gpu_attended,
+                     'wide deployment must cover narrow attention capacity')
     except ValueError as error:
         sys.exit(f'config: {error}')
     need(w.actors > 0 and w.slots > 0 and w.gpu_batch > 0 and w.gpu_wait_us >= 0 and w.timeout_ms > 0

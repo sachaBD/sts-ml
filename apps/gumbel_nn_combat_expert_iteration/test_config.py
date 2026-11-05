@@ -21,6 +21,12 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(config.starts.fights, 'runs/benchmark/champ-ten/decks.jsonl')
         self.assertEqual(config.workers.gpu_bank, (256, 32))
 
+    def test_full_attention_inventory_uses_token_capacity_not_pooled_slots(self):
+        text = CONFIG.replace('kind = "transformer"', 'kind = "inventory_v1"')
+        config = load(text.replace('gpu_tokens = 16', 'gpu_tokens = 16\ngpu_wide_tokens = 32'))
+        self.assertEqual(config.model.wide_deployment().tokens, 32)
+        self.rejects(text.replace('gpu_tokens = 16', 'gpu_tokens = 16\ngpu_attended = 8'), 'gpu_attended')
+
     def test_a_mistake_stops_the_run(self):
         self.rejects(CONFIG.replace('steps = 1', 'stepz = 1'), "unknown [training] keys: ['stepz']")
         self.rejects(CONFIG.replace('lr = 0.001\n', ''), 'missing [training].lr')

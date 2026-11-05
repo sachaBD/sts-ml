@@ -1,4 +1,5 @@
 #include "agents/combat/nn/tokens.hpp"
+#include "agents/combat/nn/inventory_tokens.hpp"
 #include "environments/combat/environment.hpp"
 #include <stdexcept>
 
@@ -28,7 +29,15 @@ std::array<float, 17> card_features(const CardToken& c) {
 }
 }  // namespace
 
-stsrl::infra::Tokens encode(const sts::BattleContext& bc, std::span<const sts::search::Action> actions, bool target_association) {
+Encoding encoding_from_name(std::string_view name) {
+    if (name == "legacy") return Encoding::legacy;
+    if (name == "inventory_v1") return Encoding::inventory_v1;
+    throw std::invalid_argument{"unknown combat token encoding: " + std::string{name}};
+}
+
+stsrl::infra::Tokens encode(const sts::BattleContext& bc, std::span<const sts::search::Action> actions,
+                            bool target_association, Encoding encoding) {
+    if (encoding == Encoding::inventory_v1) return encode_inventory(bc, actions);
     if (bc.player.hasRelic<sts::RelicId::RUNIC_DOME>()) throw std::invalid_argument{"nn: Runic Dome hides intents"};
     std::vector<int> monster_slots;
     const auto s = encode_state(bc, CardCoverage::ironclad_events, &monster_slots);

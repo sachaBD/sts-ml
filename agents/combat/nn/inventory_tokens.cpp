@@ -104,7 +104,7 @@ infra::Tokens encode_inventory(const sts::BattleContext& bc, std::span<const sts
             row.put(float(card.zone == CardZone::offered));
             hand_rows.try_emplace(key(card), row.index);
         } else {
-            auto [it, inserted] = inventory.try_emplace(key(card), Inventory{card});
+            const auto it = inventory.try_emplace(key(card), Inventory{card}).first;
             ++it->second.counts.at(int(card.zone) - int(CardZone::draw));
         }
     }

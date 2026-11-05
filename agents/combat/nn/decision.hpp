@@ -1,5 +1,6 @@
 #pragma once
 #include "agents/combat/nn/targets.hpp"
+#include "agents/combat/nn/tokens.hpp"
 #include "agents/combat/search/rollout_blend/rollout_blend.hpp"
 #include "agents/combat/search/search.hpp"
 #include "infra/inference/backend.hpp"
@@ -34,7 +35,7 @@ private:
 class Decision {
 public:
     Decision(const sts::BattleContext& state, std::unique_ptr<search::CombatSearch>, double rollout_mix,
-             std::uint64_t rollout_seed, bool target_association = false);
+             std::uint64_t rollout_seed, bool target_association = false, Encoding encoding = Encoding::legacy);
     const infra::Tokens* pending() const { return search_->pending() ? &query_ : nullptr; }
     void evaluated(const infra::Prediction&);
     search::Result result() const { return search_->result(); }
@@ -45,5 +46,6 @@ private:
     std::optional<search::RolloutBlend> blend_;
     infra::Tokens query_;
     bool target_association_;
+    Encoding encoding_;
 };
 }  // namespace stsrl::nn
