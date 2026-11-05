@@ -1,6 +1,6 @@
 """Combat prediction contract and the two supported architectures. No deployment policy."""
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from torch import Tensor, nn
 
@@ -11,6 +11,7 @@ class ModelSpec:
     dim: int
     layers: int
     heads: int
+    encoding_version: int = field(default=2, init=False)  # action-to-target row references
 
     def __post_init__(self):
         if self.kind not in ('transformer', 'entity'):
