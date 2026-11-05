@@ -67,8 +67,18 @@ at = [0]
 every = 3
 
 [[evaluation.sets]]
-name = "legacy"
-fights = "runs/benchmark/champ-full-corpus-v1/frozen/legacy.jsonl"
+name = "legacy_core"
+fights = "runs/benchmark/legacy50-split/legacy_core.jsonl"
+sims = 64
+gumbel_scale = 0.0
+rollout_mix = 0
+particles = 8
+at = [0]
+every = 3
+
+[[evaluation.sets]]
+name = "legacy_extended"
+fights = "runs/benchmark/legacy50-split/legacy_extended.jsonl"
 sims = 64
 gumbel_scale = 0.0
 rollout_mix = 0
