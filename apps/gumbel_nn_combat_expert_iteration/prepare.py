@@ -1,6 +1,6 @@
 """Freeze a run's inputs, then launch expert_iteration.py on them. See README.md.
 
-Everything the run reads is copied into OUT once: config.toml and inputs/{nn_play, starts.json, test.jsonl, ...}.
+Everything the run reads is copied into OUT once: config.toml and inputs/{nn_play, starts.json, evaluation/NAME.jsonl, ...}.
 """
 from pathlib import Path
 import re
@@ -11,14 +11,14 @@ from apps.common.app import main, read_jsonl, snapshot, write_json
 from apps.gumbel_nn_combat_expert_iteration.config import load
 
 # Where the recipe and dashboards find each optional evaluation input.
-EVALUATION_INPUTS = {'in_sample_fights': 'test-in.jsonl', 'final_fights': 'FINAL_TEST_DO_NOT_USE_FOR_SELECTION.jsonl',
+EVALUATION_INPUTS = {'final_fights': 'FINAL_TEST_DO_NOT_USE_FOR_SELECTION.jsonl',
                      'baselines': 'baselines.json', 'cohorts': 'cohorts.json'}
 
 
 def inputs(raw):
     """The files this run reads (lineage for apps/common/launch.sh)."""
     run, starts, evaluation = (raw.get(k, {}) for k in ('run', 'starts', 'evaluation'))
-    paths = [starts.get('fights'), run.get('initial_checkpoint'), evaluation.get('fights'),
+    paths = [starts.get('fights'), run.get('initial_checkpoint'), *(s.get('fights') for s in evaluation.get('sets', [])),
              *(evaluation.get(k) for k in EVALUATION_INPUTS)]
     return sorted(p for p in paths if p)
 
@@ -36,7 +36,9 @@ def run(_raw, config_path, out):
     snapshot(Path(config.run.worker), frozen, 'nn_play')
     (out / 'config.toml').write_bytes(config_path.read_bytes())
     write_json(frozen / 'starts.json', decks)
-    snapshot(Path(config.evaluation.fights), frozen, 'test.jsonl')
+    (frozen / 'evaluation').mkdir()
+    for evaluation in config.evaluation.sets:
+        snapshot(Path(evaluation.fights), frozen / 'evaluation', f'{evaluation.name}.jsonl')
     for key, name in EVALUATION_INPUTS.items():
         if path := getattr(config.evaluation, key):
             snapshot(Path(path), frozen, name)

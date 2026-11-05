@@ -2,11 +2,11 @@
 
 Settings have no defaults, except optional features. A count of 0 means unlimited or off (iterations,
 max_train_rows, evaluation every); evaluation sims 0 plays the network alone.
-[starts] draws self-play's fights from its deck pool and varies them. Evaluation plays [search] without noise; final_fights are
+[starts] draws self-play's fights from its deck pool and varies them. Each evaluation set owns its search and schedule; final_fights are
 copied with the run, never played. Fights files and baselines are built offline by make_fights.py.
 A run may resume with different `resumable()` settings; any other change would be a different experiment.
 """
-from dataclasses import MISSING, dataclass, field, fields
+from dataclasses import MISSING, dataclass, field, fields, is_dataclass
 import math
 import sys
 import tomllib
@@ -93,13 +93,19 @@ class Model:
 
 
 @dataclass(frozen=True)
-class Evaluation:
-    sims: int
-    at: tuple[int, ...]
-    every: int = resumable()
+class EvaluationSet(Search):
+    name: str
     fights: str
-    rollout_mix: float | None = None  # fixed across the run; None: [search].rollout_mix
-    in_sample_fights: str | None = None
+    at: tuple[int, ...] = resumable()
+    every: int = resumable()
+
+    def due(self, it):
+        return it in self.at or bool(self.every and it % self.every == 0)
+
+
+@dataclass(frozen=True)
+class Evaluation:
+    sets: tuple[EvaluationSet, ...]
     final_fights: str | None = None
     baselines: str | None = None
     cohorts: str | None = None
@@ -130,6 +136,11 @@ def section(cls, table, name):
         if getattr(kind, '__origin__', None) is tuple:
             item = get_args(kind)[0]
             items = required(table, f.name, name, list)
+            if is_dataclass(item):
+                if not all(isinstance(x, dict) for x in items):
+                    sys.exit(f'[{name}].{f.name} must be a list of tables')
+                values[f.name] = tuple(section(item, x, f'{name}.{f.name}[{i}]') for i, x in enumerate(items))
+                continue
             if not all(isinstance(x, item) and not isinstance(x, bool) for x in items):
                 sys.exit(f'[{name}].{f.name} must be a list of {item.__name__}')
             values[f.name] = tuple(items)
@@ -183,12 +194,32 @@ def validate(c):
          'workers: positive counts and timeouts, nonnegative gpu_wait_us')
     need(len(set(w.gpu_bank)) == len(w.gpu_bank) and all(0 < b < w.gpu_batch for b in w.gpu_bank),
          'workers.gpu_bank: distinct batches, each positive and below gpu_batch')
-    need(e.sims >= 0 and e.every >= 0 and all(i >= 0 for i in e.at)
-         and (e.rollout_mix is None or 0 <= e.rollout_mix <= 1),
-         'evaluation: nonnegative sims, every and at; rollout_mix in [0, 1]')
+    need(len({s.name for s in e.sets}) == len(e.sets), 'evaluation: set names must be unique')
+    for s in e.sets:
+        need(bool(s.name) and s.name not in ('.', '..') and '/' not in s.name and '\0' not in s.name,
+             'evaluation: set name must be a nonempty directory name')
+        need(s.sims >= 0 and math.isfinite(s.gumbel_scale) and s.gumbel_scale >= 0
+             and 0 <= s.rollout_mix <= 1 and s.particles > 0,
+             f'evaluation set {s.name}: nonnegative sims and gumbel_scale, rollout_mix in [0, 1], positive particles')
+        need(s.every >= 0 and all(i >= 0 for i in s.at),
+             f'evaluation set {s.name}: nonnegative every and at')
 
 
 def experiment_changes(old, new):
     """Settings that differ between two configs and may not change on resume, as [section].name."""
-    return sorted(f'[{part.name}].{f.name}' for part in fields(Config) for f in fields(part.type)
-                  if not f.metadata.get('resumable') and getattr(getattr(old, part.name), f.name) != getattr(getattr(new, part.name), f.name))
+    changes = []
+    for part in fields(Config):
+        before, after = getattr(old, part.name), getattr(new, part.name)
+        for f in fields(part.type):
+            a, b = getattr(before, f.name), getattr(after, f.name)
+            if part.name == 'evaluation' and f.name == 'sets':
+                a, b = {s.name: s for s in a}, {s.name: s for s in b}
+                if a.keys() != b.keys():
+                    changes.append('[evaluation].sets')
+                else:
+                    changes.extend(f'[evaluation.sets.{name}].{sf.name}' for name in a
+                                   for sf in fields(EvaluationSet) if not sf.metadata.get('resumable')
+                                   and getattr(a[name], sf.name) != getattr(b[name], sf.name))
+            elif not f.metadata.get('resumable') and a != b:
+                changes.append(f'[{part.name}].{f.name}')
+    return sorted(changes)

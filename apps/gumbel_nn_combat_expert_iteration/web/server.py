@@ -123,7 +123,7 @@ def api(out):
     history = jsonl(training / 'log.jsonl')
     progress = data['progress']
     its = sorted(r['iteration'] for r in history if r.get('iteration', 0) > 0 and 'games' in r)
-    tests = sorted({r['test'] for r in history if 'test' in r})
+    tests = sorted({r['test'] for r in history if 'test' in r and 'set' not in r})
     train = [dict(it=i, rates=by_deck(finished(training / f'iter{i:03d}/results.jsonl'))) for i in its]
     test_results = {i: finished(training / f'test/iter{i:03d}/results.jsonl') for i in tests}
     test = [dict(it=i, rates=by_deck(r)) for i, r in test_results.items()]

@@ -23,6 +23,49 @@ watch -n 10 "$APP" status "$RUN"            # --json for agents
 The preset runs until stopped. Stop finishes the current iteration and its scheduled evaluation, then exits
 cleanly; allow several minutes. Ctrl-C/kill can leave partial output.
 
+## Evaluation sets
+
+Each named set owns its fixed fights, search settings, and iteration schedule. Nothing is inherited
+from self-play; for non-exploring evaluation, explicitly use `gumbel_scale = 0`.
+
+```toml
+[[evaluation.sets]]
+name = "validation"
+fights = "path/to/validation.jsonl"
+sims = 64
+gumbel_scale = 0.0
+rollout_mix = 0.0
+particles = 8
+at = [0]
+every = 3
+
+[[evaluation.sets]]
+name = "retention"
+fights = "path/to/retention.jsonl"
+sims = 256
+gumbel_scale = 0.0
+rollout_mix = 0.0
+particles = 8
+at = [0]
+every = 9
+```
+
+`at` adds explicit iterations; `every = 0` disables periodic evaluation. `[evaluation] sets = []`
+disables evaluation entirely. Names must be unique directory names. Sets may share fights or decks;
+results are never pooled implicitly. Sets run sequentially in config order using the checkpoint of
+that iteration. Only `at` and `every` may change on resume; set identities, fights and search settings
+remain part of the experiment.
+
+Preparation freezes each file at `out/inputs/evaluation/NAME.jsonl`. Results, starts, telemetry, and
+worker logs go under `out/training/test/iterNNN/NAME/`. Each completed set appends its own log row
+with `test` (iteration), `set` (name), `games`, `wins`, and `seconds`. Recovery preserves completed
+sets and archives/retries only an uncommitted set.
+
+Optional `baselines`, `cohorts`, and reserved `final_fights` remain under `[evaluation]`; reserved
+fights are frozen but never played. The former `evaluation.fights` / `in_sample_fights` configuration
+is replaced, not automatically converted. Existing frozen runs are not migrated. The legacy dashboard
+quality plots do not yet read named-set results; per-set dashboard views are a separate follow-up.
+
 ## Adaptive deck sampling
 
 ```toml
