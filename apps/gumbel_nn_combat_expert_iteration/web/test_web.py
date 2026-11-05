@@ -1,7 +1,7 @@
 """CPU fallback counts each inference request once, including GPU-to-CPU retries."""
 import unittest
 
-from .server import cpu_fallback
+from .server import comparison, cpu_fallback
 
 
 class FallbackTests(unittest.TestCase):
@@ -24,6 +24,33 @@ class FallbackTests(unittest.TestCase):
         self.assertTrue(0 < expected < 1)
         for scale in (2, 32, 10000):
             self.assertEqual(cpu_fallback({k: v * scale for k, v in counts.items()}), expected)
+
+
+class ComparisonTests(unittest.TestCase):
+    def test_coverage_is_explicit_and_shared_fights_are_matched_by_id(self):
+        import json
+        from pathlib import Path
+        import tempfile
+
+        a, b, c = ('ns:alpha:test:0', 'ns:alpha:test:1', 'ns:beta:test:0')
+        reference = {'PUCT': {a: True, b: False, c: True}, 'Gumbel': {a: False}}
+        with tempfile.TemporaryDirectory() as tmp:
+            for name in (None, 'core'):
+                out = Path(tmp) / str(name)
+                directory = out / 'training/test/iter003' / (name or 'in-sample')
+                directory.mkdir(parents=True)
+                (directory / 'results.jsonl').write_text(''.join(
+                    json.dumps(dict(fight_id=k, won=v)) + '\n' for k, v in {a: False, b: True}.items()))
+                row = dict(test=3, **({'set': name} if name else {}))
+                table, = comparison(out, [row], reference)
+                all_decks = table['rows'][0]
+                current = table['columns'][-1]
+                self.assertEqual([all_decks['rates'][k]['n'] for k in table['columns']], [3, 1, 2])
+                self.assertEqual(all_decks['rates'][current]['w'], 1)
+                self.assertEqual([all_decks['matched'][k]['n'] for k in table['columns']], [1, 1, 1])
+                self.assertEqual(all_decks['matched'][current]['w'], 0)
+                beta = next(r for r in table['rows'] if r['deck'] == 'beta')
+                self.assertIsNone(beta['rates']['Gumbel']['p'])
 
 
 class LossApiTests(unittest.TestCase):
