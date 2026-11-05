@@ -159,6 +159,12 @@
       <div class="card"><div class="label">Last evaluation win rate</div><div class="big" id="evalWin" style="color:var(--test)">—</div>
         <div class="sub" id="evalSub"></div></div>
     </div>
+    <div class="card">
+      <div class="label">Historical comparison</div>
+      <div id="comparisonTables"></div>
+      <p class="sub">Wins / fights (win rate). Hover for 95% Wilson intervals, treating fights as independent.
+        Historical and current fight coverage, simulators, and training exposure differ.</p>
+    </div>
     <div class="card"><div class="label">Win rate · 95% CI</div><div id="overall" style="height:300px"></div></div>
   </section>
 </main>
@@ -192,6 +198,7 @@ function batchRate(d) {
 
 function update(d) {
   data = d;
+  renderComparisons();
   const p = d.progress || {}, batch = batchRate(d), evaluation = d.test[d.test.length - 1]?.rates.all;
   $('run').textContent = d.run;
   $('stateText').textContent = d.state;
@@ -201,6 +208,40 @@ function update(d) {
   if (evaluation?.n) T('eval', evaluation.p);
   const key = [activeView, d.train.length, d.test.length, smooth, iterationSmooth].join('|');
   if (key !== chartKey) { chartKey = key; charts(); }
+}
+
+function renderComparisons() {
+  const root = $('comparisonTables');
+  if (!data?.compare?.length) {
+    root.textContent = 'No completed evaluation matches configured historical results.';
+    return;
+  }
+  root.replaceChildren();
+  const node = (tag, text) => {
+    const element = document.createElement(tag);
+    if (text != null) element.textContent = text;
+    return element;
+  };
+  for (const comparison of data.compare) {
+    const caption = node('p', `${comparison.set} · iteration ${comparison.it}`);
+    caption.className = 'sub';
+    const wrap = node('div'); wrap.className = 'table-wrap';
+    const table = node('table'), head = node('thead'), heading = node('tr'), body = node('tbody');
+    for (const label of ['Deck', ...comparison.columns]) heading.append(node('th', label));
+    head.append(heading);
+    for (const row of comparison.rows) {
+      const tr = node('tr'); if (row.deck === 'all') tr.className = 'all';
+      tr.append(node('td', row.deck === 'all' ? 'All decks' : row.deck));
+      for (const label of comparison.columns) {
+        const value = row.rates[label];
+        const cell = node('td', value.n ? `${int(value.w)} / ${int(value.n)} (${pct(value.p)})` : '—');
+        if (value.n) cell.title = `95% Wilson interval: ${pct(value.ci[0])}–${pct(value.ci[1])}`;
+        tr.append(cell);
+      }
+      body.append(tr);
+    }
+    table.append(head, body); wrap.append(table); root.append(caption, wrap);
+  }
 }
 
 // Trailing windows: quality pools wins/games (Wilson CI); per-iteration metrics average.

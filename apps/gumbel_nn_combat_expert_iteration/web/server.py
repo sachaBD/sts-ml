@@ -98,26 +98,38 @@ def system():
     return out
 
 
-def comparison(out, tests, test_results):
-    """Historical baselines, first and latest evaluation on the starts they all share (paired)."""
-    base = baselines(out)
-    cols = {LABELS.get(k, k): v for k, v in base.items()}
-    for i in dict.fromkeys(tests[:1] + tests[-1:]):
-        cols[f'iter {i}'] = test_results[i]
-    keys = set.intersection(*map(set, cols.values())) if len(cols) > 1 else set()
-    if not keys:
-        return None
-    groups = {'all': sorted(keys)}
-    for k in sorted(keys):
-        groups.setdefault(deck_of(k), []).append(k)
-    return dict(columns=list(cols), n=len(keys),
-                rows=[dict(deck=d, rates={c: rate(sum(v[k] for k in ks), len(ks)) for c, v in cols.items()})
-                      for d, ks in groups.items()],
-                diffs={a: {b: {d: paired(cols[a], cols[b], ks) for d, ks in groups.items()} for b in cols if b != a}
-                       for a in cols})
+def comparison(out, history, reference=None):
+    """Compare each matching evaluation independently; never merge search protocols."""
+    base = baselines(out) if reference is None else reference
+    if not base:
+        return []
+    scope = set().union(*base.values())
+    latest = {}
+    for row in history:
+        if 'test' not in row:
+            continue
+        it = row['test']
+        directory = out / 'training/test' / f'iter{it:03d}'
+        stages = {row['set']: directory / row['set']} if 'set' in row else {
+            'evaluation': directory, 'in-sample': directory / 'in-sample'}
+        for name, path in stages.items():
+            if name not in latest or it > latest[name][0]:
+                latest[name] = (it, path)
+    tables = []
+    for name, (it, path) in latest.items():
+        current = {k: v for k, v in finished(path / 'results.jsonl').items() if k in scope}
+        if not current:
+            continue
+        cols = {LABELS.get(k, k): v for k, v in base.items()} | {f'This run · iter {it}': current}
+        rates = {label: by_deck(values) for label, values in cols.items()}
+        decks = ['all'] + sorted({d for values in rates.values() for d in values if d != 'all'})
+        rows = [dict(deck=d, rates={label: values.get(d, rate(0, 0)) for label, values in rates.items()})
+                for d in decks]
+        tables.append(dict(set=name, it=it, columns=list(cols), rows=rows))
+    return tables
 
 
-def api(out):
+def api(out, reference=None):
     data = snapshot(out)
     training = out / 'training'
     history = jsonl(training / 'log.jsonl')
@@ -190,7 +202,7 @@ def api(out):
             speed['eta'] = max(0, progress['total'] / speed['typical'] - elapsed)
     return dict(state=data['state'], run=data['config']['run']['id'], progress=progress, live=live,
                 speed=speed, system=system(), train=train, test=test, decks=decks, trend=trend,
-                compare=comparison(out, tests, test_results),
+                compare=comparison(out, history, reference),
                 windows=dict(train=WINDOW, eval=[new_eval, old_eval]))
 
 
@@ -229,10 +241,12 @@ def main():
     p.add_argument('run', type=Path, nargs='?')
     p.add_argument('--port', type=int, default=8740)
     p.add_argument('--host', default='127.0.0.1')
+    p.add_argument('--baselines', type=Path, help='historical outcome maps to compare without modifying run inputs')
     p.add_argument('--mock', choices=('normal', 'fallback', 'stale', 'missing'))
     a = p.parse_args()
     if bool(a.run) == bool(a.mock):
         p.error('provide either RUN or --mock SCENARIO')
+    reference = json.loads(a.baselines.read_text()) if a.baselines else None
     out, mock = None, None
     if a.mock:
         from .health_mock import MockHealth
@@ -250,7 +264,7 @@ def main():
                     if out is None:
                         result = dict(error='Quality view unavailable in mock mode') if route.path == '/api' else []
                     else:
-                        result = ROUTES[route.path](out)
+                        result = api(out, reference) if route.path == '/api' else ROUTES[route.path](out)
                     body = json.dumps(result).encode()
                 elif route.path == '/telemetry.js':
                     body = TELEMETRY_PANEL.read_bytes()

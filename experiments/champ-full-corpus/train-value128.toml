@@ -53,6 +53,7 @@ timeout_ms = 60000
 shutdown_timeout_ms = 5000
 
 [evaluation]
+baselines = "runs/benchmark/legacy-core50-extended10/baselines.json"
 final_fights = "runs/benchmark/champ-full-corpus-v1/frozen/final.jsonl"
 cohorts = "runs/benchmark/champ-full-corpus-v1/frozen/cohorts.json"
 
