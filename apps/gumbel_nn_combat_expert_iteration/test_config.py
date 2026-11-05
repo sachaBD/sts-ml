@@ -20,12 +20,6 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(config.starts.fights, 'runs/benchmark/champ-ten/decks.jsonl')
         self.assertEqual(config.workers.gpu_bank, (256, 32))
 
-    def test_retired_wall_share_only_accepts_disabled_historical_configs(self):
-        historical = CONFIG.replace('[evaluation]', '[evaluation]\nwall_share = 0')
-        self.assertEqual(load(CONFIG), load(historical))
-        self.rejects(historical.replace('wall_share = 0', 'wall_share = 0.1'),
-                     "unknown [evaluation] keys: ['wall_share']")
-
     def test_a_mistake_stops_the_run(self):
         self.rejects(CONFIG.replace('steps = 1', 'stepz = 1'), "unknown [training] keys: ['stepz']")
         self.rejects(CONFIG.replace('lr = 0.001\n', ''), 'missing [training].lr')

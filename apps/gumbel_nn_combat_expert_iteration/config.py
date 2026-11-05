@@ -143,10 +143,6 @@ def section(cls, table, name):
 
 def load(text):
     raw = tomllib.loads(text)
-    # Frozen runs may still contain the disabled, retired scheduling option.
-    evaluation = raw.get('evaluation', {})
-    if evaluation.get('wall_share') == 0:
-        del evaluation['wall_share']
     check_keys(raw, {f.name for f in fields(Config)}, 'config')
     config = Config(**{f.name: section(f.type, raw.get(f.name, {}), f.name) for f in fields(Config)})
     validate(config)
