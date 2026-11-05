@@ -40,7 +40,7 @@ gpu_attended = 24
 gpu_wide_tokens = 128
 gpu_wide_attended = 64
 gpu_mixed_precision = true
-export_reuse = false
+export_reuse = true
 
 [workers]
 actors = 9
