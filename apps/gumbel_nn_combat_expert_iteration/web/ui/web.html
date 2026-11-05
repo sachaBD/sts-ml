@@ -160,11 +160,10 @@
         <div class="sub" id="evalSub"></div></div>
     </div>
     <div class="card">
-      <div class="head"><div class="label">Historical comparison</div>
-        <label class="sub"><input id="sharedFights" type="checkbox"> Same fights only</label></div>
+      <div class="label">Historical comparison</div>
       <div id="comparisonTables"></div>
       <p class="sub">Wins / fights (win rate). Hover for 95% Wilson intervals, treating fights as independent.
-        Historical simulators and training exposure differ; shared starting states are not a controlled comparison.</p>
+        Historical and current fight coverage, simulators, and training exposure differ.</p>
     </div>
     <div class="card"><div class="label">Win rate · 95% CI</div><div id="overall" style="height:300px"></div></div>
   </section>
@@ -224,7 +223,7 @@ function renderComparisons() {
     return element;
   };
   for (const comparison of data.compare) {
-    const caption = node('p', `${comparison.set} · iteration ${comparison.it} · ${comparison.n} shared fights`);
+    const caption = node('p', `${comparison.set} · iteration ${comparison.it}`);
     caption.className = 'sub';
     const wrap = node('div'); wrap.className = 'table-wrap';
     const table = node('table'), head = node('thead'), heading = node('tr'), body = node('tbody');
@@ -234,7 +233,7 @@ function renderComparisons() {
       const tr = node('tr'); if (row.deck === 'all') tr.className = 'all';
       tr.append(node('td', row.deck === 'all' ? 'All decks' : row.deck));
       for (const label of comparison.columns) {
-        const value = ( $('sharedFights').checked ? row.matched : row.rates )[label];
+        const value = row.rates[label];
         const cell = node('td', value.n ? `${int(value.w)} / ${int(value.n)} (${pct(value.p)})` : '—');
         if (value.n) cell.title = `95% Wilson interval: ${pct(value.ci[0])}–${pct(value.ci[1])}`;
         tr.append(cell);
@@ -244,7 +243,6 @@ function renderComparisons() {
     table.append(head, body); wrap.append(table); root.append(caption, wrap);
   }
 }
-$('sharedFights').onchange = renderComparisons;
 
 // Trailing windows: quality pools wins/games (Wilson CI); per-iteration metrics average.
 function wilson(w, n) {

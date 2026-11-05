@@ -121,19 +121,11 @@ def comparison(out, history, reference=None):
         if not current:
             continue
         cols = {LABELS.get(k, k): v for k, v in base.items()} | {f'This run · iter {it}': current}
-        common = set.intersection(*(set(v) for v in cols.values()))
-        groups = {'all': scope}
-        for k in sorted(scope):
-            groups.setdefault(deck_of(k), set()).add(k)
-        rows = []
-        for deck, keys in groups.items():
-            rates, matched = {}, {}
-            for label, values in cols.items():
-                available, shared = keys & values.keys(), keys & common
-                rates[label] = rate(sum(values[k] for k in available), len(available))
-                matched[label] = rate(sum(values[k] for k in shared), len(shared))
-            rows.append(dict(deck=deck, rates=rates, matched=matched))
-        tables.append(dict(set=name, it=it, columns=list(cols), n=len(common), rows=rows))
+        rates = {label: by_deck(values) for label, values in cols.items()}
+        decks = ['all'] + sorted({d for values in rates.values() for d in values if d != 'all'})
+        rows = [dict(deck=d, rates={label: values.get(d, rate(0, 0)) for label, values in rates.items()})
+                for d in decks]
+        tables.append(dict(set=name, it=it, columns=list(cols), rows=rows))
     return tables
 
 
