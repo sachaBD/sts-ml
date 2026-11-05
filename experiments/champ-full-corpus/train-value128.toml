@@ -68,7 +68,7 @@ every = 3
 
 [[evaluation.sets]]
 name = "legacy_core"
-fights = "runs/benchmark/legacy50-split/legacy_core.jsonl"
+fights = "runs/benchmark/legacy-core50-extended10/legacy_core.jsonl"
 sims = 64
 gumbel_scale = 0.0
 rollout_mix = 0
@@ -78,7 +78,7 @@ every = 3
 
 [[evaluation.sets]]
 name = "legacy_extended"
-fights = "runs/benchmark/legacy50-split/legacy_extended.jsonl"
+fights = "runs/benchmark/legacy-core50-extended10/legacy_extended.jsonl"
 sims = 64
 gumbel_scale = 0.0
 rollout_mix = 0
