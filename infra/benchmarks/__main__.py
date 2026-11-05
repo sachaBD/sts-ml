@@ -3,6 +3,9 @@
 MODEL_DIR holds model.onnx and model-gpu.onnx (batch 512). The reference is runs/benchmark/panache-128x4 (`make infra-benchmark`).
 REPLAY_FILE: replay sample files to read rows from, e.g. that run's samples-*.bin.
 Native benchmarks need `make build` (or --build DIR) first.
+For schema-specific inference inputs, invoke the native benchmark directly:
+    infra_bench_inference MODEL.onnx MODEL-GPU.onnx SECONDS INPUT.f32 ACTIONS
+INPUT.f32 is one unpadded float32 token matrix, repeated to fill the fixed batch.
 """
 import argparse
 import json
