@@ -24,6 +24,8 @@ class Learner:
         self.losses = torch.compile(losses, dynamic=True)
         tokens = torch.zeros(2, 3, WIDTH)
         tokens[:, 0, 0], tokens[:, 1:, 0] = TokenKind.CONTEXT, TokenKind.ACTION
+        if self.net.spec.kind == 'inventory_v1':
+            tokens[:, 0, 2] = 1
         self.net.train()
         policy = torch.tensor([[0., .5, .5]] * 2)
         self.losses(self.net, tokens, policy, torch.ones(2, len(TARGETS)), self.device).sum().backward()

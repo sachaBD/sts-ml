@@ -5,12 +5,16 @@
 // Action column 67 references the target monster row (0 = no target).
 #include "infra/inference/backend.hpp"
 #include <span>
+#include <string_view>
 #include <vector>
 #include "combat/BattleContext.h"
 #include "sim/search/Action.h"
 
 namespace stsrl::nn {
 inline constexpr int width = 68;
+enum class Encoding { legacy, inventory_v1 };
+Encoding encoding_from_name(std::string_view);
 
-stsrl::infra::Tokens encode(const sts::BattleContext&, std::span<const sts::search::Action> actions);
+stsrl::infra::Tokens encode(const sts::BattleContext&, std::span<const sts::search::Action> actions,
+                            Encoding encoding = Encoding::legacy);
 }  // namespace stsrl::nn
