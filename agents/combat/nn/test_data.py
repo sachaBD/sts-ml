@@ -8,6 +8,7 @@ from unittest.mock import patch
 import numpy as np
 
 from agents.combat.nn import data
+from agents.combat.nn.replay import TARGETS
 from agents.combat.nn.tokens import WIDTH
 
 
@@ -17,7 +18,7 @@ def write(path, seed, records, longest):
         for _ in range(records):
             count = int(rng.integers(1, longest + 1))
             actions = int(rng.integers(0, count + 1))
-            f.write(np.array([count, actions], np.int32).tobytes() + np.float32(rng.random() < .5).tobytes())
+            f.write(np.array([count, actions], np.int32).tobytes() + rng.random(len(TARGETS)).astype(np.float32).tobytes())
             f.write(rng.normal(0, 100, (count, WIDTH)).astype(np.float32).tobytes())
             f.write(rng.random(actions).astype(np.float32).tobytes())
     return path

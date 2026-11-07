@@ -1,17 +1,19 @@
 """Self-play samples (nn_play SAMPLES.bin) as dense tensors.
 
-Record: int32 tokens, int32 actions, float32 won, float32 tokens x WIDTH, float32 policy[actions] (the last tokens).
+Record: replay.HEADER (token count, action count, targets), float32 tokens x WIDTH, float32 policy[actions] (the last tokens).
 """
 import os
 
 import numpy as np
 import torch
 
+from .replay import HEADER, TARGETS
 from .tokens import WIDTH
 
 
 def read(paths, max_rows=0):
-    """(tokens [N, T, WIDTH] float16, policy [N, T] float32, won [N] float32), padded to the longest decision."""
+    """(tokens [N, T, WIDTH] float16, policy [N, T] float32, targets [N, len(TARGETS)] float32), padded to the longest
+    decision."""
     records = []
     for path in paths:
         if not os.path.getsize(path):
@@ -20,14 +22,13 @@ def read(paths, max_rows=0):
         raw = np.memmap(path, dtype=np.uint8, mode='r')
         at = 0
         while at < len(raw):
-            count, actions = raw[at:at + 8].view(np.int32)
-            won = raw[at + 8:at + 12].view(np.float32)[0]
-            at += 12
+            count, actions, *targets = HEADER.unpack_from(raw, at)
+            at += HEADER.size
             tokens = raw[at:at + 4 * count * WIDTH].view(np.float32).reshape(count, WIDTH)
             at += 4 * count * WIDTH
             policy = raw[at:at + 4 * actions].view(np.float32)
             at += 4 * actions
-            records.append((tokens, policy, won))
+            records.append((tokens, policy, targets))
     if max_rows and len(records) > max_rows:
         # Use checkpointed torch RNG; every replay row has equal inclusion probability.
         indices = torch.randperm(len(records))[:max_rows].tolist()
@@ -38,8 +39,8 @@ def read(paths, max_rows=0):
     for i, (t, p, _) in enumerate(records):
         tokens[i, :len(t)] = t
         policy[i, len(t) - len(p):len(t)] = p
-    won = np.array([w for _, _, w in records], np.float32)
-    return torch.from_numpy(tokens), torch.from_numpy(policy), torch.from_numpy(won)
+    targets = np.array([y for _, _, y in records], np.float32).reshape(-1, len(TARGETS))
+    return torch.from_numpy(tokens), torch.from_numpy(policy), torch.from_numpy(targets)
 
 
 class Replay:

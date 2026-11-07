@@ -4,6 +4,7 @@ from dataclasses import asdict
 import torch
 
 from .model import build_model
+from .replay import TARGETS
 from .tokens import TokenKind, WIDTH
 from .train import losses, score, train
 
@@ -24,7 +25,7 @@ class Learner:
         tokens[:, 0, 0], tokens[:, 1:, 0] = TokenKind.CONTEXT, TokenKind.ACTION
         self.net.train()
         policy = torch.tensor([[0., .5, .5]] * 2)
-        sum(losses(self.training_net, tokens, policy, torch.ones(2), self.device)).backward()
+        sum(losses(self.training_net, tokens, policy, torch.ones(2, len(TARGETS)), self.device)).backward()
         self.optimizer.zero_grad(set_to_none=True)
 
     def fit(self, replay, steps, batch, log=print, *, value_batch=0, on_counters=None, lr=None):
