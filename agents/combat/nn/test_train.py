@@ -8,7 +8,7 @@ from unittest.mock import patch
 
 import torch
 
-from .replay import Replay
+from .replay import Replay, TARGETS
 from .test_replay import samples
 from .tokens import WIDTH
 from .train import losses, train
@@ -31,8 +31,9 @@ def batch(size, scale):
     tokens[:, :, 0] = torch.tensor([1, 6, 6])
     tokens[:, :, 3] = scale * torch.arange(1, size + 1)[:, None] * torch.tensor([1., 2., -1.])
     policy = torch.tensor([0., .25, .75]).expand(size, -1)
-    won = torch.arange(size).remainder(2).float()
-    return tokens, policy, won
+    targets = torch.rand(size, len(TARGETS), generator=torch.Generator().manual_seed(size))
+    targets[:, TARGETS.index('won')] = torch.arange(size).remainder(2).float()
+    return tokens, policy, targets
 
 
 def chunks(tensors, sizes):

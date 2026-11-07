@@ -6,7 +6,9 @@ import time
 import torch
 
 from infra.workers.reader import prefetch
-from .replay import Replay
+from .replay import Replay, TARGETS
+
+WON = TARGETS.index('won')
 
 
 @dataclass(frozen=True)
@@ -18,9 +20,10 @@ class TrainingCounters:
     policy_loss_sum: float
 
 
-def losses(net, x, target, w, device):
-    """Mean value BCE and policy cross-entropy of one microbatch, as the optimizer sees them."""
-    x, target, w = x.to(device), target.to(device), w.to(device)
+def losses(net, x, target, y, device):
+    """Mean value BCE and policy cross-entropy of one microbatch, as the optimizer sees them.
+    y holds replay.TARGETS per row; the value trains on the won column."""
+    x, target, w = x.to(device), target.to(device), y.to(device)[:, WON]
     with torch.autocast(device, torch.bfloat16):
         value, logits = net(x.float())
     v = value.float().clamp(1e-6, 1 - 1e-6)
@@ -41,8 +44,8 @@ def score(net, replay, rows, batch, device='cuda'):
     return tuple((totals / count).tolist())
 
 
-def train(net, optimizer, tokens, policy, won, steps, batch=512, device='cuda', log=print, *, value_batch=0, on_counters=None):
-    """tokens/policy/won from data.read (any device); trains net (already on `device`) in place.
+def train(net, optimizer, tokens, policy, targets, steps, batch=512, device='cuda', log=print, *, value_batch=0, on_counters=None):
+    """tokens/policy/targets from data.read (any device); trains net (already on `device`) in place.
     Returns the mean (value, policy) loss of the last logged window."""
     replay = tokens if isinstance(tokens, Replay) else None
     if value_batch < 0 or (value_batch and replay is None):
@@ -51,7 +54,7 @@ def train(net, optimizer, tokens, policy, won, steps, batch=512, device='cuda', 
         raise ValueError('value batch exceeds the combat count')
     net.train()
     if replay is None:
-        tokens, policy, won = tokens.to(device), policy.to(device), won.to(device)
+        tokens, policy, targets = tokens.to(device), policy.to(device), targets.to(device)
 
     def prepare(_):
         policy_batches = list(replay.batches(batch))
@@ -70,8 +73,8 @@ def train(net, optimizer, tokens, policy, won, steps, batch=512, device='cuda', 
             if replay is not None:
                 batches, value_batches = next(ready)
             else:
-                i = torch.randint(len(won), (batch,), device=device)
-                batches, value_batches = [(tokens[i], policy[i], won[i])], []
+                i = torch.randint(len(targets), (batch,), device=device)
+                batches, value_batches = [(tokens[i], policy[i], targets[i])], []
             optimizer.zero_grad(set_to_none=True)
             for x, target, w in batches:
                 value_loss, policy_loss = losses(net, x, target, w, device)

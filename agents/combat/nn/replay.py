@@ -11,7 +11,10 @@ import torch
 from infra.workers.reader import Reader
 from .tokens import WIDTH
 
-HEADER = struct.Struct('<iif')
+# nn_play sample record: token count, action count, targets (targets.hpp order), tokens, policy.
+SAMPLE_FORMAT = 2
+TARGETS = ('won', 'hp', 'enemy_hp', 'hp_lost', 'enemy_hp_lost', 'turns_remaining')
+HEADER = struct.Struct('<ii' + 'f' * len(TARGETS))
 
 
 def index(path):
@@ -24,12 +27,14 @@ def index(path):
     groups, at = {}, 0
     for line in (path.parent / 'results.jsonl').read_text().splitlines():
         game = json.loads(line)
+        if game.get('sample_format') != SAMPLE_FORMAT:
+            raise ValueError(f'{path}: sample format {game.get("sample_format")}, expected {SAMPLE_FORMAT}')
         deck = game['fight_id'].split(':')[-2]  # namespace:iteration:deck:index
         offsets = groups.setdefault(deck, [])
         for _ in range(game['decisions']):
             if at + HEADER.size > len(raw):
                 raise ValueError(f'{path}: truncated sample header')
-            count, actions, won = HEADER.unpack_from(raw, at)
+            count, actions, won, *_ = HEADER.unpack_from(raw, at)
             if not 0 < actions <= count or won != float(game['won']):
                 raise ValueError(f'{path}: sample/result mismatch')
             offsets.append(at)
@@ -169,10 +174,10 @@ class Replay:
     def _read(self, picked):
         records = []
         for raw in self.reader.read(picked.tolist()):
-            count, actions, won = HEADER.unpack_from(raw)
+            count, actions, *targets = HEADER.unpack_from(raw)
             tokens = np.frombuffer(raw, dtype=np.float32, count=count * WIDTH, offset=HEADER.size).reshape(count, WIDTH)
             policy = np.frombuffer(raw, dtype=np.float32, count=actions, offset=HEADER.size + count * WIDTH * 4)
-            records.append((tokens, policy, won))
+            records.append((tokens, policy, targets))
         return records
 
     @staticmethod
@@ -181,12 +186,12 @@ class Replay:
         longest = max(len(t) for t, _, _ in records)
         tokens = np.zeros((size, longest, WIDTH), dtype=np.float32)
         policy = np.zeros((size, longest), dtype=np.float32)
-        won = np.empty(size, dtype=np.float32)
-        for i, (t, p, w) in enumerate(records):
+        targets = np.empty((size, len(TARGETS)), dtype=np.float32)
+        for i, (t, p, y) in enumerate(records):
             tokens[i, :len(t)] = t
             policy[i, len(t) - len(p):len(t)] = p
-            won[i] = w
-        return torch.from_numpy(tokens), torch.from_numpy(policy), torch.from_numpy(won)
+            targets[i] = y
+        return torch.from_numpy(tokens), torch.from_numpy(policy), torch.from_numpy(targets)
 
     def batch(self, size):
         return self.collate(self.sample(size))
