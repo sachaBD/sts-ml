@@ -94,6 +94,18 @@ class PooledTransformerExportTests(ExportContract, unittest.TestCase):
         torch.testing.assert_close(cpu_predictions, model_predictions(self.model, self.tokens), rtol=2e-4, atol=2e-5)
 
 
+class OutcomeExportTests(unittest.TestCase):
+    def test_exported_value_is_the_win_probability(self):
+        torch.set_num_threads(1)
+        spec = ModelSpec('entity', dim=16, layers=1, heads=2, value='outcome')
+        model = Learner(spec, lr=1e-3, device='cpu').net.eval()
+        tokens = combat_tokens()
+        with tempfile.TemporaryDirectory() as temporary:
+            ModelExporter(model.spec, ExportSpec(tokens=10))._write(model, Path(temporary) / 'model.onnx', None)
+            actual = onnx_predictions(Path(temporary) / 'model.onnx', tokens)
+        torch.testing.assert_close(actual, model_predictions(model, tokens), rtol=2e-4, atol=2e-5)
+
+
 class TargetAssociationExportTests(unittest.TestCase):
     def test_targets_survive_export_without_learning_monster_order(self):
         torch.set_num_threads(1)

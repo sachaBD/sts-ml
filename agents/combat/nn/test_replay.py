@@ -156,10 +156,11 @@ class ReplayTests(unittest.TestCase):
 
     def test_unequal_microbatches_match_one_effective_update(self):
         class Tiny(torch.nn.Module):
+            spec = ModelSpec('transformer', 1, 1, 1)
             def __init__(self):
                 super().__init__(); self.scale = torch.nn.Parameter(torch.tensor(.2))
-            def forward(self, t):
-                return (self.scale * t[:, 0, 3]).sigmoid(), (self.scale * t[:, :, 3]).masked_fill(t[:, :, 0] != 6, -1e9)
+            def heads(self, t):
+                return self.scale * t[:, :1, 3], (self.scale * t[:, :, 3]).masked_fill(t[:, :, 0] != 6, -1e9)
         with tempfile.TemporaryDirectory() as tmp:
             path = samples(Path(tmp) / 'iter001', [('a', 4, 1, 1), ('b', 4, 2, 0)])
             replay = Replay([path])
