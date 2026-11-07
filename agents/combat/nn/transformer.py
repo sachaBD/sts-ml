@@ -1,8 +1,7 @@
 """Full-token combat transformer."""
-import torch
 from torch import nn
 
-from .model import CombatModel
+from .model import CombatModel, value_width
 from .tokens import ID_CAPACITY, KIND_CAPACITY, MASKED_LOGIT, TokenKind, TokenRows, WIDTH
 
 
@@ -17,16 +16,15 @@ class Transformer(CombatModel):
         layer = nn.TransformerEncoderLayer(dim, heads, 4 * dim, dropout=0.0, batch_first=True, norm_first=True)
         self.encoder = nn.TransformerEncoder(layer, layers, enable_nested_tensor=False)
         self.norm = nn.LayerNorm(dim)
-        self.value = nn.Linear(dim, 1)
+        self.value = nn.Linear(dim, value_width(spec))
         self.policy = nn.Linear(dim, 1)
 
-    def forward(self, tokens):
+    def heads(self, tokens):
         rows = TokenRows(tokens)
         kind = rows.kind.long()
         x = (self.kind(kind) + self.id(kind * ID_CAPACITY + rows.id)
              + self.id2(rows.id2) + self.numeric(rows.numeric))
         x = rows.with_targets(x)
         h = self.norm(self.encoder(x, src_key_padding_mask=~rows.valid))
-        value = torch.sigmoid(self.value(h[:, 0]).squeeze(-1).float())
         logits = self.policy(h).squeeze(-1).float().masked_fill(~rows.is_kind(TokenKind.ACTION), MASKED_LOGIT)
-        return value, logits
+        return self.value(h[:, 0]).float(), logits

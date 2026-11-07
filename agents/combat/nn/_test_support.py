@@ -6,8 +6,8 @@ from .tokens import CardZone, TokenKind, TokenRows, WIDTH
 from .train import train
 
 
-def small_spec(kind):
-    return ModelSpec(kind, dim=16, layers=1, heads=2)
+def small_spec(kind, value='win'):
+    return ModelSpec(kind, dim=16, layers=1, heads=2, value=value)
 
 
 def combat_tokens():
