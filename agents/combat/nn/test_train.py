@@ -13,7 +13,7 @@ from .model import LOSS_BINS, WIN_BINS, ModelSpec, build_model
 from .replay import Replay, TARGETS
 from .test_replay import samples
 from .tokens import WIDTH
-from .train import LOSSES, losses, outcome_bin, train
+from .train import AUXILIARY_WEIGHT, LOSSES, losses, outcome_bin, train
 
 
 class Tiny(torch.nn.Module):
@@ -76,11 +76,11 @@ class TrainingTests(unittest.TestCase):
     def test_independent_losses_match_explicit_objective_for_any_microbatch_partition(self):
         policy_batch, value_batch = batch(5, 2.), batch(3, -3.)
         torch.manual_seed(0)
-        nets = dict(tiny=Tiny, outcome=lambda: build_model(ModelSpec('transformer', 8, 1, 1, 'outcome')))
+        nets = dict(tiny=Tiny, auxiliary=lambda: build_model(ModelSpec('transformer', 8, 1, 1, 'outcome', True)))
         # Tiny checks every partition; the real model's bf16 matmuls round differently per microbatch shape.
         cases = [('tiny', policy_sizes, value_sizes)
                  for policy_sizes, value_sizes in [([5], [3]), ([2, 3], [1, 2]), ([1, 1, 3], [2, 1])]]
-        cases.append(('outcome', [5], [3]))
+        cases.append(('auxiliary', [5], [3]))
         for net, policy_sizes, value_sizes in cases:
             with (self.subTest(net=net, policy=policy_sizes, value=value_sizes), tempfile.TemporaryDirectory() as tmp):
                 path = samples(Path(tmp) / 'a', [('a', 1, 1, 1), ('a', 1, 2, 0), ('b', 1, 3, 1)])
@@ -92,7 +92,8 @@ class TrainingTests(unittest.TestCase):
                     value_side = dict(zip(LOSSES, losses(expected, *value_batch, 'cpu')))
                     policy_side = dict(zip(LOSSES, losses(expected, *policy_batch, 'cpu')))
                     v, p, w = value_side['value'], policy_side['policy'], value_side['win']
-                    (v + p).backward()
+                    turns, round_ = value_side['turns'], policy_side['round']
+                    (v + p + AUXILIARY_WEIGHT * (turns + round_)).backward()
                     torch.nn.utils.clip_grad_norm_(expected.parameters(), 1.)
                     reference_optimizer.step()
                     def batches(size, *, combat_balanced=False):
@@ -100,7 +101,7 @@ class TrainingTests(unittest.TestCase):
                     with patch.object(replay, 'batches', side_effect=batches):
                         logged = train(actual, optimizer, replay, None, None, 1, 5, 'cpu',
                                        log=lambda _: None, value_batch=3)
-                    torch.testing.assert_close(logged, tuple(x.item() for x in (v, p, w)))
+                    torch.testing.assert_close(logged, tuple(x.item() for x in (v, p, w, round_, turns)))
                     for name, parameter in actual.named_parameters():
                         torch.testing.assert_close(parameter, dict(expected.named_parameters())[name])
 

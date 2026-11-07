@@ -7,15 +7,18 @@ import torch
 import torch.nn.functional as F
 
 from infra.workers.reader import prefetch
-from .model import LOSS_BINS, WIN_BINS, win_probability
+from .model import AUXILIARY, LOSS_BINS, WIN_BINS, value_width, win_probability
 from .replay import Replay, TARGETS
 
 WON, HP, ENEMY_HP = (TARGETS.index(name) for name in ('won', 'hp', 'enemy_hp'))
+MAX_TURNS = 50  # Fight::max_turns; scales the turns-remaining target
+AUXILIARY_WEIGHT = 0.25
 
-# losses() order. Policy batches train policy; value batches train value. Win BCE is only measured.
-LOSSES = ('value', 'policy', 'win')
-OBJECTIVE = torch.tensor([1., 1., 0.])
-POLICY_SIDE = torch.tensor([0., 1., 0.])
+# losses() order. Policy batches train policy and the per-round heads, which differ for every state;
+# value batches train value and turns, which are shared by a whole combat. Win BCE is only measured.
+LOSSES = ('value', 'policy', 'win', 'round', 'turns')
+OBJECTIVE = torch.tensor([1., 1., 0., AUXILIARY_WEIGHT, AUXILIARY_WEIGHT])
+POLICY_SIDE = torch.tensor([0., 1., 0., 1., 0.])
 VALUE_SIDE = 1 - POLICY_SIDE
 
 
@@ -37,17 +40,25 @@ def outcome_bin(targets):
 
 def losses(net, x, target, y, device):
     """Mean LOSSES of one microbatch. Value is win BCE for spec.value == 'win', otherwise outcome-bin
-    cross-entropy."""
+    cross-entropy; round (HP and enemy HP lost) and turns are MSE, zero without spec.auxiliary."""
     x, target, y = x.to(device), target.to(device), y.to(device)
     with torch.autocast(device, torch.bfloat16):
-        value, logits = net.heads(x.float())
-    value = value.float()
-    win = win_probability(value, net.spec).clamp(1e-6, 1 - 1e-6)
+        context, logits = net.heads(x.float())
+    context = context.float()
+    win = win_probability(context, net.spec).clamp(1e-6, 1 - 1e-6)
     won = y[:, WON]
     win_loss = -(won * win.log() + (1 - won) * (1 - win).log()).mean()
-    value_loss = win_loss if net.spec.value == 'win' else F.cross_entropy(value, outcome_bin(y))
+    width = value_width(net.spec)
+    value_loss = win_loss if net.spec.value == 'win' else F.cross_entropy(context[:, :width], outcome_bin(y))
     policy_loss = -(target * logits.float().log_softmax(-1)).sum(-1).mean()
-    return torch.stack((value_loss, policy_loss, win_loss))
+    round_loss = turns_loss = torch.zeros((), device=device)
+    if net.spec.auxiliary:
+        predicted = context[:, width:]
+        scale = torch.tensor([MAX_TURNS if name == 'turns_remaining' else 1. for name in AUXILIARY], device=device)
+        squared = dict(zip(AUXILIARY, (predicted - y[:, [TARGETS.index(name) for name in AUXILIARY]] / scale)
+                           .square().mean(0)))
+        round_loss, turns_loss = squared['hp_lost'] + squared['enemy_hp_lost'], squared['turns_remaining']
+    return torch.stack((value_loss, policy_loss, win_loss, round_loss, turns_loss))
 
 
 @torch.no_grad()

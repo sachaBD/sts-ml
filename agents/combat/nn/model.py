@@ -7,6 +7,8 @@ from torch import Tensor, nn
 
 # Outcome bins on one margin axis: losses by enemy HP left (most first), then wins by player HP (least first).
 LOSS_BINS = WIN_BINS = 10
+# Training-only predictions after the value logits when spec.auxiliary; replay.TARGETS names.
+AUXILIARY = ('hp_lost', 'enemy_hp_lost', 'turns_remaining')
 
 
 @dataclass(frozen=True)
@@ -16,6 +18,7 @@ class ModelSpec:
     layers: int
     heads: int
     value: str = 'win'  # win: one win logit; outcome: LOSS_BINS + WIN_BINS outcome logits
+    auxiliary: bool = False  # AUXILIARY predictions follow the value logits
     encoding_version: int = field(default=2, init=False)  # action-to-target row references
 
     def __post_init__(self):
@@ -31,9 +34,13 @@ def value_width(spec: ModelSpec) -> int:
     return 1 if spec.value == 'win' else LOSS_BINS + WIN_BINS
 
 
-def win_probability(value: Tensor, spec: ModelSpec) -> Tensor:
-    """Value head [B, value_width] -> [B]; a NaN row stays NaN."""
-    value = value.float()
+def context_width(spec: ModelSpec) -> int:
+    return value_width(spec) + len(AUXILIARY) * spec.auxiliary
+
+
+def win_probability(context: Tensor, spec: ModelSpec) -> Tensor:
+    """Context readout [B, context_width] -> [B]; a NaN row stays NaN."""
+    value = context.float()[:, :value_width(spec)]
     if spec.value == 'win':
         return torch.sigmoid(value[:, 0])
     # Summed softmax mass can round above 1 in fp32 or fp16; NaNs must still propagate.
@@ -52,12 +59,12 @@ class CombatModel(nn.Module, ABC):
         self.spec = spec
 
     def forward(self, tokens: Tensor) -> tuple[Tensor, Tensor]:
-        value, logits = self.heads(tokens)
-        return win_probability(value, self.spec), logits
+        context, logits = self.heads(tokens)
+        return win_probability(context, self.spec), logits
 
     @abstractmethod
     def heads(self, tokens: Tensor) -> tuple[Tensor, Tensor]:
-        """Value head [B, value_width(spec)] and action logits [B,T]."""
+        """Context readout [B, context_width(spec)] (value logits, then AUXILIARY) and action logits [B,T]."""
         raise NotImplementedError
 
 
