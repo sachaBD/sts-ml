@@ -4,7 +4,7 @@ import unittest
 import torch
 
 from ._test_support import combat_tokens, small_spec
-from .model import LOSS_BINS, WIN_BINS, ModelSpec, build_model, win_probability
+from .model import AUXILIARY, LOSS_BINS, WIN_BINS, ModelSpec, build_model, win_probability
 from .tokens import TokenKind, TokenRows, WIDTH
 
 
@@ -55,20 +55,22 @@ class ModelTests(unittest.TestCase):
                     torch.testing.assert_close(actual, expected)
 
     def test_outcome_win_probability_is_the_win_bin_mass(self):
-        for kind in ('transformer', 'entity'):
-            with self.subTest(kind=kind):
-                model = build_model(small_spec(kind, 'outcome')).eval()
+        for kind, auxiliary in [(kind, auxiliary) for kind in ('transformer', 'entity') for auxiliary in (False, True)]:
+            with self.subTest(kind=kind, auxiliary=auxiliary):
+                spec = ModelSpec(kind, dim=16, layers=1, heads=2, value='outcome', auxiliary=auxiliary)
+                model = build_model(spec).eval()
                 tokens = combat_tokens()
-                value, _ = model.heads(tokens)
+                context, _ = model.heads(tokens)
                 values, _ = model(tokens)
-                self.assertEqual(value.shape, (len(tokens), LOSS_BINS + WIN_BINS))
-                torch.testing.assert_close(values, value.softmax(-1)[:, LOSS_BINS:].sum(-1))
+                bins = LOSS_BINS + WIN_BINS
+                self.assertEqual(context.shape, (len(tokens), bins + len(AUXILIARY) * auxiliary))
+                torch.testing.assert_close(values, context[:, :bins].softmax(-1)[:, LOSS_BINS:].sum(-1))
 
     def test_saturated_outcome_probabilities_stay_bounded_and_preserve_nans(self):
-        spec = small_spec('entity', 'outcome')
+        spec = ModelSpec('entity', dim=16, layers=1, heads=2, value='outcome', auxiliary=True)
         generator = torch.Generator().manual_seed(0)
         for dtype in (torch.float32, torch.float16, torch.bfloat16):
-            context = torch.randn(4096, LOSS_BINS + WIN_BINS, generator=generator)
+            context = torch.randn(4096, LOSS_BINS + WIN_BINS + len(AUXILIARY), generator=generator)
             context[:2048, :LOSS_BINS] -= 80  # near-certain wins
             context[2048:, LOSS_BINS:LOSS_BINS + WIN_BINS] -= 80  # near-certain losses
             context[0] = float('nan')

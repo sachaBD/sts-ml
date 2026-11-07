@@ -2,7 +2,7 @@
 import torch
 from torch import Tensor, nn
 
-from .model import CombatModel, value_width, win_probability
+from .model import CombatModel, context_width, win_probability
 from .tokens import CardZone, ID_CAPACITY, KIND_CAPACITY, MASKED_LOGIT, TokenKind, TokenRows, WIDTH
 
 
@@ -26,7 +26,7 @@ class PooledTransformer(CombatModel):
         layer = nn.TransformerEncoderLayer(dim, heads, 4 * dim, dropout=0.0, batch_first=True, norm_first=True)
         self.encoder = nn.TransformerEncoder(layer, layers, enable_nested_tensor=False)
         self.norm = nn.LayerNorm(dim)
-        self.value = nn.Linear(dim, value_width(spec))
+        self.value = nn.Linear(dim, context_width(spec))
         self.policy = nn.Linear(dim, 1)
 
     def heads(self, tokens):
@@ -37,8 +37,8 @@ class PooledTransformer(CombatModel):
 
     def predict(self, tokens: Tensor, slots: int | None = None) -> tuple[Tensor, Tensor]:
         """Evaluate an optional bounded attention view; overflow returns a NaN value."""
-        value, logits = self._heads(tokens, slots)
-        return win_probability(value, self.spec), logits
+        context, logits = self._heads(tokens, slots)
+        return win_probability(context, self.spec), logits
 
     def _heads(self, tokens: Tensor, slots: int | None) -> tuple[Tensor, Tensor]:
         rows = TokenRows(tokens)

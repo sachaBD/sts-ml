@@ -48,7 +48,7 @@ class Learner:
     def load(self, path):
         """Restores weights, optimizer and RNG, so training continues exactly where the checkpoint left off."""
         checkpoint = torch.load(path, map_location='cpu', weights_only=True)
-        saved_spec = dict(value='win') | checkpoint['spec']
+        saved_spec = dict(value='win', auxiliary=False) | checkpoint['spec']
         if saved_spec != asdict(self.net.spec):
             raise ValueError(f'{path}: architecture {checkpoint["spec"]} differs from {self.net.spec}')
         self.net.load_state_dict(checkpoint['net'])
