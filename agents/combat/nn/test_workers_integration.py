@@ -88,10 +88,14 @@ class WorkerIntegrationTests(unittest.TestCase):
         return {r['fight_id']: {k:v for k,v in r.items() if k not in {'seconds', 'finished_unix', 'sample_range'}} for r in rows}
 
     def test_cpu_actor_count_parity(self):
-        common = ['--threads', '2', '--gpu-batch', '4', '--sims', '4']
+        # Replay parity is a serial-search invariant; pipeline completion order may change estimates.
+        common = ['--threads', '2', '--gpu-batch', '4', '--sims', '4', '--search-inflight', '1']
         serial = self.play('cpu-one-slot', 8, [*common, '--parallel', '1'])
         concurrent = self.play('cpu-four-slots', 8, [*common, '--parallel', '4'])
         self.assertEqual(serial, concurrent)
+
+    def test_cpu_pipelined_games(self):
+        self.play('cpu-pipeline', 8, ['--threads', '2', '--parallel', '4', '--sims', '16', '--search-inflight', '4'])
 
     @unittest.skipUnless(os.environ.get('NN_TEST_GPU'), 'explicit GPU model required')
     def test_gpu_actors_full_games(self):

@@ -68,7 +68,7 @@ TEST(Gumbel, AsksAtMostOncePerSimulationPlusRoot) {
     auto answer = noisy();
     run(search, [&](const Query& q) { ++queries; return answer(q); });
     EXPECT_LE(queries, s.simulations + 1);
-    EXPECT_FALSE(search.pending());
+    EXPECT_TRUE(search.done());
 }
 
 TEST(Gumbel, ResultIsAPolicyOverTheRootActions) {
@@ -197,7 +197,15 @@ TEST(Gumbel, HalvingRoundsAllocateEqually) {
             s.simulations = sims;
             s.considered_actions = considered;
             Gumbel search{root, s, 1};
-            run(search, noisy());
+            auto evaluate = noisy();
+            std::vector<Query> pending;
+            while (!search.done()) {
+                while (auto query = search.next_query()) pending.push_back(*query);
+                if (pending.empty()) { ASSERT_TRUE(search.done()); break; }
+                const auto query = pending.back();
+                pending.pop_back();
+                search.evaluated(query.id, evaluate(query));
+            }
             const auto tree = search.tree();
             const auto& edges = tree.nodes[0].edges;
 
@@ -243,4 +251,145 @@ TEST(Gumbel, UnrescaledValuesScaleSigmaWithoutMinMaxStretching) {
     const double q1 = edges[1].value_sum / edges[1].visits;
     const double scale = (s.maxvisit_init + 2) * s.value_scale;
     EXPECT_NEAR(edges[1].sigma - edges[0].sigma, scale * (q1 - q0), 1e-6);
+}
+
+TEST(GumbelPipeline, ClaimsRootOnceAndRejectsUnknownOrDuplicateCompletions) {
+    auto s = settings();
+    s.simulations = 0;
+    Gumbel search{jaw_worm(), s, 1};
+    EXPECT_FALSE(search.done());
+    EXPECT_THROW(search.result(), std::logic_error);
+    const auto root = search.next_query();
+    ASSERT_TRUE(root);
+    EXPECT_FALSE(search.next_query());
+    EXPECT_THROW(search.evaluated(root->id + 1, flat(*root)), std::logic_error);
+    const auto evaluation = flat(*root);
+    search.evaluated(root->id, evaluation);
+    EXPECT_THROW(search.evaluated(root->id, evaluation), std::logic_error);
+    EXPECT_TRUE(search.done());
+    EXPECT_FALSE(search.next_query());
+}
+
+TEST(GumbelPipeline, ReadyCompetitorContinuesWhileAnotherEvaluationIsOutstanding) {
+    auto s = settings();
+    s.simulations = 32;
+    s.considered_actions = 2;
+    s.max_inflight = 2;
+    Gumbel search{jaw_worm(), s, 1};
+    const auto root = search.next_query();
+    ASSERT_TRUE(root);
+    search.evaluated(root->id, flat(*root));
+    const auto slow = search.next_query();
+    const auto fast = search.next_query();
+    ASSERT_TRUE(slow);
+    ASSERT_TRUE(fast);
+    EXPECT_NE(slow->id, fast->id);
+    const auto observation = stsrl::combat::observation_key(slow->state);
+    const std::vector<Action> actions(slow->actions.begin(), slow->actions.end());
+    EXPECT_FALSE(search.next_query());
+    search.evaluated(fast->id, flat(*fast));
+    const auto next = search.next_query();
+    ASSERT_TRUE(next) << "a ready branch should not wait for its competitor";
+    EXPECT_NE(next->id, slow->id);
+    EXPECT_EQ(stsrl::combat::observation_key(slow->state), observation);
+    EXPECT_TRUE(std::ranges::equal(slow->actions, actions));
+    search.evaluated(next->id, flat(*next));
+    search.evaluated(slow->id, flat(*slow));
+    run(search, flat);
+    const auto tree = search.tree();
+    EXPECT_EQ(tree.nodes[0].total, s.simulations);
+    int visited = 0;
+    for (const auto& edge : tree.nodes[0].edges) {
+        if (!edge.visits) continue;
+        ++visited;
+        EXPECT_EQ(edge.visits, s.simulations / s.considered_actions);
+    }
+    EXPECT_EQ(visited, s.considered_actions);
+}
+
+TEST(GumbelPipeline, OutOfOrderCompletionsRespectBoundsAndSimulationAccounting) {
+    for (int limit : {1, 2, 4, 16}) {
+        for (int simulations : {0, 1, 3, 8, 31, 64}) {
+            auto s = settings(1);
+            s.max_inflight = limit;
+            s.simulations = simulations;
+            Gumbel search{jaw_worm(), s, 7};
+            std::vector<Query> outstanding;
+            std::vector<std::uint64_t> ids;
+            int peak = 0;
+            while (!search.done()) {
+                while (auto q = search.next_query()) {
+                    EXPECT_EQ(std::ranges::find(ids, q->id), ids.end());
+                    ids.push_back(q->id);
+                    outstanding.push_back(*q);
+                    EXPECT_LE(outstanding.size(), std::size_t(limit));
+                    EXPECT_TRUE(std::ranges::equal(q->actions, legal_actions(q->state)));
+                }
+                peak = std::max(peak, int(outstanding.size()));
+                if (outstanding.empty()) { ASSERT_TRUE(search.done()); break; }
+                // Complete the newest first, deliberately leaving older competitors waiting.
+                const auto q = outstanding.back();
+                outstanding.pop_back();
+                search.evaluated(q.id, flat(q));
+            }
+            EXPECT_LE(ids.size(), std::size_t(simulations + 1));
+            if (simulations >= 8 && limit > 1) EXPECT_GT(peak, 1);
+            const auto tree = search.tree();
+            EXPECT_LE(tree.nodes[0].total, simulations);
+            if (simulations > 0) EXPECT_GT(tree.nodes[0].total, 0);
+            else EXPECT_EQ(tree.nodes[0].total, 0);
+            for (const auto& node : tree.nodes) {
+                int visits = 0;
+                for (const auto& edge : node.edges) {
+                    visits += edge.visits;
+                    EXPECT_GE(edge.value_sum, 0);
+                    EXPECT_LE(edge.value_sum, edge.visits);
+                }
+                EXPECT_EQ(visits, node.total);
+            }
+        }
+    }
+}
+
+TEST(GumbelPipeline, CompletionsBackUpOnlyTheirOwnBranchAndEliminationWaitsForEveryCompetitor) {
+    auto s = settings();
+    s.simulations = 8;
+    s.considered_actions = 4;
+    s.max_inflight = 4;
+    Gumbel search{jaw_worm(), s, 1};
+    const auto root = search.next_query();
+    ASSERT_TRUE(root);
+    search.evaluated(root->id, flat(*root));
+    std::vector<Query> pending;
+    while (auto q = search.next_query()) pending.push_back(*q);
+    ASSERT_EQ(pending.size(), std::size_t(s.considered_actions));
+    const auto initial = search.tree();
+    std::vector<std::size_t> branches;
+    for (const auto& q : pending) {
+        const auto& edges = initial.nodes[0].edges;
+        const auto edge = std::ranges::find_if(edges, [&](const auto& e) {
+            return std::ranges::any_of(e.children, [&](const auto& child) { return child.node == int(q.id); });
+        });
+        ASSERT_NE(edge, edges.end());
+        branches.push_back(std::size_t(edge - edges.begin()));
+    }
+    // Complete all but the strongest competitor; it must still participate in elimination.
+    for (std::size_t i = 0; i < pending.size(); ++i) {
+        auto evaluation = flat(pending[i]);
+        evaluation.value = float(i + 1) / pending.size();
+        search.evaluated(pending[i].id, evaluation);
+        const auto tree = search.tree();
+        EXPECT_EQ(tree.nodes[0].total, int(i + 1));
+        for (std::size_t j = 0; j < branches.size(); ++j) {
+            const auto& edge = tree.nodes[0].edges[branches[j]];
+            EXPECT_EQ(edge.visits, j <= i ? 1 : 0);
+            EXPECT_DOUBLE_EQ(edge.value_sum, j <= i ? double(j + 1) / pending.size() : 0);
+        }
+        if (i + 1 < pending.size()) EXPECT_FALSE(search.next_query());
+    }
+    run(search, flat);
+    const auto tree = search.tree();
+    EXPECT_EQ(tree.nodes[0].total, s.simulations);
+    for (std::size_t i = 0; i < branches.size(); ++i)
+        EXPECT_EQ(tree.nodes[0].edges[branches[i]].visits > 1, i >= branches.size() / 2);
 }

@@ -184,7 +184,7 @@ class ExpertIteration:
             directory = self.control.directory / 'test' / f'iter{it:03d}' / evaluation.name
             self.control.archive(directory)
             begin = time.time()
-            search = Search(evaluation.sims, evaluation.gumbel_scale, evaluation.rollout_mix, evaluation.particles)
+            search = Search(evaluation.sims, evaluation.gumbel_scale, evaluation.rollout_mix, evaluation.particles, max_inflight=evaluation.max_inflight)
             results = self.play(f'evaluation {evaluation.name} iteration {it}', self.control.iteration(it),
                                 self.tests[evaluation.name], directory, search)
             self.control.log(test=it, set=evaluation.name, games=len(results), wins=sum(r['won'] for r in results),

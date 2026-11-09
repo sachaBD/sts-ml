@@ -38,17 +38,21 @@ Decision::Decision(const sts::BattleContext& state, std::unique_ptr<search::Comb
                    double rollout_mix, std::uint64_t rollout_seed)
     : search_{std::move(search)} {
     if (rollout_mix > 0) blend_.emplace(state, rollout_mix, rollout_seed);
-    encode_query();
 }
 
-void Decision::evaluated(const infra::Prediction& prediction) {
+std::optional<infra::EvaluationRequest> Decision::next_query() {
+    const auto query = search_->next_query();
+    if (!query) return std::nullopt;
+    auto [it, inserted] = pending_.emplace(query->id, *query);
+    if (!inserted) throw std::logic_error{"decision: duplicate request id"};
+    return infra::EvaluationRequest{query->id, encode(query->state, query->actions)};
+}
+
+void Decision::evaluated(std::uint64_t id, const infra::Prediction& prediction) {
+    const auto& p = pending_.at(id);
     search::Evaluation evaluation{prediction.value, prediction.logits};
-    if (blend_) evaluation = (*blend_)(*search_->pending(), std::move(evaluation));
-    search_->evaluated(evaluation);
-    encode_query();
-}
-
-void Decision::encode_query() {
-    if (const auto query = search_->pending()) query_ = encode(query->state, query->actions);
+    if (blend_) evaluation = (*blend_)(p, std::move(evaluation));
+    search_->evaluated(id, evaluation);
+    pending_.erase(id);
 }
 }  // namespace stsrl::nn

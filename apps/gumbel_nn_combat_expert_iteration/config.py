@@ -42,7 +42,7 @@ class SelfPlay(Search):
     def at(self, it):
         """The search of self-play iteration `it`."""
         mix = self.rollout_mix * max(0.0, 1 - it / self.rollout_mix_decay) if self.rollout_mix_decay else self.rollout_mix
-        return Search(self.sims, self.gumbel_scale, mix, self.particles)
+        return Search(self.sims, self.gumbel_scale, mix, self.particles, max_inflight=self.max_inflight)
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -184,8 +184,8 @@ def validate(c):
     need(0 <= st.sampling_concentration <= 1, 'starts: sampling_concentration in [0, 1]')
     for name, search in [('search', s)] + [(f'evaluation set {x.name}', x) for x in e.sets]:
         need(search.sims >= 0 and math.isfinite(search.gumbel_scale) and search.gumbel_scale >= 0
-             and 0 <= search.rollout_mix <= 1 and search.particles > 0,
-             f'{name}: nonnegative sims and gumbel_scale, rollout_mix in [0, 1], positive particles')
+             and 0 <= search.rollout_mix <= 1 and search.particles > 0 and search.max_inflight > 0,
+             f'{name}: nonnegative sims and gumbel_scale, rollout_mix in [0, 1], positive particles and max_inflight')
     need(s.rollout_mix_decay >= 0, 'search: nonnegative rollout_mix_decay')
     need(t.steps > 0 and t.batch > 0 and t.lr > 0 and t.replay_window > 0 and t.max_train_rows >= 0
          and t.value_batch >= 0,

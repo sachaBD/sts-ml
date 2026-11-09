@@ -66,21 +66,19 @@ std::vector<double> improved_policy(const Node& n, const Gumbel::Settings& s) {
     return softmax(z);
 }
 
-// mctx seq_halving.get_sequence_of_considered_visits, stopping before a partial pass so every round
-// visits its considered actions equally.
-std::vector<int> halving_schedule(int m, int simulations) {
+// Complete passes only: every competitor receives the same budget before elimination.
+struct Round { int actions, visits; };
+std::vector<Round> halving_schedule(int m, int simulations) {
     if (simulations <= 0) return {};
     m = std::min(m, std::max(1, simulations / 2));
-    std::vector<int> out;
-    if (m <= 1) { for (int i = 0; i < simulations; ++i) out.push_back(i); return out; }
+    if (m <= 1) return {{1, simulations}};
     const int log2m = int(std::ceil(std::log2(double(m))));
-    std::vector<int> visits(m, 0);
-    for (int considered = m; int(out.size()) + considered <= simulations; considered = std::max(2, considered / 2)) {
-        const int extra = std::max(1, int(double(simulations) / (log2m * considered)));
-        for (int r = 0; r < extra && int(out.size()) + considered <= simulations; ++r) {
-            for (int i = 0; i < considered; ++i) out.push_back(visits[i]);
-            for (int i = 0; i < considered; ++i) ++visits[i];
-        }
+    std::vector<Round> out;
+    for (int used = 0; used + m <= simulations; m = std::max(2, m / 2)) {
+        const int extra = std::max(1, int(double(simulations) / (log2m * m)));
+        const int passes = std::min(extra, (simulations - used) / m);
+        out.push_back({m, passes});
+        used += m * passes;
     }
     return out;
 }
@@ -100,64 +98,128 @@ struct Gumbel::Impl {
     std::vector<Action> actions;
     Node root;
     std::vector<double> gumbel;
-    std::vector<int> schedule;
-    int simulation = 0, nodes = 1;
+    std::vector<Round> schedule;
+    std::size_t round = 0;
+    int nodes = 1;
+    bool root_claimed = false, root_evaluated = false;
+    std::vector<std::size_t> competitors;
+    std::vector<int> targets;
+    std::vector<bool> busy;
 
-    Node* leaf = nullptr;
-    sts::BattleContext leaf_state;
-    std::vector<Action> leaf_actions;
-    std::vector<std::pair<Node*, std::size_t>> path;
+    struct Pending {
+        Node* leaf;
+        sts::BattleContext state;
+        std::vector<Action> actions;
+        std::vector<std::pair<Node*, std::size_t>> path;
+    };
+    std::map<std::uint64_t, Pending> pending;
 
     Impl(const sts::BattleContext& observed, const Settings& settings, std::uint64_t seed)
-        : s{settings}, rng{seed}, chance{observed, settings.particles}, actions{combat::legal_actions(observed)},
-          leaf{&root}, leaf_state{observed}, leaf_actions{actions} {}
+        : s{settings}, rng{seed}, chance{observed, settings.particles}, actions{combat::legal_actions(observed)} {
+        if (s.max_inflight < 1 || s.considered_actions < 1 || s.simulations < 0)
+            throw std::invalid_argument{"gumbel: positive inflight/actions and nonnegative simulations required"};
+        pending.emplace(0, Pending{&root, observed, actions, {}});
+    }
 
-    void evaluated(const Evaluation& e) {
-        expand(*leaf, e);
-        if (leaf == &root) {
+    bool done() const { return root_evaluated && round == schedule.size() && pending.empty(); }
+
+    void begin_round() {
+        if (round == schedule.size()) return;
+        const auto q = sigma(root, s);
+        const int most = *std::max_element(root.visits.begin(), root.visits.end());
+        competitors.clear();
+        for (std::size_t i = 0; i < actions.size(); ++i)
+            if (root.visits[i] == most) competitors.push_back(i);
+        std::stable_sort(competitors.begin(), competitors.end(), [&](auto a, auto b) {
+            return gumbel[a] + root.logits[a] + q[a] > gumbel[b] + root.logits[b] + q[b];
+        });
+        competitors.resize(schedule[round].actions);
+        targets = root.visits;
+        for (auto edge : competitors) targets[edge] += schedule[round].visits;
+    }
+
+    void advance_round() {
+        if (round < schedule.size() && std::ranges::all_of(competitors, [&](auto e) { return root.visits[e] == targets[e]; })) {
+            ++round;
+            begin_round();
+        }
+    }
+
+    std::optional<Query> next_query() {
+        if (!root_evaluated) {
+            if (root_claimed) return std::nullopt;
+            root_claimed = true;
+            const auto& p = pending.at(0);
+            return Query{p.state, p.actions, 0};
+        }
+        for (;;) {
+            advance_round();
+            if (round == schedule.size() || int(pending.size()) >= s.max_inflight) return std::nullopt;
+            // Least-visited ready competitor first; a slow evaluation does not stall the others.
+            std::optional<std::size_t> edge;
+            for (auto e : competitors)
+                if (!busy[e] && root.visits[e] < targets[e] && (!edge || root.visits[e] < root.visits[*edge])) edge = e;
+            if (!edge) return std::nullopt;
+            if (auto query = simulate(*edge)) return query;
+        }
+    }
+
+    void evaluated(std::uint64_t id, const Evaluation& e) {
+        const auto it = pending.find(id);
+        if (it == pending.end() || (id == 0 && !root_claimed))
+            throw std::logic_error{"gumbel: unknown or duplicate evaluation"};
+        const auto& p = it->second;
+        if (e.logits.size() != p.actions.size()) throw std::invalid_argument{"gumbel: evaluation action count"};
+        expand(*p.leaf, p, e);
+        if (id == 0) {
             std::extreme_value_distribution<double> g;
             for (std::size_t i = 0; i < actions.size(); ++i) gumbel.push_back(s.gumbel_scale * g(rng));
             schedule = halving_schedule(std::min<int>(s.considered_actions, int(actions.size())), s.simulations);
+            busy.assign(actions.size(), false);
+            root_evaluated = true;
+            begin_round();
         } else {
-            backup(e.value);
+            backup(p.path, e.value);
+            busy[p.path.front().second] = false;
         }
-        leaf = nullptr;
-        while (!leaf && simulation < int(schedule.size())) simulate();
+        pending.erase(it);
+        advance_round();
     }
 
-    // Descends until a finished fight (backed up now) or a new node (left pending for the evaluator).
-    void simulate() {
+    std::optional<Query> simulate(std::size_t root_edge) {
         auto state = chance.start(rng);
-        path.clear();
+        std::vector<std::pair<Node*, std::size_t>> path;
         Node* node = &root;
         for (;;) {
-            const auto edge = node == &root ? root_choice(schedule[simulation]) : interior_choice(*node);
+            const auto edge = node == &root ? root_edge : interior_choice(*node);
             path.emplace_back(node, edge);
             play(state, node->keys[edge]);
-            if (state.outcome != sts::Outcome::UNDECIDED) { backup(state.outcome == sts::Outcome::PLAYER_VICTORY); return; }
+            if (state.outcome != sts::Outcome::UNDECIDED) {
+                backup(path, state.outcome == sts::Outcome::PLAYER_VICTORY);
+                return std::nullopt;
+            }
             auto& child = node->children[edge][Chance::child_key(state)];
             if (!child) {
                 child = std::make_unique<Node>();
                 child->id = nodes++;
-                leaf = child.get();
-                leaf_state = state;
-                leaf_actions = combat::legal_actions(state);
-                return;
+                auto [it, inserted] = pending.emplace(child->id, Pending{child.get(), state, combat::legal_actions(state), std::move(path)});
+                busy[root_edge] = true;
+                const auto& p = it->second;
+                return Query{p.state, p.actions, std::uint64_t(child->id)};
             }
             node = child.get();
         }
     }
 
-    void backup(double value) {
+    static void backup(const std::vector<std::pair<Node*, std::size_t>>& path, double value) {
         for (auto [n, e] : path) { ++n->visits[e]; n->value_sum[e] += value; ++n->total; }
-        ++simulation;
     }
 
-    void expand(Node& n, const Evaluation& e) {
+    static void expand(Node& n, const Pending& p, const Evaluation& e) {
         n.value = e.value;
         n.logits.assign(e.logits.begin(), e.logits.end());
         n.prior = softmax(n.logits);
-        for (const auto a : leaf_actions) n.keys.push_back(combat::action_key(leaf_state, a));
+        for (const auto a : p.actions) n.keys.push_back(combat::action_key(p.state, a));
         n.value_sum.assign(n.keys.size(), 0); n.visits.assign(n.keys.size(), 0); n.children.resize(n.keys.size());
     }
 
@@ -183,6 +245,7 @@ struct Gumbel::Impl {
     }
 
     Result result() const {
+        if (!done()) throw std::logic_error{"gumbel: result requested before completion"};
         const int most = *std::max_element(root.visits.begin(), root.visits.end());
         double value_sum = 0;
         for (double v : root.value_sum) value_sum += v;
@@ -202,6 +265,7 @@ struct Gumbel::Impl {
         auto& out = t.nodes[n.id];
         out.value = n.value;
         out.total = n.total;
+        if (n.keys.empty()) return;  // an outstanding leaf has not received its policy yet
         const auto q = sigma(n, s);
         const auto pi = improved_policy(n, s);
         for (std::size_t i = 0; i < n.keys.size(); ++i) {
@@ -219,12 +283,9 @@ Gumbel::Gumbel(const sts::BattleContext& observed, const Settings& settings, std
     : impl_{std::make_unique<Impl>(observed, settings, seed)} {}
 Gumbel::~Gumbel() = default;
 
-std::optional<Query> Gumbel::pending() const {
-    if (!impl_->leaf) return std::nullopt;
-    return Query{impl_->leaf_state, impl_->leaf_actions};
-}
-
-void Gumbel::evaluated(const Evaluation& evaluation) { impl_->evaluated(evaluation); }
+std::optional<Query> Gumbel::next_query() { return impl_->next_query(); }
+void Gumbel::evaluated(std::uint64_t id, const Evaluation& evaluation) { impl_->evaluated(id, evaluation); }
+bool Gumbel::done() const { return impl_->done(); }
 Result Gumbel::result() const { return impl_->result(); }
 Gumbel::Tree Gumbel::tree() const { return impl_->tree(); }
 }  // namespace stsrl::search

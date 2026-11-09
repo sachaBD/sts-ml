@@ -36,7 +36,7 @@ stsrl::search::Result decide(const Fight& fight, double rollout_mix) {
     auto random = fight.decision_random();
     auto search = std::make_unique<Gumbel>(fight.state(), gumbel(), random());
     Decision decision{fight.state(), std::move(search), rollout_mix, random()};
-    while (const auto query = decision.next_query()) decision.evaluated(fake_network(*query));
+    while (const auto query = decision.next_query()) decision.evaluated(query->id, fake_network(query->tokens));
     return decision.result();
 }
 
@@ -97,14 +97,36 @@ TEST(Decision, WithoutRolloutsIsTheSearchOnTheNetwork) {
         }
     }
 }
+TEST(Decision, ClaimedEncodingsRemainUsableDuringOutOfOrderCompletions) {
+    Fight fight{jaw_worm(1), 1};
+    auto random = fight.decision_random();
+    Decision decision{fight.state(), std::make_unique<Gumbel>(fight.state(), gumbel(), random()), 0.5, random()};
+    std::map<std::uint64_t, std::pair<stsrl::infra::Tokens, std::vector<float>>> pending;
+    int peak = 0;
+    while (!decision.done()) {
+        while (auto q = decision.next_query()) {
+            auto expected = q->tokens.data;
+            pending.emplace(q->id, std::pair{std::move(q->tokens), std::move(expected)});
+        }
+        peak = std::max(peak, int(pending.size()));
+        for (const auto& [id, tokens] : pending) EXPECT_EQ(tokens.first.data, tokens.second);
+        if (pending.empty()) { ASSERT_TRUE(decision.done()); break; }
+        const auto it = std::prev(pending.end());
+        decision.evaluated(it->first, fake_network(it->second.first));
+        pending.erase(it);
+    }
+    EXPECT_GT(peak, 1);
+    EXPECT_TRUE(pending.empty());
+    EXPECT_FALSE(decision.result().policy.empty());
+}
 
 TEST(Decision, ClaimTransfersTokensAndCannotRepeatBeforeEvaluation) {
     Fight fight{jaw_worm(1), 1};
     auto random = fight.decision_random();
     Decision decision{fight.state(), std::make_unique<Gumbel>(fight.state(), gumbel(), random()), 0, random()};
-    const auto tokens = decision.next_query();
-    ASSERT_TRUE(tokens);
+    const auto query = decision.next_query();
+    ASSERT_TRUE(query);
     EXPECT_FALSE(decision.next_query());
-    decision.evaluated(fake_network(*tokens));
+    decision.evaluated(query->id, fake_network(query->tokens));
     EXPECT_TRUE(decision.next_query());
 }

@@ -180,6 +180,18 @@ class ExpertIterationInvariants(unittest.TestCase):
         self.assertEqual(mixes, sorted(mixes, reverse=True))
         self.assertTrue(mixes[0] > 0 and mixes[-1] == 0)
 
+    def test_pipeline_limits_reach_self_play_and_evaluation(self):
+        config = (CONFIG.replace('particles = 2', 'particles = 2\nmax_inflight = 3')
+                  .replace('particles = 3', 'particles = 3\nmax_inflight = 1'))
+        self.run_loop(config=config)
+        self.assertEqual({p['search'].max_inflight for p in self.self_play()}, {3})
+        self.assertEqual({p['search'].max_inflight for p in self.evaluations()}, {1})
+
+    def test_nonpositive_pipeline_limit_is_rejected(self):
+        for limit in (0, -1):
+            with self.assertRaisesRegex(SystemExit, 'max_inflight'):
+                load(CONFIG.replace('particles = 2', f'particles = 2\nmax_inflight = {limit}'))
+
     def test_sets_keep_their_search_schedule_and_results_separate(self):
         (self.out / 'inputs/evaluation/retention.jsonl').write_bytes(
             (self.out / 'inputs/evaluation/validation.jsonl').read_bytes())

@@ -2,12 +2,12 @@
 #include "agents/combat/nn/targets.hpp"
 #include "agents/combat/search/rollout_blend/rollout_blend.hpp"
 #include "agents/combat/search/search.hpp"
-#include "infra/inference/backend.hpp"
+#include "infra/workers/inference_service.hpp"
 #include <cstdint>
 #include <memory>
+#include <map>
 #include <optional>
 #include <random>
-#include <utility>
 
 namespace stsrl::nn {
 class Fight {
@@ -36,14 +36,15 @@ class Decision {
 public:
     Decision(const sts::BattleContext& state, std::unique_ptr<search::CombatSearch>, double rollout_mix,
              std::uint64_t rollout_seed);
-    std::optional<infra::Tokens> next_query() { return std::exchange(query_, std::nullopt); }
-    void evaluated(const infra::Prediction&);
+    std::optional<infra::EvaluationRequest> next_query();
+    void evaluated(std::uint64_t id, const infra::Prediction&);
+    bool done() const { return search_->done(); }
+    const search::Query& query(std::uint64_t id) const { return pending_.at(id); }
     search::Result result() const { return search_->result(); }
 
 private:
-    void encode_query();
     std::unique_ptr<search::CombatSearch> search_;
     std::optional<search::RolloutBlend> blend_;
-    std::optional<infra::Tokens> query_;
+    std::map<std::uint64_t, search::Query> pending_;
 };
 }  // namespace stsrl::nn

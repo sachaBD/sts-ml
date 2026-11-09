@@ -61,11 +61,12 @@ struct Game {
           fight{stsrl::combat_v4::start_battle(record.at("start")), record.at("start").at("seed").get<std::uint64_t>()},
           rollout_mix{mix} {}
 
-    // Transfers the next encoded query, or returns null when the game is over.
-    std::optional<stsrl::infra::Tokens> advance(const stsrl::search::Gumbel::Settings& settings) {
+    // Null means blocked on outstanding evaluations, or the game is over.
+    std::optional<stsrl::infra::EvaluationRequest> advance(const stsrl::search::Gumbel::Settings& settings) {
         for (;;) {
             if (decision) {
                 if (auto query = decision->next_query()) return query;
+                if (!decision->done()) return std::nullopt;
                 auto r = decision->result();
                 decisions.push_back({encode(fight.state(), r.actions), std::move(r.policy), vitals(fight.state())});
                 decision.reset();
@@ -78,7 +79,7 @@ struct Game {
         }
     }
 
-    void evaluated(const stsrl::infra::Prediction& prediction) { decision->evaluated(prediction); }
+    void evaluated(std::uint64_t id, const stsrl::infra::Prediction& prediction) { decision->evaluated(id, prediction); }
 };
 
 // Everything the worker threads share.
@@ -124,23 +125,22 @@ struct Shared {
 class CombatEpisode final : public stsrl::infra::Episode {
     std::unique_ptr<Game> game_;
     Shared& shared_;
-    std::optional<std::uint64_t> pending_;
     std::uint64_t next_id_ = 0;
+    std::map<std::uint64_t, std::uint64_t> search_ids_;
 public:
     CombatEpisode(std::unique_ptr<Game> game, Shared& shared) : game_{std::move(game)}, shared_{shared} {}
     std::optional<stsrl::infra::EvaluationRequest> next_request() override {
-        if (pending_) return std::nullopt;
-        auto tokens = game_->advance(shared_.settings);
-        if (!tokens) return std::nullopt;
-        pending_ = next_id_++;
-        return stsrl::infra::EvaluationRequest{*pending_, std::move(*tokens)};
+        auto query = game_->advance(shared_.settings);
+        if (!query) return std::nullopt;
+        const auto id = next_id_++;
+        search_ids_.emplace(id, query->id);
+        return stsrl::infra::EvaluationRequest{id, std::move(query->tokens)};
     }
     void completed(std::uint64_t id, const stsrl::infra::Prediction& prediction) override {
-        if (!pending_ || id != *pending_) throw std::logic_error{"unexpected combat evaluation"};
-        game_->evaluated(prediction);
-        pending_.reset();
+        game_->evaluated(search_ids_.at(id), prediction);
+        search_ids_.erase(id);
     }
-    bool done() const override { return !pending_ && !game_->decision && game_->fight.over(); }
+    bool done() const override { return search_ids_.empty() && game_->fight.over() && !game_->decision; }
     void finish() override { shared_.finish(*game_); }
     std::string label() const override { return game_->record.at("fight_id").get<std::string>(); }
 };
@@ -223,7 +223,7 @@ int main(int argc, char** argv) try {
         std::cerr << "usage: nn_play play MODEL.onnx SAMPLES.bin [--threads T] [--parallel G] [--gpu-model FIXED.onnx\n"
                      "                    --gpu-batch B] [--gpu-bank SMALLER.onnx,...] [--gpu-wait-us U]\n"
                      "                    [--gpu-attended A] [--gpu-wide-model WIDE.onnx] [--gpu-wide-attended A] [--cpu-lanes L]\n"
-                     "                    [--sims S] [--rollout-mix M] [--value-scale V]\n"
+                     "                    [--sims S] [--search-inflight N] [--rollout-mix M] [--value-scale V]\n"
                      "                    [--gumbel-scale G] [--particles P] [--timeout-ms M] [--shutdown-timeout-ms M]\n"
                      "                    [--telemetry TELEMETRY.jsonl]\n"
                      "       nn_play import SAMPLES.bin\n";
@@ -258,6 +258,7 @@ int main(int argc, char** argv) try {
         else if (k == "--gpu-attended") gpu_attended = std::stoi(v);
         else if (k == "--gpu-wide-model") gpu_wide_model = v;
         else if (k == "--gpu-wide-attended") gpu_wide_attended = std::stoi(v);
+        else if (k == "--search-inflight") settings.max_inflight = std::stoi(v);
         else if (k == "--sims") settings.simulations = std::stoi(v);
         else if (k == "--value-scale") settings.value_scale = std::stod(v);
         else if (k == "--rollout-mix") rollout_mix = std::stod(v);
@@ -266,7 +267,7 @@ int main(int argc, char** argv) try {
         else throw std::invalid_argument{"unknown option " + k};
     }
     if (threads < 1 || parallel < 1 || gpu_batch < 1 || cpu_lanes < 1 || gpu_wait_us < 0 || timeout_ms <= 0 || shutdown_timeout_ms <= 0 ||
-        settings.simulations < 0 || settings.particles < 1 || rollout_mix < 0 || rollout_mix > 1 || settings.gumbel_scale < 0 ||
+        settings.max_inflight < 1 || settings.simulations < 0 || settings.particles < 1 || rollout_mix < 0 || rollout_mix > 1 || settings.gumbel_scale < 0 ||
         !std::isfinite(settings.value_scale) || settings.value_scale < 0)
         throw std::invalid_argument{"positive threads/slots/batch/particles/timeouts, nonnegative sims, rollout mix in [0,1], nonnegative noise/wait, finite nonnegative value scale required"};
     if (gpu_model.empty() && (!gpu_bank.empty() || !gpu_wide_model.empty()))

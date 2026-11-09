@@ -49,6 +49,7 @@ Json explain(const Json& request, const Network& network) {
     settings.simulations = s.at("sims");
     settings.particles = s.at("particles");
     settings.gumbel_scale = s.at("gumbel_scale");
+    settings.max_inflight = s.value("max_inflight", settings.max_inflight);
     settings.rescale_values = s.value("rescale_values", settings.rescale_values);
     const double mix = s.at("rollout_mix");
 
@@ -57,10 +58,10 @@ Json explain(const Json& request, const Network& network) {
     const auto& gumbel = *search;
     Decision decision{state, std::move(search), mix, random()};
     Json nodes = Json::array();  // node i answered query i
-    while (const auto tokens = decision.next_query()) {
-        const auto prediction = network(*tokens);
-        nodes.push_back(node_json(*gumbel.pending(), prediction.value));
-        decision.evaluated(prediction);
+    while (const auto query = decision.next_query()) {
+        const auto prediction = network(query->tokens);
+        nodes.push_back(node_json(decision.query(query->id), prediction.value));
+        decision.evaluated(query->id, prediction);
     }
 
     const auto tree = gumbel.tree();

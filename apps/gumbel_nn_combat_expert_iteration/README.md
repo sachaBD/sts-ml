@@ -28,6 +28,11 @@ cleanly; allow several minutes. Ctrl-C/kill can leave partial output.
 Each set explicitly owns its fights, search, and schedule; nothing is inherited from self-play.
 See the preset for a complete config.
 
+Search settings accept optional `max_inflight` (default 16; native `nn_play --search-inflight`).
+This bounds outstanding leaf evaluations per search, across root competitors. Set it to 1 for serial
+execution. Pipeline results can depend on completion order, even with fixed seeds; root noise remains
+controlled separately by `gumbel_scale`.
+
 ```toml
 [[evaluation.sets]]
 name = "validation"

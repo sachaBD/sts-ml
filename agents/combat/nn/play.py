@@ -1,6 +1,6 @@
 """Plays fights with the native nn_play: one process per call, so each stage gets a fresh CUDA context
 (a crash is recoverable by a new process) and never shares GPU state with the PyTorch learner."""
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import json
 import os
 from pathlib import Path
@@ -13,9 +13,10 @@ from .metrics import DeviceSampler
 @dataclass(frozen=True)
 class Search:
     sims: int
-    gumbel_scale: float  # 1 explores (self-play); 0 is deterministic (evaluation)
+    gumbel_scale: float  # 1 explores (self-play); 0 removes root noise (evaluation)
     rollout_mix: float
     particles: int
+    max_inflight: int = field(default=16, kw_only=True)
 
 
 @dataclass(frozen=True)
@@ -53,6 +54,7 @@ def play(binary, models, fights, directory, search, workers, progress=lambda don
                '--gpu-wait-us', str(workers.gpu_wait_us), '--timeout-ms', str(workers.timeout_ms),
                '--shutdown-timeout-ms', str(workers.shutdown_timeout_ms),
                '--telemetry', str(directory / 'telemetry.jsonl'),
+               '--search-inflight', str(search.max_inflight),
                '--sims', str(search.sims), '--gumbel-scale', str(search.gumbel_scale),
                '--rollout-mix', str(search.rollout_mix), '--particles', str(search.particles)]
     if gpu_attended:

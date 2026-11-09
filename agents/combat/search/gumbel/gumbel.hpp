@@ -12,13 +12,14 @@ public:
     struct Settings {
         int simulations = 256;
         int considered_actions = 16;
-        double gumbel_scale = 0;  // 1 explores (self-play); 0 is deterministic (evaluation)
+        int max_inflight = 16;  // outstanding leaf evaluations per search
+        double gumbel_scale = 0;  // 1 explores (self-play); 0 removes root noise (evaluation)
         int particles = 8;
         double value_scale = 0.1, maxvisit_init = 50;  // mctx qtransform_completed_by_mix_value
         bool rescale_values = false;
     };
 
-    // A copy of the tree. Node i answered the i-th query; node 0 is the root.
+    // A copy of the tree. Node i is the i-th issued query, regardless of completion order; node 0 is the root.
     struct Tree {
         struct Child {
             std::uint64_t observation;
@@ -41,8 +42,9 @@ public:
 
     Gumbel(const sts::BattleContext& observed, const Settings&, std::uint64_t seed);
     ~Gumbel() override;
-    std::optional<Query> pending() const override;
-    void evaluated(const Evaluation&) override;
+    std::optional<Query> next_query() override;
+    void evaluated(std::uint64_t id, const Evaluation&) override;
+    bool done() const override;
     Result result() const override;
     Tree tree() const;
 

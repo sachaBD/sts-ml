@@ -3,6 +3,8 @@
 #include "combat/BattleContext.h"
 #include "sim/search/Action.h"
 #include <optional>
+#include <cstdint>
+#include <stdexcept>
 #include <span>
 #include <type_traits>
 #include <vector>
@@ -15,6 +17,7 @@ using WinProbability = float;
 struct Query {
     const sts::BattleContext& state;
     std::span<const Action> actions;
+    std::uint64_t id = 0;
 };
 
 struct Evaluation {
@@ -32,8 +35,10 @@ struct Result {
 class CombatSearch {
 public:
     virtual ~CombatSearch() = default;
-    virtual std::optional<Query> pending() const = 0;
-    virtual void evaluated(const Evaluation&) = 0;
+    // Claims one available request. Null means blocked or done; claimed views remain valid until evaluated(id).
+    virtual std::optional<Query> next_query() = 0;
+    virtual void evaluated(std::uint64_t id, const Evaluation&) = 0;
+    virtual bool done() const = 0;
     virtual Result result() const = 0;
 };
 
@@ -41,7 +46,8 @@ template<class F>
 concept Evaluator = std::is_invocable_r_v<Evaluation, F&, const Query&>;
 
 Result run(CombatSearch& search, Evaluator auto&& evaluate) {
-    while (const auto query = search.pending()) search.evaluated(evaluate(*query));
+    while (const auto query = search.next_query()) search.evaluated(query->id, evaluate(*query));
+    if (!search.done()) throw std::logic_error{"inline search blocked without an evaluation"};
     return search.result();
 }
 }  // namespace stsrl::search
