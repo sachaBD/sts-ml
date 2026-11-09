@@ -124,12 +124,24 @@ struct Shared {
 class CombatEpisode final : public stsrl::infra::Episode {
     std::unique_ptr<Game> game_;
     Shared& shared_;
+    std::uint64_t request_ = 0;
+    bool waiting_ = false, done_ = false;
 public:
     CombatEpisode(std::unique_ptr<Game> game, Shared& shared) : game_{std::move(game)}, shared_{shared} {}
-    const stsrl::infra::Tokens* advance() override {
-        return game_->advance(shared_.settings);
+    std::optional<stsrl::infra::EvaluationRequest> next_request() override {
+        if (waiting_ || done_) return std::nullopt;
+        const auto* tokens = game_->advance(shared_.settings);
+        if (!tokens) { done_ = true; return std::nullopt; }
+        waiting_ = true;
+        return stsrl::infra::EvaluationRequest{request_, tokens};
     }
-    void evaluated(const stsrl::infra::Prediction& prediction) override { game_->evaluated(prediction); }
+    void completed(std::uint64_t id, const stsrl::infra::Prediction& prediction) override {
+        if (!waiting_ || id != request_) throw std::logic_error{"unexpected combat evaluation"};
+        game_->evaluated(prediction);
+        waiting_ = false;
+        ++request_;
+    }
+    bool done() const override { return done_; }
     void finish() override { shared_.finish(*game_); }
     std::string label() const override { return game_->record.at("fight_id").get<std::string>(); }
 };

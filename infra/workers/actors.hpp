@@ -1,20 +1,31 @@
 #pragma once
 // Actors play episodes; InferenceServer lanes batch their network requests onto a Backend.
-// Episodes never leave their Actor: only immutable token views and predictions cross threads.
+// Episodes and their lifecycle methods stay on their Actor; only immutable token views and predictions cross threads.
+// On failure, episode/request storage stays alive until inference has stopped accessing it.
 #include "infra/inference/backend.hpp"
 #include <chrono>
 #include <functional>
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
 namespace stsrl::infra {
+struct EvaluationRequest {
+    std::uint64_t id;
+    const Tokens* tokens;
+};
+
 class Episode {
 public:
     virtual ~Episode() = default;
-    // Play on until the network is needed (tokens stay immutable until evaluated()) or the episode is over (nullptr).
-    virtual const Tokens* advance() = 0;
-    virtual void evaluated(const Prediction&) = 0;
+    // Claims one request. Null means blocked or done(); claiming never returns the same outstanding request twice.
+    // The episode bounds outstanding work and owns immutable tokens until completed(id).
+    // IDs are unique among outstanding requests; completions may arrive in any order.
+    virtual std::optional<EvaluationRequest> next_request() = 0;
+    virtual void completed(std::uint64_t id, const Prediction&) = 0;
+    // True only when no requests remain outstanding and no further work can be produced.
+    virtual bool done() const = 0;
     virtual void finish() = 0;                // record the result; called once, on the owning Actor
     virtual std::string label() const = 0;    // names the episode in errors
 };

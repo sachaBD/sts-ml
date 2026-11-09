@@ -8,6 +8,7 @@
 #include <deque>
 #include <exception>
 #include <mutex>
+#include <map>
 #include <optional>
 #include <sstream>
 #include <stdexcept>
@@ -39,8 +40,7 @@ struct Reply {
     Prediction prediction;
 };
 
-// One per Actor: the only state the Actor shares with the InferenceServer. Each deque holds at most `slots`
-// entries because a slot has at most one request outstanding, so overflow is a bug, never back-pressure.
+// One per Actor: replies carry scheduler generations, independent of episode request IDs.
 struct Mailbox {
     std::mutex mutex;
     std::condition_variable replied;
@@ -133,13 +133,16 @@ struct Shared {
 };
 
 class Actor {
-    enum class Phase { ready, waiting, empty };
+    struct Outstanding {
+        std::uint64_t id;
+        Clock::time_point submitted = Clock::now();
+        std::vector<std::uint16_t> packed;
+    };
     struct Slot {
         std::unique_ptr<Episode> episode;
-        Phase phase = Phase::empty;
-        std::uint64_t generation = 0;  // bumped on EVERY request, so a stale reply can never match
-        Clock::time_point submitted;
-        std::vector<std::uint16_t> packed;
+        bool ready = false;
+        std::uint64_t generation = 0;
+        std::map<std::uint64_t, Outstanding> pending;
         std::string label;
     };
     Shared& shared_;
@@ -151,12 +154,15 @@ class Actor {
 
     void touch(std::size_t slot) { mailbox_.current_slot = int(slot); mailbox_.heartbeat = now_ms(); }
 
+    void ready(std::size_t i) {
+        if (!slots_[i].ready) { slots_[i].ready = true; ready_.push_back(i); }
+    }
+
     void refill(std::size_t i) {
         auto& slot = slots_[i];
         slot.episode = shared_.next();
-        slot.phase = slot.episode ? Phase::ready : Phase::empty;
         slot.label = slot.episode ? slot.episode->label() : std::string{};
-        if (slot.episode) { ready_.push_back(i); ++active_; }
+        if (slot.episode) { ready(i); ++active_; }
     }
 
     void receive() {
@@ -164,43 +170,54 @@ class Actor {
         { std::lock_guard lock{mailbox_.mutex}; replies.swap(mailbox_.replies); }
         for (auto& reply : replies) {
             auto& slot = slots_.at(reply.slot);
-            if (slot.phase != Phase::waiting || slot.generation != reply.generation)
-                throw std::runtime_error{"stale or duplicate reply"};
+            const auto it = slot.pending.find(reply.generation);
+            if (it == slot.pending.end()) throw std::runtime_error{"stale or duplicate reply"};
             touch(reply.slot);
-            slot.episode->evaluated(reply.prediction);
-            slot.phase = Phase::ready;
-            ready_.push_back(reply.slot);
+            slot.episode->completed(it->second.id, reply.prediction);
+            slot.pending.erase(it);
+            ready(reply.slot);
         }
     }
 
     void check_timeouts() const {
         const auto now = Clock::now();
         for (std::size_t i = 0; i < slots_.size(); ++i)
-            if (slots_[i].phase == Phase::waiting && now - slots_[i].submitted >= shared_.config.timeout)
-                throw std::runtime_error{"inference timeout: actor " + std::to_string(id_) + " slot " +
-                                         std::to_string(i) + " episode " + slots_[i].label};
+            for (const auto& [generation, request] : slots_[i].pending)
+                if (now - request.submitted >= shared_.config.timeout)
+                    throw std::runtime_error{"inference timeout: actor " + std::to_string(id_) + " slot " +
+                                             std::to_string(i) + " episode " + slots_[i].label};
     }
 
     void advance(std::size_t i) {
         auto& slot = slots_[i];
         touch(i);
-        const Tokens* tokens = slot.episode->advance();
+        const auto request = slot.episode->next_request();
         if (shared_.stopped) return;  // a cancelled episode must not be recorded as finished
-        if (!tokens) {
+        if (!request) {
+            if (!slot.episode->done()) {
+                if (slot.pending.empty()) throw std::runtime_error{"episode blocked without outstanding requests"};
+                return;
+            }
+            if (!slot.pending.empty()) throw std::runtime_error{"episode done with outstanding requests"};
             slot.episode->finish();
             slot.episode.reset();
             --active_;
             refill(i);
             return;
         }
+        if (slot.episode->done()) throw std::runtime_error{"done episode produced a request"};
+        const auto* tokens = request->tokens;
+        if (!tokens) throw std::runtime_error{"null request tokens"};
         const int width = shared_.inference.width();
         if (tokens->count <= 0 || tokens->actions <= 0 || tokens->actions > tokens->count ||
             tokens->data.size() != std::size_t(tokens->count) * width || tokens->attended < 0 || tokens->attended > tokens->count)
             throw std::runtime_error{"invalid tokens from episode " + slot.label};
-        slot.phase = Phase::waiting;
-        slot.submitted = Clock::now();
-        shared_.inference.submit({id_, i, ++slot.generation, {tokens, {}}, &slot.label, {}}, slot.packed);
+        for (const auto& [generation, outstanding] : slot.pending)
+            if (outstanding.id == request->id) throw std::runtime_error{"duplicate episode request id"};
+        auto [it, inserted] = slot.pending.emplace(++slot.generation, Outstanding{request->id, Clock::now(), {}});
+        shared_.inference.submit({id_, i, slot.generation, {tokens, {}}, &slot.label, {}}, it->second.packed);
         ++mailbox_.requests;
+        ready(i);
     }
 
 public:
@@ -216,6 +233,7 @@ public:
             if (!ready_.empty()) {
                 const auto i = ready_.front();
                 ready_.pop_front();
+                slots_[i].ready = false;
                 advance(i);
             } else {
                 const auto blocked = Clock::now();
@@ -282,8 +300,6 @@ class InferenceServer {
             auto& mailbox = *shared_.mailboxes[actor];
             {
                 std::lock_guard lock{mailbox.mutex};
-                if (mailbox.replies.size() + replies[actor].size() > std::size_t(shared_.config.slots))
-                    throw std::runtime_error{"reply queue overflow"};
                 for (auto& reply : replies[actor]) mailbox.replies.push_back(std::move(reply));
             }
             mailbox.replied.notify_one();

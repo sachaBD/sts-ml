@@ -14,9 +14,15 @@ constexpr int token_width = 68, count = 37, actions = 4, steps = 100;
 class FreeEpisode final : public Episode {
     Tokens tokens_{std::vector<float>(count * token_width, 0.f), count, actions};
     int left_ = steps;
+    bool waiting_ = false;
 public:
-    const Tokens* advance() override { return left_ ? &tokens_ : nullptr; }
-    void evaluated(const Prediction&) override { --left_; }
+    std::optional<EvaluationRequest> next_request() override {
+        if (!left_ || waiting_) return std::nullopt;
+        waiting_ = true;
+        return EvaluationRequest{0, &tokens_};
+    }
+    void completed(std::uint64_t, const Prediction&) override { waiting_ = false; --left_; }
+    bool done() const override { return !left_ && !waiting_; }
     void finish() override {}
     std::string label() const override { return "free"; }
 };

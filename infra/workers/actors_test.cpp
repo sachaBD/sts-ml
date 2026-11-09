@@ -49,20 +49,23 @@ public:
         std::lock_guard lock{log_.mutex};
         --log_.alive_per_thread[owner_];
     }
-    const Tokens* advance() override {
+    std::optional<EvaluationRequest> next_request() override {
         on_owner();
-        require(!waiting_ && !finished_, "advanced while waiting or finished");
-        if (!left_) return nullptr;
+        require(!finished_, "advanced while finished");
+        if (waiting_) return std::nullopt;
+        if (!left_) return std::nullopt;
         waiting_ = true;
         tokens_.data[1] = float(step_);
-        return &tokens_;
+        return EvaluationRequest{std::uint64_t(step_), &tokens_};
     }
-    void evaluated(const Prediction& p) override {
+    void completed(std::uint64_t id, const Prediction& p) override {
         on_owner();
+        require(id == std::uint64_t(step_), "wrong request id");
         require(waiting_, "prediction without a request");
         require(p.value == float(id_ + 1) / 1000 && p.logits == std::vector<float>{float(step_)}, "prediction misrouted");
         waiting_ = false; --left_; ++step_; ++log_.evaluated;
     }
+    bool done() const override { on_owner(); return !left_ && !waiting_; }
     void finish() override {
         on_owner();
         require(!waiting_ && !left_ && !finished_, "finished early or twice");
@@ -322,8 +325,9 @@ TEST(ActorFailures, StalledEpisodeTimesOut) {
     struct Stalls final : Episode {
         Log& log;
         explicit Stalls(Log& l) : log{l} {}
-        const Tokens* advance() override { std::this_thread::sleep_for(100ms); return nullptr; }
-        void evaluated(const Prediction&) override {}
+        std::optional<EvaluationRequest> next_request() override { std::this_thread::sleep_for(100ms); return std::nullopt; }
+        void completed(std::uint64_t, const Prediction&) override {}
+        bool done() const override { return false; }
         void finish() override { ++log.finished; }
         std::string label() const override { return "stalls"; }
     };
@@ -411,4 +415,114 @@ TEST(Actors, RowsNoBackendAcceptsReachOnlyTheLastWithoutBlockingTheOthers) {
     EXPECT_EQ(log.finished, 100);
     EXPECT_EQ(rows, total_steps(100));
     EXPECT_EQ(log.alive, 0);
+}
+
+TEST(Actors, OneEpisodePipelinesAcrossBackendsWithoutWaitingForTheSlowReply) {
+    struct Pipeline final : Episode {
+        std::map<std::uint64_t, Tokens> pending;
+        int issued = 0;
+        std::vector<std::uint64_t>& completions;
+        bool& finished;
+        Pipeline(std::vector<std::uint64_t>& c, bool& f) : completions{c}, finished{f} {}
+        std::optional<EvaluationRequest> next_request() override {
+            if (issued == 3 || pending.size() == 2) return std::nullopt;
+            auto [it, inserted] = pending.emplace(issued, Tokens{std::vector<float>(2 * token_width), 2, 1});
+            it->second.data[0] = 0.5f;
+            it->second.data[1] = float(issued);
+            return EvaluationRequest{std::uint64_t(issued++), &it->second};
+        }
+        void completed(std::uint64_t id, const Prediction& p) override {
+            require(p.value == 0.5f && p.logits == std::vector<float>{float(id)}, "pipeline prediction misrouted");
+            require(pending.erase(id) == 1, "duplicate completion");
+            completions.push_back(id);
+        }
+        bool done() const override { return issued == 3 && pending.empty(); }
+        void finish() override {
+            require(issued == 3 && pending.empty() && completions.size() == 3, "pipeline finished early");
+            finished = true;
+        }
+        std::string label() const override { return "pipeline"; }
+    };
+    std::atomic<bool> continued{false};
+    auto prepare = [](const Tokens& tokens, std::vector<std::uint16_t>& packed) {
+        packed = {std::uint16_t(tokens.data[1])};
+    };
+    FakeBackend slow{[&](std::span<const Input> inputs) {
+        const auto deadline = std::chrono::steady_clock::now() + 1s;
+        while (!continued && std::chrono::steady_clock::now() < deadline) std::this_thread::sleep_for(1ms);
+        require(continued, "ready branch could not continue while slow request was outstanding");
+        require(inputs.front().tokens->data[1] == 0 && inputs.front().packed[0] == 0,
+                "pending token or packed storage was invalidated");
+        return echo(inputs);
+    }, prepare, 1, [](const Tokens& tokens) { return tokens.data[1] == 0; }, 1};
+    FakeBackend fast{[&](std::span<const Input> inputs) {
+        for (const auto& input : inputs) {
+            require(input.packed[0] == std::uint16_t(input.tokens->data[1]), "packed request misrouted");
+            if (input.tokens->data[1] == 2) continued = true;
+        }
+        return echo(inputs);
+    }, prepare, 1, {}, 1};
+    std::vector<std::uint64_t> completed;
+    bool started = false, finished = false;
+    auto config = small(1, 1);
+    config.actors = 1;
+    run_actors(config, [&]() -> std::unique_ptr<Episode> {
+        if (started) return nullptr;
+        started = true;
+        return std::make_unique<Pipeline>(completed, finished);
+    }, {&slow, &fast});
+    EXPECT_TRUE(finished);
+    ASSERT_EQ(completed.size(), 3);
+    EXPECT_EQ(completed.front(), 1);
+    std::sort(completed.begin(), completed.end());
+    EXPECT_EQ(completed, (std::vector<std::uint64_t>{0, 1, 2}));
+}
+
+TEST(ActorFailures, InvalidRequestLifecyclesAreRejectedRatherThanFinishedOrStalled) {
+    enum class Violation { blocked_without_requests, done_with_requests, request_when_done, duplicate_id };
+    struct Invalid final : Episode {
+        Violation violation;
+        std::atomic<bool>& second_claim;
+        int claims = 0;
+        Tokens tokens{std::vector<float>(2 * token_width, 0.f), 2, 1};
+        Invalid(Violation v, std::atomic<bool>& s) : violation{v}, second_claim{s} {}
+        std::optional<EvaluationRequest> next_request() override {
+            if (violation == Violation::blocked_without_requests) return std::nullopt;
+            if (++claims == 2) {
+                second_claim = true;
+                if (violation == Violation::done_with_requests) return std::nullopt;
+            }
+            return EvaluationRequest{0, &tokens};
+        }
+        void completed(std::uint64_t, const Prediction&) override {}
+        bool done() const override {
+            return violation == Violation::request_when_done ||
+                   (violation == Violation::done_with_requests && claims == 2);
+        }
+        void finish() override { throw std::runtime_error{"invalid episode was finished"}; }
+        std::string label() const override { return "invalid-lifecycle"; }
+    };
+    for (const auto& [violation, error] : {
+            std::pair{Violation::blocked_without_requests, "episode blocked without outstanding requests"},
+            std::pair{Violation::done_with_requests, "episode done with outstanding requests"},
+            std::pair{Violation::request_when_done, "done episode produced a request"},
+            std::pair{Violation::duplicate_id, "duplicate episode request id"}}) {
+        SCOPED_TRACE(error);
+        std::atomic<bool> second_claim{false};
+        bool started = false;
+        Log log;
+        auto config = small(1, 1);
+        config.actors = 1;
+        FakeBackend backend{[&](std::span<const Input> inputs) {
+            const auto deadline = std::chrono::steady_clock::now() + 1s;
+            while (!second_claim && std::chrono::steady_clock::now() < deadline) std::this_thread::sleep_for(1ms);
+            require(second_claim, "actor did not attempt to claim available work");
+            return echo(inputs);
+        }};
+        expect_error(config, log, [&]() -> std::unique_ptr<Episode> {
+            if (started) return nullptr;
+            started = true;
+            return std::make_unique<Invalid>(violation, second_claim);
+        }, std::move(backend), error);
+    }
 }
