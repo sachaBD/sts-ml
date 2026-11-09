@@ -49,7 +49,7 @@ def snapshot(out):
     checkpoint = training / f'iter{latest:03d}/model.pt' if latest is not None else None
     evaluations = []
     references = baselines(out)
-    tested = sorted({r['test'] for r in rows if 'test' in r})
+    tested = sorted({r['test'] for r in rows if 'test' in r and 'set' not in r})
     if 0 in tested:
         references['initial'] = outcomes(training / 'test/iter000/results.jsonl')
         references['initial'].update(outcomes(training / 'test/iter000/in-sample/results.jsonl'))
@@ -96,8 +96,11 @@ def main():
     r, model, training = config['run'], config['model'], config['training']
     print(f'{r["id"]}   {time.strftime("%H:%M:%S")}   {data["state"].upper()}')
     decks = len(json.loads((out / 'inputs/starts.json').read_text()))
+    evaluation = config['evaluation']
+    eval_summary = (f'{len(evaluation["sets"])} evaluation sets' if 'sets' in evaluation
+                    else f'{evaluation["sims"]} evaluation sims')
     print(f'{decks} decks; '
-          f'{config["search"]["sims"]} sims ({config["evaluation"]["sims"]} evaluation); '
+          f'{config["search"]["sims"]} self-play sims; {eval_summary}; '
           f'NN {model["dim"]}x{model["layers"]}; {training["steps"]} train steps x {training["batch"]} rows')
     if status:
         progress = f'{status["done"]}/{status["total"]}' if 'total' in status else status.get('detail', '')

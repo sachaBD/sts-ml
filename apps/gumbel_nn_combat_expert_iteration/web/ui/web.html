@@ -1,0 +1,381 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Training · Run health</title>
+<link rel="stylesheet" href="health.css">
+<script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
+<script src="motion.js"></script>
+<style>
+  :root { --bg:#0e1013; --card:#161a1f; --line:#232830; --dim:#7d8590; --text:#e6e8eb;
+          --train:#6ea8fe; --test:#f0b46a; --good:#5fd39a; --bad:#ef6b6b; }
+  body { margin:0; background:var(--bg); color:var(--text); font:14px/1.4 ui-sans-serif, -apple-system, "Segoe UI", sans-serif; }
+  main { max-width:1200px; margin:0 auto; padding:32px 28px 60px; }
+  header { display:flex; align-items:baseline; gap:14px; margin-bottom:24px; }
+  h1 { font-size:18px; font-weight:600; margin:0; }
+  .muted { color:var(--dim); }
+  .dot { display:inline-block; width:8px; height:8px; border-radius:50%; background:var(--dim); margin-right:6px; }
+  .running .dot { background:var(--good); animation:pulse 1.6s infinite; }
+  .interrupted .dot { background:var(--bad); }
+  @keyframes pulse { 50% { box-shadow:0 0 0 6px #5fd39a00; } 0% { box-shadow:0 0 0 0 #5fd39a88; } }
+  .smooth { margin-left:auto; display:flex; align-items:center; gap:10px; font-size:12px; color:var(--dim); }
+  .smooth input { accent-color:var(--train); width:120px; }
+  .grid { display:grid; gap:14px; margin-top:14px; }
+  .metrics { grid-template-columns:repeat(auto-fit, minmax(150px, 1fr)); margin-top:0; }
+  .g2 { grid-template-columns:repeat(2, minmax(0, 1fr)); }
+  .grid > * { min-width:0; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:18px 20px; }
+  main > .card, #qualityPanel > .card { margin-top:14px; }
+  .label { font-size:11px; text-transform:uppercase; letter-spacing:1.2px; color:var(--dim); margin-bottom:10px; }
+  .big { font-size:30px; font-weight:600; font-variant-numeric:tabular-nums; }
+  .sub { font-size:12px; color:var(--dim); font-variant-numeric:tabular-nums; min-height:17px; }
+  .bar { height:4px; background:var(--line); border-radius:2px; margin-top:10px; }
+  .bar div { height:100%; width:0; background:var(--train); border-radius:2px; }
+  table { width:100%; border-collapse:collapse; font-variant-numeric:tabular-nums; font-size:13px; }
+  th { font-weight:400; color:var(--dim); text-align:right; font-size:11px; padding:0 8px 8px; }
+  td { padding:5px 8px; text-align:right; border-top:1px solid var(--line); }
+  th:first-child, td:first-child { text-align:left; }
+  tr.all td { font-weight:600; }
+  .ci { position:relative; width:120px; height:14px; display:inline-block; vertical-align:middle; margin-left:8px; }
+  .ci .zero { position:absolute; left:50%; top:0; bottom:0; width:1px; background:var(--dim); }
+  .ci .span { position:absolute; top:6px; height:2px; border-radius:1px; }
+  .ci .pt { position:absolute; top:4px; width:6px; height:6px; border-radius:50%; margin-left:-3px; }
+  .up { color:var(--good); } .down { color:var(--bad); } .flat { color:var(--dim); }
+  .chips { display:flex; flex-wrap:wrap; gap:6px; margin-bottom:8px; }
+  .chip { border:1px solid var(--line); background:none; color:var(--dim); border-radius:14px; padding:3px 11px;
+          font:inherit; font-size:12px; cursor:pointer; }
+  .chip.on { color:var(--bg); }
+  .plot { height:240px; width:100%; min-width:0; }
+  .head { display:flex; justify-content:space-between; align-items:baseline; }
+  .pick { font-size:12px; color:var(--dim); }
+  .controls { display:flex; flex-wrap:wrap; align-items:center; gap:10px; margin-bottom:12px; }
+  input[type="search"] { background:var(--bg); color:var(--text); border:1px solid var(--line); border-radius:6px; padding:7px 10px; font:inherit; }
+  button { cursor:pointer; background:var(--card); color:var(--text); border:1px solid var(--line); border-radius:6px; padding:5px 10px; }
+  button:disabled { opacity:.4; cursor:default; }
+  .table-wrap { overflow-x:auto; }
+  @media (max-width:700px) { main { padding:18px 12px; } header { flex-wrap:wrap; } .g2 { grid-template-columns:1fr; } .head { flex-wrap:wrap; } }
+  select { background:var(--card); color:var(--text); border:1px solid var(--line); border-radius:6px; font:inherit; padding:2px 6px; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1 id="run">—</h1>
+    <span class="muted" id="state"><span class="dot"></span><span id="stateText">connecting</span></span>
+    <span class="muted" id="stage"></span>
+    <label class="smooth" id="qualitySmooth" hidden>smoothing <input id="smooth" type="range" min="1" max="10" value="1"><span id="smoothVal">1</span></label>
+  </header>
+
+  <nav class="view-tabs" aria-label="Dashboard view">
+    <button id="healthTab" class="active" aria-selected="true">Run health</button>
+    <button id="qualityTab" aria-selected="false">Agent quality</button>
+    <span class="muted" id="healthFreshness">Starting telemetry…</span>
+  </nav>
+  <section id="healthPanel" aria-label="Resource headroom">
+    <div class="card resource-frame" id="resourceFrame">
+      <div class="head"><h2>Resource headroom</h2><span class="sub">Host-wide · GPU device 0 · run filesystem</span></div>
+      <div class="resource-grid">
+        <section class="resource"><h3>CPUs</h3><div id="resourceCpu"></div>
+          <div id="resourceCores" class="resource-cores" aria-label="Per logical CPU busy time"></div>
+          </section>
+        <section class="resource"><h3>GPU</h3><div id="resourceGpu"></div><div id="resourceVram"></div>
+          <div class="sub" id="resourceGpuNote" title="Device-wide kernel-active time, not percent of peak compute throughput."></div></section>
+        <section class="resource"><h3>RAM</h3><div id="resourceRam"></div><div class="sub" id="resourceRamNote"></div></section>
+        <section class="resource"><h3>Disk space</h3><div id="resourceDisk"></div><div class="sub" id="resourceDiskNote"></div></section>
+      </div>
+      <div class="sub resource-status" id="resourceStatus" role="status">Waiting for measurements…</div>
+    </div>
+    <div class="card execution-frame" id="executionFrame">
+      <div class="head"><h2>Execution</h2><span class="sub" id="executionFreshness">Waiting for telemetry</span></div>
+      <div class="execution-driver" id="executionDriver" aria-label="Training phases"></div>
+      <div class="sub execution-stage" id="executionStage"></div>
+      <section class="fit-panel" id="trainingPanel" hidden aria-label="Live training">
+        <div class="head"><h3>Training</h3><span class="sub" id="trainingStatus">Waiting for phase</span></div>
+        <div id="trainingValues">
+          <div class="execution-progress-heading"><span>Optimizer steps</span><span id="trainingSteps">—</span></div>
+          <div class="execution-progress-track" id="trainingProgress" role="progressbar" aria-label="Training steps"><div id="trainingFill"></div></div>
+          <div class="fit-grid">
+            <div><div class="label">Steps / s</div><div class="fit-value" id="trainingRate">—</div></div>
+            <div><div class="label">Value loss</div><div class="fit-value" id="trainingValueLoss">—</div></div>
+            <div><div class="label">Policy loss</div><div class="fit-value" id="trainingPolicyLoss">—</div></div>
+          </div>
+        </div>
+        <div class="fit-grid" id="trainingResources">
+          <div><div class="label">GPU busy</div><div class="fit-value" id="trainingGpu">—</div></div>
+          <div><div class="label">VRAM · GiB</div><div class="fit-value" id="trainingVram">—</div></div>
+          <div><div class="label">RAM · GiB</div><div class="fit-value" id="trainingRam">—</div></div>
+        </div>
+        <div class="sub fit-note" id="trainingSystemStatus">Device-wide GPU · host RAM</div>
+      </section>
+      <section id="collectionPanel" aria-label="Collection and evaluation" hidden>
+      <div class="execution-progress">
+        <div class="execution-progress-heading"><span id="fightLabel">Fights</span><span id="fightCount">Waiting for fight progress</span></div>
+        <div class="execution-progress-track" id="fightProgress" role="progressbar" aria-label="Completed fights">
+          <div id="fightFill"></div>
+        </div>
+      </div>
+      <div class="topology" id="executionTopology">
+        <section class="topology-actors"><div class="topology-heading"><h3>Actors</h3><span>Slots <span class="topology-rate-label">Requests/s</span></span></div><div id="executionActors"></div></section>
+        <div class="topology-wire" aria-hidden="true">→</div>
+        <section class="topology-service"><h3>Inference server</h3>
+          <div id="executionQueue"></div><div class="topology-service-arrow" aria-hidden="true">↓</div>
+          <div class="topology-dispatch-title">Dispatchers</div><div id="executionDispatchers"></div>
+        </section>
+        <div class="topology-wire" aria-hidden="true">→</div>
+        <section class="topology-lanes"><h3>GPU lanes</h3><div id="executionLanes"></div>
+          <div class="topology-fallback" id="executionFallback"></div></section>
+      </div>
+      <div class="topology-legend" id="executionLegend"><span class="legend-ready">Ready</span><span class="legend-waiting">Awaiting inference</span><span class="legend-empty">Empty</span><span id="executionMode"></span></div>
+      <div class="execution-return" aria-label="Predictions returned to actors"><span>← Predictions</span></div>
+      </section>
+    </div>
+    <div class="card resource-frame training-metrics-frame">
+      <div class="head"><h2>Training metrics</h2><span class="sub"><strong id="fightRate">—</strong> combats/s · ~10 s smoothing</span></div>
+      <section id="fightThroughputPanel" aria-label="Fight throughput" hidden>
+      <div class="label" style="margin-top:20px">Current stage · fight throughput</div>
+      <div class="sub" id="fightRateStage">Waiting for fight samples</div>
+      <div id="fightRatePlot" class="plot"></div>
+      </section>
+      <div style="display:flex; align-items:baseline; flex-wrap:wrap; gap:10px; margin-top:20px">
+        <div class="label">Per iteration</div>
+        <label class="smooth" title="Trailing average over this many iterations; 1 means no smoothing">smoothing
+          <input id="iterationSmooth" type="range" min="1" max="10" value="1" aria-label="Per iteration smoothing window">
+          <span id="iterationSmoothVal">1</span> iterations
+        </label>
+      </div>
+      <div class="grid g2">
+    <div class="card"><div class="label">Loss</div><div id="loss" class="plot"></div></div>
+    <div class="card"><div class="label">Time per iteration</div><div id="time" class="plot"></div></div>
+    <div class="card"><div class="label">GPU per iteration</div><div id="gpuPlot" class="plot"></div></div>
+    <div class="card"><div class="label">NN evaluations / s per iteration</div><div id="nnPlot" class="plot"></div></div>
+  </div>
+    </div>
+  </section>
+  <section id="qualityPanel" aria-label="Agent quality" hidden>
+    <div class="grid metrics">
+      <div class="card"><div class="label">Batch win rate</div><div class="big" id="liveWin">—</div>
+        <div class="sub" id="liveSub"></div></div>
+      <div class="card"><div class="label">Last evaluation win rate</div><div class="big" id="evalWin" style="color:var(--test)">—</div>
+        <div class="sub" id="evalSub"></div></div>
+    </div>
+    <div class="card">
+      <div class="label">Historical comparison</div>
+      <div id="comparisonTables"></div>
+      <p class="sub">Wins / fights (win rate). Hover for 95% Wilson intervals, treating fights as independent.
+        Historical and current fight coverage, simulators, and training exposure differ.</p>
+    </div>
+    <div class="card"><div class="label">Win rate · 95% CI</div><div id="overall" style="height:300px"></div></div>
+  </section>
+</main>
+
+<script>
+const $ = id => document.getElementById(id);
+const pct = x => x == null ? '—' : (100 * x).toFixed(1) + '%';
+const int = x => Math.round(x).toLocaleString();
+
+// Displayed numbers ease toward their latest value.
+const tw = {};
+const T = (k, v) => { (tw[k] ??= { v, t: v }).t = v; };
+const V = k => tw[k] ? tw[k].v : 0;
+
+let activeView = 'health';
+let data = null, chartKey = '', smooth = +(localStorage.getItem('smooth') || 1);
+let iterationSmooth = Math.max(1, Math.min(10, Math.round(+localStorage.getItem('iterationSmooth') || 1)));
+async function poll() {
+  if (document.body.dataset.mode === 'mock') return;
+  try {
+    const d = await (await fetch('api', { cache: 'no-store' })).json();
+    if (d.error) throw new Error(d.error);
+    update(d);
+  } catch (e) { $('stateText').textContent = 'offline'; $('state').className = 'muted interrupted'; }
+  setTimeout(poll, 2000);
+}
+
+function batchRate(d) {
+  return d.live && !d.live.test ? d.live.rates.all : d.train[d.train.length - 1]?.rates.all;
+}
+
+function update(d) {
+  data = d;
+  renderComparisons();
+  const p = d.progress || {}, batch = batchRate(d), evaluation = d.test[d.test.length - 1]?.rates.all;
+  $('run').textContent = d.run;
+  $('stateText').textContent = d.state;
+  $('state').className = 'muted ' + d.state;
+  $('stage').textContent = [...new Set([p.stage, p.phase].filter(Boolean))].join(' · ');
+  if (batch?.n) T('live', batch.p);
+  if (evaluation?.n) T('eval', evaluation.p);
+  const key = [activeView, d.train.length, d.test.length, smooth, iterationSmooth].join('|');
+  if (key !== chartKey) { chartKey = key; charts(); }
+}
+
+function renderComparisons() {
+  const root = $('comparisonTables');
+  if (!data?.compare?.length) {
+    root.textContent = 'No completed evaluation matches configured historical results.';
+    return;
+  }
+  root.replaceChildren();
+  const node = (tag, text) => {
+    const element = document.createElement(tag);
+    if (text != null) element.textContent = text;
+    return element;
+  };
+  for (const comparison of data.compare) {
+    const caption = node('p', `${comparison.set} · iteration ${comparison.it}`);
+    caption.className = 'sub';
+    const wrap = node('div'); wrap.className = 'table-wrap';
+    const table = node('table'), head = node('thead'), heading = node('tr'), body = node('tbody');
+    for (const label of ['Deck', ...comparison.columns]) heading.append(node('th', label));
+    head.append(heading);
+    for (const row of comparison.rows) {
+      const tr = node('tr'); if (row.deck === 'all') tr.className = 'all';
+      tr.append(node('td', row.deck === 'all' ? 'All decks' : row.deck));
+      for (const label of comparison.columns) {
+        const value = row.rates[label];
+        const cell = node('td', value.n ? `${int(value.w)} / ${int(value.n)} (${pct(value.p)})` : '—');
+        if (value.n) cell.title = `95% Wilson interval: ${pct(value.ci[0])}–${pct(value.ci[1])}`;
+        tr.append(cell);
+      }
+      body.append(tr);
+    }
+    table.append(head, body); wrap.append(table); root.append(caption, wrap);
+  }
+}
+
+// Trailing windows: quality pools wins/games (Wilson CI); per-iteration metrics average.
+function wilson(w, n) {
+  if (!n) return [null, null];
+  const z = 1.96, p = w / n, d = 1 + z * z / n, c = (p + z * z / (2 * n)) / d;
+  const h = z * Math.sqrt(p * (1 - p) / n + z * z / (4 * n * n)) / d;
+  return [c - h, c + h];
+}
+function pooled(key) {
+  return data.train.map((_, i) => {
+    const win = data.train.slice(Math.max(0, i + 1 - smooth), i + 1).map(b => b.rates[key]).filter(Boolean);
+    const w = win.reduce((a, s) => a + s.w, 0), n = win.reduce((a, s) => a + s.n, 0);
+    return n ? { w, n, p: w / n, ci: wilson(w, n) } : null;
+  });
+}
+function rolling(f) {
+  const v = data.train.map(f);
+  return v.map((_, i) => {
+    const win = v.slice(Math.max(0, i + 1 - iterationSmooth), i + 1).filter(x => x != null);
+    return win.length ? win.reduce((a, x) => a + x, 0) / win.length : null;
+  });
+}
+
+const AXIS = { gridcolor: '#232830', zeroline: false };
+const LAYOUT = {
+  paper_bgcolor: 'rgba(0,0,0,0)', plot_bgcolor: 'rgba(0,0,0,0)', font: { color: '#7d8590', size: 11 },
+  margin: { l: 44, r: 8, t: 8, b: 30 }, hovermode: 'x unified', uirevision: 1,
+  legend: { orientation: 'h', y: 1.1, x: 0 }, hoverlabel: { bgcolor: '#161a1f', bordercolor: '#232830' },
+  xaxis: { ...AXIS, title: { text: 'iteration' } },
+  yaxis: { ...AXIS, tickformat: '.0%', rangemode: 'tozero' },
+};
+const SMALL = { ...LAYOUT, margin: { l: 40, r: 40, t: 4, b: 24 }, legend: { orientation: 'h', y: 1.14, x: 0 },
+                xaxis: AXIS, yaxis: { ...AXIS, rangemode: 'tozero' },
+                yaxis2: { ...AXIS, overlaying: 'y', side: 'right', showgrid: false, rangemode: 'tozero' } };
+const CONFIG = { displayModeBar: false, responsive: true };
+const alpha = (hex, a) => hex + Math.round(a * 255).toString(16).padStart(2, '0');
+const HOVER = '%{y:.1%} (%{customdata[0]}/%{customdata[1]}, %{customdata[2]:.1%}–%{customdata[3]:.1%})<extra>';
+
+function band(key, c, name) {
+  const xs = data.train.map(b => b.it), s = pooled(key);
+  return [
+    { x: xs, y: s.map(v => v && v.ci[1]), mode: 'lines', line: { width: 0 }, hoverinfo: 'skip', showlegend: false, legendgroup: name },
+    { x: xs, y: s.map(v => v && v.ci[0]), mode: 'lines', line: { width: 0 }, fill: 'tonexty', fillcolor: alpha(c, 0.15),
+      hoverinfo: 'skip', showlegend: false, legendgroup: name },
+    { x: xs, y: s.map(v => v && v.p), name, legendgroup: name, mode: 'lines', line: { color: c, width: 2 },
+      customdata: s.map(v => v && [v.w, v.n, v.ci[0], v.ci[1]]), hovertemplate: HOVER + name + '</extra>' },
+  ];
+}
+
+function evalPoints(key, c, name, bars) {
+  const s = data.test.map(r => r.rates[key]);
+  return { x: data.test.map(r => r.it), y: s.map(v => v && v.p), name, mode: 'markers', showlegend: bars,
+    marker: { color: bars ? c : 'rgba(0,0,0,0)', size: bars ? 7 : 6, line: { color: c, width: 1.5 } },
+    error_y: bars ? { type: 'data', symmetric: false, color: c, thickness: 1, width: 3,
+                      array: s.map(v => v && v.ci[1] - v.p), arrayminus: s.map(v => v && v.p - v.ci[0]) } : undefined,
+    customdata: s.map(v => v && [v.w, v.n, v.ci[0], v.ci[1]]), hovertemplate: HOVER + name + '</extra>' };
+}
+
+function line(y, name, c, extra = {}) {
+  return { x: data.train.map(b => b.it), y, name, mode: 'lines', line: { color: c, width: 2 }, ...extra };
+}
+
+function charts() {
+  if (activeView === 'quality') {
+    Plotly.react('overall', [...band('all', '#6ea8fe', 'training'), evalPoints('all', '#f0b46a', 'evaluation', true)],
+                 LAYOUT, CONFIG);
+    return;
+  }
+
+  Plotly.react('loss', [
+    line(rolling(b => b.loss && b.loss.value), 'value', '#6ea8fe', { hovertemplate: '%{y:.4f}' }),
+    line(rolling(b => b.loss && b.loss.policy), 'policy', '#c39bff', { yaxis: 'y2', hovertemplate: '%{y:.4f}' }),
+    line(rolling(b => b.loss?.heldout_value), 'value heldout', '#6ea8fe',
+      { line: { color: '#6ea8fe', width: 2, dash: 'dot' }, hovertemplate: '%{y:.4f}' }),
+    line(rolling(b => b.loss?.heldout_policy), 'policy heldout', '#c39bff',
+      { line: { color: '#c39bff', width: 2, dash: 'dot' }, yaxis: 'y2', hovertemplate: '%{y:.4f}' }),
+  ], { ...SMALL, yaxis: { ...SMALL.yaxis, rangemode: 'normal' }, yaxis2: { ...SMALL.yaxis2, rangemode: 'normal' } }, CONFIG);
+
+  const play = rolling(b => b.play && b.play / 60), fit = rolling(b => b.fit && b.fit / 60);
+  const typical = data.train.filter(b => b.play).map(b => (b.play + b.fit) / 60).sort((a, b) => a - b)[data.train.length >> 1] || 1;
+  Plotly.react('time', [
+    { x: data.train.map(b => b.it), y: play, name: 'play', type: 'bar', marker: { color: alpha('#6ea8fe', 0.55) },
+      hovertemplate: '%{y:.1f} min' },
+    { x: data.train.map(b => b.it), y: fit, name: 'train', type: 'bar', marker: { color: alpha('#c39bff', 0.55) },
+      hovertemplate: '%{y:.1f} min' },
+    line(rolling(b => b.gps), 'games/s', '#f0b46a', { yaxis: 'y2', hovertemplate: '%{y:.1f}' }),
+  ], { ...SMALL, barmode: 'stack', bargap: 0.25, yaxis: { ...SMALL.yaxis, range: [0, typical * 2], ticksuffix: ' m' } }, CONFIG);
+
+  Plotly.react('gpuPlot', [
+    line(rolling(b => b.gpu.util), 'util %', '#5fd39a', { hovertemplate: '%{y:.0f}%' }),
+    line(rolling(b => b.gpu.vram), 'VRAM peak', '#4fd1d9', { yaxis: 'y2', hovertemplate: '%{y:.1f} GiB' }),
+  ], { ...SMALL, yaxis: { ...SMALL.yaxis, range: [0, 100], ticksuffix: '%' },
+       yaxis2: { ...SMALL.yaxis2, ticksuffix: ' G', range: [0, data.system.vram_total || null] } }, CONFIG);
+  Plotly.react('nnPlot', [line(rolling(b => b.nn), 'NN evals/s', '#ff9f5a', { hovertemplate: '%{y:,.0f}', showlegend: false })],
+               { ...SMALL, yaxis: { ...SMALL.yaxis, tickformat: '~s' } }, CONFIG);
+}
+
+$('iterationSmooth').value = iterationSmooth; $('iterationSmoothVal').textContent = iterationSmooth;
+$('iterationSmooth').oninput = e => {
+  iterationSmooth = +e.target.value; $('iterationSmoothVal').textContent = iterationSmooth;
+  localStorage.setItem('iterationSmooth', iterationSmooth);
+  if (data) { chartKey = ''; charts(); }
+};
+
+$('smooth').value = smooth; $('smoothVal').textContent = smooth;
+$('smooth').oninput = e => {
+  smooth = +e.target.value; $('smoothVal').textContent = smooth;
+  localStorage.setItem('smooth', smooth);
+  if (data) { chartKey = ''; charts(); }
+};
+
+// Share the same three-second half-life as the execution view.
+let last = performance.now();
+function frame(now) {
+  const k = reducedMotion ? 1 : -Math.expm1(-Math.LN2 * (now - last) / UI_HALF_LIFE_MS); last = now;
+  for (const t of Object.values(tw)) t.v += (t.t - t.v) * k;
+  if (data && activeView === 'quality') {
+    const batch = batchRate(data), evaluation = data.test[data.test.length - 1];
+    $('liveWin').textContent = batch?.n ? pct(V('live')) : '—';
+    $('liveSub').textContent = batch?.n ? `${int(batch.w)} / ${int(batch.n)} · ` +
+      (data.live && !data.live.test ? 'current collection' : `iteration ${data.train[data.train.length - 1].it}`) : 'No completed fights';
+    $('evalWin').textContent = evaluation?.rates.all.n ? pct(V('eval')) : '—';
+    $('evalSub').textContent = evaluation?.rates.all.n ?
+      `iteration ${evaluation.it} · ${int(evaluation.rates.all.w)} / ${int(evaluation.rates.all.n)}` : 'No completed evaluation';
+  }
+  requestAnimationFrame(frame);
+}
+
+poll();
+requestAnimationFrame(frame);
+</script>
+<script src="telemetry.js"></script>
+<script src="training.js"></script>
+<script src="health.js"></script>
+</body>
+</html>

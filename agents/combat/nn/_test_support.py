@@ -6,8 +6,8 @@ from .tokens import CardZone, TokenKind, TokenRows, WIDTH
 from .train import train
 
 
-def small_spec(kind):
-    return ModelSpec(kind, dim=16, layers=1, heads=2)
+def small_spec(kind, value='win'):
+    return ModelSpec(kind, dim=16, layers=1, heads=2, value=value)
 
 
 def combat_tokens():
@@ -26,6 +26,7 @@ def combat_tokens():
 def train_once(learner, tokens):
     actions = TokenRows(tokens).is_kind(TokenKind.ACTION).float()
     policy = actions / actions.sum(dim=1, keepdim=True)
-    outcomes = torch.tensor([1., 0.])
-    train(learner.net, learner.optimizer, tokens, policy, outcomes,
+    # won, hp, enemy_hp, hp_lost, enemy_hp_lost, turns_remaining
+    targets = torch.tensor([[1., .5, 0., .1, .2, 3.], [0., 0., .4, .3, 0., 0.]])
+    train(learner.net, learner.optimizer, tokens, policy, targets,
           steps=1, batch=2, device='cpu', log=lambda _: None)

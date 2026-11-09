@@ -91,10 +91,12 @@ class FakeBackend final : public Backend {
 public:
     using Evaluate = std::function<std::vector<Prediction>(std::span<const Input>)>;
     using Prepare = std::function<void(const Tokens&, std::vector<std::uint16_t>&)>;
-    explicit FakeBackend(Evaluate evaluate = echo, Prepare prepare = {}, int lanes = 1)
-        : evaluate_{std::move(evaluate)}, prepare_{std::move(prepare)}, lanes_{lanes} {}
+    explicit FakeBackend(Evaluate evaluate = echo, Prepare prepare = {}, int lanes = 1,
+                         std::function<bool(const Tokens&)> accepts = {}, int batch = 64)
+        : evaluate_{std::move(evaluate)}, prepare_{std::move(prepare)}, lanes_{lanes}, accepts_{std::move(accepts)}, batch_{batch} {}
     int width() const override { return token_width; }
-    int max_batch() const override { return 64; }
+    int max_batch() const override { return batch_; }
+    bool accepts(const Tokens& t) const override { return !accepts_ || accepts_(t); }
     int lanes() const override { return lanes_; }
     void prepare(const Tokens& t, std::vector<std::uint16_t>& packed) const override { if (prepare_) prepare_(t, packed); else packed.clear(); }
     std::vector<Prediction> evaluate(std::span<const Input> inputs) override { return evaluate_(inputs); }
@@ -102,6 +104,8 @@ private:
     Evaluate evaluate_;
     Prepare prepare_;
     int lanes_;
+    std::function<bool(const Tokens&)> accepts_;
+    int batch_;
 };
 
 ActorConfig small(int slots = 3, int batch = 7) {
@@ -173,6 +177,68 @@ TEST(Actors, PrepareRunsOnOwnerAndPackedInputStaysStable) {
     }};
     run_actors(small(), episodes(log, 40), backend);
     EXPECT_EQ(log.finished, 40);
+}
+
+TEST(Actors, CountersCountEveryRequestOnceAndTimeWithinWallTime) {
+    Log log;
+    const auto slow = [](std::span<const Input> inputs) { std::this_thread::sleep_for(1ms); return echo(inputs); };
+    FakeBackend odd{slow, {}, 1, [](const Tokens& t) { return int(t.data[0] * 1000 + .5f) % 2 == 1; }}, rest{slow};
+    Counters last;
+    auto config = small();
+    config.on_counters = [&last](const Counters& counters) { last = counters; };
+    const auto started = std::chrono::steady_clock::now();
+    run_actors(config, episodes(log, 100), std::vector<Backend*>{&odd, &rest});
+    const std::chrono::duration<double> elapsed = std::chrono::steady_clock::now() - started;
+
+    ASSERT_EQ(last.actors.size(), std::size_t(config.actors));
+    long requests = 0;
+    for (const auto& a : last.actors) { requests += a.requests; EXPECT_LE(a.blocked, elapsed); }
+    EXPECT_EQ(requests, log.evaluated) << "the final counters count every request exactly once";
+
+    ASSERT_EQ(last.queues.size(), 2u);
+    requests = 0;
+    for (const auto& q : last.queues) {
+        requests += q.requests;
+        EXPECT_LE(q.waited, q.requests * elapsed);
+        EXPECT_EQ(q.depth, 0u);
+        EXPECT_GT(q.peak_depth, 0u);
+        EXPECT_LE(q.peak_depth, std::size_t(config.actors * config.slots));
+    }
+    EXPECT_EQ(requests, log.evaluated) << "every request leaves exactly one queue";
+
+    ASSERT_EQ(last.lanes.size(), 2u);
+    requests = 0;
+    for (const auto& l : last.lanes) { requests += l.requests; EXPECT_LE(l.requests, l.capacity); EXPECT_LE(l.busy, elapsed); }
+    EXPECT_EQ(requests, log.evaluated) << "every request is evaluated by exactly one lane";
+}
+
+TEST(Actors, QueueDepthExcludesEvaluatingBatchAndPeakSurvivesDrain) {
+    Log log;
+    std::atomic<bool> sampled{false};
+    FakeBackend backend{[&](std::span<const Input> inputs) {
+        const auto deadline = std::chrono::steady_clock::now() + 3s;
+        while (!sampled && std::chrono::steady_clock::now() < deadline) std::this_thread::sleep_for(1ms);
+        require(sampled, "no counters published while evaluation was blocked");
+        return echo(inputs);
+    }};
+    auto config = small(4, 1);
+    config.actors = 1;
+    config.timeout = 5s;
+    std::vector<Counters> snapshots;
+    config.on_counters = [&](const Counters& counters) {
+        snapshots.push_back(counters);
+        sampled = true;
+    };
+    run_actors(config, episodes(log, config.slots, [](int) { return 1; }), backend);
+
+    ASSERT_GE(snapshots.size(), 2u);
+    const auto& waiting = snapshots.front().queues.at(0);
+    const auto& drained = snapshots.back().queues.at(0);
+    EXPECT_EQ(waiting.depth, std::size_t(config.slots - 1)) << "the evaluating request is no longer queued";
+    EXPECT_GE(waiting.peak_depth, waiting.depth);
+    EXPECT_LE(waiting.peak_depth, std::size_t(config.slots));
+    EXPECT_EQ(drained.depth, 0u);
+    EXPECT_EQ(drained.peak_depth, waiting.peak_depth) << "draining must not reset the high-water mark";
 }
 
 TEST(Actors, NoEpisodes) {
@@ -273,7 +339,6 @@ TEST(ActorFailures, StalledEpisodeTimesOut) {
 TEST(ActorFailures, InvalidConfig) {
     Log log;
     expect_error(small(0), log, episodes(log, 1), FakeBackend{}, "invalid actor configuration");
-    expect_error(small(3, 65), log, episodes(log, 1), FakeBackend{}, "invalid actor configuration");  // > max_batch
     expect_error(small(), log, episodes(log, 1), FakeBackend{echo, {}, 0}, "invalid actor configuration");  // no lanes
 }
 
@@ -287,4 +352,63 @@ TEST(ActorsDeathTest, HungBackendExitsProcess) {
         FakeBackend backend{[](auto) -> std::vector<Prediction> { for (;;) std::this_thread::sleep_for(1s); }};
         run_actors(config, episodes(log, 20, three_steps), backend);
     }, testing::ExitedWithCode(1), "shutdown timeout");
+}
+
+TEST(Actors, MixedBackendsPreserveRepliesWithoutWideWorkBlockingNarrow) {
+    for (bool wide_accepts : {true, false}) {
+        Log log;
+        std::atomic<int> fast_calls{0}, fast_rows{0}, wide_rows{0};
+        const auto fits = [](const Tokens& t) { return (int(t.data[0] * 1000 + .5f) + int(t.data[1])) % 2 == 0; };
+        FakeBackend narrow{[&](auto inputs) {
+            require(inputs.size() <= 7, "narrow batch too large");
+            for (const auto& i : inputs) require(fits(*i.tokens) && i.packed.size() == 1, "wrong narrow request");
+            ++fast_calls; fast_rows += inputs.size();
+            return echo(inputs);
+        }, [](const Tokens&, auto& packed) { packed.assign(1, 1); }, 2, fits, 7};
+        FakeBackend wide{[&](auto inputs) {
+            require(inputs.size() <= 2, "wide batch too large");
+            for (const auto& i : inputs) require(!fits(*i.tokens) && i.packed.size() == 2, "wrong wide request");
+            const auto deadline = std::chrono::steady_clock::now() + 1s;
+            while (fast_calls < 2 && std::chrono::steady_clock::now() < deadline) std::this_thread::sleep_for(1ms);
+            require(fast_calls >= 2, "wide work blocked narrow lanes");
+            wide_rows += inputs.size();
+            return echo(inputs);
+        }, [](const Tokens&, auto& packed) { packed.assign(2, 1); }, 1,
+           [=](const Tokens&) { return wide_accepts; }, 2};
+        run_actors(small(7, 7), episodes(log, 100), {&narrow, &wide});
+        EXPECT_EQ(log.finished, 100);
+        EXPECT_EQ(log.evaluated, total_steps(100));
+        EXPECT_EQ(fast_rows + wide_rows, total_steps(100));
+        EXPECT_GT(fast_rows, 0);
+        EXPECT_GT(wide_rows, 0);
+        EXPECT_EQ(log.alive, 0);
+    }
+}
+
+TEST(Actors, RowsNoBackendAcceptsReachOnlyTheLastWithoutBlockingTheOthers) {
+    Log log;
+    std::atomic<int> wide_calls{0}, rows{0};
+    const auto kind = [](const Tokens& t) { return (int(t.data[0] * 1000 + .5f) + int(t.data[1])) % 3; };
+    const auto only = [&](int k, const char* name) {
+        return [&, k, name](std::span<const Input> inputs) {
+            for (const auto& i : inputs) require(kind(*i.tokens) == k, name);
+            rows += int(inputs.size());
+            return echo(inputs);
+        };
+    };
+    FakeBackend narrow{only(0, "narrow got a row it does not accept"), {}, 1, [&](const Tokens& t) { return kind(t) == 0; }, 7};
+    FakeBackend wide{[&, check = only(1, "wide got a row it does not accept")](auto inputs) {
+        ++wide_calls;
+        return check(inputs);
+    }, {}, 1, [&](const Tokens& t) { return kind(t) == 1; }, 7};
+    FakeBackend overflow{[&, check = only(2, "overflow got an accepted row")](auto inputs) {
+        const auto deadline = std::chrono::steady_clock::now() + 1s;
+        while (wide_calls < 2 && std::chrono::steady_clock::now() < deadline) std::this_thread::sleep_for(1ms);
+        require(wide_calls >= 2, "overflow work blocked the wide lane");
+        return check(inputs);
+    }, {}, 1, [](const Tokens&) { return false; }, 7};
+    run_actors(small(7, 7), episodes(log, 100), {&narrow, &wide, &overflow});
+    EXPECT_EQ(log.finished, 100);
+    EXPECT_EQ(rows, total_steps(100));
+    EXPECT_EQ(log.alive, 0);
 }

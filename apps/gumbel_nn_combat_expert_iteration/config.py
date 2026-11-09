@@ -1,12 +1,13 @@
 """The run's settings, typed and validated once when the config loads.
 
 Settings have no defaults, except optional features. A count of 0 means unlimited or off (iterations,
-max_train_rows, evaluation every and wall_share); evaluation sims 0 plays the network alone.
-[starts] draws self-play's fights from its deck pool and varies them. Evaluation plays [search] without noise; final_fights are
+max_train_rows, evaluation every); evaluation sims 0 plays the network alone.
+[starts] draws self-play's fights from its deck pool and varies them. Each evaluation set owns its search and schedule; final_fights are
 copied with the run, never played. Fights files and baselines are built offline by make_fights.py.
 A run may resume with different `resumable()` settings; any other change would be a different experiment.
 """
-from dataclasses import MISSING, dataclass, field, fields
+from dataclasses import MISSING, dataclass, field, fields, is_dataclass
+import math
 import sys
 import tomllib
 import types
@@ -48,6 +49,9 @@ class SelfPlay(Search):
 class SelfPlayStarts(Starts):
     fights: str  # the deck pool: one fight per deck, fight_id = deck name
     per_iteration: int
+    history_iterations: int = 10
+    win_rate_prior_strength: float = 1.0
+    sampling_concentration: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -60,6 +64,15 @@ class Training:
     balanced_replay: bool
     prune_replay: bool = resumable()
     device: str
+    value_batch: int = 0  # 0: shared samples; positive: one state from each of this many distinct combats
+    lr_half_life: int = 0  # iterations to halve lr's distance to lr_final; 0 keeps lr constant
+    lr_final: float = 0.0
+
+    def lr_at(self, it):
+        """The learning rate of training iteration `it`."""
+        if not self.lr_half_life:
+            return self.lr
+        return self.lr_final + (self.lr - self.lr_final) * 0.5 ** (it / self.lr_half_life)
 
 
 @dataclass(frozen=True)
@@ -72,23 +85,37 @@ class Model:
     export_reuse: bool = resumable()
     gpu_attended: int | None = None
     gpu_mixed_precision: bool = False
+    value: str = 'win'  # win: one win logit; outcome: loss/win outcome bins (agents/combat/nn/model.py)
+    auxiliary: bool = False  # train HP lost, enemy HP lost and turns remaining heads
+    gpu_wide_tokens: int = resumable(default=0)
+    gpu_wide_attended: int | None = resumable(default=None)
 
     def architecture(self):
-        return ModelSpec(self.kind, self.dim, self.layers, self.heads)
+        return ModelSpec(self.kind, self.dim, self.layers, self.heads, self.value, self.auxiliary)
 
     def deployment(self):
         return ExportSpec(self.gpu_tokens, self.gpu_attended, self.gpu_mixed_precision)
 
+    def wide_deployment(self):
+        if self.gpu_wide_tokens:
+            return ExportSpec(self.gpu_wide_tokens, self.gpu_wide_attended, self.gpu_mixed_precision)
+        return None
+
+
+@dataclass(frozen=True)
+class EvaluationSet(Search):
+    name: str
+    fights: str
+    at: tuple[int, ...] = resumable()
+    every: int = resumable()
+
+    def due(self, it):
+        return it in self.at or bool(self.every and it % self.every == 0)
+
 
 @dataclass(frozen=True)
 class Evaluation:
-    sims: int
-    at: tuple[int, ...]
-    every: int = resumable()
-    wall_share: float = resumable()
-    fights: str
-    rollout_mix: float | None = None  # fixed across the run; None: [search].rollout_mix
-    in_sample_fights: str | None = None
+    sets: tuple[EvaluationSet, ...]
     final_fights: str | None = None
     baselines: str | None = None
     cohorts: str | None = None
@@ -117,13 +144,22 @@ def section(cls, table, name):
         if isinstance(kind, types.UnionType):  # optional: X | None
             kind = next(t for t in get_args(kind) if t is not type(None))
         if getattr(kind, '__origin__', None) is tuple:
+            item = get_args(kind)[0]
             items = required(table, f.name, name, list)
-            if not all(isinstance(x, int) and not isinstance(x, bool) for x in items):
-                sys.exit(f'[{name}].{f.name} must be a list of integers')
+            if is_dataclass(item):
+                if not all(isinstance(x, dict) for x in items):
+                    sys.exit(f'[{name}].{f.name} must be a list of tables')
+                values[f.name] = tuple(section(item, x, f'{name}.{f.name}[{i}]') for i, x in enumerate(items))
+                continue
+            if not all(isinstance(x, item) and not isinstance(x, bool) for x in items):
+                sys.exit(f'[{name}].{f.name} must be a list of {item.__name__}')
             values[f.name] = tuple(items)
         else:
             values[f.name] = required(table, f.name, name, kind)
-    return cls(**values)
+    try:
+        return cls(**values)
+    except ValueError as error:
+        sys.exit(f'[{name}]: {error}')
 
 
 def load(text):
@@ -142,24 +178,55 @@ def validate(c):
     need(r.iterations >= 0 and r.recovery_retries >= 0 and r.min_free_gib >= 0,
          'nonnegative iterations, recovery_retries, min_free_gib')
     need(st.per_iteration > 0 and st.hp_jitter >= 0, 'starts: positive per_iteration, nonnegative hp_jitter')
-    need(s.sims >= 0 and s.gumbel_scale >= 0 and 0 <= s.rollout_mix <= 1 and s.particles > 0 and s.rollout_mix_decay >= 0,
-         'search: nonnegative sims, gumbel_scale and rollout_mix_decay, rollout_mix in [0, 1], positive particles')
-    need(t.steps > 0 and t.batch > 0 and t.lr > 0 and t.replay_window > 0 and t.max_train_rows >= 0,
-         'training: positive steps, batch, lr, replay_window; nonnegative max_train_rows')
+    need(st.history_iterations > 0, 'starts: positive history_iterations')
+    need(math.isfinite(st.win_rate_prior_strength) and st.win_rate_prior_strength > 0,
+         'starts: finite positive win_rate_prior_strength')
+    need(0 <= st.sampling_concentration <= 1, 'starts: sampling_concentration in [0, 1]')
+    for name, search in [('search', s)] + [(f'evaluation set {x.name}', x) for x in e.sets]:
+        need(search.sims >= 0 and math.isfinite(search.gumbel_scale) and search.gumbel_scale >= 0
+             and 0 <= search.rollout_mix <= 1 and search.particles > 0,
+             f'{name}: nonnegative sims and gumbel_scale, rollout_mix in [0, 1], positive particles')
+    need(s.rollout_mix_decay >= 0, 'search: nonnegative rollout_mix_decay')
+    need(t.steps > 0 and t.batch > 0 and t.lr > 0 and t.replay_window > 0 and t.max_train_rows >= 0
+         and t.value_batch >= 0,
+         'training: positive steps, batch, lr, replay_window; nonnegative max_train_rows, value_batch')
+    need(not t.value_batch or t.max_train_rows == 0, 'value_batch requires max_train_rows = 0')
+    need(t.lr_half_life >= 0 and 0 <= t.lr_final < t.lr, 'training: nonnegative lr_half_life, lr_final in [0, lr)')
+    need(t.lr_half_life or t.lr_final == 0, 'training: lr_final requires lr_half_life')
     try:
         m.deployment().validate(m.architecture())
+        need(m.gpu_wide_tokens >= 0, 'nonnegative gpu_wide_tokens required')
+        need(m.gpu_wide_tokens or m.gpu_wide_attended is None, 'gpu_wide_attended requires gpu_wide_tokens')
+        if wide := m.wide_deployment():
+            wide.validate(m.architecture())
+            need(m.gpu_attended is not None and m.gpu_wide_attended is not None and
+                 m.gpu_wide_tokens >= m.gpu_tokens and m.gpu_wide_attended >= m.gpu_attended,
+                 'wide deployment must cover narrow token and attention capacities')
     except ValueError as error:
         sys.exit(f'config: {error}')
     need(w.actors > 0 and w.slots > 0 and w.gpu_batch > 0 and w.gpu_wait_us >= 0 and w.timeout_ms > 0
-         and w.shutdown_timeout_ms > 0, 'workers: positive counts and timeouts, nonnegative gpu_wait_us')
+         and w.shutdown_timeout_ms > 0 and w.gpu_wide_batch > 0,
+         'workers: positive counts and timeouts, nonnegative gpu_wait_us')
     need(len(set(w.gpu_bank)) == len(w.gpu_bank) and all(0 < b < w.gpu_batch for b in w.gpu_bank),
          'workers.gpu_bank: distinct batches, each positive and below gpu_batch')
-    need(e.sims >= 0 and e.every >= 0 and 0 <= e.wall_share < 1 and all(i >= 0 for i in e.at)
-         and (e.rollout_mix is None or 0 <= e.rollout_mix <= 1),
-         'evaluation: nonnegative sims, every and at; wall_share in [0, 1); rollout_mix in [0, 1]')
+    need(len({s.name for s in e.sets}) == len(e.sets), 'evaluation: set names must be unique')
+    for s in e.sets:
+        need(bool(s.name) and s.name not in ('.', '..') and '/' not in s.name and '\0' not in s.name,
+             'evaluation: set name must be a nonempty directory name')
+        need(s.every >= 0 and all(i >= 0 for i in s.at),
+             f'evaluation set {s.name}: nonnegative every and at')
 
 
 def experiment_changes(old, new):
     """Settings that differ between two configs and may not change on resume, as [section].name."""
-    return sorted(f'[{part.name}].{f.name}' for part in fields(Config) for f in fields(part.type)
-                  if not f.metadata.get('resumable') and getattr(getattr(old, part.name), f.name) != getattr(getattr(new, part.name), f.name))
+    def fixed(section):
+        return {f.name: getattr(section, f.name) for f in fields(section) if not f.metadata.get('resumable')}
+
+    changes = []
+    for part in fields(Config):
+        a, b = fixed(getattr(old, part.name)), fixed(getattr(new, part.name))
+        if part.name == 'evaluation':
+            for evaluation in (a, b):
+                evaluation['sets'] = {s.name: fixed(s) for s in evaluation['sets']}
+        changes.extend(f'[{part.name}].{key}' for key in a if a[key] != b[key])
+    return sorted(changes)

@@ -6,13 +6,14 @@ NN_TEST_GPU_BATCH (default512), NN_TEST_OUT preserve native smoke artifacts.
 import json
 import os
 from pathlib import Path
-import struct
 import subprocess
 import sys
 import tempfile
 import unittest
 
 import numpy as np
+
+from agents.combat.nn.replay import HEADER, TARGETS
 
 ROOT = Path(__file__).resolve().parents[3]
 
@@ -29,7 +30,7 @@ class WorkerIntegrationTests(unittest.TestCase):
     def play(self, name, count, options):
         directory = self.out / name
         directory.mkdir(exist_ok=False)
-        binary = os.environ.get('NN_TEST_BINARY', str(ROOT / 'build/nn/agents/combat/nn/nn_play'))
+        binary = os.environ.get('NN_TEST_BINARY', str(ROOT / 'build/main/agents/combat/nn/nn_play'))
         command = [binary, 'play', os.environ['NN_TEST_MODEL'], str(directory / 'samples.bin'),
                    '--rollout-mix', '.5', '--gumbel-scale', '1', *options]
         (directory / 'command.json').write_text(json.dumps(command))
@@ -54,13 +55,17 @@ class WorkerIntegrationTests(unittest.TestCase):
         self.assertEqual(len(rows), count)
         self.assertEqual({r['fight_id'] for r in rows}, expected)
         # Validate output format, complete sample records, probability targets, and sample counts.
-        samples = 0
+        samples, offsets, outcomes = 0, [0], []
         with (directory / 'samples.bin').open('rb') as source:
-            while header := source.read(12):
-                self.assertEqual(len(header), 12)
-                tokens, actions, won = struct.unpack('iif', header)
+            while header := source.read(HEADER.size):
+                self.assertEqual(len(header), HEADER.size)
+                tokens, actions, *values = HEADER.unpack(header)
+                targets = dict(zip(TARGETS, values))
+                won = targets['won']
                 self.assertTrue(0 < actions <= tokens)
                 self.assertIn(won, (0., 1.))
+                self.assertTrue(0 <= targets['hp'] <= 1 and 0 <= targets['enemy_hp'] <= 1)
+                self.assertTrue(targets['enemy_hp_lost'] <= 1 and targets['turns_remaining'] >= 0)
                 data = source.read(tokens * 68 * 4)
                 self.assertEqual(len(data), tokens * 68 * 4)
                 self.assertTrue(np.isfinite(np.frombuffer(data, np.float32)).all())
@@ -69,8 +74,18 @@ class WorkerIntegrationTests(unittest.TestCase):
                 self.assertTrue(np.isfinite(policy).all() and (policy >= 0).all())
                 self.assertAlmostEqual(float(policy.sum()), 1., places=4)
                 samples += 1
+                offsets.append(source.tell())
+                outcomes.append(won)
         self.assertEqual(samples, sum(r['decisions'] for r in rows))
-        return {r['fight_id']: {k:v for k,v in r.items() if k not in {'seconds', 'finished_unix'}} for r in rows}
+        cursor = 0
+        for row in rows:
+            end = cursor + row['decisions']
+            span = row['sample_range']
+            self.assertEqual(span['file'], 'samples.bin')
+            self.assertEqual((span['begin'], span['end']), (offsets[cursor], offsets[end]))
+            self.assertEqual(outcomes[cursor:end], [float(row['won'])] * row['decisions'])
+            cursor = end
+        return {r['fight_id']: {k:v for k,v in r.items() if k not in {'seconds', 'finished_unix', 'sample_range'}} for r in rows}
 
     def test_cpu_actor_count_parity(self):
         common = ['--threads', '2', '--gpu-batch', '4', '--sims', '4']

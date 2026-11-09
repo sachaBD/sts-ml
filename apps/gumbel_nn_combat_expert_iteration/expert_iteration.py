@@ -3,7 +3,7 @@
   python -m apps.gumbel_nn_combat_expert_iteration.expert_iteration OUT [--resume-from N]
 
 OUT is a prepared run (prepare.py): OUT/config.toml and OUT/inputs/. Writes OUT/training/ (run_control.py):
-iterNNN/{samples-0.bin, results.jsonl, decks.json, replay.json, model.pt, model*.onnx} and test/iterNNN/results.jsonl.
+iterNNN/{samples-0.bin, results.jsonl, decks.json, replay.json, model.pt, model*.onnx} and test/iterNNN/SET/results.jsonl.
 iterNNN/decks.json counts each deck's self-play fights and wins up to and including iteration NNN.
 """
 import argparse
@@ -14,14 +14,17 @@ from pathlib import Path
 import time
 
 from agents.combat.nn.learner import Learner
+from agents.combat.nn.train import LOSSES
 from agents.combat.nn.export import ModelExporter
 from agents.combat.nn.play import Search, play
 from agents.combat.nn.replay import Replay
 from apps.common.app import read_jsonl
+from monitoring.training import write as write_training
 
 from .config import experiment_changes, load
 from .reporting import deck_of
 from .run_control import RunControl, delete_samples
+from .sampling import sampling_weights
 
 # Rows of an iteration's own samples scored before training on them: a few seconds, and enough to compare
 # with the training loss.
@@ -49,17 +52,20 @@ class ExpertIteration:
         self.config, self.control = config, control
         self.inputs = out / 'inputs'
         self.pool = json.loads((self.inputs / 'starts.json').read_text())
-        self.tests, self.tests_in = read_jsonl(self.inputs / 'test.jsonl'), read_jsonl(self.inputs / 'test-in.jsonl')
+        self.tests = {s.name: read_jsonl(self.inputs / 'evaluation' / f'{s.name}.jsonl')
+                      for s in config.evaluation.sets}
         m, t = config.model, config.training
         self.learner = Learner(m.architecture(), t.lr, t.device)
         self.exporter = ModelExporter(m.architecture(), m.deployment(), m.export_reuse)
-        e = config.evaluation
-        self.evaluation_search = Search(e.sims, 0.0, config.search.rollout_mix if e.rollout_mix is None else e.rollout_mix,
-                                        config.search.particles)
+        self.wide_exporter = (ModelExporter(m.architecture(), wide, m.export_reuse)
+                              if (wide := m.wide_deployment()) else None)
 
     def run(self, resume_from=None):
         self.control.status(stage='initialization', phase='initialize')
         first = self.start() if resume_from is None else self.resume(resume_from)
+        if self.config.training.device.startswith('cuda'):
+            self.control.status(stage='initialization', phase='compile')
+            self.learner.compile()
         for it in itertools.count(first):
             if self.control.stop_requested():
                 self.control.status(stage='stopped', phase='stopped', last_completed=it - 1)
@@ -76,7 +82,7 @@ class ExpertIteration:
             played = time.time()
             states, loss = self.train(it)
             self.control.log(iteration=it, games=len(results), wins=sum(r['won'] for r in results), states=states, **loss,
-                             rollout_mix=self.config.search.at(it).rollout_mix,
+                             rollout_mix=self.config.search.at(it).rollout_mix, lr=self.config.training.lr_at(it),
                              play_seconds=round(played - begin), train_seconds=round(time.time() - played),
                              **collection_stats(results))
             self.evaluate(it)
@@ -110,17 +116,19 @@ class ExpertIteration:
         recorded.rename(recorded.with_name(f'config-before-resume-{time.time_ns()}.toml'))
         recorded.write_text((self.inputs.parent / 'config.toml').read_text())
         self.learner.load(self.control.iteration(completed) / 'model.pt')
+        # Deployment may change on resume; rebuild the wide model from the committed checkpoint.
+        self.export_wide(self.control.iteration(completed))
         self.control.log(resume_from=completed, fights_per_iteration=self.config.starts.per_iteration)
         # A stop or crash between the checkpoint and its evaluation must not skip that evaluation.
-        if not any(r.get('test') == completed for r in self.control.history()):
-            self.control.archive(self.control.directory / 'test' / f'iter{completed:03d}')
-            self.evaluate(completed)
+        self.evaluate(completed)
         return completed + 1
 
     def self_play(self, it):
         previous, directory = self.control.iteration(it - 1), self.control.iteration(it)
         s = self.config.starts
-        fights = s.draw(self.pool, f'{self.config.run.seed_namespace}:{it}', s.per_iteration)
+        weights = sampling_weights(self.control.directory, it, s) if s.sampling_concentration else None
+        fights = s.draw(self.pool, f'{self.config.run.seed_namespace}:{it}', s.per_iteration,
+                        weights=[weights[d['fight_id']] for d in self.pool] if weights is not None else None)
         results = self.play(f'iteration {it}', previous, fights, directory, self.config.search.at(it))
         counts = json.loads((previous / 'decks.json').read_text())
         (directory / 'decks.json').write_text(json.dumps(tally(counts, results)))
@@ -138,51 +146,57 @@ class ExpertIteration:
         with Replay(samples, max_rows=t.max_train_rows, balanced=t.balanced_replay) as replay:
             if not set(replay.groups) <= {d['fight_id'] for d in self.pool}:
                 raise ValueError('replay contains a deck outside the training decks')
-            self.control.status(stage=stage, phase='train', done=0, total=t.steps)
-            trained = self.learner.fit(replay, t.steps, t.batch, log=lambda line: (
-                print(f'  {line}', flush=True), self.control.status(stage=stage, phase='train', detail=line)))
+            directory = self.control.iteration(it)
+            self.control.status(stage=stage, phase='train', done=0, total=t.steps, directory=str(directory))
+            with (directory / 'training.jsonl').open('w') as telemetry:
+                def report(counters):
+                    write_training(telemetry, counters)
+                    self.control.status(stage=stage, phase='train', done=counters.step,
+                                        total=counters.total, directory=str(directory))
+                trained = self.learner.fit(replay, t.steps, t.batch, value_batch=t.value_batch, lr=t.lr_at(it),
+                                          log=lambda line: print(f'  {line}', flush=True), on_counters=report)
             (self.control.iteration(it) / 'replay.json').write_text(json.dumps(dict(
                 available=replay.available, selected=replay.selected, drawn=replay.drawn), indent=2))
             states = len(replay)
         self.learner.save(self.control.iteration(it) / 'model.pt')
         self.control.status(stage=stage, phase='export')
         self.export(self.control.iteration(it))
-        loss = dict(heldout_value_loss=heldout[0], heldout_policy_loss=heldout[1],
-                    train_value_loss=trained[0], train_policy_loss=trained[1])
+        loss = {f'{split}_{name}_loss': value for split, losses in (('heldout', heldout), ('train', trained))
+                for name, value in zip(LOSSES, losses)}
         return states, {k: round(v, 4) for k, v in loss.items()}
 
     def export(self, directory):
         w = self.config.workers
         self.exporter.export(self.learner.net, directory, w.gpu_batch, w.gpu_bank)
+        self.export_wide(directory)
+
+    def export_wide(self, directory):
+        if self.wide_exporter:
+            wide = directory / 'wide'
+            wide.mkdir(exist_ok=True)
+            self.wide_exporter.export(self.learner.net, wide, self.config.workers.gpu_wide_batch, ())
 
     def evaluate(self, it):
-        if not self.tests or not self.evaluation_due(it):
-            return
-        begin, models = time.time(), self.control.iteration(it)
-        directory = self.control.directory / 'test' / f'iter{it:03d}'
-        results = self.play(f'test iteration {it}', models, self.tests, directory, self.evaluation_search)
-        in_sample = self.play(f'test in-sample iteration {it}', models, self.tests_in, directory / 'in-sample',
-                              self.evaluation_search) if self.tests_in else []
-        self.control.log(test=it, games=len(results), wins=sum(r['won'] for r in results),
-                         seconds=round(time.time() - begin), in_sample_games=len(in_sample),
-                         in_sample_wins=sum(r['won'] for r in in_sample), **collection_stats(results))
-        if self.config.training.prune_replay:
-            delete_samples(directory)
-
-    def evaluation_due(self, it):
-        e = self.config.evaluation
-        if it in e.at:
-            return True
-        if e.wall_share:
-            history = self.control.history()
-            validation = sum(r['seconds'] for r in history if 'test' in r)
-            learning = sum(r.get('play_seconds', 0) + r.get('train_seconds', 0) for r in history)
-            return validation < e.wall_share * (learning + validation)
-        return bool(e.every) and it % e.every == 0
+        completed = {r['set'] for r in self.control.history() if r.get('test') == it}
+        for evaluation in self.config.evaluation.sets:
+            if not evaluation.due(it) or evaluation.name in completed:
+                continue
+            directory = self.control.directory / 'test' / f'iter{it:03d}' / evaluation.name
+            self.control.archive(directory)
+            begin = time.time()
+            search = Search(evaluation.sims, evaluation.gumbel_scale, evaluation.rollout_mix, evaluation.particles)
+            results = self.play(f'evaluation {evaluation.name} iteration {it}', self.control.iteration(it),
+                                self.tests[evaluation.name], directory, search)
+            self.control.log(test=it, set=evaluation.name, games=len(results), wins=sum(r['won'] for r in results),
+                             seconds=round(time.time() - begin), **collection_stats(results))
+            if self.config.training.prune_replay:
+                delete_samples(directory)
 
     def play(self, stage, models, games, directory, search):
         self.control.status(stage=stage, phase='play', done=0, total=len(games), directory=str(directory))
         return play(self.inputs / 'nn_play', models, games, directory, search, self.config.workers,
+                    gpu_attended=self.config.model.gpu_attended or 0,
+                    gpu_wide_attended=self.config.model.gpu_wide_attended or 0,
                     progress=lambda done, pid: self.control.status(stage=stage, phase='play', done=done,
                                                                    total=len(games), child_pid=pid,
                                                                    directory=str(directory)))

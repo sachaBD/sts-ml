@@ -7,7 +7,7 @@ case ${1:-} in
         out=$run
         [[ ! -d $run/out ]] || out=$run/out
         if [[ $1 == stop ]]; then
-            [[ -f $out/training/args.json ]] || { echo 'Training has not initialized yet; retry shortly.' >&2; exit 1; }
+            [[ -f $out/training/status.json ]] || { echo 'Training has not initialized yet; retry shortly.' >&2; exit 1; }
             touch "$out/training/STOP"
             echo 'Stop requested: finishing the current update and scheduled evaluation, then exiting cleanly.'
         else

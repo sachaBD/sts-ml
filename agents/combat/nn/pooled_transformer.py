@@ -2,7 +2,7 @@
 import torch
 from torch import Tensor, nn
 
-from .model import CombatModel
+from .model import CombatModel, context_width, win_probability
 from .tokens import CardZone, ID_CAPACITY, KIND_CAPACITY, MASKED_LOGIT, TokenKind, TokenRows, WIDTH
 
 
@@ -26,20 +26,25 @@ class PooledTransformer(CombatModel):
         layer = nn.TransformerEncoderLayer(dim, heads, 4 * dim, dropout=0.0, batch_first=True, norm_first=True)
         self.encoder = nn.TransformerEncoder(layer, layers, enable_nested_tensor=False)
         self.norm = nn.LayerNorm(dim)
-        self.value = nn.Linear(dim, 1)
+        self.value = nn.Linear(dim, context_width(spec))
         self.policy = nn.Linear(dim, 1)
 
-    def forward(self, tokens):
+    def heads(self, tokens):
         # Attend over the longest retained row rather than the padded length: identical predictions, and
         # ~4x fewer encoder positions on real replay (pooling leaves ~16 of ~66). Export uses predict directly.
         _, keep = self._group_masks(TokenRows(tokens))
-        return self.predict(tokens, int(keep.sum(dim=1).max()))
+        return self._heads(tokens, int(keep.sum(dim=1).max()))
 
     def predict(self, tokens: Tensor, slots: int | None = None) -> tuple[Tensor, Tensor]:
         """Evaluate an optional bounded attention view; overflow returns a NaN value."""
+        context, logits = self._heads(tokens, slots)
+        return win_probability(context, self.spec), logits
+
+    def _heads(self, tokens: Tensor, slots: int | None) -> tuple[Tensor, Tensor]:
         rows = TokenRows(tokens)
         groups, keep = self._group_masks(rows)
         embedded = self._embed(rows)
+        embedded = rows.with_targets(embedded)
         pooled = self._pool(embedded, groups)
         retained, index, valid = self._compact(embedded, keep, slots)
         hidden = self._attend(retained, pooled, valid)
@@ -79,9 +84,9 @@ class PooledTransformer(CombatModel):
         return self.norm(self.encoder(sequence, src_key_padding_mask=padding))
 
     def _readout(self, rows: TokenRows, hidden: Tensor, index: Tensor, keep: Tensor) -> tuple[Tensor, Tensor]:
-        """Value at context; action scores returned to wire positions, with explicit overflow."""
-        value = torch.sigmoid(self.value(hidden[:, 0]).squeeze(-1).float())
-        overflow = keep.sum(dim=1) > index.shape[1]
+        """Value head at context; action scores returned to wire positions, with explicit overflow."""
+        value = self.value(hidden[:, 0]).float()
+        overflow = keep.sum(dim=1, keepdim=True) > index.shape[1]
         value = torch.where(overflow, torch.full_like(value, float('nan')), value)
         pooled_count = self.group.shape[0]
         retained = torch.cat([hidden[:, :1], hidden[:, 1 + pooled_count:]], dim=1)

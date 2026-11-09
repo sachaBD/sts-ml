@@ -15,6 +15,18 @@ from .config import load
 from .reporting import deck_of
 from .run_control import RunControl
 
+EVALUATION = """
+[[evaluation.sets]]
+name = "validation"
+gumbel_scale = 0.0
+rollout_mix = 0.0
+particles = 3
+sims = 0
+at = [0]
+every = 0
+fights = "unused"
+"""
+
 CONFIG = """
 [run]
 id = "test"
@@ -58,14 +70,7 @@ gpu_bank = [256, 32]
 gpu_wait_us = 100
 timeout_ms = 321
 shutdown_timeout_ms = 123
-
-[evaluation]
-sims = 0
-at = [0]
-every = 0
-wall_share = 0
-fights = "unused"
-"""
+""" + EVALUATION
 
 
 class ExpertIterationInvariants(unittest.TestCase):
@@ -77,11 +82,12 @@ class ExpertIterationInvariants(unittest.TestCase):
         (self.out / 'config.toml').write_text(CONFIG)
         self.decks = [dict(fight_id=name, start=dict(hp=40, max_hp=80)) for name in 'abc']
         (self.out / 'inputs/starts.json').write_text(json.dumps(self.decks))
-        (self.out / 'inputs/test.jsonl').write_text(json.dumps(dict(fight_id='t', start={})) + '\n')
+        (self.out / 'inputs/evaluation').mkdir()
+        (self.out / 'inputs/evaluation/validation.jsonl').write_text(json.dumps(dict(fight_id='t', start={})) + '\n')
         self.plays = []
         fakes = [(expert_iteration, 'play', self.play), (expert_iteration, 'Replay', self.replay),
-                 (learner.Learner, 'fit', lambda *a, **k: (.1, .2)),
-                 (learner.Learner, 'score', lambda *a: (.3, .4)),
+                 (learner.Learner, 'fit', lambda *a, **k: (.1, .2, .1, 0., 0.)),
+                 (learner.Learner, 'score', lambda *a: (.3, .4, .3, 0., 0.)),
                  (expert_iteration.ModelExporter, 'export', self.export)]
         for target, name, fake in fakes:
             patcher = patch.object(target, name, side_effect=fake)
@@ -93,7 +99,8 @@ class ExpertIterationInvariants(unittest.TestCase):
         for path in (files['dynamic'], files['gpu'], *files['bank']):
             path.touch()
 
-    def play(self, binary, models, fights, directory, search, workers, progress):
+    def play(self, binary, models, fights, directory, search, workers, progress,
+             gpu_attended=0, gpu_wide_attended=0):
         results = [dict(fight_id=f['fight_id'], won=i % 2 == 0, capped=False, finished_unix=1.0)
                    for i, f in enumerate(fights)]
         self.plays.append(dict(models=models, directory=directory, search=search, fights=fights, results=results))
@@ -121,10 +128,10 @@ class ExpertIterationInvariants(unittest.TestCase):
         return control
 
     def self_play(self):
-        return [p for p in self.plays if p['directory'].parent.name != 'test']
+        return [p for p in self.plays if 'test' not in p['directory'].relative_to(self.out / 'training').parts]
 
     def evaluations(self):
-        return [p for p in self.plays if p['directory'].parent.name == 'test']
+        return [p for p in self.plays if 'test' in p['directory'].relative_to(self.out / 'training').parts]
 
     def test_each_iteration_plays_the_previous_network(self):
         control = self.run_loop()
@@ -143,22 +150,73 @@ class ExpertIterationInvariants(unittest.TestCase):
                 expected[deck_of(r['fight_id'])]['wins'] += r['won']
             self.assertEqual(json.loads((control.iteration(it) / 'decks.json').read_text()), expected)
 
-    def test_evaluation_never_explores(self):
-        self.run_loop(config=CONFIG.replace('every = 0', 'every = 1'))
-        self.assertEqual(len(self.evaluations()), 3)
-        for p in self.evaluations():
-            self.assertEqual((p['search'].gumbel_scale, p['search'].sims), (0.0, 0))
+    def test_adaptive_sampling_survives_resume_without_changing_evaluation(self):
+        config = CONFIG.replace('per_iteration = 5',
+            'per_iteration = 5\nhistory_iterations = 1\nsampling_concentration = 0.5')
+        self.run_loop(config=config.replace('iterations = 2', 'iterations = 1'))
+        control = self.run_loop(resume_from=1, config=config)
         for p in self.self_play():
-            self.assertEqual((p['search'].gumbel_scale, p['search'].sims), (1.0, 4))
+            it = int(p['directory'].name[4:])
+            artifact = json.loads((control.directory / 'sampling' / f'iter{it:03d}.json').read_text())
+            counts = artifact['decks']
+            starts = load(config).starts
+            expected = starts.draw(self.decks, f'test:{it}', starts.per_iteration,
+                                   weights=[counts[d['fight_id']]['probability'] for d in self.decks])
+            self.assertEqual(p['fights'], expected)
+            self.assertTrue(all(0 <= c['wins'] <= c['attempts'] for c in counts.values()))
+            if it == 1:
+                self.assertTrue(all(c['attempts'] == 0 for c in counts.values()))
+            else:
+                self.assertEqual(sum(c['attempts'] for c in counts.values()), starts.per_iteration)
+        for p in self.evaluations():
+            self.assertEqual(p['fights'], [dict(fight_id='t', start={})])
 
     def test_evaluation_keeps_its_mix_while_self_play_decays(self):
-        config = (CONFIG.replace('every = 0', 'every = 1').replace('wall_share = 0\n', 'wall_share = 0\nrollout_mix = 0\n')
+        config = (CONFIG.replace('every = 0', 'every = 1')
                   .replace('rollout_mix = 0.5', 'rollout_mix = 0.5\nrollout_mix_decay = 2'))
         self.run_loop(config=config)
         self.assertEqual({p['search'].rollout_mix for p in self.evaluations()}, {0})
         mixes = [p['search'].rollout_mix for p in self.self_play()]
         self.assertEqual(mixes, sorted(mixes, reverse=True))
         self.assertTrue(mixes[0] > 0 and mixes[-1] == 0)
+
+    def test_sets_keep_their_search_schedule_and_results_separate(self):
+        (self.out / 'inputs/evaluation/retention.jsonl').write_bytes(
+            (self.out / 'inputs/evaluation/validation.jsonl').read_bytes())
+        retention = (EVALUATION.replace('name = "validation"', 'name = "retention"')
+                     .replace('sims = 0', 'sims = 12').replace('at = [0]', 'at = [2]'))
+        config = CONFIG.replace('every = 0', 'every = 1') + retention
+        control = self.run_loop(config=config)
+        evaluations = self.evaluations()
+        self.assertEqual([(p['directory'].parent.name, p['directory'].name) for p in evaluations],
+                         [('iter000', 'validation'), ('iter001', 'validation'),
+                          ('iter002', 'validation'), ('iter002', 'retention')])
+        self.assertEqual([p['search'].sims for p in evaluations], [0, 0, 0, 12])
+        self.assertEqual([(r['test'], r['set']) for r in control.history() if 'test' in r],
+                         [(0, 'validation'), (1, 'validation'), (2, 'validation'), (2, 'retention')])
+
+    def test_recovery_retries_only_the_uncommitted_set(self):
+        (self.out / 'inputs/evaluation/retention.jsonl').write_bytes(
+            (self.out / 'inputs/evaluation/validation.jsonl').read_bytes())
+        config = CONFIG + EVALUATION.replace('name = "validation"', 'name = "retention"')
+
+        def interrupted(*args, **kwargs):
+            directory = args[3]
+            if directory.name == 'retention':
+                directory.mkdir(parents=True)
+                (directory / 'worker.log').write_text('interrupted')
+                raise RuntimeError('interrupted evaluation')
+            return self.play(*args, **kwargs)
+
+        with patch.object(expert_iteration, 'play', side_effect=interrupted), \
+                self.assertRaisesRegex(RuntimeError, 'interrupted evaluation'):
+            self.run_loop(config=config)
+        control = self.run_loop(resume_from=0, config=config)
+        archived = list((control.directory / 'test/iter000').glob('.retention-interrupted-*/worker.log'))
+        self.assertEqual(len(archived), 1)
+        self.assertEqual(archived[0].read_text(), 'interrupted')
+        self.assertEqual([(r['test'], r['set']) for r in control.history() if 'test' in r],
+                         [(0, 'validation'), (0, 'retention')])
 
     def test_a_logged_iteration_has_its_checkpoint_and_models(self):
         control = self.run_loop()

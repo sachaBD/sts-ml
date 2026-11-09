@@ -1,6 +1,6 @@
 [run]
 id = "champ-full-corpus-v1-cold"
-worker = "build/champ-full-corpus/agents/combat/nn/nn_play"
+worker = "build/main/agents/combat/nn/nn_play"
 seed_namespace = "champ-full-corpus-v1"
 iterations = 0 # until stopped; finish the active update
 recovery_retries = 2
@@ -36,25 +36,52 @@ layers = 4
 heads = 6
 gpu_tokens = 64
 gpu_attended = 24
+gpu_wide_tokens = 128
+gpu_wide_attended = 64
 gpu_mixed_precision = true
-export_reuse = false
+export_reuse = true
 
 [workers]
 actors = 9
 slots = 224
 gpu_batch = 512
+gpu_wide_batch = 32
 gpu_bank = [256, 32]
 gpu_wait_us = 100
 timeout_ms = 60000
 shutdown_timeout_ms = 5000
 
 [evaluation]
-sims = 64
-at = [0]
-every = 3
-wall_share = 0
-rollout_mix = 0
-fights = "runs/benchmark/champ-full-corpus-v1/frozen/validation.jsonl"
-in_sample_fights = "runs/benchmark/champ-full-corpus-v1/frozen/legacy.jsonl" # secondary channel: legacy retention
+baselines = "runs/benchmark/legacy-core50-extended10/baselines.json"
 final_fights = "runs/benchmark/champ-full-corpus-v1/frozen/final.jsonl"
 cohorts = "runs/benchmark/champ-full-corpus-v1/frozen/cohorts.json"
+
+[[evaluation.sets]]
+name = "validation"
+fights = "runs/benchmark/champ-full-corpus-v1/frozen/validation.jsonl"
+sims = 64
+gumbel_scale = 0.0
+rollout_mix = 0
+particles = 8
+at = [0]
+every = 3
+
+[[evaluation.sets]]
+name = "legacy_core"
+fights = "runs/benchmark/legacy-core50-extended10/legacy_core.jsonl"
+sims = 64
+gumbel_scale = 0.0
+rollout_mix = 0
+particles = 8
+at = [0]
+every = 3
+
+[[evaluation.sets]]
+name = "legacy_extended"
+fights = "runs/benchmark/legacy-core50-extended10/legacy_extended.jsonl"
+sims = 64
+gumbel_scale = 0.0
+rollout_mix = 0
+particles = 8
+at = [0]
+every = 3

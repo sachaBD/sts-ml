@@ -4,8 +4,12 @@ import unittest
 import torch
 
 from ._test_support import combat_tokens, small_spec
-from .model import ModelSpec, build_model
+from .model import AUXILIARY, LOSS_BINS, WIN_BINS, ModelSpec, build_model, win_probability
 from .tokens import TokenKind, TokenRows, WIDTH
+
+
+SPECS = [(kind, value) for kind in ('transformer', 'entity') for value in ('win', 'outcome')]
+
 
 
 class ModelTests(unittest.TestCase):
@@ -14,10 +18,10 @@ class ModelTests(unittest.TestCase):
         torch.manual_seed(0)
 
     def test_predictions_are_probabilities_over_legal_actions(self):
-        for kind in ('transformer', 'entity'):
-            with self.subTest(kind=kind):
+        for kind, value in SPECS:
+            with self.subTest(kind=kind, value=value):
                 tokens = combat_tokens()
-                values, logits = build_model(small_spec(kind)).eval()(tokens)
+                values, logits = build_model(small_spec(kind, value)).eval()(tokens)
                 actions = TokenRows(tokens).is_kind(TokenKind.ACTION)
 
                 self.assertEqual(values.shape, (len(tokens),))
@@ -28,9 +32,9 @@ class ModelTests(unittest.TestCase):
                 self.assertTrue((logits.softmax(dim=1)[~actions] == 0).all())
 
     def test_padding_does_not_change_predictions(self):
-        for kind in ('transformer', 'entity'):
-            with self.subTest(kind=kind):
-                model = build_model(small_spec(kind)).eval()
+        for kind, value in SPECS:
+            with self.subTest(kind=kind, value=value):
+                model = build_model(small_spec(kind, value)).eval()
                 tokens = combat_tokens()
                 padding = torch.zeros(len(tokens), 5, WIDTH)
                 expected_values, expected_logits = model(tokens)
@@ -41,15 +45,42 @@ class ModelTests(unittest.TestCase):
                 torch.testing.assert_close(logits[:, :tokens.shape[1]], expected_logits)
 
     def test_entity_forward_matches_attention_over_every_position(self):
-        model = build_model(small_spec('entity')).eval()
-        tokens = combat_tokens()
-        tokens = torch.cat([tokens, torch.zeros(len(tokens), 5, WIDTH)], dim=1)
+        for value in ('win', 'outcome'):
+            with self.subTest(value=value):
+                model = build_model(small_spec('entity', value)).eval()
+                tokens = combat_tokens()
+                tokens = torch.cat([tokens, torch.zeros(len(tokens), 5, WIDTH)], dim=1)
 
-        for actual, expected in zip(model(tokens), model.predict(tokens)):
-            torch.testing.assert_close(actual, expected)
+                for actual, expected in zip(model(tokens), model.predict(tokens)):
+                    torch.testing.assert_close(actual, expected)
+
+    def test_outcome_win_probability_is_the_win_bin_mass(self):
+        for kind, auxiliary in [(kind, auxiliary) for kind in ('transformer', 'entity') for auxiliary in (False, True)]:
+            with self.subTest(kind=kind, auxiliary=auxiliary):
+                spec = ModelSpec(kind, dim=16, layers=1, heads=2, value='outcome', auxiliary=auxiliary)
+                model = build_model(spec).eval()
+                tokens = combat_tokens()
+                context, _ = model.heads(tokens)
+                values, _ = model(tokens)
+                bins = LOSS_BINS + WIN_BINS
+                self.assertEqual(context.shape, (len(tokens), bins + len(AUXILIARY) * auxiliary))
+                torch.testing.assert_close(values, context[:, :bins].softmax(-1)[:, LOSS_BINS:].sum(-1))
+
+    def test_saturated_outcome_probabilities_stay_bounded_and_preserve_nans(self):
+        spec = ModelSpec('entity', dim=16, layers=1, heads=2, value='outcome', auxiliary=True)
+        generator = torch.Generator().manual_seed(0)
+        for dtype in (torch.float32, torch.float16, torch.bfloat16):
+            context = torch.randn(4096, LOSS_BINS + WIN_BINS + len(AUXILIARY), generator=generator)
+            context[:2048, :LOSS_BINS] -= 80  # near-certain wins
+            context[2048:, LOSS_BINS:LOSS_BINS + WIN_BINS] -= 80  # near-certain losses
+            context[0] = float('nan')
+            values = win_probability(context.to(dtype), spec)
+            self.assertTrue(torch.isnan(values[0]))
+            self.assertTrue(torch.isfinite(values[1:]).all())
+            self.assertTrue(((0 <= values[1:]) & (values[1:] <= 1)).all())
 
     def test_invalid_architectures_are_rejected(self):
-        for invalid in [dict(kind='unknown'), dict(dim=0), dict(layers=0), dict(heads=0), dict(dim=15)]:
+        for invalid in [dict(kind='unknown'), dict(dim=0), dict(layers=0), dict(heads=0), dict(dim=15), dict(value='hp')]:
             spec = dict(kind='transformer', dim=16, layers=1, heads=2) | invalid
             with self.subTest(invalid=invalid), self.assertRaises(ValueError):
                 ModelSpec(**spec)

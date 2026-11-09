@@ -1,14 +1,18 @@
 """Invariants of starts drawn from a pool, for any pool, name and variation."""
+import copy
+import random
 from statistics import median
 import unittest
 
-from sts_lightspeed.enums import POTIONS
+from sts_lightspeed.enums import CARDS, POTIONS
 
-from .starts import EMPTY_POTION_SLOT, IRONCLAD_POTIONS, POTION_BELT, Starts
+from .starts import EMPTY_POTION_SLOT, IRONCLAD_POTIONS, POTION_BELT, Starts, seeded
 
+PURITY = dict(id=CARDS.index('PURITY'), upgraded=False, misc=0)
 POOL = [dict(fight_id=name, start=dict(hp=hp, max_hp=80, seed=0, ascension=20, relics=relics, potion_capacity=2,
-                                       potions=[EMPTY_POTION_SLOT] * 2))
-        for name, hp, relics in (('low', 2, []), ('mid', 40, []), ('full', 80, [dict(id=POTION_BELT, data=0)]))]
+                                       potions=[EMPTY_POTION_SLOT] * 2, deck=deck))
+        for name, hp, relics, deck in (('low', 2, [], []), ('mid', 40, [], [PURITY]),
+                                       ('full', 80, [dict(id=POTION_BELT, data=0)], []))]
 DECKS = {d['fight_id']: d['start'] for d in POOL}
 SEEDS = {'seed', 'misc_rng', 'potion_rng'}
 VARIED = SEEDS | {'hp', 'potion_capacity', 'potions'}
@@ -36,6 +40,29 @@ class DrawInvariants(unittest.TestCase):
     def test_a_name_always_draws_the_same_fights(self):
         self.assertEqual(Starts(hp_jitter=0.1).draw(POOL, 'ns:1', 50), Starts(hp_jitter=0.1).draw(POOL, 'ns:1', 50))
 
+    def test_weighted_draws_are_repeatable_and_preserve_the_pool(self):
+        original = copy.deepcopy(POOL)
+        starts = Starts(hp_jitter=0.1, potions=True)
+        weights = [0, 1, 3]
+        first = starts.draw(POOL, 'weighted:1', 100, weights=weights)
+        self.assertEqual(first, starts.draw(POOL, 'weighted:1', 100, weights=weights))
+        self.assertEqual(first, starts.draw(POOL, 'weighted:1', 100, weights=[0, 2, 6]))
+        self.assertTrue(all(f['fight_id'].split(':')[-2] != POOL[0]['fight_id'] for f in first))
+        self.assertEqual(POOL, original)
+        stable = lambda start: {k: v for k, v in start.items() if k not in VARIED}
+        for f in first:
+            self.assertEqual(stable(f['start']), stable(deck(f)))
+
+    def test_disabled_weights_preserve_the_original_random_stream(self):
+        starts = Starts(hp_jitter=0.1, potions=True)
+        name, n = 'compatibility:1', 100
+        rng = random.Random(name)
+        expected = [seeded(d, f'{name}:{d["fight_id"]}:{i}')
+                    for i, d in enumerate(rng.choices(POOL, k=n))]
+        for f in expected:
+            starts.vary(f['start'], rng)
+        self.assertEqual(starts.draw(POOL, name, n), expected)
+
     def test_hp_stays_playable(self):
         for hp_jitter in (0, 0.1, 2):
             for f in Starts(hp_jitter).draw(POOL, 'ns:1', 300):
@@ -59,6 +86,29 @@ class DrawInvariants(unittest.TestCase):
             self.assertTrue(set(start['potions']) <= ironclad | {EMPTY_POTION_SLOT})
         full = sum(EMPTY_POTION_SLOT not in f['start']['potions'] for f in fights) / len(fights)
         self.assertAlmostEqual(full, 0.75, delta=0.03)
+
+    def test_excluded_potions_are_never_drawn(self):
+        excluded = ('ELIXIR_POTION', 'GAMBLERS_BREW')
+        for f in Starts(potions=True, excluded_potions=excluded).draw(POOL, 'ns:1', 4000):
+            self.assertFalse({POTIONS[p] for p in f['start']['potions']} & set(excluded))
+
+    def test_decks_holding_an_excluded_relic_or_card_are_never_drawn(self):
+        starts = Starts(excluded_relics=('POTION_BELT',), excluded_cards=('PURITY',))
+        fights = starts.draw(POOL, 'ns:1', 300)
+        self.assertTrue(all(not starts.excludes(deck(f)) for f in fights))
+        self.assertEqual({f['fight_id'].split(':')[-2] for f in fights}, {'low'})
+        with self.assertRaises(ValueError):
+            starts.draw(POOL[1:], 'ns:1', 1)
+        for starts in (Starts(excluded_cards=('PURITY',)), Starts(excluded_relics=('POTION_BELT',))):
+            kept = [i for i, d in enumerate(POOL) if not starts.excludes(d['start'])]
+            self.assertEqual(starts.draw(POOL, 'ns:1', 300, weights=[1, 2, 3]),
+                             starts.draw([POOL[i] for i in kept], 'ns:1', 300, weights=[i + 1 for i in kept]))
+
+    def test_unknown_exclusions_are_rejected(self):
+        for excluded in (dict(excluded_potions=('PURITY',)), dict(excluded_relics=('PURITY',)),
+                         dict(excluded_cards=('ELIXIR_POTION',))):
+            with self.assertRaises(ValueError):
+                Starts(**excluded)
 
 
 if __name__ == '__main__':

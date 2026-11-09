@@ -30,7 +30,8 @@ std::array<float, 17> card_features(const CardToken& c) {
 
 stsrl::infra::Tokens encode(const sts::BattleContext& bc, std::span<const sts::search::Action> actions) {
     if (bc.player.hasRelic<sts::RelicId::RUNIC_DOME>()) throw std::invalid_argument{"nn: Runic Dome hides intents"};
-    const auto s = encode_state(bc, CardCoverage::ironclad_events);
+    std::vector<int> monster_slots;
+    const auto s = encode_state(bc, CardCoverage::ironclad_events, &monster_slots);
     stsrl::infra::Tokens t;
     auto& out = t.data;
     {
@@ -71,9 +72,18 @@ stsrl::infra::Tokens encode(const sts::BattleContext& bc, std::span<const sts::s
             }
         r.put(selected); r.put_all(subset);
         r.put_all(a.potion ? a.potion->numeric : decltype(a.potion->numeric){});
+        if (a.target_monster) {
+            const auto target = std::find(monster_slots.begin(), monster_slots.end(), move.getTargetIdx());
+            if (target == monster_slots.end()) throw std::logic_error{"nn: target monster missing"};
+            // Column 67 is a row reference, never a numeric feature. Zero means no target.
+            out[r.start + width - 1] = float(1 + s.cards.size() + (target - monster_slots.begin()));
+        }
     }
     t.count = int(out.size() / width);
     t.actions = int(actions.size());
+    t.attended = 1 + int(s.monsters.size() + s.potions.size() + actions.size());
+    for (const auto& c : s.cards)
+        if (c.zone == CardZone::hand || c.zone == CardZone::offered) ++t.attended;
     return t;
 }
 }  // namespace stsrl::nn

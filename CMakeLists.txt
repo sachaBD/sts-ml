@@ -175,7 +175,8 @@ set(STSRL_PYTHON "${CMAKE_CURRENT_SOURCE_DIR}/.venv/bin/python3" CACHE FILEPATH 
 file(GLOB_RECURSE python_test_files CONFIGURE_DEPENDS RELATIVE "${CMAKE_CURRENT_SOURCE_DIR}"
     "agents/test_*.py" "infra/test_*.py" "environments/test_*.py" "models/test_*.py" "apps/test_*.py" "gui/test_*.py")
 file(GLOB run_test_files CONFIGURE_DEPENDS RELATIVE "${CMAKE_CURRENT_SOURCE_DIR}" "runs/test_*.py")
-list(APPEND python_test_files ${run_test_files})
+list(APPEND python_test_files ${run_test_files}
+    experiments/champ-full-corpus/test_prepare.py)
 file(RELATIVE_PATH python_test_build_dir "${CMAKE_CURRENT_SOURCE_DIR}/build" "${CMAKE_CURRENT_BINARY_DIR}")
 foreach(test_file IN LISTS python_test_files)
     string(REGEX REPLACE "\\.py$" "" test_module "${test_file}")
@@ -186,6 +187,18 @@ foreach(test_file IN LISTS python_test_files)
         ENVIRONMENT "PYTHONPATH=${CMAKE_CURRENT_SOURCE_DIR};STSRL_BUILD_DIR=${python_test_build_dir}"
         LABELS "python")
 endforeach()
+
+# The dashboard's dependency-free Node tests run alongside its Python tests.
+find_program(STSRL_NODE NAMES node nodejs)
+if(STSRL_NODE)
+    file(GLOB dashboard_ui_tests CONFIGURE_DEPENDS
+        "apps/gumbel_nn_combat_expert_iteration/web/ui/test_*.cjs")
+    add_test(NAME javascript.dashboard_ui COMMAND "${STSRL_NODE}" --test ${dashboard_ui_tests})
+    set_tests_properties(javascript.dashboard_ui PROPERTIES
+        WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}" LABELS "javascript" TIMEOUT 30)
+else()
+    message(WARNING "Node.js not found: dashboard UI tests will not run")
+endif()
 
 add_executable(battle_snapshot_test environments/combat/battle_snapshot_test.cpp)
 target_link_libraries(battle_snapshot_test PRIVATE combat_core)
@@ -243,6 +256,8 @@ endif()
 add_subdirectory(infra/inference)
 add_subdirectory(infra/workers)
 add_subdirectory(infra/benchmarks)
+# Consumes what infra publishes: telemetry format and rates.
+add_subdirectory(monitoring)
 # Thin ONNX-backed policy/value combat agent.
 add_subdirectory(agents/combat/pv)
 add_subdirectory(agents/combat/search)
