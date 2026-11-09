@@ -10,12 +10,7 @@ def main(argv=None):
     parser.add_argument('run', type=Path)
     parser.add_argument('--apply', action='store_true', help='delete instead of preview')
     parser.add_argument('--drop-replay', action='store_true', help='discard replay and indexes; forfeits exact continuation')
-    parser.add_argument('--keep-iteration', type=int, action='append', default=[],
-                        help='leave this iteration entirely untouched; may be repeated')
     args = parser.parse_args(argv)
-    if any(k < 0 for k in args.keep_iteration):
-        parser.error('kept iterations must be nonnegative')
-    kept = {f'iter{k:03d}' for k in args.keep_iteration}
     run = args.run.resolve()
     record = json.loads((run / 'run.json').read_text())
     if record.get('schema') != 'gumbel_nn_combat_v1' or record.get('status') != 'done':
@@ -34,10 +29,7 @@ def main(argv=None):
         for path in sorted(training.rglob('*')):
             if path.is_symlink() or not path.is_file():
                 continue
-            parts = path.relative_to(training).parts
-            if kept.intersection(parts[:-1]):
-                continue
-            cache = 'tensorrt' in parts[:-1] and path.suffix in ('.engine', '.profile')
+            cache = 'tensorrt' in path.relative_to(training).parts[:-1] and path.suffix in ('.engine', '.profile')
             replay = (path.name in ('samples.bin', 'samples.index.npz')
                       or path.match('samples-*.bin') or path.match('samples-*.index.npz'))
             if cache or (args.drop_replay and replay):

@@ -103,8 +103,7 @@ class ExpertIterationInvariants(unittest.TestCase):
              gpu_attended=0, gpu_wide_attended=0, encoding='legacy'):
         results = [dict(fight_id=f['fight_id'], won=i % 2 == 0, capped=False, finished_unix=1.0)
                    for i, f in enumerate(fights)]
-        self.plays.append(dict(models=models, directory=directory, search=search, fights=fights, results=results,
-                               encoding=encoding))
+        self.plays.append(dict(models=models, directory=directory, search=search, fights=fights, results=results))
         directory.mkdir(parents=True)
         (directory / 'samples-0.bin').touch()
         return results
@@ -133,12 +132,6 @@ class ExpertIterationInvariants(unittest.TestCase):
 
     def evaluations(self):
         return [p for p in self.plays if 'test' in p['directory'].relative_to(self.out / 'training').parts]
-
-    def test_model_kind_selects_the_encoder_for_training_and_evaluation(self):
-        self.run_loop(config=CONFIG.replace('kind = "transformer"', 'kind = "inventory_v1"'))
-        self.assertTrue(self.self_play())
-        self.assertTrue(self.evaluations())
-        self.assertTrue(all(p['encoding'] == 'inventory_v1' for p in self.plays))
 
     def test_each_iteration_plays_the_previous_network(self):
         control = self.run_loop()

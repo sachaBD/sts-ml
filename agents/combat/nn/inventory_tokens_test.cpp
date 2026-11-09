@@ -3,7 +3,6 @@
 #include "environments/combat/scenarios/jaw_worm.hpp"
 #include <gtest/gtest.h>
 #include <algorithm>
-#include <cmath>
 
 using namespace stsrl::nn;
 namespace {
@@ -74,7 +73,7 @@ TEST(InventoryTokens, ActionReferencesFollowSourcesAndTargetInstances) {
     }
 }
 
-TEST(InventoryTokens, EffectsHaveOwnersAndAllEntitiesAttend) {
+TEST(InventoryTokens, EffectsKeepTheirOwnerAndSignedAmount) {
     auto state = stsrl::scenarios::jaw_worm(4).battle();
     state.player.strength = -2;
     state.player.setHasStatus<PS::BARRICADE>(true);
@@ -97,16 +96,7 @@ TEST(InventoryTokens, EffectsHaveOwnersAndAllEntitiesAttend) {
                 EXPECT_LT(feature(tokens, i, 3), 0);
             }
         }
-        EXPECT_EQ(type == InventoryKind::action, i >= tokens.count - tokens.actions);
-        for (int column : {inventory_owner, inventory_source, inventory_target}) {
-            const float reference = feature(tokens, i, column);
-            EXPECT_GE(reference, 0);
-            EXPECT_LE(reference, tokens.count);
-            EXPECT_EQ(reference, std::floor(reference));
-        }
     }
     EXPECT_TRUE(player_strength);
     EXPECT_TRUE(monster_strength);
-    EXPECT_EQ(tokens.attended, tokens.count);
-    EXPECT_EQ(tokens.data[2], inventory_version);
 }

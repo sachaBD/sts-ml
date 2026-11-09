@@ -27,7 +27,7 @@ build: ## Native build into build/main (all build dirs live under build/<name>/)
 	cmake -S . -B $(BUILD_DIR) -DCMAKE_BUILD_TYPE=Release
 	cmake --build $(BUILD_DIR) --parallel
 
-test: build ## Build, then run native + Python tests through CTest
+test: build ## Build, then run native, Python and dashboard UI tests through CTest
 	ctest --test-dir $(BUILD_DIR) --output-on-failure
 
 # infra-benchmark: inference always on the fixed panache 128x4 model (see its README); the Reader reads the
