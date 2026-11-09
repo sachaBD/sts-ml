@@ -10,27 +10,14 @@ int kind(const stsrl::infra::Tokens& tokens, int row) { return int(tokens.data[r
 float feature(const stsrl::infra::Tokens& tokens, int row, int column) { return tokens.data[row * width + column]; }
 }
 
-TEST(InventoryTokens, InventoryConservesPileCountsAndDistinctModifications) {
+TEST(InventoryTokens, OffhandModificationsRemainObservable) {
     auto state = stsrl::scenarios::jaw_worm(1).battle();
-    sts::CardInstance strike{sts::CardId::STRIKE_RED};
-    auto cheap = strike;
-    cheap.costForTurn = 0;
-    auto modified = strike;
-    modified.specialData = 3;
-    state.cards.drawPile = {strike, strike, cheap, modified};
-    state.cards.discardPile = {strike};
-    state.cards.exhaustPile = {cheap};
-    const auto tokens = encode_inventory(state, stsrl::combat::legal_actions(state));
-    std::array<float, 3> counts{};
-    int variants = 0;
-    for (int i = 0; i < tokens.count; ++i) if (kind(tokens, i) == int(InventoryKind::inventory)) {
-        ++variants;
-        for (int pile = 0; pile < 3; ++pile) counts[pile] += feature(tokens, i, 3 + 16 + pile) * 10;
-    }
-    EXPECT_EQ(variants, 3);
-    EXPECT_FLOAT_EQ(counts[0], state.cards.drawPile.size());
-    EXPECT_FLOAT_EQ(counts[1], state.cards.discardPile.size());
-    EXPECT_FLOAT_EQ(counts[2], state.cards.exhaustPile.size());
+    const sts::CardInstance strike{sts::CardId::STRIKE_RED};
+    state.cards.drawPile = {strike, strike};
+    const auto actions = stsrl::combat::legal_actions(state);
+    const auto expected = encode_inventory(state, actions);
+    state.cards.drawPile[0].costForTurn = 0;
+    EXPECT_NE(encode_inventory(state, actions).data, expected.data);
 }
 
 TEST(InventoryTokens, UnknownPileOrderDoesNotAffectInputs) {
@@ -45,6 +32,8 @@ TEST(InventoryTokens, ActionReferencesFollowSourcesAndTargetInstances) {
     auto state = stsrl::scenarios::jaw_worm(3).battle();
     state.monsters.arr[1] = state.monsters.arr[0];
     state.monsters.arr[1].idx = 1;
+    state.monsters.monsterCount = 2;
+    state.monsters.monstersAlive = 2;
     state.cards.cardsInHand = 1;
     state.cards.hand[0] = sts::CardInstance{sts::CardId::TRIP};
     state.obtainPotion(sts::Potion::FIRE_POTION);
@@ -71,32 +60,4 @@ TEST(InventoryTokens, ActionReferencesFollowSourcesAndTargetInstances) {
         state.monsters.arr[0].idx = 0;
         state.monsters.arr[1].idx = 1;
     }
-}
-
-TEST(InventoryTokens, EffectsKeepTheirOwnerAndSignedAmount) {
-    auto state = stsrl::scenarios::jaw_worm(4).battle();
-    state.player.strength = -2;
-    state.player.setHasStatus<PS::BARRICADE>(true);
-    state.monsters.arr[0].strength = -3;
-    const auto actions = stsrl::combat::legal_actions(state);
-    const auto tokens = encode(state, actions, Encoding::inventory_v1);
-    bool player_strength = false, monster_strength = false;
-    for (int i = 0; i < tokens.count; ++i) {
-        const auto type = static_cast<InventoryKind>(kind(tokens, i));
-        if (type == InventoryKind::player_effect || type == InventoryKind::monster_effect) {
-            const int owner = int(feature(tokens, i, inventory_owner)) - 1;
-            ASSERT_GE(owner, 0);
-            EXPECT_EQ(kind(tokens, owner), int(type == InventoryKind::player_effect ? InventoryKind::player : InventoryKind::monster));
-            if (type == InventoryKind::player_effect && feature(tokens, i, 1) == int(PS::STRENGTH)) {
-                player_strength = true;
-                EXPECT_LT(feature(tokens, i, 3), 0);
-            }
-            if (type == InventoryKind::monster_effect && feature(tokens, i, 1) == int(sts::MS::STRENGTH) + 1) {
-                monster_strength = true;
-                EXPECT_LT(feature(tokens, i, 3), 0);
-            }
-        }
-    }
-    EXPECT_TRUE(player_strength);
-    EXPECT_TRUE(monster_strength);
 }

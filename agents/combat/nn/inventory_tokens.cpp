@@ -38,7 +38,7 @@ std::array<float, 16> card_features(const CardToken& card) {
 }
 
 using CardKey = std::tuple<int, CardType, TargetType, std::array<float, 14>>;
-CardKey key(CardToken card) {
+CardKey card_key(CardToken card) {
     card.numeric.back() = 0;  // playability is contextual, not an instance modification
     return {card.card_id, card.card_type, card.target_type, card.numeric};
 }
@@ -48,7 +48,7 @@ struct CardRows {
 
     int source_row(const CardToken& card) const {
         const auto& rows = card.zone == CardZone::hand ? hand : inventory;
-        const auto found = rows.find(key(card));
+        const auto found = rows.find(card_key(card));
         return found == rows.end() ? -1 : found->second;
     }
 };
@@ -113,9 +113,9 @@ CardRows write_cards(std::vector<float>& out, const std::vector<CardToken>& card
             Row row{out, Kind::card, card.card_id};
             row.put_all(card_features(card));
             row.put(float(card.zone == CardZone::offered));
-            rows.hand.try_emplace(key(card), row.index);
+            rows.hand.try_emplace(card_key(card), row.index);
         } else {
-            auto& group = inventory.try_emplace(key(card), Group{card}).first->second;
+            auto& group = inventory.try_emplace(card_key(card), Group{card}).first->second;
             ++group.counts.at(int(card.zone) - int(CardZone::draw));
         }
     }

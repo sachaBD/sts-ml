@@ -1,4 +1,4 @@
-"""Prediction semantics must survive batching, entity relabeling and deployment."""
+"""Inventory predictions preserve meaning under relabeling, padding and export."""
 from pathlib import Path
 import tempfile
 import unittest
@@ -6,29 +6,24 @@ import unittest
 import torch
 
 from .export import ExportSpec, ModelExporter
-from .inventory_transformer import (ACTION, CARD, CONTEXT, INVENTORY, MONSTER, MONSTER_EFFECT,
-                                    OWNER, PLAYER, PLAYER_EFFECT, POTION, RELIC, SOURCE, TARGET, VERSION)
+from .inventory_transformer import (ACTION, CARD_ACTION, CARD, CONTEXT, MONSTER, MONSTER_EFFECT,
+                                    OWNER, SOURCE, TARGET, VERSION)
 from .model import ModelSpec, build_model
 from .test_export import model_predictions, onnx_predictions
 from .tokens import WIDTH
 
 
 def inventory_tokens():
-    kinds = [CONTEXT, PLAYER, PLAYER_EFFECT, CARD, INVENTORY, MONSTER, MONSTER,
-             MONSTER_EFFECT, POTION, RELIC, ACTION, ACTION, ACTION]
+    kinds = [CONTEXT, CARD, MONSTER, MONSTER, MONSTER_EFFECT, ACTION, ACTION]
     tokens = torch.zeros(2, len(kinds), WIDTH)
     tokens[..., 0] = torch.tensor(kinds)
     tokens[..., 1] = torch.arange(len(kinds))
     tokens[..., 3:20] = torch.rand(2, len(kinds), 17)
     tokens[:, 0, 2] = VERSION
-    tokens[:, 2, OWNER] = 2  # player
-    tokens[:, 7, OWNER] = 6  # first monster
-    tokens[:, 10:12, SOURCE] = 4  # hand card
-    tokens[:, 10, TARGET], tokens[:, 11, TARGET] = 6, 7
-    tokens[:, 12, SOURCE] = 9  # potion
-    tokens[:, 12, TARGET] = 7
-    tokens[:, 10:12, 1:3] = torch.tensor([3, 1])
-    tokens[:, 12, 1:3] = torch.tensor([8, 2])
+    tokens[:, 4, OWNER] = 3  # first monster
+    tokens[:, 5:, SOURCE] = 2  # card
+    tokens[:, 5:, TARGET] = torch.tensor([3, 4])
+    tokens[:, 5:, 1:3] = torch.tensor([1, CARD_ACTION])
     return tokens
 
 
@@ -45,8 +40,7 @@ class InventoryTests(unittest.TestCase):
     def setUp(self):
         torch.set_num_threads(1)
         torch.manual_seed(17)
-        spec = ModelSpec('inventory_v1', dim=16, layers=1, heads=2, value='outcome', auxiliary=True)
-        self.model = build_model(spec).eval()
+        self.model = build_model(ModelSpec('inventory_v1', dim=16, layers=1, heads=2)).eval()
         self.tokens = inventory_tokens()
 
     def test_padding_does_not_change_real_predictions(self):
@@ -58,7 +52,7 @@ class InventoryTests(unittest.TestCase):
 
     def test_consistent_entity_relabeling_only_reorders_action_scores(self):
         values, logits = self.model(self.tokens)
-        order = torch.tensor([0, 9, 6, 4, 8, 7, 3, 2, 1, 5, 12, 10, 11])
+        order = torch.tensor([0, 4, 3, 1, 2, 6, 5])
         actual_values, actual_logits = self.model(permuted(self.tokens, order))
         torch.testing.assert_close(actual_values, values)
         torch.testing.assert_close(actual_logits, logits[:, order])

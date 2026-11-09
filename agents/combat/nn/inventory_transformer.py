@@ -36,6 +36,11 @@ class InventoryTransformer(CombatModel):
         self.value = nn.Linear(dim, context_width(spec))
         self.policy = nn.Linear(dim, 1)
 
+    def example_tokens(self, batch=2, length=3):
+        tokens = super().example_tokens(batch, length)
+        tokens[:, 0, 2] = VERSION
+        return tokens
+
     def _embed(self, tokens):
         rows = TokenRows(tokens)
         kind = rows.kind.long()

@@ -4,9 +4,8 @@ from dataclasses import asdict
 import torch
 
 from .model import ModelSpec, build_model
-from .inventory_transformer import VERSION as INVENTORY_VERSION
 from .replay import TARGETS
-from .tokens import TokenKind, WIDTH
+from .tokens import TokenKind, TokenRows
 from .train import losses, score, train
 
 
@@ -23,13 +22,11 @@ class Learner:
         Losses, not the module: training calls heads(), which a compiled module leaves eager.
         Weights, optimizer state and RNG are untouched."""
         self.losses = torch.compile(losses, dynamic=True)
-        tokens = torch.zeros(2, 3, WIDTH)
-        tokens[:, 0, 0], tokens[:, 1:, 0] = TokenKind.CONTEXT, TokenKind.ACTION
-        if self.net.spec.kind == 'inventory_v1':
-            tokens[:, 0, 2] = INVENTORY_VERSION
+        tokens = self.net.example_tokens()
         self.net.train()
-        policy = torch.tensor([[0., .5, .5]] * 2)
-        self.losses(self.net, tokens, policy, torch.ones(2, len(TARGETS)), self.device).sum().backward()
+        policy = TokenRows(tokens).is_kind(TokenKind.ACTION).float()
+        policy /= policy.sum(dim=1, keepdim=True)
+        self.losses(self.net, tokens, policy, torch.ones(len(tokens), len(TARGETS)), self.device).sum().backward()
         self.optimizer.zero_grad(set_to_none=True)
 
     def fit(self, replay, steps, batch, log=print, *, value_batch=0, on_counters=None, lr=None):

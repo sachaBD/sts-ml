@@ -5,6 +5,8 @@ from dataclasses import dataclass, field
 import torch
 from torch import Tensor, nn
 
+from .tokens import TokenKind, WIDTH
+
 # Outcome bins on one margin axis: losses by enemy HP left (most first), then wins by player HP (least first).
 LOSS_BINS = WIN_BINS = 10
 # Training-only predictions after the value logits when spec.auxiliary; replay.TARGETS names.
@@ -57,6 +59,12 @@ class CombatModel(nn.Module, ABC):
     def __init__(self, spec: ModelSpec):
         super().__init__()
         self.spec = spec
+
+    def example_tokens(self, batch=2, length=3) -> Tensor:
+        """A CPU input in this model's schema for tracing and compile warm-up."""
+        tokens = torch.zeros(batch, length, WIDTH)
+        tokens[:, 0, 0], tokens[:, 1:, 0] = TokenKind.CONTEXT, TokenKind.ACTION
+        return tokens
 
     def forward(self, tokens: Tensor) -> tuple[Tensor, Tensor]:
         context, logits = self.heads(tokens)
