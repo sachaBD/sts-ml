@@ -175,7 +175,8 @@ set(STSRL_PYTHON "${CMAKE_CURRENT_SOURCE_DIR}/.venv/bin/python3" CACHE FILEPATH 
 file(GLOB_RECURSE python_test_files CONFIGURE_DEPENDS RELATIVE "${CMAKE_CURRENT_SOURCE_DIR}"
     "agents/test_*.py" "infra/test_*.py" "environments/test_*.py" "models/test_*.py" "apps/test_*.py" "gui/test_*.py")
 file(GLOB run_test_files CONFIGURE_DEPENDS RELATIVE "${CMAKE_CURRENT_SOURCE_DIR}" "runs/test_*.py")
-list(APPEND python_test_files ${run_test_files})
+list(APPEND python_test_files ${run_test_files}
+    experiments/champ-full-corpus/test_prepare.py)
 file(RELATIVE_PATH python_test_build_dir "${CMAKE_CURRENT_SOURCE_DIR}/build" "${CMAKE_CURRENT_BINARY_DIR}")
 foreach(test_file IN LISTS python_test_files)
     string(REGEX REPLACE "\\.py$" "" test_module "${test_file}")
