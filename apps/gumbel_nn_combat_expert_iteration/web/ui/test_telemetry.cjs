@@ -10,7 +10,7 @@ const sample = () => ({
 });
 const element = () => ({ isConnected: true, children: [], style: {}, classes: new Set(),
   append(...children) { this.children.push(...children); },
-  replaceChildren(...children) { this.children = children; },
+  replaceChildren(...children) { this.children = children; this.replacements = (this.replacements || 0) + 1; },
   get classList() { return { add: name => this.classes.add(name), remove: name => this.classes.delete(name) }; },
 });
 const text = node => [node.textContent || '', ...node.children.map(text)].join(' ');
@@ -26,11 +26,11 @@ async function panel(data = sample()) {
   });
   vm.runInContext(readFileSync(`${__dirname}/motion.js`, 'utf8'), context);
   vm.runInContext(readFileSync(`${__dirname}/telemetry.js`, 'utf8'), context);
-  context.telemetryPanel(root, status);
+  const progress = context.telemetryPanel(root, status);
   const settle = () => new Promise(resolve => setImmediate(resolve));
   await settle();
-  return { root, status, requests, advance(ms) { now += ms; nextFrame(now); }, async refresh(data, ok = true) {
-    response = { data, ok }; timers.shift()(); await settle();
+  return { root, status, requests, progress, advance(ms) { now += ms; nextFrame(now); }, async refresh(data, ok = true, during = () => {}) {
+    response = { data, ok }; timers.shift()(); during(); await settle();
   } };
 }
 
@@ -43,13 +43,16 @@ test('live diagram renders only API metrics and retains nodes across refreshes',
   assert.doesNotMatch(output, /Slots|p95|Dispatchers|H2D|CPU fallback/);
   const actor = view.root.children[0].children[1].children[0];
   const data = sample(); data.actors[0].blocked_pct = 50;
+  view.advance(1000);
   await view.refresh(data);
   assert.equal(view.root.children[0].children[1].children[0], actor);
+  assert.equal(view.root.children[0].children[1].replacements, 1, 'unchanged rows are never remounted');
   assert.match(text(actor), /35%/);
-  view.advance(1500);
-  view.advance(1500);
+  view.advance(1000);
   const fill = actor.children[1].children[0];
-  assert.ok(Math.abs(parseFloat(fill.style.width) - 42.5) < 1e-9, 'half the gap closed after three seconds');
+  assert.ok(Math.abs(parseFloat(fill.style.width) - 42.5) < 1e-9, 'playback is halfway between the two samples');
+  view.advance(500);
+  assert.equal(fill.style.width, '50%', 'reaches the sample exactly; no exponential tail');
 });
 
 test('unknown wait and fill remain unknown, not zero', async () => {
@@ -66,7 +69,7 @@ test('unknown wait and fill remain unknown, not zero', async () => {
 test('empty telemetry keeps the last layout without presenting it as live', async () => {
   const view = await panel();
   await view.refresh({ actors: [], queues: [], lanes: [] });
-  assert.match(view.status.textContent, /showing last sample/);
+  assert.match(view.status.textContent, /holding display/);
   assert.ok(view.root.classes.has('unavailable'));
   assert.match(text(view.root), /A0/);
   assert.match(text(view.root), /L0 · Q0/);
@@ -75,12 +78,54 @@ test('empty telemetry keeps the last layout without presenting it as live', asyn
 test('HTTP and API errors retain the layout but mark readings as previous', async () => {
   const view = await panel();
   await view.refresh(sample(), false);
-  assert.equal(view.status.textContent, 'Telemetry unavailable · showing last sample');
+  assert.equal(view.status.textContent, 'Telemetry unavailable · holding display');
   assert.ok(view.root.classes.has('unavailable'));
   assert.match(text(view.root), /A0/);
   await view.refresh(sample());
   assert.ok(!view.root.classes.has('unavailable'));
   await view.refresh({ ...sample(), actors: { error: 'file unavailable' } });
-  assert.equal(view.status.textContent, 'Telemetry unavailable · showing last sample');
+  assert.equal(view.status.textContent, 'Telemetry unavailable · holding display');
   assert.match(text(view.root), /A0/);
+});
+
+test('worker reset snaps every section and failures stop buffered animation', async () => {
+  const view = await panel();
+  view.advance(1000);
+  const data = sample(); data.actors[0].blocked_pct = 60;
+  await view.refresh(data);
+  view.advance(1000);
+  const actor = view.root.children[0].children[1].children[0];
+  assert.match(text(actor), /48%/);
+  await view.refresh(sample(), false);
+  view.advance(5000);
+  assert.match(text(actor), /48%/);
+  data.actors[0].blocked_pct = 90;
+  await view.refresh(data);
+  assert.match(text(actor), /90%/);
+  view.advance(1000);
+  data.actors[0].blocked_pct = 10; data.queues[0].peak_depth = 1;
+  await view.refresh(data);
+  assert.match(text(actor), /10%/);
+});
+
+
+test('phase identity resets playback and rejects responses from the previous phase', async () => {
+  const view = await panel();
+  view.progress({ stage: 'iteration 1', phase: 'play', running: true });
+  const actor = view.root.children[0].children[1].children[0];
+  const data = sample(); data.actors[0].blocked_pct = 90;
+  view.advance(1000);
+  await view.refresh(data, true, () => {
+    view.progress({ stage: 'iteration 2', phase: 'play', running: true });
+  });
+  view.advance(3000);
+  assert.match(text(actor), /35%/, 'late previous-stage response never reaches the display');
+  assert.ok(view.root.classes.has('unavailable'));
+  await view.refresh(data);
+  assert.match(text(actor), /90%/, 'first new-stage sample snaps rather than blending');
+  assert.ok(!view.root.classes.has('unavailable'));
+  view.progress({ stage: 'iteration 2', phase: 'train', running: true });
+  const count = view.requests.length;
+  await view.refresh(data);
+  assert.equal(view.requests.length, count, 'inactive inference does not poll');
 });

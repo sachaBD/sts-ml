@@ -187,6 +187,18 @@ foreach(test_file IN LISTS python_test_files)
         LABELS "python")
 endforeach()
 
+# The dashboard's dependency-free Node tests run alongside its Python tests.
+find_program(STSRL_NODE NAMES node nodejs)
+if(STSRL_NODE)
+    file(GLOB dashboard_ui_tests CONFIGURE_DEPENDS
+        "apps/gumbel_nn_combat_expert_iteration/web/ui/test_*.cjs")
+    add_test(NAME javascript.dashboard_ui COMMAND "${STSRL_NODE}" --test ${dashboard_ui_tests})
+    set_tests_properties(javascript.dashboard_ui PROPERTIES
+        WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}" LABELS "javascript" TIMEOUT 30)
+else()
+    message(WARNING "Node.js not found: dashboard UI tests will not run")
+endif()
+
 add_executable(battle_snapshot_test environments/combat/battle_snapshot_test.cpp)
 target_link_libraries(battle_snapshot_test PRIVATE combat_core)
 target_compile_features(battle_snapshot_test PRIVATE cxx_std_23)

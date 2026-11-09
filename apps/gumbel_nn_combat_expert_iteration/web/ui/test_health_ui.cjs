@@ -24,7 +24,7 @@ async function dashboard(input, failure = false, mode = 'mock') {
   const context = vm.createContext({
     document: { body: { dataset: { mode } }, getElementById: get, createElement: element }, activeView: 'health', data: null,
     trainingPanel: () => () => {},
-    telemetryPanel: (...args) => livePanels.push(args),
+    telemetryPanel: (...args) => { livePanels.push(args); return () => {}; },
     Plotly: { react() {} }, performance: { now: () => 0 }, requestAnimationFrame() {},
     update() {}, charts() {}, Event: class {}, window: { dispatchEvent() {} }, setTimeout() {},
     fetch: async url => {
