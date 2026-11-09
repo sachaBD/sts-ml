@@ -198,6 +198,7 @@ class ExpertIteration:
                     encoding='inventory_v1' if self.config.model.kind == 'inventory_v1' else 'legacy',
                     gpu_attended=self.config.model.gpu_attended or 0,
                     gpu_wide_attended=self.config.model.gpu_wide_attended or 0,
+                    gpu_wide_model=models / 'wide/model-gpu.onnx' if self.wide_exporter is not None else None,
                     progress=lambda done, pid: self.control.status(stage=stage, phase='play', done=done,
                                                                    total=len(games), child_pid=pid,
                                                                    directory=str(directory)))
