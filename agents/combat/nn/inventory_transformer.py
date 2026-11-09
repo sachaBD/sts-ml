@@ -11,6 +11,8 @@ FEATURE_WIDTHS = {CONTEXT: 11, CARD: 17, MONSTER: 13, POTION: 18, RELIC: 3,
                   ACTION: 60, PLAYER: 11, PLAYER_EFFECT: 4, MONSTER_EFFECT: 2, INVENTORY: 19}
 OWNER, SOURCE, TARGET = 65, 66, 67
 VERSION = 1
+# EncodedActionKind + 1, as written by the native encoder.
+CARD_ACTION, POTION_ACTION, SINGLE_CARD_SELECTION, MULTI_CARD_SELECTION = range(1, 5)
 
 
 class InventoryTransformer(CombatModel):
@@ -37,13 +39,13 @@ class InventoryTransformer(CombatModel):
     def _embed(self, tokens):
         rows = TokenRows(tokens)
         kind = rows.kind.long()
-        namespace = kind
         action_kind = tokens[..., 2]
-        card_source = rows.is_kind(ACTION) & (((action_kind - 1).abs() < .5)
-                                              | ((action_kind - 3).abs() < .5)
-                                              | ((action_kind - 4).abs() < .5))
-        namespace = torch.where(rows.is_kind(INVENTORY) | card_source, CARD, namespace)
-        namespace = torch.where(rows.is_kind(ACTION) & ((tokens[..., 2] - 2).abs() < .5), POTION, namespace)
+        card_source = rows.is_kind(ACTION) & (((action_kind - CARD_ACTION).abs() < .5)
+                                             | ((action_kind - SINGLE_CARD_SELECTION).abs() < .5)
+                                             | ((action_kind - MULTI_CARD_SELECTION).abs() < .5))
+        potion_source = rows.is_kind(ACTION) & ((action_kind - POTION_ACTION).abs() < .5)
+        namespace = torch.where(rows.is_kind(INVENTORY) | card_source, CARD, kind)
+        namespace = torch.where(potion_source, POTION, namespace)
         numeric = torch.cat([tokens[..., 3:3 + count] * rows.is_kind(type_)[..., None]
                              for type_, count in FEATURE_WIDTHS.items()], dim=-1)
         return (self.kind(kind) + self.id(namespace * ID_CAPACITY + rows.id)

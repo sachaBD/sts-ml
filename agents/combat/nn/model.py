@@ -71,7 +71,6 @@ class CombatModel(nn.Module, ABC):
 def build_model(spec: ModelSpec) -> CombatModel:
     from .pooled_transformer import PooledTransformer
     from .transformer import Transformer
-
     from .inventory_transformer import InventoryTransformer
 
     return {'transformer': Transformer, 'entity': PooledTransformer, 'inventory_v1': InventoryTransformer}[spec.kind](spec)

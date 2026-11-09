@@ -4,6 +4,7 @@ from dataclasses import asdict
 import torch
 
 from .model import ModelSpec, build_model
+from .inventory_transformer import VERSION as INVENTORY_VERSION
 from .replay import TARGETS
 from .tokens import TokenKind, WIDTH
 from .train import losses, score, train
@@ -25,7 +26,7 @@ class Learner:
         tokens = torch.zeros(2, 3, WIDTH)
         tokens[:, 0, 0], tokens[:, 1:, 0] = TokenKind.CONTEXT, TokenKind.ACTION
         if self.net.spec.kind == 'inventory_v1':
-            tokens[:, 0, 2] = 1
+            tokens[:, 0, 2] = INVENTORY_VERSION
         self.net.train()
         policy = torch.tensor([[0., .5, .5]] * 2)
         self.losses(self.net, tokens, policy, torch.ones(2, len(TARGETS)), self.device).sum().backward()

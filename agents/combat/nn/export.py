@@ -8,6 +8,7 @@ from torch import nn
 from .pooled_transformer import PooledTransformer
 from .graphs import GraphCache
 from .model import CombatModel, ModelSpec
+from .inventory_transformer import VERSION as INVENTORY_VERSION
 from .tokens import TokenKind, WIDTH
 from .play import model_files
 
@@ -107,6 +108,6 @@ class ModelExporter:
             example = torch.zeros(batch, self.deployment.tokens, WIDTH, dtype=torch.float16, device=device)
             model = HalfInput(deployment_view(net, self.deployment), self.deployment.mixed_precision).eval()
         if net.spec.kind == 'inventory_v1':
-            example[:, 0, 0], example[:, 0, 2] = TokenKind.CONTEXT, 1
+            example[:, 0, 0], example[:, 0, 2] = TokenKind.CONTEXT, INVENTORY_VERSION
             example[:, -1, 0] = TokenKind.ACTION
         torch.onnx.export(model, (example,), str(path), **options)
