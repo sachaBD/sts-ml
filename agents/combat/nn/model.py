@@ -19,8 +19,8 @@ class ModelSpec:
     dim: int
     layers: int
     heads: int
-    value: str = 'win'  # win: one win logit; outcome: LOSS_BINS + WIN_BINS outcome logits
-    auxiliary: bool = False  # AUXILIARY predictions follow the value logits
+    value: str  # win: one win logit; outcome: LOSS_BINS + WIN_BINS outcome logits
+    auxiliary: bool  # AUXILIARY predictions follow the value logits
     encoding_version: int = field(default=2, init=False)  # action-to-target row references
 
     def __post_init__(self):
@@ -56,7 +56,7 @@ class CombatModel(nn.Module, ABC):
     logits are masked below -1e8. Padding must not affect real-token predictions.
     The immutable spec completely identifies the architecture, not its deployment.
     """
-    encoding = 'entity'
+    encoding: str  # the native encoding (agents/combat/nn/tokens.hpp) that writes this model's tokens
 
     def __init__(self, spec: ModelSpec):
         super().__init__()

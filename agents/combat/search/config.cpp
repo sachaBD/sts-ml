@@ -5,24 +5,15 @@
 #include <stdexcept>
 
 namespace stsrl::search {
-bool SearchConfig::parse(std::string_view flag, const std::string& value) {
-    const auto check = [&](bool ok) { if (!ok) throw std::invalid_argument{"bad " + std::string{flag} + " " + value}; };
-    if (flag == "--sims") check((simulations_ = std::stoi(value)) >= 0);
-    else if (flag == "--particles") check((particles_ = std::stoi(value)) >= 1);
-    else if (flag == "--gumbel-scale") check((gumbel_scale_ = std::stod(value)) >= 0);
-    else if (flag == "--value-scale") check(std::isfinite(value_scale_ = std::stod(value)) && value_scale_ >= 0);
-    else if (flag == "--rollout-mix") check((rollout_mix_ = std::stod(value)) >= 0 && rollout_mix_ <= 1);
-    else return false;
-    return true;
-}
-
 SearchFactory SearchConfig::factory() const {
+    if (simulations < 0 || particles < 1 || !std::isfinite(gumbel_scale) || gumbel_scale < 0 ||
+        !(rollout_mix >= 0 && rollout_mix <= 1))
+        throw std::invalid_argument{"search: nonnegative sims and gumbel scale, positive particles, rollout mix in [0, 1]"};
     Gumbel::Settings gumbel;
-    gumbel.simulations = simulations_;
-    gumbel.particles = particles_;
-    gumbel.gumbel_scale = gumbel_scale_;
-    gumbel.value_scale = value_scale_;
-    return [gumbel, mix = rollout_mix_](const sts::BattleContext& state, std::mt19937_64& random) {
+    gumbel.simulations = simulations;
+    gumbel.particles = particles;
+    gumbel.gumbel_scale = gumbel_scale;
+    return [gumbel, mix = rollout_mix](const sts::BattleContext& state, std::mt19937_64& random) {
         std::unique_ptr<CombatSearch> search = std::make_unique<Gumbel>(state, gumbel, random());
         const auto rollout_seed = random();
         return mix > 0 ? with_rollouts(std::move(search), state, mix, rollout_seed) : std::move(search);

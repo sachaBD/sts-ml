@@ -9,7 +9,6 @@ import torch
 
 from agents.combat.nn.training import learner
 from agents.combat.nn.model import ModelSpec
-from agents.combat.nn.pytorch_to_onnx import model_files
 from . import expert_iteration
 from .config import load
 from .reporting import deck_of
@@ -56,16 +55,19 @@ device = "cpu"
 
 [model]
 kind = "entity"
+value = "win"
+auxiliary = false
 dim = 8
 layers = 1
 heads = 1
-gpu_tokens = 16
+mixed_precision = false
+deployments = [{ tokens = 16, batches = [4, 2], lanes = 2 }]
+cpu_lanes = 1
+cpu_batch = 4
 
 [workers]
 actors = 2
 slots = 1
-gpu_batch = 512
-gpu_bank = [256, 32]
 gpu_wait_us = 100
 timeout_ms = 321
 shutdown_timeout_ms = 123
@@ -93,13 +95,10 @@ class ExpertIterationInvariants(unittest.TestCase):
             patcher.start()
             self.addCleanup(patcher.stop)
 
-    def export(self, net, directory, batch, bank):
-        files = model_files(directory, bank)
-        for path in (files['dynamic'], files['gpu'], *files['bank']):
-            path.touch()
+    def export(self, net, directory):
+        (directory / 'network.json').touch()
 
-    def play(self, binary, models, fights, directory, search, workers, *, encoding, progress,
-             gpu_attended=0, gpu_wide_attended=0, gpu_wide_model=None):
+    def play(self, binary, models, fights, directory, search, workers, *, progress):
         results = [dict(fight_id=f['fight_id'], won=i % 2 == 0, capped=False, finished_unix=1.0)
                    for i, f in enumerate(fights)]
         self.plays.append(dict(models=models, directory=directory, search=search, fights=fights, results=results))
@@ -222,7 +221,7 @@ class ExpertIterationInvariants(unittest.TestCase):
         logged = [r['iteration'] for r in control.history() if 'iteration' in r]
         self.assertEqual(logged, [0, 1, 2])
         for it in logged:
-            for name in ('model.pt', 'model.onnx', 'model-gpu.onnx', 'model-gpu-b256.onnx', 'model-gpu-b32.onnx'):
+            for name in ('model.pt', 'network.json'):
                 self.assertTrue((control.iteration(it) / name).exists(), f'iter{it}/{name}')
 
     def test_samples_outside_the_replay_window_are_pruned(self):
@@ -255,7 +254,7 @@ class ExpertIterationInvariants(unittest.TestCase):
         self.assertEqual(json.loads((control.directory / 'status.json').read_text())['phase'], 'stopped')
 
     def test_initial_checkpoint_is_iteration_zero(self):
-        initial = learner.Learner(ModelSpec('entity', 8, 1, 1), 1e-3, 'cpu', seed=1)
+        initial = learner.Learner(ModelSpec('entity', 8, 1, 1, 'win', False), 1e-3, 'cpu', seed=1)
         initial.save(self.out / 'inputs/initial-model.pt')
         control = self.run_loop(config=CONFIG.replace('iterations = 2', 'iterations = 1'))
         saved = torch.load(control.iteration(0) / 'model.pt', weights_only=True)['net']

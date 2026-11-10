@@ -64,15 +64,15 @@ public:
         std::size_t peak_depth = 0;  // guarded by mutex, like pending
         std::atomic<long> requests{0};
         std::atomic<Clock::rep> waited{0};  // Clock ticks: an atomic duration has no +=
-        Queue(Backend& b, int id, int limit) : backend{b}, id{id}, batch{std::min(limit, b.max_batch())} {}
+        Queue(Backend& b, int id) : backend{b}, id{id}, batch{b.max_batch()} {}
     };
 
-    InferencePool(const std::vector<Backend*>& backends, int batch) {
+    explicit InferencePool(const std::vector<Backend*>& backends) {
         if (backends.empty() || !backends.front()) throw std::invalid_argument{"invalid actor configuration"};
         for (auto* backend : backends) {
             if (!backend || backend->lanes() < 1 || backend->max_batch() < 1 || backend->width() != backends.front()->width())
                 throw std::invalid_argument{"invalid actor configuration"};
-            queues_.push_back(std::make_unique<Queue>(*backend, int(queues_.size()), batch));
+            queues_.push_back(std::make_unique<Queue>(*backend, int(queues_.size())));
             for (int i = 0; i < backend->lanes(); ++i) lanes_.push_back(queues_.back().get());
         }
     }
@@ -82,9 +82,11 @@ public:
     const auto& queues() const { return queues_; }
 
     void submit(Request request, std::vector<std::uint16_t>& packed) {
-        std::size_t i = 0;
-        while (i + 1 < queues_.size() && !queues_[i]->backend.accepts(*request.input.tokens)) ++i;
-        auto& queue = *queues_[i];
+        const auto accepting = std::find_if(queues_.begin(), queues_.end(),
+            [&](const auto& queue) { return queue->backend.accepts(*request.input.tokens); });
+        if (accepting == queues_.end())
+            throw std::runtime_error{"no backend accepts " + std::to_string(request.input.tokens->count) + " tokens from episode " + *request.label};
+        auto& queue = **accepting;
         queue.backend.prepare(*request.input.tokens, packed);
         request.input.packed = packed;
         {
@@ -120,7 +122,7 @@ struct Shared {
     std::exception_ptr error;
 
     Shared(const ActorConfig& c, NextEpisode n, const std::vector<Backend*>& b)
-        : config{c}, next{std::move(n)}, inference{b, c.batch}, servers{int(inference.lanes().size())} {
+        : config{c}, next{std::move(n)}, inference{b}, servers{int(inference.lanes().size())} {
         for (int i = 0; i < config.actors; ++i) mailboxes.push_back(std::make_unique<Mailbox>());
     }
     void notify() { inference.notify(); }
@@ -195,7 +197,7 @@ class Actor {
         }
         const int width = shared_.inference.width();
         if (tokens->count <= 0 || tokens->actions <= 0 || tokens->actions > tokens->count ||
-            tokens->data.size() != std::size_t(tokens->count) * width || tokens->attended < 0 || tokens->attended > tokens->count)
+            tokens->data.size() != std::size_t(tokens->count) * width)
             throw std::runtime_error{"invalid tokens from episode " + slot.label};
         slot.phase = Phase::waiting;
         slot.submitted = Clock::now();
@@ -325,7 +327,8 @@ void publish(const Shared& shared, const std::vector<std::unique_ptr<InferenceSe
     for (const auto& mailbox : shared.mailboxes) counters.actors.push_back({mailbox->requests, Clock::duration{mailbox->blocked}});
     for (const auto& queue : shared.inference.queues()) {
         std::lock_guard lock{queue->mutex};
-        counters.queues.push_back({queue->requests, Clock::duration{queue->waited}, queue->pending.size(), queue->peak_depth});
+        counters.queues.push_back({queue->backend.name(), queue->requests, Clock::duration{queue->waited},
+                                   queue->pending.size(), queue->peak_depth});
     }
     for (const auto& server : servers)
         counters.lanes.push_back({server->queue(), server->requests, server->capacity, Clock::duration{server->busy}});
@@ -369,7 +372,7 @@ void run_actors(const ActorConfig& config, NextEpisode next, Backend& backend) {
 }
 
 void run_actors(const ActorConfig& config, NextEpisode next, const std::vector<Backend*>& backends) {
-    if (config.actors < 1 || config.slots < 1 || config.batch < 1 ||
+    if (config.actors < 1 || config.slots < 1 ||
         config.batch_wait.count() < 0 || config.timeout.count() <= 0 || config.shutdown_timeout.count() <= 0 || !next)
         throw std::invalid_argument{"invalid actor configuration"};
     const auto started = Clock::now();

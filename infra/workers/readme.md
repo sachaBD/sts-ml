@@ -20,7 +20,7 @@ used by the InferenceServer during play and by the Learner during train.
 |---|---|---|---|---|
 | Loop | 1 | python `loop` | both | starts play, runs train, exports models, prunes old replay |
 | Actor | 9 (`--workers`) | native `nn_play` | play | plays K games each (`--parallel`): search + simulator, requests NN evals, writes samples |
-| InferenceServer | one per backend lane: 2 narrow GPU + 1 wide GPU + 2 CPU (`--cpu-lanes`) / 1 (CPU only) | native `nn_play` | play | one queue per backend; a request goes to the first backend that accepts it, else the last (CPU) |
+| InferenceServer | one per backend lane | native `nn_play` | play | one queue per backend (`actors.hpp`) |
 | Reader | 4 threads | python `loop` | train | reads sampled rows with coarse `pread` tasks; Replay builds padded batches |
 | Learner | 1 | python `loop` | train | takes ready batches, runs the GPU training step |
 
@@ -58,7 +58,7 @@ exceed wall time. `actors_stats.server_cpu_pct` is average CPU use per server la
 
 | From -> To | Mechanism |
 |---|---|
-| Loop -> nn_play | spawn subprocess; model paths as args; starts on stdin |
+| Loop -> nn_play | spawn subprocess; the exported model directory as an arg; starts on stdin |
 | nn_play -> Loop | one JSON result line per finished game on stdout; errors to `worker.log` |
 | Actor <-> InferenceServer | in-process: per-Actor mailbox (mutex, request/completion deques bounded by K slots) + condition-variable wakeups |
 | Actor -> Disk | shared mutex-guarded `ofstream` appending `samples-0.bin` |

@@ -44,16 +44,23 @@ auxiliary = true
 dim = 192
 layers = 4
 heads = 6
-gpu_tokens = 48
-gpu_wide_tokens = 128
-gpu_mixed_precision = true
+mixed_precision = true
+cpu_lanes = 2
+cpu_batch = 64
+
+[[model.deployments]]
+tokens = 48
+batches = [512, 256, 32]
+lanes = 2
+
+[[model.deployments]]
+tokens = 128
+batches = [128]
+lanes = 1
 
 [workers]
 actors = 9
 slots = 224
-gpu_batch = 512
-gpu_wide_batch = 128
-gpu_bank = [256, 32]
 gpu_wait_us = 100
 timeout_ms = 60000
 shutdown_timeout_ms = 5000

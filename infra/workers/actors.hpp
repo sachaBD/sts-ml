@@ -25,6 +25,7 @@ struct ActorCounters {
     std::chrono::duration<double> blocked{};  // waiting for inference replies
 };
 struct QueueCounters {
+    std::string backend;                     // Backend::name()
     long requests = 0;                       // requests that left in a batch
     std::chrono::duration<double> waited{};  // their total time from submit to leaving
     std::size_t depth = 0;                  // pending requests, excluding gathered batches
@@ -46,7 +47,6 @@ struct Counters {
 struct ActorConfig {
     int actors = 9;
     int slots = 224;                           // episodes in flight per Actor
-    int batch = 512;                           // most requests per InferenceServer batch
     std::chrono::microseconds batch_wait{100}; // how long a partial batch waits for more requests
     std::chrono::milliseconds timeout{60'000}; // an Actor, request or the server stalled this long is an error
     std::chrono::milliseconds shutdown_timeout{5'000};
@@ -60,7 +60,8 @@ using NextEpisode = std::function<std::unique_ptr<Episode>()>;
 // Runs the Actors and the InferenceServer lanes until every episode has finished; the calling thread supervises.
 // Throws the first failure; a timeout is a failure, never a lost episode. If a native call cannot be stopped
 // within shutdown_timeout the process exits nonzero rather than hang or free state still in use.
-// First accepting backend wins; the last handles requests none accept. Backends outlive this call.
+// A request goes to the first backend that accepts it, batched up to that backend's max_batch(); a request no
+// backend accepts is a failure. Backends outlive this call.
 void run_actors(const ActorConfig&, NextEpisode, const std::vector<Backend*>&);
 void run_actors(const ActorConfig&, NextEpisode, Backend&);
 }  // namespace stsrl::infra

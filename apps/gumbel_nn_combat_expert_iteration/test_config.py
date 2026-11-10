@@ -25,7 +25,11 @@ class ConfigTests(unittest.TestCase):
         self.rejects(CONFIG.replace('steps = 1', 'stepz = 1'), "unknown [training] keys: ['stepz']")
         self.rejects(CONFIG.replace('lr = 0.001\n', ''), 'missing [training].lr')
         self.rejects(CONFIG.replace('actors = 2', 'actors = "2"'), '[workers].actors must be int')
-        self.rejects(CONFIG.replace('gpu_bank = [256, 32]', 'gpu_bank = [256, 600]'), 'gpu_bank')
+        self.rejects(CONFIG.replace('batches = [4, 2]', 'batches = [4, 4]'), 'distinct positive batch sizes')
+        self.rejects(CONFIG.replace('deployments = [{ tokens = 16, batches = [4, 2], lanes = 2 }]',
+                                    'deployments = [{ tokens = 16, batches = [4], lanes = 1 }, '
+                                    '{ tokens = 8, batches = [4], lanes = 1 }]'),
+                     'strictly increasing')
         self.rejects(CONFIG.replace('rollout_mix = 0.5', 'rollout_mix = 2'), 'rollout_mix')
         self.rejects(CONFIG.replace('per_iteration = 5', 'per_iteration = 5\nhp_jitter = -0.1'), 'hp_jitter')
         self.rejects(CONFIG.replace('per_iteration = 5', 'per_iteration = 5\nexcluded_cards = ["PURTY"]'), "['PURTY']")

@@ -36,7 +36,7 @@ class InventoryTests(unittest.TestCase):
     def setUp(self):
         torch.set_num_threads(1)
         torch.manual_seed(17)
-        self.model = build_model(ModelSpec('inventory_v1', dim=16, layers=1, heads=2)).eval()
+        self.model = build_model(ModelSpec('inventory_v1', dim=16, layers=1, heads=2, value='win', auxiliary=False)).eval()
         self.tokens = inventory_tokens()
 
     def test_padding_does_not_change_real_predictions(self):

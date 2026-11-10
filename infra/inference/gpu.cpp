@@ -1,15 +1,13 @@
 // TensorRT through ONNX Runtime; independent streams overlap inference with host batch preparation.
-#include "infra/inference/cpu.hpp"
+#include "infra/inference/backend.hpp"
 #include <cuda_fp16.h>
 #include <immintrin.h>
 #include <cuda_runtime.h>
 #include <onnxruntime_cxx_api.h>
 #include <algorithm>
 #include <array>
-#include <atomic>
 #include <bit>
 #include <chrono>
-#include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -146,24 +144,21 @@ struct Lane {
 };
 
 class GpuBackend final : public Backend {
-    const int lane_count_, attended_;
+    const int lane_count_;
 
 public:
-    GpuBackend(const std::filesystem::path& onnx, const std::vector<std::filesystem::path>& fixed, int lanes, int attended)
-        : lane_count_{lanes}, attended_{attended}, cpu_{onnx} {
-        if (lanes < 1 || attended < 0) throw std::invalid_argument{"positive lanes and nonnegative attended required"};
+    GpuBackend(const std::vector<std::filesystem::path>& fixed, int lanes) : lane_count_{lanes} {
+        if (lanes < 1) throw std::invalid_argument{"gpu backend: positive lanes required"};
         if (fixed.empty()) throw std::invalid_argument{"gpu backend: at least one fixed-shape model required"};
         for (int i = 0; i < lane_count_; ++i) lanes_.push_back(std::make_unique<Lane>(env_, fixed));
         const auto& engines = lanes_.front()->engines;
         tokens_ = engines.front()->tokens;
         width_ = engines.front()->width;
-        if (attended_ > tokens_) throw std::invalid_argument{"attention capacity exceeds token capacity"};
         for (std::size_t i = 0; i < engines.size(); ++i) {
             const auto& e = *engines[i];
             if (e.tokens != tokens_ || e.width != width_) throw std::invalid_argument{"gpu backend: fixed models differ in token shape"};
             if (i && e.batch == engines[i - 1]->batch) throw std::invalid_argument{"gpu backend: duplicate batch size"};
         }
-        if (width_ != cpu_.width()) throw std::invalid_argument{"gpu backend: fixed and dynamic models differ in width"};
         batch_ = engines.back()->batch;
         for (auto& lane : lanes_) { lane->allocate(batch_, tokens_, width_); free_.push_back(lane.get()); }
         begin_ = Clock::now();
@@ -174,15 +169,13 @@ public:
         lanes_.clear();
     }
 
+    std::string name() const override { return "gpu-" + std::to_string(tokens_); }
     int width() const override { return width_; }
     int max_batch() const override { return batch_; }
     int lanes() const override { return lane_count_; }
-    bool accepts(const Tokens& tokens) const override {
-        return tokens.count <= tokens_ && (!attended_ || (tokens.attended > 0 && tokens.attended <= attended_));
-    }
+    bool accepts(const Tokens& tokens) const override { return tokens.count <= tokens_; }
 
     void prepare(const Tokens& tokens, std::vector<std::uint16_t>& packed) const override {
-        if (!accepts(tokens)) { packed.clear(); return; }  // a later backend evaluates it, untruncated
         packed.assign(std::size_t(tokens_) * width_, 0);
         to_fp16(tokens.data, packed.data());
     }
@@ -192,8 +185,6 @@ public:
         const auto begin = Clock::now();
         Stats stats;
         std::vector<Prediction> out(inputs.size());
-        if (std::any_of(inputs.begin(), inputs.end(), [](const Input& i) { return i.packed.empty(); }))
-            throw std::invalid_argument{"gpu backend: input it does not accept"};
         if (!inputs.empty()) {
             Lane& lane = acquire();
             try { run(lane, inputs, out, stats); } catch (...) { release(lane); throw; }
@@ -209,12 +200,11 @@ public:
 private:
     // Summed over lanes, so the seconds can exceed wall time while lanes overlap.
     struct Stats {
-        long batches = 0, leaves = 0, capacity = 0, precision_retries = 0;
+        long batches = 0, leaves = 0, capacity = 0;
         std::map<int, long> shapes;
         double busy = 0, h2d = 0, inference = 0, d2h = 0;
         Stats& operator+=(const Stats& o) {
-            batches += o.batches; leaves += o.leaves; capacity += o.capacity;
-            precision_retries += o.precision_retries; busy += o.busy; h2d += o.h2d; inference += o.inference; d2h += o.d2h;
+            batches += o.batches; leaves += o.leaves; capacity += o.capacity; busy += o.busy; h2d += o.h2d; inference += o.inference; d2h += o.d2h;
             for (const auto& [batch, count] : o.shapes) shapes[batch] += count;
             return *this;
         }
@@ -256,15 +246,7 @@ private:
         for (int k = 0; k < n; ++k) {
             const auto& tokens = *inputs[k].tokens;
             const float* logits = lane.host_logits + std::size_t(k) * tokens_;
-            auto& p = out[k] = {lane.host_value[k], {logits + tokens.count - tokens.actions, logits + tokens.count}};
-            const bool finite = std::isfinite(p.value) && std::all_of(p.logits.begin(), p.logits.end(), [](float x) { return std::isfinite(x); });
-            if (!finite) {  // capacity or numerical failure: redo on the full fp32 model
-                const std::array<const Tokens*, 1> retry{&tokens};
-                p = cpu_.evaluate(retry).front();
-                if (precision_warned_.exchange(true) == false)
-                    std::fprintf(stderr, "gpu backend: non-finite GPU prediction; retried in fp32 on the CPU\n");
-                ++stats.precision_retries;
-            }
+            out[k] = {lane.host_value[k], {logits + tokens.count - tokens.actions, logits + tokens.count}};
         }
         ++stats.batches; stats.leaves += n; stats.capacity += engine.batch; ++stats.shapes[engine.batch];
     }
@@ -276,28 +258,26 @@ private:
 
     void print() const {  // caller holds stats_mutex_
         const auto& s = total_;
-        std::fprintf(stderr, "gpu_stats: {\"seconds\":%.3f,\"lanes\":%d,\"batches\":%ld,\"leaves\":%ld,\"capacity\":%ld,"
-                     "\"cpu_precision_retries\":%ld,\"busy\":%.3f,\"h2d_seconds\":%.3f,\"inference_seconds\":%.3f,\"d2h_seconds\":%.3f,\"shapes\":{",
-                     since(begin_), lane_count_, s.batches, s.leaves, s.capacity, s.precision_retries, s.busy, s.h2d, s.inference, s.d2h);
+        std::fprintf(stderr, "gpu_stats: {\"seconds\":%.3f,\"lanes\":%d,\"tokens\":%d,\"batches\":%ld,\"leaves\":%ld,\"capacity\":%ld,"
+                     "\"busy\":%.3f,\"h2d_seconds\":%.3f,\"inference_seconds\":%.3f,\"d2h_seconds\":%.3f,\"shapes\":{",
+                     since(begin_), lane_count_, tokens_, s.batches, s.leaves, s.capacity, s.busy, s.h2d, s.inference, s.d2h);
         const char* separator = "";
         for (const auto& [batch, count] : s.shapes) { std::fprintf(stderr, "%s\"%d\":%ld", separator, batch, count); separator = ","; }
         std::fprintf(stderr, "}}\n");
     }
 
-    CpuBackend cpu_;  // ONNX Runtime sessions run concurrently, so lanes share it
     Ort::Env env_{ORT_LOGGING_LEVEL_WARNING, "infra-gpu"};
     std::vector<std::unique_ptr<Lane>> lanes_;
     std::mutex lanes_mutex_, stats_mutex_;
     std::vector<Lane*> free_;
     int batch_ = 0, tokens_ = 0, width_ = 0;
     Stats total_;
-    std::atomic<bool> precision_warned_{false};
     double reported_ = 0;
     Clock::time_point begin_;
 };
 }  // namespace
 
-std::unique_ptr<Backend> gpu_backend(const std::filesystem::path& onnx, const std::vector<std::filesystem::path>& fixed, int lanes, int attended) {
-    return std::make_unique<GpuBackend>(onnx, fixed, lanes, attended);
+std::unique_ptr<Backend> gpu_backend(const std::vector<std::filesystem::path>& fixed, int lanes) {
+    return std::make_unique<GpuBackend>(fixed, lanes);
 }
 }  // namespace stsrl::infra

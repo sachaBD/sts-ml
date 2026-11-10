@@ -16,10 +16,13 @@ class ActorState:
 @dataclass(frozen=True)
 class QueueState:
     id: int                # backend index
+    backend: str           # the backend's name
+    requests: int          # requests that left in a batch since run_actors began
+    share_pct: float       # percent of every queue's requests since run_actors began
     requests_s: float      # requests leaving in a batch per second
     wait_ms: float | None  # mean submit-to-batch time; None when nothing left
-    depth: int | None = None       # pending count at latest sample; None for older telemetry
-    peak_depth: int | None = None  # highest pending count since run_actors began; None for older telemetry
+    depth: int             # pending count at latest sample
+    peak_depth: int        # highest pending count since run_actors began
 
 
 @dataclass(frozen=True)
@@ -39,9 +42,11 @@ def actors(telemetry: Path) -> list[ActorState]:
 
 def queues(telemetry: Path) -> list[QueueState]:
     rows, dt = deltas(telemetry, 'queues')
-    return [QueueState(id=i, requests_s=d['requests'] / dt,
+    total = sum(latest['requests'] for latest, _ in rows)
+    return [QueueState(id=i, backend=latest['backend'], requests=latest['requests'],
+                       share_pct=100 * latest['requests'] / total if total else 0, requests_s=d['requests'] / dt,
                        wait_ms=1000 * d['waited_seconds'] / d['requests'] if d['requests'] else None,
-                       depth=latest.get('depth'), peak_depth=latest.get('peak_depth'))
+                       depth=latest['depth'], peak_depth=latest['peak_depth'])
             for i, (latest, d) in enumerate(rows)]
 
 
@@ -64,5 +69,5 @@ def deltas(telemetry: Path, section: str) -> tuple[list[tuple[dict, dict]], floa
         return [], 0
     new = records[-1]
     old = next((r for r in reversed(records) if r['time'] <= new['time'] - WINDOW), records[0])
-    rows = [(a, {k: v - b[k] for k, v in a.items()}) for a, b in zip(new[section], old[section])]
+    rows = [(a, {k: v - b[k] for k, v in a.items() if k != 'backend'}) for a, b in zip(new[section], old[section])]
     return rows, new['time'] - old['time']

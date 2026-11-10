@@ -3,7 +3,7 @@ from dataclasses import asdict
 
 import torch
 
-from agents.combat.nn.model import ModelSpec, build_model
+from agents.combat.nn.model import build_model
 from agents.combat.nn.training.replay import TARGETS
 from agents.combat.nn.tokens import TokenKind, TokenRows
 from agents.combat.nn.training.train import losses, score, train
@@ -48,8 +48,7 @@ class Learner:
     def load(self, path):
         """Restores weights, optimizer and RNG, so training continues exactly where the checkpoint left off."""
         checkpoint = torch.load(path, map_location='cpu', weights_only=True)
-        saved_spec = dict(value='win', auxiliary=False) | checkpoint['spec']
-        if saved_spec != asdict(self.net.spec):
+        if checkpoint['spec'] != asdict(self.net.spec):
             raise ValueError(f'{path}: architecture {checkpoint["spec"]} differs from {self.net.spec}')
         self.net.load_state_dict(checkpoint['net'])
         self.optimizer.load_state_dict(checkpoint['optimizer'])

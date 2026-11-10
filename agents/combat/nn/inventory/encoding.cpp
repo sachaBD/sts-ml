@@ -227,7 +227,6 @@ infra::Tokens encode_inventory(const sts::BattleContext& battle, std::span<const
     write_actions(out, battle, actions, card_rows, monster_rows, potion_rows);
     tokens.count = int(out.size() / width);
     tokens.actions = int(actions.size());
-    tokens.attended = tokens.count;
     return tokens;
 }
 }  // namespace stsrl::nn
