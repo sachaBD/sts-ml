@@ -20,7 +20,7 @@ void encode_player(const sts::BattleContext& state, GlobalFeatures& global);
 // Fills token.previous_move_id and token.status.
 void encode_monster(const sts::Monster& monster, MonsterToken& token);
 [[nodiscard]] PotionToken encode_potion(const sts::BattleContext& state, sts::Potion potion);
-[[nodiscard]] std::vector<PotionToken> encode_potions(const sts::BattleContext& state);
+[[nodiscard]] std::vector<PotionToken> encode_potions(const sts::BattleContext& state, std::vector<int>* slots = nullptr);
 [[nodiscard]] RelicToken encode_relic(const sts::BattleContext& state, sts::RelicId relic);
 [[nodiscard]] std::vector<RelicToken> encode_relics(const sts::BattleContext& state);
 
