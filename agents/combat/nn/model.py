@@ -15,7 +15,7 @@ AUXILIARY = ('hp_lost', 'enemy_hp_lost', 'turns_remaining')
 
 @dataclass(frozen=True)
 class ModelSpec:
-    kind: str  # persisted architecture identifier; entity names PooledTransformer
+    kind: str  # persisted architecture identifier; entity names EntityModel
     dim: int
     layers: int
     heads: int
@@ -56,7 +56,7 @@ class CombatModel(nn.Module, ABC):
     logits are masked below -1e8. Padding must not affect real-token predictions.
     The immutable spec completely identifies the architecture, not its deployment.
     """
-    encoding = 'legacy'
+    encoding = 'entity'
 
     def __init__(self, spec: ModelSpec):
         super().__init__()
@@ -79,7 +79,7 @@ class CombatModel(nn.Module, ABC):
 
 
 def build_model(spec: ModelSpec) -> CombatModel:
-    from agents.combat.nn.entity.model import PooledTransformer
-    from agents.combat.nn.inventory.model import InventoryTransformer
+    from agents.combat.nn.entity.model import EntityModel
+    from agents.combat.nn.inventory.model import InventoryModel
 
-    return {'entity': PooledTransformer, 'inventory_v1': InventoryTransformer}[spec.kind](spec)
+    return {'entity': EntityModel, 'inventory_v1': InventoryModel}[spec.kind](spec)

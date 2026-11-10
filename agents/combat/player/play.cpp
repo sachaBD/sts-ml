@@ -138,7 +138,7 @@ int main(int argc, char** argv) try {
                      "                    --gpu-batch B] [--gpu-bank SMALLER.onnx,...] [--gpu-wait-us U]\n"
                      "                    [--gpu-attended A] [--gpu-wide-model WIDE.onnx] [--gpu-wide-attended A] [--cpu-lanes L]\n"
                      "                    [--timeout-ms M] [--shutdown-timeout-ms M] [--telemetry TELEMETRY.jsonl]\n"
-                     "                    [--encoding legacy|inventory_v1] "
+                     "                    --encoding entity|inventory_v1 "
                   << stsrl::search::SearchConfig::usage << "\n";
         return 2;
     }
@@ -148,7 +148,7 @@ int main(int argc, char** argv) try {
     int gpu_attended = 0, gpu_wide_attended = 0;
     std::vector<std::filesystem::path> gpu_bank;
     stsrl::search::SearchConfig search;
-    Encoding encoding = Encoding::legacy;
+    std::optional<Encoding> encoding;
     for (int i = 4; i + 1 < argc; i += 2) {
         const std::string k = argv[i], v = argv[i + 1];
         if (k == "--threads") threads = std::stoi(v);
@@ -192,7 +192,8 @@ int main(int argc, char** argv) try {
         if (backend->width() != width) throw std::invalid_argument{"model token width does not match combat encoder"};
     std::cerr << "timing: evaluator setup "
               << std::chrono::duration<double>(Clock::now() - setup_begin).count() << " s\n";
-    Shared shared{search.factory(), NetworkEvaluator{encoding}, {}, {}, {},
+    if (!encoding) throw std::invalid_argument{"--encoding is required"};
+    Shared shared{search.factory(), NetworkEvaluator{*encoding}, {}, {}, {},
                   std::ofstream{argv[3], std::ios::binary | std::ios::app | std::ios::ate},
                   std::filesystem::path{argv[3]}.filename().string()};
     for (std::string line; std::getline(std::cin, line);)

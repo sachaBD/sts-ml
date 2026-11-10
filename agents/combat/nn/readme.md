@@ -4,7 +4,7 @@ The network: two model types, each with its own input encoding, plus training.
 
 - `model.py`: shared base class and `ModelSpec` (`kind = "entity"` or `"inventory_v1"`).
 - `tokens.*`: the shared token format; `tokens.cpp` picks the encoding.
-- `entity/`: the entity model and its encoding (named `legacy` on the command line).
+- `entity/`: the entity model and its encoding.
 - `inventory/`: the inventory_v1 model and its encoding. It needs its own weights and replay. All entities
   attend: set `gpu_tokens` / `gpu_wide_tokens`, not `gpu_attended` / `gpu_wide_attended`.
 - `training/`: replay, losses, the learner, telemetry, and ONNX export for the player.

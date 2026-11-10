@@ -1,4 +1,4 @@
-"""The entity model's token layout (the "legacy" encoding, entity/encoding.cpp)."""
+"""The entity model's token layout (entity/encoding.cpp)."""
 from dataclasses import dataclass
 from enum import IntEnum
 

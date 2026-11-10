@@ -60,8 +60,8 @@ class DeviceSampler:
             self.stream.close()
 
 
-def play(binary, models, fights, directory, search, workers, progress=lambda done, pid: None, sample_devices=True,
-         gpu_attended=0, gpu_wide_attended=0, encoding='legacy', gpu_wide_model=None):
+def play(binary, models, fights, directory, search, workers, *, encoding, progress=lambda done, pid: None,
+         sample_devices=True, gpu_attended=0, gpu_wide_attended=0, gpu_wide_model=None):
     """Plays `fights` with nn_play `binary` and the models in `models`; writes samples, results and logs to `directory`.
     Results are journaled as fights finish; progress(done, pid) follows them."""
     directory.mkdir(parents=True, exist_ok=True)
@@ -78,9 +78,8 @@ def play(binary, models, fights, directory, search, workers, progress=lambda don
                '--shutdown-timeout-ms', str(workers.shutdown_timeout_ms),
                '--telemetry', str(directory / 'telemetry.jsonl'),
                '--sims', str(search.sims), '--gumbel-scale', str(search.gumbel_scale),
-               '--rollout-mix', str(search.rollout_mix), '--particles', str(search.particles)]
-    if encoding != 'legacy':
-        command += ['--encoding', encoding]
+               '--rollout-mix', str(search.rollout_mix), '--particles', str(search.particles),
+               '--encoding', encoding]
     if gpu_attended:
         command += ['--gpu-attended', str(gpu_attended)]
     if gpu_wide_model is not None:

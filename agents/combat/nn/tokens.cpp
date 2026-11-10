@@ -6,7 +6,7 @@
 
 namespace stsrl::nn {
 Encoding encoding_from_name(std::string_view name) {
-    if (name == "legacy") return Encoding::legacy;
+    if (name == "entity") return Encoding::entity;
     if (name == "inventory_v1") return Encoding::inventory_v1;
     throw std::invalid_argument{"unknown combat token encoding: " + std::string{name}};
 }

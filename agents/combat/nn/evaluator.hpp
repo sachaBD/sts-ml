@@ -8,7 +8,7 @@
 namespace stsrl::nn {
 class NetworkEvaluator {
 public:
-    explicit NetworkEvaluator(Encoding encoding = Encoding::legacy) : encoding_{encoding} {}
+    explicit NetworkEvaluator(Encoding encoding) : encoding_{encoding} {}
     infra::Tokens request(const search::Query& query) const { return encode(query.state, query.actions, encoding_); }
     static search::Evaluation answer(const infra::Prediction& prediction) { return {prediction.value, prediction.logits}; }
 

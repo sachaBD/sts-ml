@@ -34,7 +34,7 @@ stsrl::search::SearchFactory search() {
 
 // As nn_play decides.
 stsrl::search::Result decide(const Fight& fight) {
-    const stsrl::nn::NetworkEvaluator network;
+    const stsrl::nn::NetworkEvaluator network{Encoding::entity};
     auto random = fight.decision_random();
     Decision decision{search()(fight.state(), random), network};
     while (const auto query = decision.pending()) decision.evaluated(fake_network(*query));

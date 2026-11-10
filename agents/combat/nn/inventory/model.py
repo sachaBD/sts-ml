@@ -15,7 +15,7 @@ VERSION = 1
 CARD_ACTION, POTION_ACTION, SINGLE_CARD_SELECTION, MULTI_CARD_SELECTION = range(1, 5)
 
 
-class InventoryTransformer(CombatModel):
+class InventoryModel(CombatModel):
     encoding = 'inventory_v1'
 
     def __init__(self, spec):
@@ -74,7 +74,7 @@ class InventoryTransformer(CombatModel):
             x = x + projection(linked) * (reference > 0)[..., None]
         hidden = self.norm(self.encoder(x, src_key_padding_mask=~rows.valid))
         context = self.value(hidden[:, 0]).float()
-        # A legacy replay or incorrectly selected native encoder must not silently train this model.
+        # An entity replay or incorrectly selected native encoder must not silently train this model.
         compatible = (tokens[:, 0, 0] == CONTEXT) & (tokens[:, 0, 2] == VERSION)
         context = torch.where(compatible[:, None], context, torch.full_like(context, float('nan')))
         logits = self.policy(hidden).squeeze(-1).float().masked_fill(~rows.is_kind(ACTION), MASKED_LOGIT)

@@ -7,7 +7,7 @@ from agents.combat.nn.entity.encoding import CardZone, EntityRows, KIND_CAPACITY
 from agents.combat.nn.tokens import ID_CAPACITY, MASKED_LOGIT, TokenKind, WIDTH
 
 
-class PooledTransformer(CombatModel):
+class EntityModel(CombatModel):
     """Pool relics and draw/discard/exhaust cards, then attend over retained tokens.
 
     Predictions are scattered back to the original action positions. A bounded view
