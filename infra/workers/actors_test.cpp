@@ -344,7 +344,7 @@ TEST(ActorFailures, StalledEpisodeTimesOut) {
 
 TEST(ActorFailures, InvalidConfig) {
     Log log;
-    expect_error(small(0), log, episodes(log, 1), FakeBackend{}, "invalid actor configuration");
+    expect_error(small(0), log, episodes(log, 1), FakeBackend{}, "workers:");
     expect_error(small(), log, episodes(log, 1), FakeBackend{echo, {}, 0}, "invalid actor configuration");  // no lanes
 }
 

@@ -367,14 +367,18 @@ void supervise(Shared& shared, const std::vector<std::unique_ptr<InferenceServer
 }
 }  // namespace
 
+void ActorConfig::validate() const {
+    if (actors < 1 || slots < 1 || batch_wait.count() < 0 || timeout.count() <= 0 || shutdown_timeout.count() <= 0)
+        throw std::invalid_argument{"workers: positive actors, slots and timeouts, nonnegative batch wait"};
+}
+
 void run_actors(const ActorConfig& config, NextEpisode next, Backend& backend) {
     run_actors(config, std::move(next), std::vector<Backend*>{&backend});
 }
 
 void run_actors(const ActorConfig& config, NextEpisode next, const std::vector<Backend*>& backends) {
-    if (config.actors < 1 || config.slots < 1 ||
-        config.batch_wait.count() < 0 || config.timeout.count() <= 0 || config.shutdown_timeout.count() <= 0 || !next)
-        throw std::invalid_argument{"invalid actor configuration"};
+    config.validate();
+    if (!next) throw std::invalid_argument{"run_actors: no episode source"};
     const auto started = Clock::now();
     Shared shared{config, std::move(next), backends};
     std::vector<std::unique_ptr<Actor>> actors;

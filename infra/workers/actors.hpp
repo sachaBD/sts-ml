@@ -52,6 +52,8 @@ struct ActorConfig {
     std::chrono::milliseconds shutdown_timeout{5'000};
     // Called on the supervising thread about once a second and once at the end; must return promptly and not throw.
     std::function<void(const Counters&)> on_counters;
+
+    void validate() const;  // throws on counts or durations out of range
 };
 
 // Thread-safe source of episodes; nullptr when there are none left. Runs on the Actor that will own the episode.
