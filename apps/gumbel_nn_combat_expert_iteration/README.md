@@ -89,7 +89,7 @@ and the existing row/deck-weighted held-out loss measure different distributions
 `[model].value = "outcome"` predicts the combat's outcome as 20 bins: losses by enemy HP left, then wins
 by player HP fraction. Search still receives the win probability (the win bins' mass), so export and native
 inference are unchanged. `value_loss` is then the outcome cross-entropy; `win_loss` is the win BCE in either
-mode and is the comparable number across runs. Requires sample format 2 (cold start).
+mode and is the comparable number across runs.
 
 `[model].auxiliary = true` adds training-only heads, weighted 0.25: HP lost and enemy HP lost by the start
 of our next turn (`round_loss`, on policy batches) and turns remaining (`turns_loss`, on value batches).

@@ -11,7 +11,7 @@ namespace stsrl::player {
 namespace {
 using Json = nlohmann::json;
 using Clock = std::chrono::steady_clock;
-constexpr int sample_format = 2;  // Targets after the token and action counts
+constexpr int sample_format = 3;  // token count, action count, token width, targets, tokens, policy
 
 struct Sample {
     infra::Tokens tokens;
@@ -23,8 +23,10 @@ void write(std::ofstream& out, const Sample& sample, std::span<const Vitals> tur
     static_assert(sizeof(Targets) == 6 * 4);
     const auto& t = sample.tokens;
     const auto target = targets(sample.vitals, turn_starts, end);
+    const auto width = std::int32_t(t.data.size() / t.count);
     out.write(reinterpret_cast<const char*>(&t.count), 4);
     out.write(reinterpret_cast<const char*>(&t.actions), 4);
+    out.write(reinterpret_cast<const char*>(&width), 4);
     out.write(reinterpret_cast<const char*>(&target), sizeof target);
     out.write(reinterpret_cast<const char*>(t.data.data()), std::streamsize(t.data.size() * 4));
     out.write(reinterpret_cast<const char*>(sample.policy.data()), std::streamsize(sample.policy.size() * 4));

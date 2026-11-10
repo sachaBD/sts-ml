@@ -5,7 +5,6 @@ from dataclasses import dataclass, field
 import torch
 from torch import Tensor, nn
 
-from agents.combat.nn.tokens import TokenKind, WIDTH
 
 # Outcome bins on one margin axis: losses by enemy HP left (most first), then wins by player HP (least first).
 LOSS_BINS = WIN_BINS = 10
@@ -62,11 +61,11 @@ class CombatModel(nn.Module, ABC):
         super().__init__()
         self.spec = spec
 
+    @abstractmethod
     def example_tokens(self, batch=2, length=3) -> Tensor:
-        """A CPU input in this model's schema for tracing and compile warm-up."""
-        tokens = torch.zeros(batch, length, WIDTH)
-        tokens[:, 0, 0], tokens[:, 1:, 0] = TokenKind.CONTEXT, TokenKind.ACTION
-        return tokens
+        """A CPU input in this model's encoding for tracing and warm-up: a context row, then `length - 1` legal
+        actions."""
+        raise NotImplementedError
 
     def forward(self, tokens: Tensor) -> tuple[Tensor, Tensor]:
         context, logits = self.heads(tokens)

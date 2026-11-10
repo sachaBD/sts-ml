@@ -1,26 +1,15 @@
-"""Typed view of the shared numeric token wire format written by tokens.cpp.
+"""Typed view of the numeric token rows both encodings write (tokens.cpp): kind, id and id2, then features.
 
 Tensors deliberately remain numeric for PyTorch/ONNX. Each model's own layout lives with it
-(entity/encoding.py, inventory/model.py); the kinds below are shared by both.
+(entity/encoding.py, inventory/model.py).
 """
 from dataclasses import dataclass
-from enum import IntEnum
 
 from torch import Tensor
 
 WIDTH = 68
 ID_CAPACITY = 1024
 MASKED_LOGIT = -1e9
-
-
-class TokenKind(IntEnum):
-    PADDING = 0
-    CONTEXT = 1
-    CARD = 2
-    MONSTER = 3
-    POTION = 4
-    RELIC = 5
-    ACTION = 6
 
 
 @dataclass(frozen=True)
@@ -44,6 +33,6 @@ class TokenRows:
     def valid(self) -> Tensor:
         return self.kind > 0.5
 
-    def is_kind(self, kind: TokenKind) -> Tensor:
+    def is_kind(self, kind: int) -> Tensor:
         # Float comparisons avoid ONNX CUDA's unsupported integer Equal path.
         return (self.kind - kind).abs() < 0.5

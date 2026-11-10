@@ -3,7 +3,7 @@ import torch
 from torch import nn
 
 from agents.combat.nn.model import CombatModel, context_width
-from agents.combat.nn.tokens import ID_CAPACITY, MASKED_LOGIT, TokenRows
+from agents.combat.nn.tokens import ID_CAPACITY, MASKED_LOGIT, WIDTH, TokenRows
 
 # Must match InventoryKind and the feature layouts in inventory/encoding.cpp.
 CONTEXT, CARD, MONSTER, POTION, RELIC, ACTION, PLAYER, PLAYER_EFFECT, MONSTER_EFFECT, INVENTORY = range(1, 11)
@@ -39,8 +39,8 @@ class InventoryModel(CombatModel):
         self.policy = nn.Linear(dim, 1)
 
     def example_tokens(self, batch=2, length=3):
-        tokens = super().example_tokens(batch, length)
-        tokens[:, 0, 2] = VERSION
+        tokens = torch.zeros(batch, length, WIDTH)
+        tokens[:, 0, 0], tokens[:, 0, 2], tokens[:, 1:, 0] = CONTEXT, VERSION, ACTION
         return tokens
 
     def _embed(self, tokens):
