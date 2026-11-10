@@ -6,7 +6,7 @@ Built on the simulator in the sibling checkout `../lightspeed` (override with `S
 ## Setup
 
 ```sh
-make env-onnx     # .venv via uv
+make env          # .venv via uv
 make build        # build/main, including the nn_play worker
 make test         # native, Python and dashboard tests
 ```

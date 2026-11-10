@@ -8,7 +8,7 @@ Produce the strongest completely autonomous agent to play Slay the Spire (sts). 
 - Follow [`CODING_GUIDELINES.md`](CODING_GUIDELINES.md).
 
 - Python env: `.venv`, defined by `pyproject.toml` + `uv.lock` and managed with uv. Set it up with
-  `make env-onnx` (see `make help`). Never `pip install` or `uv pip install`
+  `make env` (see `make help`). Never `pip install` or `uv pip install`
   into `.venv` directly; to add or change a dependency, edit `pyproject.toml` (core or a group), run `uv lock`,
   and commit both files. Run code with `.venv/bin/python` (not `uv run`, which re-syncs `.venv` first).
 

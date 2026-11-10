@@ -1,6 +1,11 @@
 #!/usr/bin/env bash
+# Launch, monitor and stop runs. A run is recorded under runs/ by runs.run (runs/README.md).
+#   run.sh CONFIG.toml [--scratch] [--overwrite]
+#   run.sh status RUN_DIRECTORY [--json]
+#   run.sh stop RUN_DIRECTORY
 set -euo pipefail
 root=$(cd "$(dirname "$0")/../.." && pwd)
+usage() { echo "usage: $0 CONFIG.toml [--scratch] [--overwrite] | status RUN [--json] | stop RUN" >&2; exit 2; }
 case ${1:-} in
     stop|status)
         run=$(realpath "${2:?usage: run.sh stop|status RUN_DIRECTORY}")
@@ -15,5 +20,21 @@ case ${1:-} in
             exec .venv/bin/python -m apps.gumbel_nn_combat_expert_iteration.dashboard "$out" "${@:3}"
         fi
         ;;
-    *) exec "$root/apps/common/launch.sh" gumbel_nn_combat_v1 apps/gumbel_nn_combat_expert_iteration/prepare.py -- "$@" ;;
+    ''|-*) usage ;;
+    *)
+        config=$(realpath "$1")  # before cd, so CONFIG is relative to where you ran this
+        shift
+        run_args=(--live)
+        for arg in "$@"; do
+            case "$arg" in --scratch | --overwrite) run_args+=("$arg") ;; *) usage ;; esac
+        done
+        cd "$root"
+        export PYTHONPATH="$root${PYTHONPATH:+:$PYTHONPATH}"
+        prepare=(.venv/bin/python -m apps.gumbel_nn_combat_expert_iteration.prepare "$config")
+        id=$(.venv/bin/python -c 'import sys, tomllib; print(tomllib.load(open(sys.argv[1], "rb"))["run"]["id"])' "$config")
+        while IFS= read -r input; do
+            [[ -z $input ]] || run_args+=(--input "$input")
+        done < <("${prepare[@]}" --inputs)
+        exec .venv/bin/python -m runs.run gumbel_nn_combat_v1 "$id" "${run_args[@]}" -- "${prepare[@]}" --out '{out}'
+        ;;
 esac

@@ -6,7 +6,7 @@ from pathlib import Path
 import subprocess
 import time
 
-from apps.common.app import write_json
+from apps.gumbel_nn_combat_expert_iteration.files import write_json
 from .dashboard import running
 from .reporting import jsonl
 

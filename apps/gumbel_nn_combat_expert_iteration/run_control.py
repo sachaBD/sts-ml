@@ -14,7 +14,7 @@ import os
 import shutil
 import time
 
-from apps.common.app import read_jsonl
+from apps.gumbel_nn_combat_expert_iteration.files import read_jsonl
 
 
 class RunControl:

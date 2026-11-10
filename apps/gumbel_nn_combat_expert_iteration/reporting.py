@@ -2,7 +2,7 @@
 import json
 import math
 
-from apps.common.app import read_jsonl
+from apps.gumbel_nn_combat_expert_iteration.files import read_jsonl
 
 Z = 1.96
 

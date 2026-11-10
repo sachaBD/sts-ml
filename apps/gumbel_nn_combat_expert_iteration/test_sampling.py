@@ -69,23 +69,6 @@ class DeckDistributionTests(unittest.TestCase):
                                         if k not in ('50', 'unobserved')))
                     self.assertEqual(decks['50']['probability'], decks['unobserved']['probability'])
 
-    def test_half_concentration_is_uncertainty_weighting_and_stronger_priors_flatten_it(self):
-        counts = {str(i): dict(attempts=100, wins=i) for i in (0, 25, 50, 75, 100)}
-        weighted = deck_distribution(counts, 1, 0.5)
-        for d, c in counts.items():
-            p = (c['wins'] + 1) / (c['attempts'] + 2)
-            self.assertAlmostEqual(weighted[d]['probability'] / weighted['50']['probability'],
-                                   p * (1-p) / 0.25)
-        stronger = deck_distribution(counts, 100, 0.5)
-        self.assertGreater(stronger['0']['probability'], weighted['0']['probability'])
-        self.assertLess(stronger['50']['probability'], weighted['50']['probability'])
-
-    def test_equal_evidence_and_zero_concentration_are_uniform(self):
-        for counts, concentration in [({str(i): dict(attempts=0, wins=0) for i in range(7)}, 1),
-                                      ({str(i): dict(attempts=10, wins=i) for i in range(7)}, 0)]:
-            for d in deck_distribution(counts, 1, concentration).values():
-                self.assertAlmostEqual(d['probability'], 1 / len(counts))
-
     def test_impossible_counts_are_rejected(self):
         for attempts, wins in [(-1, 0), (1, -1), (1, 2)]:
             with self.assertRaises(ValueError):

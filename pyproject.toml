@@ -1,9 +1,5 @@
 # Python environment for combat_rl, managed with uv (https://docs.astral.sh/uv/).
-# Usually via make: env / env-onnx / env-jax / env-all (see `make help`). Directly:
-#   uv sync                  core only (training, data, analysis)
-#   uv sync --group onnx     + ONNX export/inference (agents/combat/nn)
-#   uv sync --all-groups     everything
-# `uv sync` makes .venv match exactly what is requested: groups not listed are uninstalled.
+# Set up with `make env` (uv sync). `uv sync` makes .venv match exactly this file.
 # uv.lock pins exact versions; commit it alongside changes here.
 
 [project]
@@ -15,11 +11,7 @@ dependencies = [
     "numpy==2.5.2",
     "pyarrow==23.0.1",
     "sts-lightspeed",  # Python names of the simulator's enums, from the sibling lightspeed checkout
-]
-
-[dependency-groups]
-# Export PyTorch nets to ONNX for native C++ inference (nn_play) and verify parity.
-onnx = [
+    # PyTorch to ONNX (agents/combat/nn/pytorch_to_onnx.py), and the ONNX Runtime + TensorRT nn_play links against.
     "onnx==1.23.1",
     "onnxscript==0.7.2",
     "onnxruntime-gpu==1.24.4",

@@ -15,33 +15,25 @@ version = "0.0.0"
 source = { virtual = "." }
 dependencies = [
     { name = "numpy" },
-    { name = "pyarrow" },
-    { name = "sts-lightspeed" },
-    { name = "torch" },
-]
-
-[package.dev-dependencies]
-onnx = [
     { name = "onnx" },
     { name = "onnxruntime-gpu" },
     { name = "onnxscript" },
+    { name = "pyarrow" },
+    { name = "sts-lightspeed" },
     { name = "tensorrt-cu12-libs" },
+    { name = "torch" },
 ]
 
 [package.metadata]
 requires-dist = [
     { name = "numpy", specifier = "==2.5.2" },
-    { name = "pyarrow", specifier = "==23.0.1" },
-    { name = "sts-lightspeed", editable = "../lightspeed/python" },
-    { name = "torch", specifier = "==2.14.0", index = "https://download.pytorch.org/whl/cu126" },
-]
-
-[package.metadata.requires-dev]
-onnx = [
     { name = "onnx", specifier = "==1.23.1" },
     { name = "onnxruntime-gpu", specifier = "==1.24.4" },
     { name = "onnxscript", specifier = "==0.7.2" },
+    { name = "pyarrow", specifier = "==23.0.1" },
+    { name = "sts-lightspeed", editable = "../lightspeed/python" },
     { name = "tensorrt-cu12-libs", specifier = "==10.16.1.11" },
+    { name = "torch", specifier = "==2.14.0", index = "https://download.pytorch.org/whl/cu126" },
 ]
 
 [[package]]

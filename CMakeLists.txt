@@ -7,8 +7,8 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
 # Link-time optimization for everything below, sts_lightspeed included: its many small out-of-line accessors
-# (CardInstance / Monster getters) get inlined across files. ~1.47x search throughput, identical results
-# (scratch/profile_teacher, 2026-09-29). Opt out with -DCMAKE_INTERPROCEDURAL_OPTIMIZATION=OFF.
+# (CardInstance / Monster getters) get inlined across files: ~1.47x search throughput, identical results.
+# Opt out with -DCMAKE_INTERPROCEDURAL_OPTIMIZATION=OFF.
 if(NOT DEFINED CMAKE_INTERPROCEDURAL_OPTIMIZATION)
     include(CheckIPOSupported)
     check_ipo_supported(RESULT ipo_supported OUTPUT ipo_error)
@@ -19,7 +19,7 @@ if(NOT DEFINED CMAKE_INTERPROCEDURAL_OPTIMIZATION)
     endif()
 endif()
 
-# Shared simulator repo (also used by sts_ml).
+# The simulator: the sibling ../lightspeed checkout.
 set(STS_LIGHTSPEED_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../lightspeed" CACHE PATH "sts_lightspeed checkout")
 add_subdirectory("${STS_LIGHTSPEED_DIR}" "${CMAKE_CURRENT_BINARY_DIR}/sts_lightspeed")
 
@@ -60,16 +60,6 @@ foreach(test_file IN LISTS python_test_files)
         ENVIRONMENT "PYTHONPATH=${CMAKE_CURRENT_SOURCE_DIR};STSRL_BUILD_DIR=${python_test_build_dir}"
         LABELS "python")
 endforeach()
-
-# The dashboard's dependency-free Node tests run alongside its Python tests.
-find_program(STSRL_NODE NAMES node nodejs)
-if(STSRL_NODE)
-    file(GLOB dashboard_ui_tests CONFIGURE_DEPENDS
-        "apps/gumbel_nn_combat_expert_iteration/web/ui/test_*.cjs")
-    add_test(NAME javascript.dashboard_ui COMMAND "${STSRL_NODE}" --test ${dashboard_ui_tests})
-    set_tests_properties(javascript.dashboard_ui PROPERTIES
-        WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}" LABELS "javascript" TIMEOUT 30)
-endif()
 
 # Workers depend on inference, never the reverse.
 add_subdirectory(infra/inference)

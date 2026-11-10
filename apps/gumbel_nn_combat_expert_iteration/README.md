@@ -45,9 +45,6 @@ Schedules and ordering may change on resume; names, fights, and search settings 
 Inputs are frozen at `inputs/evaluation/NAME.jsonl`; results go to `training/test/iterNNN/NAME/`,
 with one completion log row per set. Recovery retries only uncommitted sets.
 
-This replaces `evaluation.fights` / `in_sample_fights`; old runs are not automatically migrated.
-Named-set dashboard quality views are a follow-up; health/status remain available.
-
 ## Adaptive deck sampling
 
 ```toml
@@ -132,13 +129,6 @@ visibly labeled and the quality tab is disabled:
 ```sh
 .venv/bin/python -m apps.gumbel_nn_combat_expert_iteration.web --mock normal --port 8003
 # Other scenarios: --mock fallback, --mock stale, --mock missing
-```
-
-Tests:
-
-```sh
-.venv/bin/python -m unittest apps.gumbel_nn_combat_expert_iteration.web.test_health_mock
-node --test apps/gumbel_nn_combat_expert_iteration/web/ui/test_*.cjs
 ```
 
 ## Recovery

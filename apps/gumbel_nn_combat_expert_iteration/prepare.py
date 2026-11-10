@@ -1,13 +1,17 @@
-"""Freeze a run's inputs, then launch expert_iteration.py on them. See README.md.
+"""Freeze a run's inputs, then launch expert_iteration.py on them. See README.md. Called by run.sh:
+  prepare.py CONFIG.toml --out DIR    freeze inputs into DIR and train
+  prepare.py CONFIG.toml --inputs     print the files the run reads, one per line (its recorded lineage)
 
 Everything the run reads is copied into OUT once: config.toml and inputs/{nn_play, starts.json, evaluation/NAME.jsonl, ...}.
 """
+import argparse
 from pathlib import Path
 import re
 import subprocess
 import sys
+import tomllib
 
-from apps.common.app import main, read_jsonl, snapshot, write_json
+from apps.gumbel_nn_combat_expert_iteration.files import read_jsonl, snapshot, write_json
 from apps.gumbel_nn_combat_expert_iteration.config import load
 
 # Where the recipe and dashboards find each optional evaluation input.
@@ -16,14 +20,14 @@ EVALUATION_INPUTS = {'final_fights': 'FINAL_TEST_DO_NOT_USE_FOR_SELECTION.jsonl'
 
 
 def inputs(raw):
-    """The files this run reads (lineage for apps/common/launch.sh)."""
+    """The files this run reads (its recorded lineage)."""
     run, starts, evaluation = (raw.get(k, {}) for k in ('run', 'starts', 'evaluation'))
     paths = [starts.get('fights'), run.get('initial_checkpoint'), *(s.get('fights') for s in evaluation.get('sets', [])),
              *(evaluation.get(k) for k in EVALUATION_INPUTS)]
     return sorted(p for p in paths if p)
 
 
-def run(_raw, config_path, out):
+def run(config_path, out):
     config = load(config_path.read_text())
     decks = read_jsonl(config.starts.fights)
     names = [f['fight_id'] for f in decks]
@@ -55,4 +59,13 @@ def run(_raw, config_path, out):
 
 
 if __name__ == '__main__':
-    main(run, inputs)
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument('config', type=Path)
+    action = parser.add_mutually_exclusive_group(required=True)
+    action.add_argument('--out', type=Path)
+    action.add_argument('--inputs', action='store_true')
+    args = parser.parse_args()
+    if args.inputs:
+        print(*inputs(tomllib.loads(args.config.read_text())), sep='\n')
+    else:
+        run(args.config, args.out)

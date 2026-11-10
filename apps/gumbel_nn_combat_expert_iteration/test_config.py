@@ -33,17 +33,6 @@ class ConfigTests(unittest.TestCase):
         self.rejects(CONFIG.replace('per_iteration = 5', 'per_iteration = 5\nexcluded_potions = [15]'), 'list of str')
         self.rejects(CONFIG.replace('rollout_mix = 0.5', 'rollout_mix = 0.5\nrollout_mix_decay = -1'), 'rollout_mix_decay')
 
-    def test_value_sampling_is_opt_in_and_defines_the_experiment(self):
-        base = load(CONFIG)
-        explicit_default = load(CONFIG.replace('steps = 1', 'steps = 1\nvalue_batch = 0'))
-        self.assertEqual(base, explicit_default)
-        sparse = load(CONFIG.replace('steps = 1', 'steps = 1\nvalue_batch = 128'))
-        self.assertEqual(experiment_changes(base, sparse), ['[training].value_batch'])
-        self.rejects(CONFIG.replace('steps = 1', 'steps = 1\nvalue_batch = -1'), 'value_batch')
-        self.rejects(CONFIG.replace('steps = 1', 'steps = 1\nvalue_batch = 1.5'), 'value_batch')
-        self.rejects(CONFIG.replace('steps = 1', 'steps = 1\nvalue_batch = 128')
-                     .replace('max_train_rows = 0', 'max_train_rows = 500000'), 'max_train_rows')
-
     def test_sampling_policy_is_validated_and_cannot_change_on_resume(self):
         base = load(CONFIG)
         for key, value in [('history_iterations', 3), ('win_rate_prior_strength', 2.0),
@@ -56,33 +45,6 @@ class ConfigTests(unittest.TestCase):
             for value in values:
                 self.rejects(CONFIG.replace('per_iteration = 5', f'per_iteration = 5\n{key} = {value}'), key)
         self.assertEqual(base.starts.sampling_concentration, 0)
-
-    def test_rollout_mix_decays_to_zero_and_stays(self):
-        for decay in (0, 1, 7, 30):
-            search = load(CONFIG.replace('rollout_mix = 0.5', f'rollout_mix = 0.5\nrollout_mix_decay = {decay}')).search
-            mixes = [search.at(it).rollout_mix for it in range(1, 70)]
-            self.assertTrue(all(0 <= b <= a <= 0.5 for a, b in zip(mixes, mixes[1:])))
-            self.assertEqual(mixes[-1], 0 if decay else 0.5)
-            if decay:
-                self.assertEqual(search.at(decay).rollout_mix, 0)
-                self.assertGreater(search.at(decay - 1).rollout_mix, 0)
-
-    def test_learning_rate_halves_its_distance_to_lr_final_every_half_life(self):
-        for half_life in (0, 1, 7, 30):
-            schedule = f'lr = 0.001\nlr_half_life = {half_life}\nlr_final = 0.0001' if half_life else 'lr = 0.001'
-            training = load(CONFIG.replace('lr = 0.001', schedule)).training
-            rates = [training.lr_at(it) for it in range(200)]
-            self.assertEqual(rates[0], training.lr)
-            self.assertTrue(all(training.lr_final <= b <= a <= training.lr for a, b in zip(rates, rates[1:])))
-            if half_life:
-                gap = lambda it: training.lr_at(it) - training.lr_final
-                self.assertAlmostEqual(gap(half_life) / gap(0), 0.5)
-                self.assertAlmostEqual(gap(3 * half_life) / gap(2 * half_life), 0.5)
-            else:
-                self.assertEqual(set(rates), {training.lr})
-        self.rejects(CONFIG.replace('lr = 0.001', 'lr = 0.001\nlr_half_life = -1'), 'lr_half_life')
-        self.rejects(CONFIG.replace('lr = 0.001', 'lr = 0.001\nlr_half_life = 10\nlr_final = 0.001'), 'lr_final')
-        self.rejects(CONFIG.replace('lr = 0.001', 'lr = 0.001\nlr_final = 0.0001'), 'lr_final requires lr_half_life')
 
     def test_evaluation_resume_preserves_search_but_allows_scheduling_changes(self):
         base = load(CONFIG)

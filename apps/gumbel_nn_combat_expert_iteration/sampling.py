@@ -2,7 +2,7 @@
 import json
 import math
 
-from apps.common.app import write_json
+from apps.gumbel_nn_combat_expert_iteration.files import write_json
 from .deck_stats import iteration_counts
 
 
