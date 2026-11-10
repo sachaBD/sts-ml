@@ -6,6 +6,7 @@
 
 using namespace stsrl::nn;
 namespace {
+namespace L = layout::inventory_v1;
 int kind(const stsrl::infra::Tokens& tokens, int row) { return int(tokens.data[row * width]); }
 float feature(const stsrl::infra::Tokens& tokens, int row, int column) { return tokens.data[row * width + column]; }
 }
@@ -46,18 +47,18 @@ TEST(InventoryEncoding, ActionsPointAtTheirSourceCardAndTargetMonster) {
         const auto tokens = encode_inventory(state, actions);
         const int first = tokens.count - tokens.actions;
         for (int i = 0; i < 4; ++i) {
-            const int target = int(feature(tokens, first + i, inventory_target)) - 1;
-            const int source = int(feature(tokens, first + i, inventory_source)) - 1;
+            const int target = int(feature(tokens, first + i, L::link::target)) - L::link_offset;
+            const int source = int(feature(tokens, first + i, L::link::source)) - L::link_offset;
             ASSERT_GE(target, 0);
             ASSERT_GE(source, 0);
-            EXPECT_EQ(kind(tokens, target), int(InventoryKind::monster));
-            EXPECT_EQ(kind(tokens, source), int(i < 2 ? InventoryKind::card : InventoryKind::potion));
+            EXPECT_EQ(kind(tokens, target), L::kind::monster.id);
+            EXPECT_EQ(kind(tokens, source), (i < 2 ? L::kind::card : L::kind::potion).id);
             EXPECT_FLOAT_EQ(feature(tokens, target, 4), state.monsters.arr[i % 2].curHp / 100.f);
         }
-        EXPECT_NE(feature(tokens, first, inventory_source), feature(tokens, first + 1, inventory_source));
-        EXPECT_NE(feature(tokens, first + 2, inventory_source), feature(tokens, first + 3, inventory_source));
-        EXPECT_NE(feature(tokens, first, inventory_target), feature(tokens, first + 1, inventory_target));
-        EXPECT_EQ(feature(tokens, tokens.count - 1, inventory_target), 0);
+        EXPECT_NE(feature(tokens, first, L::link::source), feature(tokens, first + 1, L::link::source));
+        EXPECT_NE(feature(tokens, first + 2, L::link::source), feature(tokens, first + 3, L::link::source));
+        EXPECT_NE(feature(tokens, first, L::link::target), feature(tokens, first + 1, L::link::target));
+        EXPECT_EQ(feature(tokens, tokens.count - 1, L::link::target), 0);
         state.monsters.arr[0].curHp /= 2;
         std::swap(state.monsters.arr[0], state.monsters.arr[1]);
         state.monsters.arr[0].idx = 0;

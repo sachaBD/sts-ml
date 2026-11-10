@@ -1,0 +1,66 @@
+# The token layouts the C++ encoders write and the Python models read: the one source for both.
+# C++ gets them as constants generated at build time (layout.py); Python reads this file (layout.py).
+width = 68  # floats per token
+
+[row]  # columns every row begins with; its features follow
+kind = 0
+id = 1
+id2 = 2
+features = 3
+
+[entity]  # entity/encoding.cpp, entity/model.py
+version = 0  # the context row's id2
+link_offset = 0  # a link holds the referenced row's index; 0 (the context row) means none
+
+[entity.kind]
+context = 1
+card = 2
+monster = 3
+potion = 4
+relic = 5
+action = 6
+
+[entity.link]
+target = 67
+
+[entity.card_zone]  # a card row's first feature
+hand = 0
+draw = 1
+discard = 2
+exhaust = 3
+offered = 4
+
+[entity.action_kind]  # an action row's id2
+card = 1
+potion = 2
+single_card_selection = 3
+multi_card_selection = 4
+end_turn = 5
+
+[inventory_v1]  # inventory/encoding.cpp, inventory/model.py
+version = 1  # the context row's id2
+link_offset = 1  # a link holds the referenced row's index + 1; 0 means none
+
+[inventory_v1.kind]  # the model reads each kind's features in id order
+context = { id = 1, features = 11 }
+card = { id = 2, features = 17 }
+monster = { id = 3, features = 13 }
+potion = { id = 4, features = 18 }
+relic = { id = 5, features = 3 }
+action = { id = 6, features = 60 }
+player = { id = 7, features = 11 }
+player_effect = { id = 8, features = 4 }
+monster_effect = { id = 9, features = 2 }
+inventory = { id = 10, features = 19 }
+
+[inventory_v1.link]
+owner = 65
+source = 66
+target = 67
+
+[inventory_v1.action_kind]  # an action row's id2
+card = 1
+potion = 2
+single_card_selection = 3
+multi_card_selection = 4
+end_turn = 5

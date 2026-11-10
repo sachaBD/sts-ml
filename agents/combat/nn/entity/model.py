@@ -4,7 +4,7 @@ from torch import Tensor, nn
 
 from agents.combat.nn.model import CombatModel, context_width, win_probability
 from agents.combat.nn.entity.encoding import CardZone, EntityRows, KIND_CAPACITY, TokenKind
-from agents.combat.nn.tokens import ID_CAPACITY, MASKED_LOGIT, WIDTH
+from agents.combat.nn.tokens import ID_CAPACITY, MASKED_LOGIT, ROW, WIDTH
 
 
 class EntityModel(CombatModel):
@@ -20,7 +20,7 @@ class EntityModel(CombatModel):
         self.kind = nn.Embedding(KIND_CAPACITY, dim)
         self.id = nn.Embedding(KIND_CAPACITY * ID_CAPACITY, dim)
         self.id2 = nn.Embedding(ID_CAPACITY, dim)
-        self.numeric = nn.Linear(WIDTH - 3, dim)
+        self.numeric = nn.Linear(WIDTH - ROW.features, dim)
         self.item = nn.Sequential(nn.Linear(dim, dim), nn.GELU(approximate='tanh'), nn.Linear(dim, dim))
         self.group = nn.Parameter(torch.randn(4, dim) * 0.02)  # RELICS, DRAW, DISCARD, EXHAUST
         self.group_norm = nn.LayerNorm(dim)

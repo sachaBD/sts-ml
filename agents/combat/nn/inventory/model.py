@@ -2,17 +2,21 @@
 import torch
 from torch import nn
 
+from agents.combat.nn.layout import LAYOUT
 from agents.combat.nn.model import CombatModel, context_width
-from agents.combat.nn.tokens import ID_CAPACITY, MASKED_LOGIT, WIDTH, TokenRows
+from agents.combat.nn.tokens import ID_CAPACITY, MASKED_LOGIT, ROW, WIDTH, TokenRows
 
-# Must match InventoryKind and the feature layouts in inventory/encoding.cpp.
-CONTEXT, CARD, MONSTER, POTION, RELIC, ACTION, PLAYER, PLAYER_EFFECT, MONSTER_EFFECT, INVENTORY = range(1, 11)
-FEATURE_WIDTHS = {CONTEXT: 11, CARD: 17, MONSTER: 13, POTION: 18, RELIC: 3,
-                  ACTION: 60, PLAYER: 11, PLAYER_EFFECT: 4, MONSTER_EFFECT: 2, INVENTORY: 19}
-OWNER, SOURCE, TARGET = 65, 66, 67
-VERSION = 1
-# EncodedActionKind + 1, as written by the native encoder.
-CARD_ACTION, POTION_ACTION, SINGLE_CARD_SELECTION, MULTI_CARD_SELECTION = range(1, 5)
+INVENTORY_V1 = LAYOUT.inventory_v1  # layout.toml's [inventory_v1], which inventory/encoding.cpp writes
+_kind = INVENTORY_V1.kind
+CONTEXT, CARD, MONSTER, POTION, RELIC, ACTION, PLAYER, PLAYER_EFFECT, MONSTER_EFFECT, INVENTORY = (
+    k.id for k in (_kind.context, _kind.card, _kind.monster, _kind.potion, _kind.relic, _kind.action, _kind.player,
+                   _kind.player_effect, _kind.monster_effect, _kind.inventory))
+FEATURE_WIDTHS = {k.id: k.features for k in sorted(vars(_kind).values(), key=lambda k: k.id)}
+OWNER, SOURCE, TARGET = INVENTORY_V1.link.owner, INVENTORY_V1.link.source, INVENTORY_V1.link.target
+VERSION = INVENTORY_V1.version
+_action = INVENTORY_V1.action_kind
+CARD_ACTION, POTION_ACTION, SINGLE_CARD_SELECTION, MULTI_CARD_SELECTION = (
+    _action.card, _action.potion, _action.single_card_selection, _action.multi_card_selection)
 
 
 class InventoryModel(CombatModel):
@@ -53,7 +57,7 @@ class InventoryModel(CombatModel):
         potion_source = rows.is_kind(ACTION) & ((action_kind - POTION_ACTION).abs() < .5)
         namespace = torch.where(rows.is_kind(INVENTORY) | card_source, CARD, kind)
         namespace = torch.where(potion_source, POTION, namespace)
-        numeric = torch.cat([tokens[..., 3:3 + count] * rows.is_kind(type_)[..., None]
+        numeric = torch.cat([tokens[..., ROW.features:ROW.features + count] * rows.is_kind(type_)[..., None]
                              for type_, count in FEATURE_WIDTHS.items()], dim=-1)
         return (self.kind(kind) + self.id(namespace * ID_CAPACITY + rows.id)
                 + self.id2(rows.id2) + self.numeric(numeric))
@@ -69,7 +73,7 @@ class InventoryModel(CombatModel):
         x = entities
         for column, projection in ((OWNER, self.owner), (SOURCE, self.source), (TARGET, self.target)):
             reference = tokens[..., column]
-            index = (reference.long() - 1).clamp(min=0)
+            index = (reference.long() - INVENTORY_V1.link_offset).clamp(min=0)
             linked = entities.gather(1, index[..., None].expand_as(entities))
             x = x + projection(linked) * (reference > 0)[..., None]
         hidden = self.norm(self.encoder(x, src_key_padding_mask=~rows.valid))
