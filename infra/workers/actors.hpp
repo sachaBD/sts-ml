@@ -1,6 +1,7 @@
 #pragma once
 // Actors play episodes; InferenceServer lanes batch their network requests onto a Backend.
 // Episodes and their lifecycle methods stay on their Actor; only immutable token views and predictions cross threads.
+// The Actor owns each request's tokens from submission until its completion.
 // On failure, episode/request storage stays alive until inference has stopped accessing it.
 #include "infra/inference/backend.hpp"
 #include <chrono>
@@ -13,14 +14,14 @@
 namespace stsrl::infra {
 struct EvaluationRequest {
     std::uint64_t id;
-    const Tokens* tokens;
+    Tokens tokens;
 };
 
 class Episode {
 public:
     virtual ~Episode() = default;
     // Claims one request. Null means blocked or done(); claiming never returns the same outstanding request twice.
-    // The episode bounds outstanding work and owns immutable tokens until completed(id).
+    // The episode bounds outstanding work; its tokens move to the Actor.
     // Issued IDs strictly increase within an episode, including across completions. Completion order is unrestricted.
     virtual std::optional<EvaluationRequest> next_request() = 0;
     virtual void completed(std::uint64_t id, const Prediction&) = 0;

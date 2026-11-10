@@ -36,7 +36,7 @@ stsrl::search::Result decide(const Fight& fight, double rollout_mix) {
     auto random = fight.decision_random();
     auto search = std::make_unique<Gumbel>(fight.state(), gumbel(), random());
     Decision decision{fight.state(), std::move(search), rollout_mix, random()};
-    while (const auto query = decision.pending()) decision.evaluated(fake_network(*query));
+    while (const auto query = decision.next_query()) decision.evaluated(fake_network(*query));
     return decision.result();
 }
 

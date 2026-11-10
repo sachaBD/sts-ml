@@ -6,6 +6,7 @@
 #include <atomic>
 #include <limits>
 #include <map>
+#include <set>
 #include <mutex>
 #include <thread>
 
@@ -58,7 +59,7 @@ public:
         if (!left_) return std::nullopt;
         waiting_ = true;
         tokens_.data[1] = float(step_);
-        return EvaluationRequest{reuse_ids_ ? 0 : std::uint64_t(step_), &tokens_};
+        return EvaluationRequest{reuse_ids_ ? 0 : std::uint64_t(step_), tokens_};
     }
     void completed(std::uint64_t id, const Prediction& p) override {
         on_owner();
@@ -421,17 +422,18 @@ TEST(Actors, RowsNoBackendAcceptsReachOnlyTheLastWithoutBlockingTheOthers) {
 
 TEST(Actors, OneEpisodePipelinesAcrossBackendsWithoutWaitingForTheSlowReply) {
     struct Pipeline final : Episode {
-        std::map<std::uint64_t, Tokens> pending;
+        std::set<std::uint64_t> pending;
         int issued = 0;
         std::vector<std::uint64_t>& completions;
         bool& finished;
         Pipeline(std::vector<std::uint64_t>& c, bool& f) : completions{c}, finished{f} {}
         std::optional<EvaluationRequest> next_request() override {
             if (issued == 3 || pending.size() == 2) return std::nullopt;
-            auto [it, inserted] = pending.emplace(issued, Tokens{std::vector<float>(2 * token_width), 2, 1});
-            it->second.data[0] = 0.5f;
-            it->second.data[1] = float(issued);
-            return EvaluationRequest{std::uint64_t(issued++), &it->second};
+            Tokens tokens{std::vector<float>(2 * token_width), 2, 1};
+            tokens.data[0] = 0.5f;
+            tokens.data[1] = float(issued);
+            pending.insert(issued);
+            return EvaluationRequest{std::uint64_t(issued++), std::move(tokens)};
         }
         void completed(std::uint64_t id, const Prediction& p) override {
             require(p.value == 0.5f && p.logits == std::vector<float>{float(id)}, "pipeline prediction misrouted");
@@ -494,7 +496,7 @@ TEST(ActorFailures, InvalidRequestLifecyclesAreRejectedRatherThanFinishedOrStall
                 second_claim = true;
                 if (violation == Violation::done_with_requests) return std::nullopt;
             }
-            return EvaluationRequest{0, &tokens};
+            return EvaluationRequest{0, tokens};
         }
         void completed(std::uint64_t, const Prediction&) override {}
         bool done() const override {

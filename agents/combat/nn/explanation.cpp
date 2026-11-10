@@ -57,7 +57,7 @@ Json explain(const Json& request, const Network& network) {
     const auto& gumbel = *search;
     Decision decision{state, std::move(search), mix, random()};
     Json nodes = Json::array();  // node i answered query i
-    while (const auto tokens = decision.pending()) {
+    while (const auto tokens = decision.next_query()) {
         const auto prediction = network(*tokens);
         nodes.push_back(node_json(*gumbel.pending(), prediction.value));
         decision.evaluated(prediction);

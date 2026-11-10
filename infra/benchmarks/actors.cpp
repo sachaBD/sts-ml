@@ -19,7 +19,7 @@ public:
     std::optional<EvaluationRequest> next_request() override {
         if (!left_ || waiting_) return std::nullopt;
         waiting_ = true;
-        return EvaluationRequest{std::uint64_t(steps - left_), &tokens_};
+        return EvaluationRequest{std::uint64_t(steps - left_), tokens_};
     }
     void completed(std::uint64_t, const Prediction&) override { waiting_ = false; --left_; }
     bool done() const override { return !left_ && !waiting_; }

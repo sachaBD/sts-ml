@@ -136,6 +136,7 @@ class Actor {
     struct Outstanding {
         std::uint64_t id;
         Clock::time_point submitted = Clock::now();
+        Tokens tokens;
         std::vector<std::uint16_t> packed;
     };
     struct Slot {
@@ -193,7 +194,7 @@ class Actor {
     void advance(std::size_t i) {
         auto& slot = slots_[i];
         touch(i);
-        const auto request = slot.episode->next_request();
+        auto request = slot.episode->next_request();
         if (shared_.stopped) return;  // a cancelled episode must not be recorded as finished
         if (!request) {
             if (!slot.episode->done()) {
@@ -208,17 +209,16 @@ class Actor {
             return;
         }
         if (slot.episode->done()) throw std::runtime_error{"done episode produced a request"};
-        const auto* tokens = request->tokens;
-        if (!tokens) throw std::runtime_error{"null request tokens"};
+        const auto& tokens = request->tokens;
         const int width = shared_.inference.width();
-        if (tokens->count <= 0 || tokens->actions <= 0 || tokens->actions > tokens->count ||
-            tokens->data.size() != std::size_t(tokens->count) * width || tokens->attended < 0 || tokens->attended > tokens->count)
+        if (tokens.count <= 0 || tokens.actions <= 0 || tokens.actions > tokens.count ||
+            tokens.data.size() != std::size_t(tokens.count) * width || tokens.attended < 0 || tokens.attended > tokens.count)
             throw std::runtime_error{"invalid tokens from episode " + slot.label};
         if (slot.last_id && request->id <= *slot.last_id)
             throw std::runtime_error{"episode request IDs must strictly increase"};
         slot.last_id = request->id;
-        auto [it, inserted] = slot.pending.emplace(++slot.generation, Outstanding{request->id, Clock::now(), {}});
-        shared_.inference.submit({id_, i, slot.generation, {tokens, {}}, &slot.label, {}}, it->second.packed);
+        auto& outstanding = slot.pending.emplace(++slot.generation, Outstanding{request->id, Clock::now(), std::move(request->tokens), {}}).first->second;
+        shared_.inference.submit({id_, i, slot.generation, {&outstanding.tokens, {}}, &slot.label, {}}, outstanding.packed);
         ++mailbox_.requests;
         ready(i);
     }
