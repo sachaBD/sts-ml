@@ -45,16 +45,18 @@ dim = 192
 layers = 4
 heads = 6
 mixed_precision = true
+cpu_lanes = 2
+cpu_batch = 64
 
-# GPU models by token capacity, smallest first: each input goes to the smallest that fits. Longer inputs (~1e-5
-# of them in Champ self-play, up to ~550 tokens) run on the CPU, counted per queue in the dashboard.
 [[model.deployments]]
 tokens = 48
 batches = [512, 256, 32]
+lanes = 2
 
 [[model.deployments]]
 tokens = 128
 batches = [128]
+lanes = 1
 
 [workers]
 actors = 9

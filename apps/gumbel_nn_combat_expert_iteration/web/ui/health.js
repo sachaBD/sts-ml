@@ -222,6 +222,9 @@
       n.batches.textContent = `${fmt(lane.batches_s)} batches/s`;
       n.fill.textContent = `${percent(lane.batch_fill)} batch fill`;
     });
+    const fallback = d.metrics.fallback;
+    el('executionFallback').textContent = fallback && valid(fallback.current) && !fallback.stale && playing && !samplerStale ?
+      `CPU fallback ${fallback.current.toLocaleString(undefined, { maximumFractionDigits: 3 })}%` : '';
   }
 
   function render(d) {

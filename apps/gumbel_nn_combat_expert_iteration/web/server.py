@@ -228,7 +228,7 @@ def main():
     p.add_argument('--port', type=int, default=8740)
     p.add_argument('--host', default='127.0.0.1')
     p.add_argument('--baselines', type=Path, help='historical outcome maps to compare without modifying run inputs')
-    p.add_argument('--mock', choices=('normal', 'stale', 'missing'))
+    p.add_argument('--mock', choices=('normal', 'fallback', 'stale', 'missing'))
     a = p.parse_args()
     if bool(a.run) == bool(a.mock):
         p.error('provide either RUN or --mock SCENARIO')

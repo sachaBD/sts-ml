@@ -130,16 +130,12 @@ public:
     std::string label() const override { return game_->record.at("fight_id").get<std::string>(); }
 };
 
-// MODELS is an exported model directory (agents/combat/nn/pytorch_to_onnx.py). Its network.json names the encoding,
-// the GPU deployments (fixed-shape models of each token capacity, smallest first) and the dynamic CPU model.
 struct Network {
     Encoding encoding;
-    std::vector<std::unique_ptr<stsrl::infra::Backend>> backends;  // the GPU deployments in order, then the CPU
+    std::vector<std::unique_ptr<stsrl::infra::Backend>> backends;  // in the order requests try them
 };
 
-// The CPU takes only inputs longer than every GPU deployment (~1e-5 of them): two lanes of modest batches.
-constexpr int cpu_lanes = 2, cpu_batch = 64;
-
+// network.json is written by agents/combat/nn/pytorch_to_onnx.py.
 Network load_network(const std::filesystem::path& models) {
     std::ifstream file{models / "network.json"};
     if (!file) throw std::invalid_argument{"no network.json in " + models.string()};
@@ -147,12 +143,13 @@ Network load_network(const std::filesystem::path& models) {
     Network network{encoding_from_name(manifest.at("encoding").get<std::string>()), {}};
     for (const auto& deployment : manifest.at("deployments")) {
         std::vector<std::filesystem::path> files;
-        for (const auto& name : deployment) files.push_back(models / name.get<std::string>());
-        // The smallest capacity serves nearly every request, so it gets a second lane; larger ones serve the rare rest.
-        network.backends.push_back(stsrl::infra::gpu_backend(files, network.backends.empty() ? 2 : 1));
+        for (const auto& name : deployment.at("files")) files.push_back(models / name.get<std::string>());
+        network.backends.push_back(stsrl::infra::gpu_backend(files, deployment.at("lanes").get<int>()));
     }
     if (network.backends.empty()) throw std::invalid_argument{"network.json has no deployments"};
-    network.backends.push_back(stsrl::infra::cpu_backend(models / manifest.at("cpu").get<std::string>(), cpu_lanes, cpu_batch));
+    const auto& cpu = manifest.at("cpu");
+    network.backends.push_back(stsrl::infra::cpu_backend(models / cpu.at("file").get<std::string>(),
+                                                         cpu.at("lanes").get<int>(), cpu.at("batch").get<int>()));
     for (const auto& backend : network.backends)
         if (backend->width() != width) throw std::invalid_argument{backend->name() + " model token width does not match combat encoder"};
     return network;
@@ -164,8 +161,9 @@ int main(int argc, char** argv) try {
     if (mode != "play" || argc < 4 || argc % 2) {
         std::cerr << "usage: nn_play play MODELS SAMPLES.bin OPTIONS < STARTS.jsonl > RESULTS.jsonl\n"
                      "Plays each fight start on stdin; appends its samples to SAMPLES.bin and prints one result line.\n"
-                     "MODELS is an exported model directory: its network.json names the encoding, the GPU models by\n"
-                     "token capacity and the CPU model. Each input goes to the smallest GPU model that fits, else the CPU.\n"
+                     "MODELS is an exported model directory: its network.json names the encoding, the GPU deployments\n"
+                     "(smallest token capacity first) and the CPU model, with their lanes. Each input goes to the smallest\n"
+                     "deployment that fits it, else the CPU.\n"
                      "Every option is required:\n"
                      "  --threads T                actors (CPU threads playing fights)\n"
                      "  --parallel G               fights in flight per actor\n"

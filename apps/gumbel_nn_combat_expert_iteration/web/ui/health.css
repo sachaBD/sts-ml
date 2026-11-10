@@ -73,6 +73,7 @@
 .topology-lane-heading strong { font-weight:500; }
 .topology-lane-phase { font-size:10px; color:var(--dim); }
 .topology-lane-footer { display:flex; justify-content:space-between; font-size:10px; color:var(--dim); margin-top:10px; font-variant-numeric:tabular-nums; }
+.topology-fallback { color:var(--test); font-size:11px; text-align:right; min-height:15px; }
 .topology-legend { display:flex; gap:16px; align-items:center; font-size:10px; color:var(--dim); }
 .topology-legend > span:not(:last-child)::before { content:''; display:inline-block; width:7px; height:7px; border-radius:2px; margin-right:5px; }
 .legend-ready::before { background:var(--train); }

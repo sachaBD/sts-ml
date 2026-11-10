@@ -56,7 +56,7 @@ class ExpertIteration:
                       for s in config.evaluation.sets}
         m, t = config.model, config.training
         self.learner = Learner(m.architecture(), t.lr, t.device)
-        self.exporter = ModelExporter(m.architecture(), m.deployments, m.mixed_precision)
+        self.exporter = ModelExporter(m.architecture(), m.deployments, m.cpu(), m.mixed_precision)
 
     def run(self, resume_from=None):
         self.control.status(stage='initialization', phase='initialize')

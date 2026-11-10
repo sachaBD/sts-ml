@@ -15,7 +15,7 @@ from typing import get_args
 
 from agents.combat.player.play import Search, Workers
 from agents.combat.nn.model import ModelSpec
-from agents.combat.nn.pytorch_to_onnx import Deployment, validate as validate_deployments
+from agents.combat.nn.pytorch_to_onnx import Cpu, Deployment, validate as validate_deployments
 from apps.common.app import check_keys, required
 from environments.combat.starts import Starts
 
@@ -84,10 +84,15 @@ class Model:
     value: str  # win: one win logit; outcome: loss/win outcome bins (agents/combat/nn/model.py)
     auxiliary: bool  # train HP lost, enemy HP lost and turns remaining heads
     mixed_precision: bool  # fp16 compute in the exported GPU models
-    deployments: tuple[Deployment, ...]  # smallest token capacity first (agents/combat/nn/pytorch_to_onnx.py)
+    deployments: tuple[Deployment, ...]  # GPU, smallest token capacity first
+    cpu_lanes: int
+    cpu_batch: int
 
     def architecture(self):
         return ModelSpec(self.kind, self.dim, self.layers, self.heads, self.value, self.auxiliary)
+
+    def cpu(self):
+        return Cpu(self.cpu_lanes, self.cpu_batch)
 
 
 @dataclass(frozen=True)
@@ -183,7 +188,7 @@ def validate(c):
     need(t.lr_half_life or t.lr_final == 0, 'training: lr_final requires lr_half_life')
     try:
         m.architecture()
-        validate_deployments(m.deployments)
+        validate_deployments(m.deployments, m.cpu())
     except ValueError as error:
         sys.exit(f'config: {error}')
     need(w.actors > 0 and w.slots > 0 and w.gpu_wait_us >= 0 and w.timeout_ms > 0 and w.shutdown_timeout_ms > 0,

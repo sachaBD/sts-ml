@@ -3,6 +3,7 @@
 from dataclasses import dataclass
 import json
 import os
+import shutil
 from pathlib import Path
 import subprocess
 import sys
@@ -26,24 +27,35 @@ class Workers:
 
 
 class DeviceSampler:
-    """The GPU's utilisation and memory every 250 ms while a stage plays, as CSV (nvidia-smi)."""
-    def __init__(self, path):
-        self.path = Path(path)
+    """Optional per-stage NVML CSV. Missing nvidia-smi leaves GPU counters unavailable."""
+    def __init__(self, path, enabled=True):
+        self.path, self.enabled = Path(path), enabled
+        self.process = self.stream = None
 
     def __enter__(self):
-        self.stream = self.path.open('w')
-        fields = 'timestamp,utilization.gpu,utilization.memory,memory.used,memory.total'
-        self.process = subprocess.Popen(['nvidia-smi', '--id=0', f'--query-gpu={fields}', '--format=csv,nounits',
-                                         '-lms', '250'], stdout=self.stream, stderr=subprocess.DEVNULL)
+        binary = shutil.which('nvidia-smi') if self.enabled else None
+        if binary:
+            self.stream = self.path.open('w')
+            fields = 'timestamp,utilization.gpu,utilization.memory,memory.used,memory.total'
+            try:
+                self.process = subprocess.Popen([binary,'--id=0',f'--query-gpu={fields}','--format=csv,nounits','-lms','250'],
+                                                stdout=self.stream,stderr=subprocess.DEVNULL)
+            except OSError:
+                self.stream.close(); self.stream = None
         return self
 
     def __exit__(self, *error):
-        self.process.terminate()
-        self.process.wait()
-        self.stream.close()
+        if self.process:
+            if self.process.poll() is None:
+                self.process.terminate()
+            try: self.process.wait(timeout=2)
+            except subprocess.TimeoutExpired:
+                self.process.kill(); self.process.wait()
+        if self.stream:
+            self.stream.close()
 
 
-def play(binary, models, fights, directory, search, workers, *, progress):
+def play(binary, models, fights, directory, search, workers, *, progress=lambda done, pid: None, sample_devices=True):
     """Plays `fights` with nn_play `binary` and the exported model directory `models`; writes samples, results and
     logs to `directory`. Results are journaled as fights finish; progress(done, pid) follows them."""
     directory.mkdir(parents=True, exist_ok=True)
@@ -64,7 +76,7 @@ def play(binary, models, fights, directory, search, workers, *, progress):
     libs = [packages / 'tensorrt_libs', *sorted((packages / 'nvidia').glob('*/lib'))]
     env = dict(os.environ, LD_LIBRARY_PATH=':'.join(map(str, libs)) + ':' + os.environ.get('LD_LIBRARY_PATH', ''))
     results = []
-    with DeviceSampler(directory / 'gpu.csv'), starts.open() as source, \
+    with DeviceSampler(directory / 'gpu.csv', enabled=sample_devices), starts.open() as source, \
             (directory / 'results.jsonl').open('w') as journal, (directory / 'worker.log').open('w') as errors:
         with subprocess.Popen(command, stdin=source, stdout=subprocess.PIPE, stderr=errors, text=True, env=env) as process:
             for line in process.stdout:

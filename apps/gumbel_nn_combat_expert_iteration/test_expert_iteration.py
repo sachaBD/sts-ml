@@ -61,7 +61,9 @@ dim = 8
 layers = 1
 heads = 1
 mixed_precision = false
-deployments = [{ tokens = 16, batches = [4, 2] }]
+deployments = [{ tokens = 16, batches = [4, 2], lanes = 2 }]
+cpu_lanes = 1
+cpu_batch = 4
 
 [workers]
 actors = 2
