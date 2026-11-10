@@ -58,7 +58,7 @@ exceed wall time. `actors_stats.server_cpu_pct` is average CPU use per server la
 
 | From -> To | Mechanism |
 |---|---|
-| Loop -> nn_play | spawn subprocess; model paths as args; starts on stdin |
+| Loop -> nn_play | spawn subprocess; the exported model directory as an arg; starts on stdin |
 | nn_play -> Loop | one JSON result line per finished game on stdout; errors to `worker.log` |
 | Actor <-> InferenceServer | in-process: per-Actor mailbox (mutex, request/completion deques bounded by K slots) + condition-variable wakeups |
 | Actor -> Disk | shared mutex-guarded `ofstream` appending `samples-0.bin` |

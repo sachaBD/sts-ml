@@ -1,5 +1,5 @@
-"""PyTorch to ONNX: writes the trained network as the files the player (nn_play) loads. Training models are never
-moved or mutated.
+"""PyTorch to ONNX: writes the trained network as the model directory the player (nn_play) loads. Training models
+are never moved or mutated.
 
 Tracing a graph takes ~20s a model, so after the first export each graph is reused: the current weights are written
 into the same places in the graph and its data file. That is only done when every parameter maps to exactly one
@@ -7,6 +7,7 @@ initializer (equal to it or its transpose); otherwise that file is traced again,
 """
 from copy import deepcopy
 from dataclasses import dataclass
+import json
 from pathlib import Path
 
 import numpy as np
@@ -15,48 +16,35 @@ from onnx import numpy_helper
 import torch
 from torch import nn
 
-from agents.combat.nn.entity.model import EntityModel
-from agents.combat.nn.model import CombatModel, ModelSpec
+from agents.combat.nn.model import CombatModel, ModelSpec, model_class
 
-
-def model_files(directory, gpu_bank):
-    """What nn_play loads from a model directory: the dynamic model, the fixed-batch GPU model and its smaller bank."""
-    return dict(dynamic=directory / 'model.onnx', gpu=directory / 'model-gpu.onnx',
-                bank=[directory / f'model-gpu-b{b}.onnx' for b in gpu_bank])
+# The model directory's description of itself: everything nn_play needs to know about the network.
+MANIFEST = 'network.json'
 
 
 @dataclass(frozen=True)
 class ExportSpec:
+    """One fixed-shape GPU deployment: its token capacity, optional attention cap and batch sizes."""
     tokens: int
+    batches: tuple[int, ...]
     attended: int | None = None
     mixed_precision: bool = False
 
     def validate(self, model: ModelSpec):
         if self.tokens <= 0:
             raise ValueError('gpu_tokens must be positive')
+        if not self.batches or len(set(self.batches)) != len(self.batches) or min(self.batches) <= 0:
+            raise ValueError('distinct positive batch sizes required')
         if self.attended is not None:
-            if model.kind != 'entity':
-                raise ValueError('gpu_attended is only supported for entity models')
+            if not model_class(model.kind).bounded_attention:
+                raise ValueError(f'gpu_attended is not supported by {model.kind} models')
             if not 0 < self.attended <= self.tokens:
                 raise ValueError('0 < gpu_attended <= gpu_tokens required')
 
-
-class PooledAttentionView(nn.Module):
-    """Fixed attention capacity; the native backend retries overflow on the full CPU model."""
-    def __init__(self, net: EntityModel, slots: int | None):
-        super().__init__()
-        self.net, self.slots = net, slots
-
-    def forward(self, tokens):
-        return self.net.predict(tokens, self.slots)
-
-
-def deployment_view(net: CombatModel, spec: ExportSpec) -> nn.Module:
-    """The single topology-specific deployment boundary."""
-    spec.validate(net.spec)
-    if isinstance(net, EntityModel):
-        return PooledAttentionView(net, spec.attended)
-    return net
+    def files(self, directory=''):
+        """Its ONNX files, one per batch size; the largest batch is model-gpu.onnx."""
+        return [Path(directory, 'model-gpu.onnx' if b == max(self.batches) else f'model-gpu-b{b}.onnx')
+                for b in self.batches]
 
 
 class HalfInput(nn.Module):
@@ -72,46 +60,64 @@ class HalfInput(nn.Module):
 
 
 class ModelExporter:
-    """Exports one architecture to the dynamic CPU model and fixed GPU model bank.
-
-    Precision and capacity are deployment choices, not checkpoint architecture.
+    """Exports one architecture as a model directory nn_play plays from: the dynamic CPU model, the fixed GPU
+    models of the narrow deployment and, optionally, a wide one (in wide/) for inputs too long for narrow,
+    and MANIFEST naming them. Precision and capacity are deployment choices, not checkpoint architecture.
     """
-    def __init__(self, model: ModelSpec, deployment: ExportSpec):
-        deployment.validate(model)
-        self.model, self.deployment = model, deployment
+    def __init__(self, model: ModelSpec, narrow: ExportSpec, wide: ExportSpec | None = None):
+        for deployment in (narrow, wide or narrow):
+            deployment.validate(model)
+        self.model, self.narrow, self.wide = model, narrow, wide
         self.cache = GraphCache()
 
-    def export(self, net: CombatModel, directory, batch, bank):
+    def export(self, net: CombatModel, directory):
+        self._export(net, Path(directory), dynamic=True, narrow=True)
+
+    def export_wide(self, net: CombatModel, directory):
+        """Re-exports only the wide deployment, which may change when a run resumes."""
+        self._export(net, Path(directory), dynamic=False, narrow=False)
+
+    def _export(self, net, directory, dynamic, narrow):
         if net.spec != self.model:
             raise ValueError('export architecture differs from model')
-        if batch <= 0 or len(set(bank)) != len(bank) or any(not 0 < b < batch for b in bank):
-            raise ValueError('positive main batch and distinct smaller bank batches required')
-        files = model_files(directory, bank)
+        deployments = [(directory, self.narrow)] if narrow else []
+        if self.wide:
+            (directory / 'wide').mkdir(exist_ok=True)
+            deployments.append((directory / 'wide', self.wide))
         snapshot = deepcopy(net).cpu().eval()
         try:
-            self._write(snapshot, files['dynamic'], None)
-            device = 'cuda' if self.deployment.mixed_precision else 'cpu'
-            snapshot.to(device)
-            for size, path in zip((batch, *bank), (files['gpu'], *files['bank'])):
-                self._write(snapshot, path, size)
+            if dynamic:
+                self.cache.write(snapshot, directory / 'model.onnx', 'model.onnx',
+                                 lambda: self._trace(snapshot, directory / 'model.onnx', None, None))
+            for folder, deployment in deployments:
+                snapshot.to('cuda' if deployment.mixed_precision else 'cpu')
+                for batch, path in zip(deployment.batches, deployment.files(folder)):
+                    self.cache.write(snapshot, path, str(path.relative_to(directory)),
+                                     lambda: self._trace(snapshot, path, deployment, batch))
         finally:
             del snapshot
-            if next(net.parameters()).is_cuda or self.deployment.mixed_precision:
+            if next(net.parameters()).is_cuda or self.narrow.mixed_precision:
                 torch.cuda.empty_cache()  # release export/training scratch before the native worker
+        (directory / MANIFEST).write_text(json.dumps(self.manifest(net), indent=2) + '\n')
 
-    def _write(self, net, path, batch):
-        self.cache.write(net, path, batch, lambda: self._trace(net, path, batch))
+    def manifest(self, net):
+        def gpu(deployment, folder):
+            return dict(files=[str(f) for f in deployment.files(folder)], attended=deployment.attended or 0)
+        network = dict(encoding=net.encoding, cpu='model.onnx', gpu=gpu(self.narrow, ''))
+        if self.wide:
+            network['wide'] = gpu(self.wide, 'wide')
+        return network
 
-    def _trace(self, net, path, batch):
+    def _trace(self, net, path, deployment, batch):
         options = dict(dynamo=True, input_names=['tokens'], output_names=['value', 'logits'])
-        if batch is None:
+        if deployment is None:
             example = net.example_tokens()
             options['dynamic_shapes'] = {'tokens': {0: torch.export.Dim('batch'), 1: torch.export.Dim('tokens')}}
             model = net
         else:
             device = next(net.parameters()).device
-            example = net.example_tokens(batch, self.deployment.tokens).to(device=device, dtype=torch.float16)
-            model = HalfInput(deployment_view(net, self.deployment), self.deployment.mixed_precision).eval()
+            example = net.example_tokens(batch, deployment.tokens).to(device=device, dtype=torch.float16)
+            model = HalfInput(net.deployed(deployment.attended), deployment.mixed_precision).eval()
         torch.onnx.export(model, (example,), str(path), **options)
 
 

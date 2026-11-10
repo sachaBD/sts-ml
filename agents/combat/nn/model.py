@@ -56,7 +56,8 @@ class CombatModel(nn.Module, ABC):
     logits are masked below -1e8. Padding must not affect real-token predictions.
     The immutable spec completely identifies the architecture, not its deployment.
     """
-    encoding = 'entity'
+    encoding: str  # the native encoding (agents/combat/nn/tokens.hpp) that writes this model's tokens
+    bounded_attention = False  # deployed() can cap how many tokens attend
 
     def __init__(self, spec: ModelSpec):
         super().__init__()
@@ -72,14 +73,24 @@ class CombatModel(nn.Module, ABC):
         context, logits = self.heads(tokens)
         return win_probability(context, self.spec), logits
 
+    def deployed(self, attended: int | None) -> nn.Module:
+        """The module exported for fixed-shape GPU inference; `attended` caps the tokens that attend."""
+        if attended is not None:
+            raise ValueError(f'{self.spec.kind} models cannot cap attention')
+        return self
+
     @abstractmethod
     def heads(self, tokens: Tensor) -> tuple[Tensor, Tensor]:
         """Context readout [B, context_width(spec)] (value logits, then AUXILIARY) and action logits [B,T]."""
         raise NotImplementedError
 
 
-def build_model(spec: ModelSpec) -> CombatModel:
+def model_class(kind: str) -> type[CombatModel]:
     from agents.combat.nn.entity.model import EntityModel
     from agents.combat.nn.inventory.model import InventoryModel
 
-    return {'entity': EntityModel, 'inventory_v1': InventoryModel}[spec.kind](spec)
+    return {'entity': EntityModel, 'inventory_v1': InventoryModel}[kind]
+
+
+def build_model(spec: ModelSpec) -> CombatModel:
+    return model_class(spec.kind)(spec)

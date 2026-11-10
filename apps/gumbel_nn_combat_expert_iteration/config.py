@@ -92,14 +92,6 @@ class Model:
     def architecture(self):
         return ModelSpec(self.kind, self.dim, self.layers, self.heads, self.value, self.auxiliary)
 
-    def deployment(self):
-        return ExportSpec(self.gpu_tokens, self.gpu_attended, self.gpu_mixed_precision)
-
-    def wide_deployment(self):
-        if self.gpu_wide_tokens:
-            return ExportSpec(self.gpu_wide_tokens, self.gpu_wide_attended, self.gpu_mixed_precision)
-        return None
-
 
 @dataclass(frozen=True)
 class EvaluationSet(Search):
@@ -129,6 +121,14 @@ class Config:
     model: Model
     workers: Workers
     evaluation: Evaluation
+
+    def deployments(self):
+        """The narrow and optional wide GPU deployments every exported model directory holds."""
+        m, w = self.model, self.workers
+        narrow = ExportSpec(m.gpu_tokens, (w.gpu_batch, *w.gpu_bank), m.gpu_attended, m.gpu_mixed_precision)
+        wide = (ExportSpec(m.gpu_wide_tokens, (w.gpu_wide_batch,), m.gpu_wide_attended, m.gpu_mixed_precision)
+                if m.gpu_wide_tokens else None)
+        return narrow, wide
 
 
 def section(cls, table, name):
@@ -192,23 +192,22 @@ def validate(c):
     need(not t.value_batch or t.max_train_rows == 0, 'value_batch requires max_train_rows = 0')
     need(t.lr_half_life >= 0 and 0 <= t.lr_final < t.lr, 'training: nonnegative lr_half_life, lr_final in [0, lr)')
     need(t.lr_half_life or t.lr_final == 0, 'training: lr_final requires lr_half_life')
+    need(m.gpu_wide_tokens >= 0, 'nonnegative gpu_wide_tokens required')
+    need(m.gpu_wide_tokens or m.gpu_wide_attended is None, 'gpu_wide_attended requires gpu_wide_tokens')
+    need(all(0 < b < w.gpu_batch for b in w.gpu_bank), 'workers.gpu_bank: each batch positive and below gpu_batch')
+    narrow, wide = c.deployments()
     try:
-        m.deployment().validate(m.architecture())
-        need(m.gpu_wide_tokens >= 0, 'nonnegative gpu_wide_tokens required')
-        need(m.gpu_wide_tokens or m.gpu_wide_attended is None, 'gpu_wide_attended requires gpu_wide_tokens')
-        if wide := m.wide_deployment():
-            wide.validate(m.architecture())
-            need(m.gpu_wide_tokens >= m.gpu_tokens, 'wide deployment must cover narrow token capacity')
-            narrow_attention = m.gpu_attended or m.gpu_tokens
-            wide_attention = m.gpu_wide_attended or m.gpu_wide_tokens
-            need(wide_attention >= narrow_attention, 'wide deployment must cover narrow attention capacity')
+        for deployment in (narrow, wide or narrow):
+            deployment.validate(m.architecture())
     except ValueError as error:
         sys.exit(f'config: {error}')
+    if wide:
+        need(wide.tokens >= narrow.tokens, 'wide deployment must cover narrow token capacity')
+        need((wide.attended or wide.tokens) >= (narrow.attended or narrow.tokens),
+             'wide deployment must cover narrow attention capacity')
     need(w.actors > 0 and w.slots > 0 and w.gpu_batch > 0 and w.gpu_wait_us >= 0 and w.timeout_ms > 0
          and w.shutdown_timeout_ms > 0 and w.gpu_wide_batch > 0,
          'workers: positive counts and timeouts, nonnegative gpu_wait_us')
-    need(len(set(w.gpu_bank)) == len(w.gpu_bank) and all(0 < b < w.gpu_batch for b in w.gpu_bank),
-         'workers.gpu_bank: distinct batches, each positive and below gpu_batch')
     need(len({s.name for s in e.sets}) == len(e.sets), 'evaluation: set names must be unique')
     for s in e.sets:
         need(bool(s.name) and s.name not in ('.', '..') and '/' not in s.name and '\0' not in s.name,

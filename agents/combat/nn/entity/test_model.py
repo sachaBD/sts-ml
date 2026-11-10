@@ -5,7 +5,6 @@ import torch
 
 from agents.combat.nn.entity.encoding import CardZone
 from agents.combat.nn.model import AUXILIARY, LOSS_BINS, WIN_BINS, ModelSpec, build_model
-from agents.combat.nn.pytorch_to_onnx import ExportSpec, deployment_view
 from agents.combat.nn.tokens import TokenKind, TokenRows, WIDTH
 
 
@@ -108,7 +107,7 @@ class ModelTests(unittest.TestCase):
     def test_attention_overflow_is_nan_so_the_worker_falls_back_to_the_full_model(self):
         model = build_model(small_spec()).eval()
         tokens = combat_tokens()
-        values, _ = deployment_view(model, ExportSpec(tokens=10, attended=1))(tokens)
+        values, _ = model.deployed(attended=1)(tokens)
         self.assertTrue(torch.isnan(values).all())
         self.assertTrue(torch.isfinite(model(tokens)[0]).all())
 

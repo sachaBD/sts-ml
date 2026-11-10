@@ -14,6 +14,9 @@ class EntityModel(CombatModel):
     can be requested by an export adapter; overflow is explicit rather than silently
     dropping actions. Normal forward evaluates every retained token.
     """
+    encoding = 'entity'
+    bounded_attention = True
+
     def __init__(self, spec):
         super().__init__(spec)
         dim, layers, heads = spec.dim, spec.layers, spec.heads
@@ -35,6 +38,9 @@ class EntityModel(CombatModel):
         # ~4x fewer encoder positions on real replay (pooling leaves ~16 of ~66). Export uses predict directly.
         _, keep = self._group_masks(EntityRows(tokens))
         return self._heads(tokens, int(keep.sum(dim=1).max()))
+
+    def deployed(self, attended: int | None) -> nn.Module:
+        return AttentionCapped(self, attended)
 
     def predict(self, tokens: Tensor, slots: int | None = None) -> tuple[Tensor, Tensor]:
         """Evaluate an optional bounded attention view; overflow returns a NaN value."""
@@ -94,3 +100,14 @@ class EntityModel(CombatModel):
         scores = self.policy(retained).squeeze(-1).float()
         logits = torch.full_like(rows.kind, MASKED_LOGIT).scatter(1, index, scores)
         return value, logits.masked_fill(~rows.is_kind(TokenKind.ACTION), MASKED_LOGIT)
+
+
+class AttentionCapped(nn.Module):
+    """At most `slots` tokens attend; a row needing more gets a NaN value, which the native backend
+    re-evaluates on the full CPU model."""
+    def __init__(self, net: EntityModel, slots: int | None):
+        super().__init__()
+        self.net, self.slots = net, slots
+
+    def forward(self, tokens):
+        return self.net.predict(tokens, self.slots)

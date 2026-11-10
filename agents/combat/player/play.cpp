@@ -129,26 +129,46 @@ public:
     std::string label() const override { return game_->record.at("fight_id").get<std::string>(); }
 };
 
+// MODELS is an exported model directory (agents/combat/nn/pytorch_to_onnx.py); its network.json names the
+// encoding and the ONNX files, so nothing about the network is passed separately.
+struct Network {
+    Encoding encoding;
+    std::vector<std::unique_ptr<stsrl::infra::Backend>> backends;  // narrow GPU, optional wide GPU, then CPU overflow
+};
+
+Network load_network(const std::filesystem::path& models, int cpu_lanes) {
+    std::ifstream file{models / "network.json"};
+    if (!file) throw std::invalid_argument{"no network.json in " + models.string()};
+    const auto manifest = Json::parse(file);
+    const auto cpu = models / manifest.at("cpu").get<std::string>();
+    const auto gpu = [&](const Json& deployment, int lanes) {
+        std::vector<std::filesystem::path> files;
+        for (const auto& name : deployment.at("files")) files.push_back(models / name.get<std::string>());
+        return stsrl::infra::gpu_backend(cpu, files, lanes, deployment.at("attended").get<int>());
+    };
+    Network network{encoding_from_name(manifest.at("encoding").get<std::string>()), {}};
+    network.backends.push_back(gpu(manifest.at("gpu"), 2));
+    if (manifest.contains("wide")) network.backends.push_back(gpu(manifest.at("wide"), 1));
+    // Rows no GPU model accepts get their own queue, so they never hold up a GPU lane.
+    network.backends.push_back(stsrl::infra::cpu_backend(cpu, cpu_lanes));
+    for (const auto& backend : network.backends)
+        if (backend->width() != width) throw std::invalid_argument{"model token width does not match combat encoder"};
+    return network;
+}
 }  // namespace
 
 int main(int argc, char** argv) try {
     const std::string mode = argc > 1 ? argv[1] : "";
     if (mode != "play" || argc < 4 || argc % 2) {
-        std::cerr << "usage: nn_play play MODEL.onnx SAMPLES.bin [--threads T] [--parallel G] [--gpu-model FIXED.onnx\n"
-                     "                    --gpu-batch B] [--gpu-bank SMALLER.onnx,...] [--gpu-wait-us U]\n"
-                     "                    [--gpu-attended A] [--gpu-wide-model WIDE.onnx] [--gpu-wide-attended A] [--cpu-lanes L]\n"
-                     "                    [--timeout-ms M] [--shutdown-timeout-ms M] [--telemetry TELEMETRY.jsonl]\n"
-                     "                    --encoding entity|inventory_v1 "
+        std::cerr << "usage: nn_play play MODELS SAMPLES.bin [--threads T] [--parallel G] [--gpu-wait-us U] [--cpu-lanes L]\n"
+                     "                    [--timeout-ms M] [--shutdown-timeout-ms M] [--telemetry TELEMETRY.jsonl] "
                   << stsrl::search::SearchConfig::usage << "\n";
         return 2;
     }
-    int threads = 9, parallel = 224, gpu_batch = 512, gpu_wait_us = 100, cpu_lanes = 2;
+    int threads = 9, parallel = 224, gpu_wait_us = 100, cpu_lanes = 2;
     int timeout_ms = 60'000, shutdown_timeout_ms = 5'000;
-    std::string gpu_model, gpu_wide_model, telemetry;
-    int gpu_attended = 0, gpu_wide_attended = 0;
-    std::vector<std::filesystem::path> gpu_bank;
+    std::string telemetry;
     stsrl::search::SearchConfig search;
-    std::optional<Encoding> encoding;
     for (int i = 4; i + 1 < argc; i += 2) {
         const std::string k = argv[i], v = argv[i + 1];
         if (k == "--threads") threads = std::stoi(v);
@@ -158,42 +178,17 @@ int main(int argc, char** argv) try {
         else if (k == "--shutdown-timeout-ms") shutdown_timeout_ms = std::stoi(v);
         else if (k == "--telemetry") telemetry = v;
         else if (k == "--gpu-wait-us") gpu_wait_us = std::stoi(v);
-        else if (k == "--gpu-bank") {
-            std::size_t begin = 0;
-            for (std::size_t end; begin < v.size(); begin = end + 1) {
-                end = v.find(',', begin);
-                gpu_bank.emplace_back(v.substr(begin, end - begin));
-                if (end == std::string::npos) break;
-            }
-        }
-        else if (k == "--gpu-model") gpu_model = v;
-        else if (k == "--gpu-batch") gpu_batch = std::stoi(v);
-        else if (k == "--gpu-attended") gpu_attended = std::stoi(v);
-        else if (k == "--gpu-wide-model") gpu_wide_model = v;
-        else if (k == "--gpu-wide-attended") gpu_wide_attended = std::stoi(v);
-        else if (k == "--encoding") encoding = encoding_from_name(v);
         else if (!search.parse(k, v)) throw std::invalid_argument{"unknown option " + k};
     }
-    if (threads < 1 || parallel < 1 || gpu_batch < 1 || cpu_lanes < 1 || gpu_wait_us < 0 || timeout_ms <= 0 || shutdown_timeout_ms <= 0)
-        throw std::invalid_argument{"positive threads/slots/batch/timeouts and nonnegative wait required"};
-    if (gpu_model.empty() && (!gpu_bank.empty() || !gpu_wide_model.empty()))
-        throw std::invalid_argument{"GPU bank and wide model require gpu-model"};
-    if (gpu_attended < 0 || gpu_wide_attended < 0) throw std::invalid_argument{"nonnegative attention capacities required"};
+    if (threads < 1 || parallel < 1 || cpu_lanes < 1 || gpu_wait_us < 0 || timeout_ms <= 0 || shutdown_timeout_ms <= 0)
+        throw std::invalid_argument{"positive threads/slots/lanes/timeouts and nonnegative wait required"};
     const auto setup_begin = Clock::now();
-    if (!gpu_model.empty()) gpu_bank.push_back(gpu_model);
-    auto narrow = gpu_model.empty() ? stsrl::infra::cpu_backend(argv[2]) : stsrl::infra::gpu_backend(argv[2], gpu_bank, 2, gpu_attended);
-    auto wide = gpu_wide_model.empty() ? nullptr : stsrl::infra::gpu_backend(argv[2], {gpu_wide_model}, 1, gpu_wide_attended);
-    // Rows no GPU model accepts get their own queue, so they never hold up a GPU lane.
-    auto overflow = gpu_model.empty() ? nullptr : stsrl::infra::cpu_backend(argv[2], cpu_lanes);
-    std::vector<stsrl::infra::Backend*> backends{narrow.get()};
-    if (wide) backends.push_back(wide.get());
-    if (overflow) backends.push_back(overflow.get());
-    for (const auto* backend : backends)
-        if (backend->width() != width) throw std::invalid_argument{"model token width does not match combat encoder"};
+    const auto network = load_network(argv[2], cpu_lanes);
+    std::vector<stsrl::infra::Backend*> backends;
+    for (const auto& backend : network.backends) backends.push_back(backend.get());
     std::cerr << "timing: evaluator setup "
               << std::chrono::duration<double>(Clock::now() - setup_begin).count() << " s\n";
-    if (!encoding) throw std::invalid_argument{"--encoding is required"};
-    Shared shared{search.factory(), NetworkEvaluator{*encoding}, {}, {}, {},
+    Shared shared{search.factory(), NetworkEvaluator{network.encoding}, {}, {}, {},
                   std::ofstream{argv[3], std::ios::binary | std::ios::app | std::ios::ate},
                   std::filesystem::path{argv[3]}.filename().string()};
     for (std::string line; std::getline(std::cin, line);)
@@ -201,7 +196,8 @@ int main(int argc, char** argv) try {
     const auto play_begin = Clock::now();
     const double play_wall_start = std::chrono::duration<double>(std::chrono::system_clock::now().time_since_epoch()).count();
     stsrl::infra::ActorConfig config;
-    config.actors = threads; config.slots = parallel; config.batch = gpu_batch;
+    config.actors = threads; config.slots = parallel;
+    config.batch = backends.front()->max_batch();  // the largest exported GPU batch
     config.batch_wait = std::chrono::microseconds{gpu_wait_us};
     config.timeout = std::chrono::milliseconds{timeout_ms};
     config.shutdown_timeout = std::chrono::milliseconds{shutdown_timeout_ms};

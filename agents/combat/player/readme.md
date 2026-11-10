@@ -20,15 +20,14 @@ packing and synchronous CPU/GPU inference. Neither layer imports combat code.
 See [infra's contract](../../../infra/workers/readme.md).
 
 ```
-nn_play play MODEL.onnx SAMPLES.bin --threads 9 --parallel 224 \
-  --gpu-model MODEL-GPU.onnx --gpu-batch 512 --gpu-wait-us 100 \
-  --gpu-bank SMALL256.onnx,SMALL32.onnx
+nn_play play MODELS SAMPLES.bin --threads 9 --parallel 224 --gpu-wait-us 100
 ```
 
-`--threads` counts actors, `--parallel` is slots per actor, and `--gpu-batch`
-bounds the inference-server batch. Backend shapes/width come from ONNX metadata;
-the combat adapter checks width against its encoder. The loop's `--gpu-tokens`
-controls export only. No scheduler/groups options or old evaluator remain.
+`MODELS` is an exported model directory. Its `network.json`, written by
+[`pytorch_to_onnx.py`](../nn/pytorch_to_onnx.py), names the encoding, the dynamic CPU model and the
+fixed-shape GPU models (narrow, and optionally wide) with their attention caps, so nothing about the network
+is passed as a flag. `--threads` counts actors and `--parallel` is slots per actor; the inference batch is
+the largest exported GPU batch. The player checks the models' token width against its encoder.
 
 Failures abort collection, never become losses. Defaults are a 60-second stall
 deadline and 5-second shutdown grace. Archive interrupted stages; never append

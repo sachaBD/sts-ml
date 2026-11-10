@@ -56,9 +56,7 @@ class ExpertIteration:
                       for s in config.evaluation.sets}
         m, t = config.model, config.training
         self.learner = Learner(m.architecture(), t.lr, t.device)
-        self.exporter = ModelExporter(m.architecture(), m.deployment())
-        self.wide_exporter = (ModelExporter(m.architecture(), wide)
-                              if (wide := m.wide_deployment()) else None)
+        self.exporter = ModelExporter(m.architecture(), *config.deployments())
 
     def run(self, resume_from=None):
         self.control.status(stage='initialization', phase='initialize')
@@ -99,7 +97,7 @@ class ExpertIteration:
         directory = self.control.iteration(0)
         directory.mkdir()
         begin = time.time()
-        self.export(directory)
+        self.exporter.export(self.learner.net, directory)
         self.learner.save(directory / 'model.pt')
         (directory / 'decks.json').write_text(json.dumps({d['fight_id']: dict(fights=0, wins=0) for d in self.pool}))
         self.control.log(iteration=0, states=0, train_seconds=round(time.time() - begin))
@@ -116,8 +114,8 @@ class ExpertIteration:
         recorded.rename(recorded.with_name(f'config-before-resume-{time.time_ns()}.toml'))
         recorded.write_text((self.inputs.parent / 'config.toml').read_text())
         self.learner.load(self.control.iteration(completed) / 'model.pt')
-        # Deployment may change on resume; rebuild the wide model from the committed checkpoint.
-        self.export_wide(self.control.iteration(completed))
+        # The wide deployment may change on resume; rebuild it from the committed checkpoint.
+        self.exporter.export_wide(self.learner.net, self.control.iteration(completed))
         self.control.log(resume_from=completed, fights_per_iteration=self.config.starts.per_iteration)
         # A stop or crash between the checkpoint and its evaluation must not skip that evaluation.
         self.evaluate(completed)
@@ -160,21 +158,10 @@ class ExpertIteration:
             states = len(replay)
         self.learner.save(self.control.iteration(it) / 'model.pt')
         self.control.status(stage=stage, phase='export')
-        self.export(self.control.iteration(it))
+        self.exporter.export(self.learner.net, self.control.iteration(it))
         loss = {f'{split}_{name}_loss': value for split, losses in (('heldout', heldout), ('train', trained))
                 for name, value in zip(LOSSES, losses)}
         return states, {k: round(v, 4) for k, v in loss.items()}
-
-    def export(self, directory):
-        w = self.config.workers
-        self.exporter.export(self.learner.net, directory, w.gpu_batch, w.gpu_bank)
-        self.export_wide(directory)
-
-    def export_wide(self, directory):
-        if self.wide_exporter:
-            wide = directory / 'wide'
-            wide.mkdir(exist_ok=True)
-            self.wide_exporter.export(self.learner.net, wide, self.config.workers.gpu_wide_batch, ())
 
     def evaluate(self, it):
         completed = {r['set'] for r in self.control.history() if r.get('test') == it}
@@ -195,10 +182,6 @@ class ExpertIteration:
     def play(self, stage, models, games, directory, search):
         self.control.status(stage=stage, phase='play', done=0, total=len(games), directory=str(directory))
         return play(self.inputs / 'nn_play', models, games, directory, search, self.config.workers,
-                    encoding=self.learner.net.encoding,
-                    gpu_attended=self.config.model.gpu_attended or 0,
-                    gpu_wide_attended=self.config.model.gpu_wide_attended or 0,
-                    gpu_wide_model=models / 'wide/model-gpu.onnx' if self.wide_exporter is not None else None,
                     progress=lambda done, pid: self.control.status(stage=stage, phase='play', done=done,
                                                                    total=len(games), child_pid=pid,
                                                                    directory=str(directory)))
