@@ -8,7 +8,8 @@ import subprocess
 import sys
 
 from apps.common.app import main, read_jsonl, snapshot, write_json
-from apps.gumbel_nn_combat_expert_iteration.config import load
+from agents.combat.player.play import check
+from apps.gumbel_nn_combat_expert_iteration.config import load, nn_play_settings
 
 # Where the recipe and dashboards find each optional evaluation input.
 EVALUATION_INPUTS = {'final_fights': 'FINAL_TEST_DO_NOT_USE_FOR_SELECTION.jsonl',
@@ -31,6 +32,11 @@ def run(_raw, config_path, out):
         sys.exit('[starts].fights: at least one, with unique fight_ids (deck names) in [a-z0-9_-]')
     if config.training.balanced_replay and len(decks) > config.training.batch:
         sys.exit('balanced_replay draws every deck in each batch: needs no more decks than [training].batch')
+    for name, settings in nn_play_settings(config).items():
+        try:
+            check(config.run.worker, settings)
+        except ValueError as error:
+            sys.exit(f'{name}: {error}')
     frozen = out / 'inputs'
     frozen.mkdir(parents=True)  # refuse to overwrite an existing run's inputs
     snapshot(Path(config.run.worker), frozen, 'nn_play')

@@ -32,12 +32,13 @@ See the preset for a complete config.
 [[evaluation.sets]]
 name = "validation"
 fights = "path/to/validation.jsonl"
+at = [0]
+every = 3
+[evaluation.sets.search]  # owned by nn_play: agents/combat/player/play_config.hpp
 sims = 64
 gumbel_scale = 0.0
 rollout_mix = 0.0
 particles = 8
-at = [0]
-every = 3
 ```
 
 `at` adds iterations; `every = 0` disables periodic evaluation. `[evaluation] sets = []` disables all sets.

@@ -1,29 +1,16 @@
 """Plays fights with the native nn_play: one process per call, so each stage gets a fresh CUDA context
-(a crash is recoverable by a new process) and never shares GPU state with the PyTorch learner."""
-from dataclasses import dataclass
+(a crash is recoverable by a new process) and never shares GPU state with the PyTorch learner.
+
+nn_play's settings pass through as written; agents/combat/player/play_config.hpp owns them."""
 import json
 import os
 import shutil
 from pathlib import Path
 import subprocess
 import sys
+import tempfile
 
-
-@dataclass(frozen=True)
-class Search:
-    sims: int
-    gumbel_scale: float  # 1 explores (self-play); 0 is deterministic (evaluation)
-    rollout_mix: float
-    particles: int
-
-
-@dataclass(frozen=True)
-class Workers:
-    actors: int
-    slots: int          # fights in flight per actor
-    gpu_wait_us: int
-    timeout_ms: int
-    shutdown_timeout_ms: int
+import tomli_w
 
 
 class DeviceSampler:
@@ -55,22 +42,29 @@ class DeviceSampler:
             self.stream.close()
 
 
-def play(binary, models, fights, directory, search, workers, *, progress=lambda done, pid: None, sample_devices=True):
-    """Plays `fights` with nn_play `binary` and the exported model directory `models`; writes samples, results and
-    logs to `directory`. Results are journaled as fights finish; progress(done, pid) follows them."""
+def check(binary, settings):
+    """Raises ValueError with nn_play's reason unless `settings` would play."""
+    with tempfile.TemporaryDirectory() as directory:
+        path = Path(directory) / 'play.toml'
+        path.write_text(tomli_w.dumps(settings))
+        checked = subprocess.run([str(binary), str(path), '--check'], capture_output=True, text=True)
+    if checked.returncode:
+        raise ValueError(checked.stderr.strip())
+
+
+def play(binary, models, fights, directory, settings, *, progress=lambda done, pid: None, sample_devices=True):
+    """Plays `fights` with nn_play `binary`, the exported model directory `models` and `settings`; writes the
+    settings (play.toml), samples, results and logs to `directory`. Results are journaled as fights finish;
+    progress(done, pid) follows them."""
     directory.mkdir(parents=True, exist_ok=True)
     samples = directory / 'samples-0.bin'
     if samples.exists():
         raise FileExistsError(f'{samples}: refusing to append duplicate gameplay')
     starts = directory / 'starts.jsonl'
     starts.write_text(''.join(json.dumps(f) + '\n' for f in fights))
-    command = [str(binary), str(models), str(samples),
-               '--threads', str(workers.actors), '--parallel', str(workers.slots),
-               '--gpu-wait-us', str(workers.gpu_wait_us), '--timeout-ms', str(workers.timeout_ms),
-               '--shutdown-timeout-ms', str(workers.shutdown_timeout_ms),
-               '--telemetry', str(directory / 'telemetry.jsonl'),
-               '--sims', str(search.sims), '--gumbel-scale', str(search.gumbel_scale),
-               '--rollout-mix', str(search.rollout_mix), '--particles', str(search.particles)]
+    (directory / 'play.toml').write_text(tomli_w.dumps(settings))
+    command = [str(binary), str(directory / 'play.toml'), str(models), str(samples),
+               '--telemetry', str(directory / 'telemetry.jsonl')]
     # TensorRT and CUDA libraries come from the dependency-managed environment, not system-wide installs.
     packages = Path(sys.prefix) / f'lib/python{sys.version_info.major}.{sys.version_info.minor}/site-packages'
     libs = [packages / 'tensorrt_libs', *sorted((packages / 'nvidia').glob('*/lib'))]

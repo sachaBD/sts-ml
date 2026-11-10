@@ -1,7 +1,8 @@
 # Combat player
 
 The agent that plays fights: `nn_play` (`nn_play.cpp`), launched by `play.py`. `nn_play --help` lists its
-options. It knows two interfaces:
+options. Its settings are each stage's `play.toml`, written by `play.py`; `play_config.hpp` owns them. It knows two
+interfaces:
 
 - `search::SearchFactory` (`search/search.hpp`): a fresh search per decision. `search::SearchConfig`
   (`search/config.hpp`) decides which search runs; the player never names it.

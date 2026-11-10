@@ -19,7 +19,7 @@ used by the InferenceServer during play and by the Learner during train.
 | Worker | Count | Process | Phase | Does |
 |---|---|---|---|---|
 | Loop | 1 | python `loop` | both | starts play, runs train, exports models, prunes old replay |
-| Actor | 9 (`--workers`) | native `nn_play` | play | plays K games each (`--parallel`): search + simulator, requests NN evals, writes samples |
+| Actor | `play.toml` (`play_config.hpp`) | native `nn_play` | play | plays several games each: search + simulator, requests NN evals, writes samples |
 | InferenceServer | one per backend lane | native `nn_play` | play | one queue per backend (`actors.hpp`) |
 | Reader | 4 threads | python `loop` | train | reads sampled rows with coarse `pread` tasks; Replay builds padded batches |
 | Learner | 1 | python `loop` | train | takes ready batches, runs the GPU training step |
