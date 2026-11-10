@@ -8,7 +8,8 @@ The network: two model types, each with its own input encoding, plus training.
 - `entity/`: the entity model and its encoding.
 - `inventory/`: the inventory_v1 model and its encoding. It needs its own weights and replay. All entities
   attend: set `gpu_tokens` / `gpu_wide_tokens`, not `gpu_attended` / `gpu_wide_attended`.
-- `training/`: replay, losses, the learner, telemetry, and ONNX export for the player.
+- `pytorch_to_onnx.py`: writes the trained network as the ONNX files the player loads.
+- `training/`: replay, losses, the learner, telemetry.
 
 The player that uses the network to play fights is in [`../player`](../player). Run training through
 [the app](../../../apps/gumbel_nn_combat_expert_iteration/README.md).

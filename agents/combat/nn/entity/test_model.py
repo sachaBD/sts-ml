@@ -5,6 +5,7 @@ import torch
 
 from agents.combat.nn.entity.encoding import CardZone
 from agents.combat.nn.model import AUXILIARY, LOSS_BINS, WIN_BINS, ModelSpec, build_model
+from agents.combat.nn.pytorch_to_onnx import ExportSpec, deployment_view
 from agents.combat.nn.tokens import TokenKind, TokenRows, WIDTH
 
 
@@ -24,6 +25,21 @@ def combat_tokens():
     tokens[..., 4:] = torch.rand(2, len(kinds), WIDTH - 4)
     return tokens
 
+
+
+def target_tokens():
+    """Two same-species monsters and actions that differ only in which one they target, plus that scene permuted."""
+    tokens = torch.zeros(1, 8, WIDTH)
+    tokens[0, :, 0] = torch.tensor([1, 3, 3, 6, 6, 6, 6, 6])
+    tokens[0, 1:3, 1] = 17
+    tokens[0, 1:3, 3] = torch.tensor([.2, .8])
+    tokens[0, 3:5, 1:3] = torch.tensor([23, 1])  # non-damaging card
+    tokens[0, 5:7, 1:3] = torch.tensor([11, 2])  # targeted potion
+    tokens[0, 3:7, -1] = torch.tensor([1, 2, 1, 2])
+    tokens[0, 7, 2] = 5  # no-target End Turn
+    permuted = tokens[:, [0, 2, 1, 3, 4, 5, 6, 7]].clone()
+    permuted[0, 3:7, -1] = torch.tensor([2, 1, 2, 1])
+    return tokens, permuted
 
 class ModelTests(unittest.TestCase):
     def setUp(self):
@@ -78,6 +94,24 @@ class ModelTests(unittest.TestCase):
                 bins = LOSS_BINS + WIN_BINS
                 self.assertEqual(context.shape, (len(tokens), bins + len(AUXILIARY) * auxiliary))
                 torch.testing.assert_close(values, context[:, :bins].softmax(-1)[:, LOSS_BINS:].sum(-1))
+    def test_moves_stay_linked_to_their_target_monster(self):
+        model = build_model(small_spec()).eval()
+        tokens, permuted = target_tokens()
+        values, logits = model(tokens)
+        # Swapping the two identical monsters (and the targets that point at them) changes nothing...
+        for actual, expected in zip(model(permuted), (values, logits)):
+            torch.testing.assert_close(actual, expected)
+        # ...yet the same move aimed at different monsters is scored differently.
+        self.assertGreater(abs((logits[0, 3] - logits[0, 4]).item()), 1e-5)
+        self.assertGreater(abs((logits[0, 5] - logits[0, 6]).item()), 1e-5)
+
+    def test_attention_overflow_is_nan_so_the_worker_falls_back_to_the_full_model(self):
+        model = build_model(small_spec()).eval()
+        tokens = combat_tokens()
+        values, _ = deployment_view(model, ExportSpec(tokens=10, attended=1))(tokens)
+        self.assertTrue(torch.isnan(values).all())
+        self.assertTrue(torch.isfinite(model(tokens)[0]).all())
+
 
 if __name__ == '__main__':
     unittest.main()

@@ -1,4 +1,5 @@
-"""Deployment adapters and ONNX export. Training models are never moved or mutated."""
+"""PyTorch to ONNX: writes the trained network as the files the player (nn_play) loads. Training models are never
+moved or mutated; every export traces the current weights afresh."""
 from copy import deepcopy
 from dataclasses import dataclass
 
@@ -6,7 +7,6 @@ import torch
 from torch import nn
 
 from agents.combat.nn.entity.model import EntityModel
-from agents.combat.nn.training.graphs import GraphCache
 from agents.combat.nn.model import CombatModel, ModelSpec
 
 
@@ -65,14 +65,11 @@ class HalfInput(nn.Module):
 class ModelExporter:
     """Exports one architecture to the dynamic CPU model and fixed GPU model bank.
 
-    Each instance owns its graph cache. Precision and capacity are deployment choices,
-    not checkpoint architecture. Reuse falls back to tracing unless every weight maps
-    exactly; mixed-precision graphs may therefore require full re-export.
+    Precision and capacity are deployment choices, not checkpoint architecture.
     """
-    def __init__(self, model: ModelSpec, deployment: ExportSpec, reuse=False):
+    def __init__(self, model: ModelSpec, deployment: ExportSpec):
         deployment.validate(model)
         self.model, self.deployment = model, deployment
-        self.cache = GraphCache() if reuse else None
 
     def export(self, net: CombatModel, directory, batch, bank):
         if net.spec != self.model:
@@ -93,13 +90,6 @@ class ModelExporter:
                 torch.cuda.empty_cache()  # release export/training scratch before the native worker
 
     def _write(self, net, path, batch):
-        trace = lambda: self._trace(net, path, batch)
-        if self.cache is None:
-            trace()
-        else:
-            self.cache.write(net, path, batch, trace)
-
-    def _trace(self, net, path, batch):
         options = dict(dynamo=True, input_names=['tokens'], output_names=['value', 'logits'])
         if batch is None:
             example = net.example_tokens()

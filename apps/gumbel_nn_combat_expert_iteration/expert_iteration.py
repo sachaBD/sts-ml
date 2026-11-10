@@ -15,7 +15,7 @@ import time
 
 from agents.combat.nn.training.learner import Learner
 from agents.combat.nn.training.train import LOSSES
-from agents.combat.nn.training.export import ModelExporter
+from agents.combat.nn.pytorch_to_onnx import ModelExporter
 from agents.combat.player.play import Search, play
 from agents.combat.nn.training.replay import Replay
 from apps.common.app import read_jsonl
@@ -56,8 +56,8 @@ class ExpertIteration:
                       for s in config.evaluation.sets}
         m, t = config.model, config.training
         self.learner = Learner(m.architecture(), t.lr, t.device)
-        self.exporter = ModelExporter(m.architecture(), m.deployment(), m.export_reuse)
-        self.wide_exporter = (ModelExporter(m.architecture(), wide, m.export_reuse)
+        self.exporter = ModelExporter(m.architecture(), m.deployment())
+        self.wide_exporter = (ModelExporter(m.architecture(), wide)
                               if (wide := m.wide_deployment()) else None)
 
     def run(self, resume_from=None):

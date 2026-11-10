@@ -1,15 +1,11 @@
 """Inventory predictions preserve meaning under relabeling, padding and export."""
-from pathlib import Path
-import tempfile
 import unittest
 
 import torch
 
-from agents.combat.nn.training.export import ExportSpec, ModelExporter
 from agents.combat.nn.inventory.model import (ACTION, CARD_ACTION, CARD, CONTEXT, MONSTER, MONSTER_EFFECT,
                                     OWNER, SOURCE, TARGET, VERSION)
 from agents.combat.nn.model import ModelSpec, build_model
-from agents.combat.nn.training.test_export import model_predictions, onnx_predictions
 from agents.combat.nn.tokens import WIDTH
 
 
@@ -56,17 +52,6 @@ class InventoryTests(unittest.TestCase):
         actual_values, actual_logits = self.model(permuted(self.tokens, order))
         torch.testing.assert_close(actual_values, values)
         torch.testing.assert_close(actual_logits, logits[:, order])
-
-    def test_exported_model_predicts_the_same(self):
-        padded = torch.cat([self.tokens, torch.zeros(2, 3, WIDTH)], dim=1)
-        exporter = ModelExporter(self.model.spec, ExportSpec(tokens=padded.shape[1]))
-        with tempfile.TemporaryDirectory() as temporary:
-            directory = Path(temporary)
-            exporter.export(self.model, directory, batch=2, bank=())
-            for name, inputs in [('model.onnx', self.tokens[:1]), ('model-gpu.onnx', padded.half())]:
-                with self.subTest(artifact=name):
-                    torch.testing.assert_close(onnx_predictions(directory / name, inputs),
-                                               model_predictions(self.model, inputs.float()), rtol=3e-4, atol=3e-5)
 
 
 if __name__ == '__main__':

@@ -9,7 +9,7 @@ import torch
 
 from agents.combat.nn.training import learner
 from agents.combat.nn.model import ModelSpec
-from agents.combat.nn.training.export import model_files
+from agents.combat.nn.pytorch_to_onnx import model_files
 from . import expert_iteration
 from .config import load
 from .reporting import deck_of
@@ -60,7 +60,6 @@ dim = 8
 layers = 1
 heads = 1
 gpu_tokens = 16
-export_reuse = false
 
 [workers]
 actors = 2

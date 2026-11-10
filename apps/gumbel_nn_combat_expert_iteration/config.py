@@ -15,7 +15,7 @@ from typing import get_args
 
 from agents.combat.player.play import Search, Workers
 from agents.combat.nn.model import ModelSpec
-from agents.combat.nn.training.export import ExportSpec
+from agents.combat.nn.pytorch_to_onnx import ExportSpec
 from apps.common.app import check_keys, required
 from environments.combat.starts import Starts
 
@@ -82,7 +82,6 @@ class Model:
     layers: int
     heads: int
     gpu_tokens: int
-    export_reuse: bool = resumable()
     gpu_attended: int | None = None
     gpu_mixed_precision: bool = False
     value: str = 'win'  # win: one win logit; outcome: loss/win outcome bins (agents/combat/nn/model.py)

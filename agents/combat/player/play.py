@@ -8,7 +8,7 @@ from pathlib import Path
 import subprocess
 import sys
 
-from agents.combat.nn.training.export import model_files
+from agents.combat.nn.pytorch_to_onnx import model_files
 
 
 @dataclass(frozen=True)

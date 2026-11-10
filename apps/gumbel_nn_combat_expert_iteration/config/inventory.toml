@@ -47,7 +47,6 @@ heads = 6
 gpu_tokens = 48
 gpu_wide_tokens = 128
 gpu_mixed_precision = true
-export_reuse = true
 
 [workers]
 actors = 9
