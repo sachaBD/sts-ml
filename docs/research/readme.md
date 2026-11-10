@@ -1,1 +1,0 @@
-These are low quality AI generated thoughts treat with a grain of salt.

@@ -4,7 +4,7 @@
 # No old PV training/inference or fresh teacher collection is launched.
 [run]
 id = "gumbel-nn-champ-ten-v1"
-worker = "build/nn/agents/combat/nn/nn_play"
+worker = "build/main/agents/combat/nn/nn_play"
 seed_namespace = "gumbel-nn-champ-ten-v1"
 iterations = 0 # run until ./run.sh stop RUN_DIRECTORY; finish the active update cleanly
 

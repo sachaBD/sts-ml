@@ -25,21 +25,14 @@ Run a job in a new run directory:
   runs/schema=<schema>/date=<YYYY-MM-DD>/id=<id>/     (or scratch/... with --scratch)
     run.json   written by this launcher: status, command, git, inputs, summary
     logs/      stdout.log, stderr.log of the job
-    out/       the job's outputs: part-<NNN>.parquet, checkpoint, episodes.jsonl, ...
+    out/       the job's outputs
 
 The job gets its output dir as {out} in the command, or as $RUN_OUT (run dir: $RUN_DIR).
 If the job writes out/summary.json, it is merged into run.json as "summary".
 Exit code of the job is returned. Status ends as "done" (exit 0) or "failed".
-When the job exits, the parquet parts directly in out/ are compacted (runs/compact.py) unless --no-compact.
 
 examples:
-  ./apps/bootstrap/run.sh apps/bootstrap/config/act1.toml [--scratch]
-  ./apps/value_train/run.sh apps/value_train/config/slime.toml [--scratch]
-  PYTHONPATH=. .venv/bin/python -m runs.run episodes_v1 quick-check --scratch -- ...
-
-query with duckdb:
-  SELECT * FROM read_parquet('runs/schema=combat_v3/*/*/out/*.parquet', hive_partitioning = true, union_by_name = true);
-  SELECT * FROM read_json('runs/*/*/*/run.json');
+  ./apps/gumbel_nn_combat_expert_iteration/run.sh apps/gumbel_nn_combat_expert_iteration/config/champ_ten.toml [--scratch]
 
 full contract for jobs, schemas and columns: runs/README.md
 """
@@ -75,24 +68,6 @@ def run_dir(run_id: str) -> Path:
     raise FileNotFoundError(f"no run {run_id!r} in runs/ or scratch/")
 
 
-def bootstrap_inputs(run_id: str) -> list[str]:
-    """The run's inputs that are bootstrap runs: schema combat_v3 with no inputs of their own."""
-    inputs = json.loads((run_dir(run_id) / "run.json").read_text()).get("inputs") or []
-    found = []
-    for run in inputs:
-        meta = json.loads((run_dir(run) / "run.json").read_text())
-        if meta.get("schema") == "combat_v3" and not meta.get("inputs"):
-            found.append(run)
-    if not found:
-        raise ValueError(f"{run_id}: no bootstrap combat_v3 input runs in {inputs}")
-    return found
-
-
-def run_parquet(run_id: str) -> list[Path]:
-    """The parquet parts in a run's out/ (out/ also holds summary.json etc.)."""
-    return sorted((run_dir(run_id) / "out").glob("*.parquet"))
-
-
 def resolve_input(value: str) -> str:
     """A run_id (<schema>/<date>/<id>) or an existing path."""
     if value.count("/") == 2 and any((d / run_path(value)).is_dir() for d in (RUNS, SCRATCH)):
@@ -108,32 +83,16 @@ def write_json(path: Path, data: dict) -> None:
     tmp.replace(path)
 
 
-def compact_out(out: Path) -> None:
-    """Compact the job's parquet parts in out/ (only that dir; healthy files are skipped). Status is still
-    "running" meanwhile. A failure keeps the originals and doesn't fail the run."""
-    if not any(out.glob("*.parquet")):
-        return
-    try:
-        from .compact import compact
-        start = dt.datetime.now()
-        if done := compact(out):
-            seconds = (dt.datetime.now() - start).total_seconds()
-            print(f"run: compacted {done[0]} -> {done[1]} parquet files, {done[2]} rows ({seconds:.0f}s)", file=sys.stderr)
-    except Exception as e:  # noqa: BLE001 - compaction is best effort; rerun runs/compact.py on out/
-        print(f"run: warning: compaction failed, parts left as written: {e!r}", file=sys.stderr)
-
-
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="python -m runs.run", description=HELP, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("schema", help="what the run produces, e.g. combat_v3, value_net_v1, episodes_v1 (runs/README.md)")
-    parser.add_argument("id", help="short lowercase free text, e.g. slime-pbcs20k-gen1 ([a-z0-9_.-])")
+    parser.add_argument("schema", help="what the run produces, e.g. gumbel_nn_combat_v1 (runs/README.md)")
+    parser.add_argument("id", help="short lowercase free text, e.g. champ-ten-v2 ([a-z0-9_.-])")
     parser.add_argument("--input", action="append", default=[], metavar="RUN_ID|PATH", help="run this job reads from (repeatable); recorded as lineage")
     parser.add_argument("--scratch", action="store_true", help="smoke/preflight/probe: put in scratch/ (never queried, safe to delete)")
     parser.add_argument("--overwrite", action="store_true", help="delete an existing run with this id before starting")
     parser.add_argument("--live", action="store_true", help="also print job output to the terminal while retaining logs")
     parser.add_argument("--note", default="", help="free-text note stored in run.json")
-    parser.add_argument("--no-compact", action="store_true", help="leave out/*.parquet as the job wrote them")
-    parser.usage = "%(prog)s SCHEMA ID [--input RUN_ID|PATH ...] [--scratch] [--overwrite] [--no-compact] [--note TEXT] -- COMMAND..."
+    parser.usage = "%(prog)s SCHEMA ID [--input RUN_ID|PATH ...] [--scratch] [--overwrite] [--note TEXT] -- COMMAND..."
     argv = sys.argv[1:] if argv is None else argv
     split = argv.index("--") if "--" in argv else len(argv)
     args, cmd = parser.parse_args(argv[:split]), argv[split + 1:]
@@ -216,8 +175,6 @@ def main(argv: list[str] | None = None) -> int:
             for thread in relays:
                 thread.join()
 
-    if not args.no_compact:
-        compact_out(out)
     summary = out / "summary.json"
     if summary.exists():
         try:

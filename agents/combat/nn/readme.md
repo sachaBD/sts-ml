@@ -7,7 +7,6 @@ Combat models, learning and native play. Training workflows belong to the app.
 - [Model contract](model.py) and colocated invariant tests
 - [Worker boundaries](WORKERS.md)
 - [Runtime metric definitions](METRICS.md)
-- [Performance reports](docs/README.md) — historical measurements, not current defaults
 
 ## Inventory model
 
