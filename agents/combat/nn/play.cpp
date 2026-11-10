@@ -22,7 +22,6 @@
 #include <optional>
 #include <span>
 #include <thread>
-#include <variant>
 
 using namespace stsrl::nn;
 using Json = nlohmann::json;
@@ -125,28 +124,21 @@ struct Shared {
 class CombatEpisode final : public stsrl::infra::Episode {
     std::unique_ptr<Game> game_;
     Shared& shared_;
-    struct Ready { std::uint64_t next_id; };
-    struct Waiting { std::uint64_t id; };
-    struct Done {};
-    std::variant<Ready, Waiting, Done> state_{Ready{0}};
+    std::optional<stsrl::infra::EvaluationRequest> pending_;
 public:
     CombatEpisode(std::unique_ptr<Game> game, Shared& shared) : game_{std::move(game)}, shared_{shared} {}
     std::optional<stsrl::infra::EvaluationRequest> next_request() override {
-        const auto* ready = std::get_if<Ready>(&state_);
-        if (!ready) return std::nullopt;
-        const auto* tokens = game_->advance(shared_.settings);
-        if (!tokens) { state_ = Done{}; return std::nullopt; }
-        const auto id = ready->next_id;
-        state_ = Waiting{id};
-        return stsrl::infra::EvaluationRequest{id, tokens};
+        if (pending_) return std::nullopt;
+        // Single-flight requests may reuse their ID after completion.
+        if (const auto* tokens = game_->advance(shared_.settings)) pending_ = stsrl::infra::EvaluationRequest{0, tokens};
+        return pending_;
     }
     void completed(std::uint64_t id, const stsrl::infra::Prediction& prediction) override {
-        const auto* waiting = std::get_if<Waiting>(&state_);
-        if (!waiting || id != waiting->id) throw std::logic_error{"unexpected combat evaluation"};
+        if (!pending_ || id != pending_->id) throw std::logic_error{"unexpected combat evaluation"};
         game_->evaluated(prediction);
-        state_ = Ready{id + 1};
+        pending_.reset();
     }
-    bool done() const override { return std::holds_alternative<Done>(state_); }
+    bool done() const override { return !pending_ && !game_->decision && game_->fight.over(); }
     void finish() override { shared_.finish(*game_); }
     std::string label() const override { return game_->record.at("fight_id").get<std::string>(); }
 };

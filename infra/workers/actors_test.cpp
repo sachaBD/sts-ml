@@ -56,11 +56,11 @@ public:
         if (!left_) return std::nullopt;
         waiting_ = true;
         tokens_.data[1] = float(step_);
-        return EvaluationRequest{std::uint64_t(step_), &tokens_};
+        return EvaluationRequest{0, &tokens_};  // reuse after completion exercises scheduler generations
     }
     void completed(std::uint64_t id, const Prediction& p) override {
         on_owner();
-        require(id == std::uint64_t(step_), "wrong request id");
+        require(id == 0, "wrong request id");
         require(waiting_, "prediction without a request");
         require(p.value == float(id_ + 1) / 1000 && p.logits == std::vector<float>{float(step_)}, "prediction misrouted");
         waiting_ = false; --left_; ++step_; ++log_.evaluated;
