@@ -1,10 +1,10 @@
 """Builds the app's input files once, offline. A fights file is JSON lines, one playable fight per line:
 {"fight_id": ..., "start": <fight start, environments/combat/fight_start.hpp>}.
 
-  python -m apps.gumbel_nn_combat_expert_iteration.make_fights decks DECKS.toml OUT.jsonl
+  python -m apps.gumbel_nn_combat_expert_iteration.tools.make_fights decks DECKS.toml OUT.jsonl
       Training fights: one per [[deck]] (name, starts parquet, deck_id, hp, max_hp); fight_id is the deck name.
 
-  python -m apps.gumbel_nn_combat_expert_iteration.make_fights teacher TRAINING.jsonl RUN:DIRECTORY OUT_DIR
+  python -m apps.gumbel_nn_combat_expert_iteration.tools.make_fights teacher TRAINING.jsonl RUN:DIRECTORY OUT_DIR
           --name NAME --fights-per-deck N [--generated-per-deck M --namespace NS] [--baseline NAME=RUN:DIRECTORY ...]
       Evaluation on a teacher run's fights, for paired comparison: OUT_DIR/fights.jsonl, baselines.json (each
       player's result per fight it completed) and cohorts.json (decks with teacher fights are `original`,
@@ -21,7 +21,7 @@ from apps.common.app import read_jsonl
 from environments.combat.starts import fights
 from runs.run import run_dir
 
-from .reporting import deck_of
+from apps.gumbel_nn_combat_expert_iteration.reporting import deck_of
 
 
 def load_bases(decks):

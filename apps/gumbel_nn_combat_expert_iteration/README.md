@@ -1,7 +1,7 @@
 # Gumbel NN combat expert iteration
 
 Expert iteration on Champ decks: Gumbel self-play, train on the replay window, export, evaluate.
-Settings are defined and checked in [config.py](config.py); inputs are built once with [make_fights.py](make_fights.py).
+Settings are defined and checked in [config.py](config.py); inputs are built once with [tools/make_fights.py](tools/make_fights.py). One-off tools live in [tools/](tools/).
 
 ## Run, monitor, stop
 

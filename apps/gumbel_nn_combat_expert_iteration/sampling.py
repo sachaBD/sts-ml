@@ -1,32 +1,19 @@
-"""Which decks self-play trains on: win-uncertainty weights, history windows, persisted policies."""
+"""Each iteration's deck sampling policy: past deck counts in, curriculum weights saved before collection."""
 import json
-import math
 
 from apps.common.app import write_json
-from .deck_stats import iteration_counts
+from agents.combat.nn.training.curriculum import deck_distribution
 
 
-def deck_distribution(counts, prior_strength, concentration):
-    """Concentration 0 is uniform; 1 selects only maximum-uncertainty decks (ties uniform)."""
-    decks = {}
-    for deck, c in counts.items():
-        attempts, wins = c['attempts'], c['wins']
-        if not 0 <= wins <= attempts:
-            raise ValueError(f'{deck}: require 0 <= wins <= attempts')
-        # Halving first avoids overflow for large priors; separate loss rate avoids cancellation.
-        denominator = attempts / 2 + prior_strength
-        win_rate = (wins / 2 + prior_strength / 2) / denominator
-        loss_rate = ((attempts - wins) / 2 + prior_strength / 2) / denominator
-        decks[deck] = dict(c, weight=win_rate * loss_rate)
-    peak = max(d['weight'] for d in decks.values())
-    for d in decks.values():
-        # Scale before exponentiation so at least one weight stays 1, even near concentration 1.
-        d['weight'] = (float(d['weight'] == peak) if concentration == 1 else
-                       (d['weight'] / peak) ** (concentration / (1 - concentration)))
-    total = math.fsum(d['weight'] for d in decks.values())
-    for d in decks.values():
-        d['probability'] = d['weight'] / total
-    return decks
+def iteration_counts(training, latest: int, recent_most: int):
+    """Per-deck counts over an explicit window ending at latest (zero is initialization)."""
+    if recent_most < 1 or latest < 0:
+        raise ValueError('positive recent_most and nonnegative latest required')
+    before = json.loads((training / f'iter{max(0, latest - recent_most):03d}' / 'decks.json').read_text())
+    after = json.loads((training / f'iter{latest:03d}' / 'decks.json').read_text())
+    return {deck: dict(attempts=stats['fights'] - before[deck]['fights'],
+                       wins=stats['wins'] - before[deck]['wins'])
+            for deck, stats in after.items()}
 
 
 def sampling_weights(training, iteration, settings):

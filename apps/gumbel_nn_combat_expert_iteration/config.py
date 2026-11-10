@@ -3,7 +3,7 @@
 Settings have no defaults, except optional features. A count of 0 means unlimited or off (iterations,
 max_train_rows, evaluation every); evaluation sims 0 plays the network alone.
 [starts] draws self-play's fights from its deck pool and varies them. Each evaluation set owns its search and schedule; final_fights are
-copied with the run, never played. Fights files and baselines are built offline by make_fights.py.
+copied with the run, never played. Fights files and baselines are built offline by tools/make_fights.py.
 A run may resume with different `resumable()` settings; any other change would be a different experiment.
 """
 from dataclasses import MISSING, dataclass, field, fields, is_dataclass

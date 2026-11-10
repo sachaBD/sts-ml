@@ -24,5 +24,5 @@ clean: ## Remove build/main
 clean-data: RUN :=
 clean-data: ## Preview Gumbel run cleanup: RUN=path; ARGS="--apply --drop-replay" to discard replay
 	@test -n "$(RUN)" || { echo 'Usage: make clean-data RUN=path [ARGS="--apply --drop-replay"]'; exit 2; }
-	@.venv/bin/python -m apps.gumbel_nn_combat_expert_iteration.cleanup "$(RUN)" $(ARGS)
+	@.venv/bin/python -m apps.gumbel_nn_combat_expert_iteration.tools.cleanup "$(RUN)" $(ARGS)
 

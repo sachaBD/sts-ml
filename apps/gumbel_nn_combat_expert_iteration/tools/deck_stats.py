@@ -1,6 +1,6 @@
 """Aggregate the newest experiment's latest N self-play iterations.
 
-    .venv/bin/python -m apps.gumbel_nn_combat_expert_iteration.deck_stats 3
+    .venv/bin/python -m apps.gumbel_nn_combat_expert_iteration.tools.deck_stats 3
 """
 import argparse
 import json
@@ -8,17 +8,7 @@ import json
 import pyarrow as pa
 
 from runs.run import RUNS
-
-
-def iteration_counts(training, latest: int, recent_most: int):
-    """Per-deck counts over an explicit window ending at latest (zero is initialization)."""
-    if recent_most < 1 or latest < 0:
-        raise ValueError('positive recent_most and nonnegative latest required')
-    before = json.loads((training / f'iter{max(0, latest - recent_most):03d}' / 'decks.json').read_text())
-    after = json.loads((training / f'iter{latest:03d}' / 'decks.json').read_text())
-    return {deck: dict(attempts=stats['fights'] - before[deck]['fights'],
-                       wins=stats['wins'] - before[deck]['wins'])
-            for deck, stats in after.items()}
+from apps.gumbel_nn_combat_expert_iteration.sampling import iteration_counts
 
 
 def newest_runs(recent_most: int) -> pa.Table:
