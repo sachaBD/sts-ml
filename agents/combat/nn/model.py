@@ -56,6 +56,8 @@ class CombatModel(nn.Module, ABC):
     logits are masked below -1e8. Padding must not affect real-token predictions.
     The immutable spec completely identifies the architecture, not its deployment.
     """
+    encoding = 'legacy'
+
     def __init__(self, spec: ModelSpec):
         super().__init__()
         self.spec = spec

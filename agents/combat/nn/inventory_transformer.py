@@ -16,6 +16,8 @@ CARD_ACTION, POTION_ACTION, SINGLE_CARD_SELECTION, MULTI_CARD_SELECTION = range(
 
 
 class InventoryTransformer(CombatModel):
+    encoding = 'inventory_v1'
+
     def __init__(self, spec):
         super().__init__(spec)
         dim = spec.dim

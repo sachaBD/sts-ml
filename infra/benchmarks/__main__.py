@@ -1,6 +1,6 @@
 """Component benchmarks for infra: python -m infra.benchmarks MODEL_DIR REPLAY_FILE... [--seconds 5] [--build build/main]
 
-MODEL_DIR holds model.onnx and model-gpu.onnx (batch 512). The reference is runs/benchmark/panache-128x4 (`make infra-benchmark`).
+MODEL_DIR holds model.onnx and model-gpu.onnx (fixed batch). The reference is runs/benchmark/panache-128x4 (`make infra-benchmark`).
 REPLAY_FILE: replay sample files to read rows from, e.g. that run's samples-*.bin.
 Native benchmarks need `make build` (or --build DIR) first.
 For schema-specific inference inputs, invoke the native benchmark directly:
@@ -42,8 +42,8 @@ def main():
     disk = reader.run(a.replay, a.seconds)
 
     print(f"{'component':<28}{'throughput':>17}  notes")
-    print(f"{'inference (GPU, batch 512)':<28}{gpu['evals_per_second']:>10,.0f} eval/s  "
-          f"{a.models.name}")
+    inference = f'inference (GPU, batch {gpu["batch"]})'
+    print(f"{inference:<28}{gpu['evals_per_second']:>10,.0f} eval/s  {a.models.name}")
     print(f"{'actors + inference server':<28}{actors['requests_per_second']:>10,.0f} req/s   "
           f"9 actor + 1 server threads, free episodes and backend; mean batch {actors['mean_batch']:.0f}")
     print(f"{'reader + prefetch':<28}{disk['rows_per_second']:>10,.0f} rows/s  "
