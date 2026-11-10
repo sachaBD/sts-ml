@@ -30,7 +30,7 @@ class ModelTests(unittest.TestCase):
         torch.set_num_threads(1)
         torch.manual_seed(0)
 
-    def test_predictions_are_probabilities_over_legal_actions(self):
+    def test_policy_is_a_probability_over_legal_moves_only(self):
         for value in ('win', 'outcome'):
             with self.subTest(value=value):
                 tokens = combat_tokens()
@@ -57,7 +57,7 @@ class ModelTests(unittest.TestCase):
                 torch.testing.assert_close(values, expected_values)
                 torch.testing.assert_close(logits[:, :tokens.shape[1]], expected_logits)
 
-    def test_entity_forward_matches_attention_over_every_position(self):
+    def test_training_speedup_predicts_the_same_as_the_exported_path(self):
         for value in ('win', 'outcome'):
             with self.subTest(value=value):
                 model = build_model(small_spec(value)).eval()
@@ -67,7 +67,7 @@ class ModelTests(unittest.TestCase):
                 for actual, expected in zip(model(tokens), model.predict(tokens)):
                     torch.testing.assert_close(actual, expected)
 
-    def test_outcome_win_probability_is_the_win_bin_mass(self):
+    def test_win_probability_is_the_mass_of_the_win_bins(self):
         for auxiliary in (False, True):
             with self.subTest(auxiliary=auxiliary):
                 spec = ModelSpec('entity', dim=16, layers=1, heads=2, value='outcome', auxiliary=auxiliary)

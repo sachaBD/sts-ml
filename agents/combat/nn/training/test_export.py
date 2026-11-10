@@ -67,7 +67,7 @@ class EntityExportTests(unittest.TestCase):
                 torch.testing.assert_close(onnx_predictions(self.directory / filename, inputs),
                                            model_predictions(self.model, inputs.float()), rtol=2e-4, atol=2e-5)
 
-    def test_targets_survive_export_without_learning_monster_order(self):
+    def test_moves_stay_linked_to_their_target_monster(self):
         tokens, permuted = target_tokens()
         path = self.directory / 'model.onnx'
         actual = onnx_predictions(path, tokens)
@@ -77,7 +77,7 @@ class EntityExportTests(unittest.TestCase):
         self.assertGreater(abs((logits[0, 3] - logits[0, 4]).item()), 1e-5)
         self.assertGreater(abs((logits[0, 5] - logits[0, 6]).item()), 1e-5)
 
-    def test_exports_follow_the_current_weights(self):
+    def test_exported_model_predicts_the_same_and_follows_new_weights(self):
         self.assert_exports_match()
         train_once(self.learner, self.tokens)
         self.exporter.export(self.model, self.directory, batch=2, bank=())  # the graph-reuse path

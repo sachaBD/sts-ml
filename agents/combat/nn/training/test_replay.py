@@ -33,7 +33,7 @@ def samples(directory, decks):
 
 
 class ReplayTests(unittest.TestCase):
-    def test_balanced_cap_and_padding(self):
+    def test_balanced_sampling_draws_every_deck_equally(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = samples(Path(tmp) / 'iter001', [('long', 90, 11, 1), ('short', 10, 22, 0)])
             replay = Replay([path], max_rows=16)
@@ -50,7 +50,7 @@ class ReplayTests(unittest.TestCase):
             self.assertTrue(path.with_suffix('.index.npz').exists())
             self.assertEqual({k: len(v) for k, v in index(path).items()}, replay.available)
 
-    def test_value_samples_one_state_per_combat_without_affecting_policy_accounting(self):
+    def test_value_samples_take_one_state_per_fight(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             a = samples(root / 'a', [('same', 40, 1, 1), ('same', 2, 2, 0), ('empty', 0, 9, 0)])
@@ -65,21 +65,21 @@ class ReplayTests(unittest.TestCase):
                         self.assertTrue(set(identities) <= {1, 2, 3})
                     self.assertEqual(sum(replay.drawn.values()), 0)
 
-    def test_reject_incomplete_binary(self):
+    def test_truncated_sample_files_are_rejected(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = samples(Path(tmp) / 'iter001', [('a', 3, 1, 1)])
             path.write_bytes(path.read_bytes()[:-1])
             with self.assertRaisesRegex(ValueError, 'truncated'): index(path)
             self.assertFalse(path.with_suffix('.index.npz').exists())
 
-    def test_reject_other_sample_formats(self):
+    def test_other_sample_formats_are_rejected(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = samples(Path(tmp) / 'iter001', [('a', 3, 1, 1)])
             results = path.parent / 'results.jsonl'
             results.write_text(results.read_text().replace(f'"sample_format": {SAMPLE_FORMAT}', '"sample_format": 1'))
             with self.assertRaisesRegex(ValueError, 'sample format'): index(path)
 
-    def test_replay_preserves_values_outside_fp16_range(self):
+    def test_large_values_and_ids_survive_loading(self):
         t = np.zeros((3, WIDTH), dtype=np.float32)
         t[0, :4] = [1, 511, 0, 95144.78125]; t[-2:, 0] = 6
         tokens, _, _ = Replay.collate([(t, np.array([.5, .5], np.float32), 1)])

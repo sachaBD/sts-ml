@@ -20,7 +20,7 @@ def train_once(learner, tokens):
           steps=1, batch=2, device='cpu', log=lambda _: None)
 
 class CheckpointTests(unittest.TestCase):
-    def test_resume_matches_uninterrupted_learning(self):
+    def test_resuming_from_a_checkpoint_equals_never_stopping(self):
         torch.set_num_threads(1)
         with tempfile.TemporaryDirectory() as temporary:
             learner = Learner(small_spec(), lr=1e-3, device='cpu')

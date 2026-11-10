@@ -42,7 +42,7 @@ std::vector<double> softmax(std::vector<double> x) {
     return x;
 }
 
-// mctx qtransform_completed_by_mix_value: completed Q (unvisited = mixed value), min-max rescaled, scaled.
+// mctx qtransform_completed_by_mix_value: completed Q (unvisited = mixed value), shifted to zero, scaled (no min-max rescale).
 std::vector<double> sigma(const Node& n, const Gumbel::Settings& s) {
     double prior_visited = 0, weighted = 0;
     int most = 0;
@@ -54,9 +54,8 @@ std::vector<double> sigma(const Node& n, const Gumbel::Settings& s) {
     const double mixed = prior_visited > 0 ? (n.value + n.total * weighted / prior_visited) / (n.total + 1) : n.value;
     std::vector<double> q(n.keys.size());
     for (std::size_t i = 0; i < q.size(); ++i) q[i] = n.visits[i] ? n.value_sum[i] / n.visits[i] : mixed;
-    const auto [lo, hi] = std::minmax_element(q.begin(), q.end());
-    const double low = *lo, range = s.rescale_values ? std::max(*hi - low, 1e-8) : 1.0;
-    for (auto& v : q) v = (s.maxvisit_init + most) * s.value_scale * (v - low) / range;
+    const double low = *std::min_element(q.begin(), q.end());
+    for (auto& v : q) v = (s.maxvisit_init + most) * s.value_scale * (v - low);
     return q;
 }
 
@@ -191,28 +190,6 @@ struct Gumbel::Impl {
         for (double p : improved_policy(root, s)) r.policy.push_back(float(p));
         return r;
     }
-
-    Tree tree() const {
-        Tree t{std::vector<Tree::Node>(nodes), gumbel};
-        copy(root, t);
-        return t;
-    }
-
-    void copy(const Node& n, Tree& t) const {
-        auto& out = t.nodes[n.id];
-        out.value = n.value;
-        out.total = n.total;
-        const auto q = sigma(n, s);
-        const auto pi = improved_policy(n, s);
-        for (std::size_t i = 0; i < n.keys.size(); ++i) {
-            Tree::Edge e{n.keys[i], n.logits[i], n.prior[i], q[i], pi[i], n.value_sum[i], n.visits[i], {}};
-            for (const auto& [observation, child] : n.children[i]) {
-                e.children.push_back({observation, child->id});
-                copy(*child, t);
-            }
-            out.edges.push_back(std::move(e));
-        }
-    }
 };
 
 Gumbel::Gumbel(const sts::BattleContext& observed, const Settings& settings, std::uint64_t seed)
@@ -226,5 +203,4 @@ std::optional<Query> Gumbel::pending() const {
 
 void Gumbel::evaluated(const Evaluation& evaluation) { impl_->evaluated(evaluation); }
 Result Gumbel::result() const { return impl_->result(); }
-Gumbel::Tree Gumbel::tree() const { return impl_->tree(); }
 }  // namespace stsrl::search

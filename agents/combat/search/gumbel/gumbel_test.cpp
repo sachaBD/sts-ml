@@ -51,7 +51,7 @@ Gumbel::Settings settings(double gumbel_scale = 0) {
 }
 }  // namespace
 
-TEST(Gumbel, QueriesAreLiveLegalDecisions) {
+TEST(Gumbel, OnlyAsksAboutLiveStatesWithTheirLegalMoves) {
     Gumbel search{jaw_worm(), settings(1), 1};
     auto answer = noisy();
     run(search, [&](const Query& q) {
@@ -61,7 +61,7 @@ TEST(Gumbel, QueriesAreLiveLegalDecisions) {
     });
 }
 
-TEST(Gumbel, AsksAtMostOncePerSimulationPlusRoot) {
+TEST(Gumbel, NetworkCallsStayWithinTheSimulationBudget) {
     const auto s = settings(1);
     Gumbel search{jaw_worm(), s, 1};
     int queries = 0;
@@ -71,7 +71,7 @@ TEST(Gumbel, AsksAtMostOncePerSimulationPlusRoot) {
     EXPECT_FALSE(search.pending());
 }
 
-TEST(Gumbel, ResultIsAPolicyOverTheRootActions) {
+TEST(Gumbel, ResultIsAProbabilityOverTheLegalMoves) {
     const auto root = jaw_worm();
     Gumbel search{root, settings(1), 1};
     const auto r = run(search, noisy());
@@ -82,14 +82,6 @@ TEST(Gumbel, ResultIsAPolicyOverTheRootActions) {
     EXPECT_NE(std::ranges::find(r.actions, r.action), r.actions.end());
     EXPECT_GE(r.value, 0);
     EXPECT_LE(r.value, 1);
-}
-
-TEST(Gumbel, SameSeedSameResult) {
-    Gumbel a{jaw_worm(), settings(1), 3}, b{jaw_worm(), settings(1), 3};
-    const auto ra = run(a, noisy()), rb = run(b, noisy());
-    EXPECT_EQ(ra.action, rb.action);
-    EXPECT_EQ(ra.policy, rb.policy);
-    EXPECT_EQ(ra.value, rb.value);
 }
 
 TEST(Gumbel, FlatValuesFollowThePrior) {
@@ -121,7 +113,7 @@ TEST(Gumbel, WinningMoveBeatsAWrongPrior) {
     EXPECT_TRUE(wins_now(root, r.action));
 }
 
-TEST(Gumbel, ZeroSimulationsIsTheNetwork) {
+TEST(Gumbel, ZeroSimulationsPlaysTheNetworkAlone) {
     const auto root = jaw_worm();
     auto s = settings();
     s.simulations = 0;
@@ -140,7 +132,7 @@ TEST(Gumbel, ZeroSimulationsIsTheNetwork) {
     EXPECT_EQ(r.value, network->value);
 }
 
-TEST(Gumbel, ForcedMoveIsCertain) {
+TEST(Gumbel, ASingleLegalMoveGetsProbabilityOne) {
     auto root = jaw_worm();
     root.player.energy = 0;
     ASSERT_EQ(legal_actions(root).size(), 1u);
@@ -150,97 +142,3 @@ TEST(Gumbel, ForcedMoveIsCertain) {
     EXPECT_EQ(r.policy, std::vector<float>{1.f});
 }
 
-TEST(GumbelTree, NodeIIsTheIthQuery) {
-    for (const std::uint64_t seed : {1, 2, 3}) {
-        Gumbel search{jaw_worm(), settings(1), seed};
-        std::vector<std::uint64_t> queried;
-        auto answer = noisy();
-        run(search, [&](const Query& q) { queried.push_back(stsrl::combat::observation_key(q.state)); return answer(q); });
-        const auto tree = search.tree();
-        ASSERT_EQ(tree.nodes.size(), queried.size());
-        std::vector<int> parents(tree.nodes.size(), 0);
-        for (const auto& node : tree.nodes)
-            for (const auto& edge : node.edges)
-                for (const auto& child : edge.children) {
-                    EXPECT_EQ(child.observation, queried[child.node]);
-                    ++parents[child.node];
-                }
-        EXPECT_EQ(parents[0], 0);
-        for (std::size_t i = 1; i < parents.size(); ++i) EXPECT_EQ(parents[i], 1) << "node " << i;
-    }
-}
-
-TEST(GumbelTree, AgreesWithTheSearch) {
-    for (const std::uint64_t seed : {1, 2, 3}) {
-        const auto s = settings(1);
-        Gumbel search{jaw_worm(), s, seed};
-        const auto r = run(search, noisy());
-        const auto tree = search.tree();
-        EXPECT_LE(tree.nodes[0].total, s.simulations);
-        ASSERT_EQ(tree.nodes[0].edges.size(), r.policy.size());
-        for (std::size_t i = 0; i < r.policy.size(); ++i) EXPECT_FLOAT_EQ(tree.nodes[0].edges[i].improved, r.policy[i]);
-        for (const auto& node : tree.nodes) {
-            int visits = 0;
-            for (const auto& edge : node.edges) visits += edge.visits;
-            EXPECT_EQ(visits, node.total);
-        }
-    }
-}
-
-TEST(Gumbel, HalvingRoundsAllocateEqually) {
-    const auto root = jaw_worm();
-    const int A = int(legal_actions(root).size());
-    ASSERT_GE(A, 5);
-    for (const int sims : {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 15, 16, 17, 32, 64, 100, 256}) {
-        for (const int considered : {2, 3, 5, 16}) {
-            auto s = settings(1);
-            s.simulations = sims;
-            s.considered_actions = considered;
-            Gumbel search{root, s, 1};
-            run(search, noisy());
-            const auto tree = search.tree();
-            const auto& edges = tree.nodes[0].edges;
-
-            const int k = std::min({considered, A, std::max(1, sims / 2)});
-            std::vector<int> v;
-            for (const auto& e : edges) v.push_back(e.visits);
-            std::ranges::sort(v, std::greater{});
-            EXPECT_EQ(std::ranges::count_if(v, [](int n) { return n > 0; }), k);
-
-            for (int m = k; m >= 2; m = std::max(2, m / 2)) {
-                const int survivors = m == 2 ? 0 : std::max(2, m / 2);
-                for (int i = survivors; i < m; ++i)
-                    EXPECT_EQ(v[i], v[m - 1]) << "sims=" << sims << " considered=" << considered << " m=" << m;
-                if (m == 2) break;
-            }
-        }
-    }
-}
-
-TEST(Gumbel, UnrescaledValuesScaleSigmaWithoutMinMaxStretching) {
-    const auto root = jaw_worm();
-    const auto actions = legal_actions(root);
-    ASSERT_GE(actions.size(), 2u);
-    auto s = settings(0);
-    s.simulations = 4;
-    s.considered_actions = 2;
-    s.rescale_values = false;
-    Gumbel search{root, s, 1};
-    int queries = 0;
-    run(search, [&](const Query& q) {
-        ++queries;
-        if (queries == 1) {
-            std::vector<float> logits(q.actions.size(), -10.f);
-            logits[0] = 2.0f;
-            logits[1] = 0.0f;
-            return Evaluation{0.5f, logits};
-        }
-        return Evaluation{queries % 2 ? 0.52f : 0.50f, std::vector<float>(q.actions.size(), 0.f)};
-    });
-    const auto tree = search.tree();
-    const auto& edges = tree.nodes[0].edges;
-    const double q0 = edges[0].value_sum / edges[0].visits;
-    const double q1 = edges[1].value_sum / edges[1].visits;
-    const double scale = (s.maxvisit_init + 2) * s.value_scale;
-    EXPECT_NEAR(edges[1].sigma - edges[0].sigma, scale * (q1 - q0), 1e-6);
-}

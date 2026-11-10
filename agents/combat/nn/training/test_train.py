@@ -46,7 +46,7 @@ class TrainingTests(unittest.TestCase):
     def setUp(self):
         torch.set_num_threads(1)
 
-    def test_independent_losses_match_explicit_objective_for_any_microbatch_partition(self):
+    def test_losses_do_not_depend_on_how_the_batch_is_split(self):
         policy_batch, value_batch = batch(5, 2.), batch(3, -3.)
         torch.manual_seed(0)
         nets = dict(tiny=Tiny, auxiliary=lambda: build_model(ModelSpec('entity', 8, 1, 1, 'outcome', True)))
@@ -80,7 +80,7 @@ class TrainingTests(unittest.TestCase):
 
 
 class OutcomeBinTests(unittest.TestCase):
-    def test_bins_order_every_loss_below_every_win_by_margin(self):
+    def test_outcome_bins_rank_every_loss_below_every_win(self):
         torch.manual_seed(0)
         targets = torch.rand(4096, len(TARGETS))
         targets[:, TARGETS.index('won')] = (targets[:, 0] < .5).float()

@@ -28,7 +28,7 @@ Fight random_fight(std::uint64_t seed) {
 }  // namespace
 
 // Rounds partition the fight: losses summed over turn starts are the whole fight's losses.
-TEST(Targets, RoundsPartitionTheFight) {
+TEST(Targets, EveryDecisionBelongsToExactlyOneRound) {
     for (std::uint64_t seed = 1; seed <= 20; ++seed) {
         const auto fight = random_fight(seed);
         const auto& starts = fight.turn_starts();
@@ -47,7 +47,7 @@ TEST(Targets, RoundsPartitionTheFight) {
     }
 }
 
-TEST(Targets, OutcomeMatchesTheEnd) {
+TEST(Targets, OutcomeMatchesHowTheFightEnded) {
     for (std::uint64_t seed = 1; seed <= 20; ++seed) {
         const auto fight = random_fight(seed);
         const auto t = targets(fight.turn_starts().front(), fight.turn_starts(), fight.state());

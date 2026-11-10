@@ -15,28 +15,6 @@ public:
         double gumbel_scale = 0;  // 1 explores (self-play); 0 is deterministic (evaluation)
         int particles = 8;
         double value_scale = 0.1, maxvisit_init = 50;  // mctx qtransform_completed_by_mix_value
-        bool rescale_values = false;
-    };
-
-    // A copy of the tree. Node i answered the i-th query; node 0 is the root.
-    struct Tree {
-        struct Child {
-            std::uint64_t observation;
-            int node;
-        };
-        struct Edge {
-            std::uint64_t action;  // public action key
-            double logit, prior, sigma, improved, value_sum;
-            int visits;
-            std::vector<Child> children;
-        };
-        struct Node {
-            double value;
-            int total;
-            std::vector<Edge> edges;
-        };
-        std::vector<Node> nodes;
-        std::vector<double> gumbel;  // per root edge
     };
 
     Gumbel(const sts::BattleContext& observed, const Settings&, std::uint64_t seed);
@@ -44,7 +22,6 @@ public:
     std::optional<Query> pending() const override;
     void evaluated(const Evaluation&) override;
     Result result() const override;
-    Tree tree() const;
 
 private:
     struct Impl;

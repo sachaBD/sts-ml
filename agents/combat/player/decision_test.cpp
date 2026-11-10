@@ -44,7 +44,7 @@ stsrl::search::Result decide(const Fight& fight, double rollout_mix) {
 const std::vector<std::uint64_t> seeds{1, 2, 3};
 }  // namespace
 
-TEST(Fight, StopsOnlyAtAChoiceOrTheEnd) {
+TEST(Fight, AutoPlaysForcedMovesAndStopsOnlyAtARealChoice) {
     for (const auto seed : seeds) {
         auto start = jaw_worm(seed);
         if (seed == 1) start.player.energy = 0;  // begins with a forced End Turn
@@ -59,7 +59,7 @@ TEST(Fight, StopsOnlyAtAChoiceOrTheEnd) {
     }
 }
 
-TEST(Decision, ReplaysFromAFreshFightAndTheMovesAlone) {
+TEST(Decision, DependsOnlyOnTheFightStartAndTheMovesSoFar) {
     for (const auto seed : seeds) {
         Fight played{jaw_worm(seed), seed};
         std::vector<sts::search::Action> moves;
@@ -80,7 +80,7 @@ TEST(Decision, ReplaysFromAFreshFightAndTheMovesAlone) {
     }
 }
 
-TEST(Decision, WithoutRolloutsIsTheSearchOnTheNetwork) {
+TEST(Decision, ZeroRolloutMixIsSearchOnTheNetworkAlone) {
     for (const auto seed : seeds) {
         Fight fight{jaw_worm(seed), seed};
         while (!fight.over()) {

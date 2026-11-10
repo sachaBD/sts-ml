@@ -50,14 +50,14 @@ class InventoryTests(unittest.TestCase):
         torch.testing.assert_close(values, expected_values)
         torch.testing.assert_close(logits[:, :self.tokens.shape[1]], expected_logits)
 
-    def test_consistent_entity_relabeling_only_reorders_action_scores(self):
+    def test_reordering_items_only_reorders_move_scores(self):
         values, logits = self.model(self.tokens)
         order = torch.tensor([0, 4, 3, 1, 2, 6, 5])
         actual_values, actual_logits = self.model(permuted(self.tokens, order))
         torch.testing.assert_close(actual_values, values)
         torch.testing.assert_close(actual_logits, logits[:, order])
 
-    def test_export_preserves_predictions(self):
+    def test_exported_model_predicts_the_same(self):
         padded = torch.cat([self.tokens, torch.zeros(2, 3, WIDTH)], dim=1)
         exporter = ModelExporter(self.model.spec, ExportSpec(tokens=padded.shape[1]))
         with tempfile.TemporaryDirectory() as temporary:

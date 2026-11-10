@@ -10,7 +10,7 @@ int kind(const stsrl::infra::Tokens& tokens, int row) { return int(tokens.data[r
 float feature(const stsrl::infra::Tokens& tokens, int row, int column) { return tokens.data[row * width + column]; }
 }
 
-TEST(InventoryTokens, OffhandModificationsRemainObservable) {
+TEST(InventoryEncoding, ModifiedCardsInTheDrawPileStayVisible) {
     auto state = stsrl::scenarios::jaw_worm(1).battle();
     const sts::CardInstance strike{sts::CardId::STRIKE_RED};
     state.cards.drawPile = {strike, strike};
@@ -20,7 +20,7 @@ TEST(InventoryTokens, OffhandModificationsRemainObservable) {
     EXPECT_NE(encode_inventory(state, actions).data, expected.data);
 }
 
-TEST(InventoryTokens, UnknownPileOrderDoesNotAffectInputs) {
+TEST(InventoryEncoding, HiddenDrawOrderDoesNotLeakIntoInputs) {
     auto state = stsrl::scenarios::jaw_worm(2).battle();
     const auto actions = stsrl::combat::legal_actions(state);
     const auto expected = encode_inventory(state, actions);
@@ -28,7 +28,7 @@ TEST(InventoryTokens, UnknownPileOrderDoesNotAffectInputs) {
     EXPECT_EQ(encode_inventory(state, actions).data, expected.data);
 }
 
-TEST(InventoryTokens, ActionReferencesFollowSourcesAndTargetInstances) {
+TEST(InventoryEncoding, ActionsPointAtTheirSourceCardAndTargetMonster) {
     auto state = stsrl::scenarios::jaw_worm(3).battle();
     state.monsters.arr[1] = state.monsters.arr[0];
     state.monsters.arr[1].idx = 1;
