@@ -32,7 +32,7 @@ If the job writes out/summary.json, it is merged into run.json as "summary".
 Exit code of the job is returned. Status ends as "done" (exit 0) or "failed".
 
 examples:
-  ./apps/gumbel_nn_combat_expert_iteration/run.sh apps/gumbel_nn_combat_expert_iteration/config/champ_ten.toml [--scratch]
+  ./apps/gumbel_nn_combat_expert_iteration/run.sh apps/gumbel_nn_combat_expert_iteration/config/inventory.toml [--scratch]
 
 full contract: runs/README.md
 """

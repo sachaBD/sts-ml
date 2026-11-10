@@ -13,9 +13,9 @@ import tomllib
 import types
 from typing import get_args
 
-from agents.combat.nn.play import Search, Workers
+from agents.combat.player.play import Search, Workers
 from agents.combat.nn.model import ModelSpec
-from agents.combat.nn.export import ExportSpec
+from agents.combat.nn.training.export import ExportSpec
 from apps.common.app import check_keys, required
 from environments.combat.starts import Starts
 

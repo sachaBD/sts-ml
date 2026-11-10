@@ -1,16 +1,13 @@
 # Combat NN
 
-Combat models, learning and native play. Training workflows belong to the app.
+The network: two model types, each with its own input encoding, plus training.
 
-- [Run and configure training](../../../apps/gumbel_nn_combat_expert_iteration/README.md)
-- [Repository setup and build](../../../README.md#setup)
-- [Model contract](model.py) and colocated invariant tests
-- [Worker boundaries](WORKERS.md)
-- [Runtime metric definitions](METRICS.md)
+- `model.py`: shared base class and `ModelSpec` (`kind = "entity"` or `"inventory_v1"`).
+- `tokens.*`: the shared token format; `tokens.cpp` picks the encoding.
+- `entity/`: the entity model and its encoding (named `legacy` on the command line).
+- `inventory/`: the inventory_v1 model and its encoding. It needs its own weights and replay. All entities
+  attend: set `gpu_tokens` / `gpu_wide_tokens`, not `gpu_attended` / `gpu_wide_attended`.
+- `training/`: replay, losses, the learner, telemetry, and ONNX export for the player.
 
-## Inventory model
-
-`model.kind = "inventory_v1"` requires its own weights and replay. All entities attend:
-set `gpu_tokens` / `gpu_wide_tokens`, not pooled `gpu_attended` / `gpu_wide_attended`.
-Training selects the encoder; standalone native play/import/check use `--encoding inventory_v1`,
-and explanation requests use `"encoding": "inventory_v1"`.
+The player that uses the network to play fights is in [`../player`](../player). Run training through
+[the app](../../../apps/gumbel_nn_combat_expert_iteration/README.md).

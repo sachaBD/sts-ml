@@ -5,7 +5,7 @@ from dataclasses import dataclass, field
 import torch
 from torch import Tensor, nn
 
-from .tokens import TokenKind, WIDTH
+from agents.combat.nn.tokens import TokenKind, WIDTH
 
 # Outcome bins on one margin axis: losses by enemy HP left (most first), then wins by player HP (least first).
 LOSS_BINS = WIN_BINS = 10
@@ -24,8 +24,8 @@ class ModelSpec:
     encoding_version: int = field(default=2, init=False)  # action-to-target row references
 
     def __post_init__(self):
-        if self.kind not in ('transformer', 'entity', 'inventory_v1'):
-            raise ValueError('model.kind: transformer, entity or inventory_v1')
+        if self.kind not in ('entity', 'inventory_v1'):
+            raise ValueError('model.kind: entity or inventory_v1')
         if self.value not in ('win', 'outcome'):
             raise ValueError('model.value: win or outcome')
         if min(self.dim, self.layers, self.heads) <= 0 or self.dim % self.heads:
@@ -79,8 +79,7 @@ class CombatModel(nn.Module, ABC):
 
 
 def build_model(spec: ModelSpec) -> CombatModel:
-    from .pooled_transformer import PooledTransformer
-    from .transformer import Transformer
-    from .inventory_transformer import InventoryTransformer
+    from agents.combat.nn.entity.model import PooledTransformer
+    from agents.combat.nn.inventory.model import InventoryTransformer
 
-    return {'transformer': Transformer, 'entity': PooledTransformer, 'inventory_v1': InventoryTransformer}[spec.kind](spec)
+    return {'entity': PooledTransformer, 'inventory_v1': InventoryTransformer}[spec.kind](spec)

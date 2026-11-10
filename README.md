@@ -18,7 +18,8 @@ See [`apps/gumbel_nn_combat_expert_iteration/README.md`](apps/gumbel_nn_combat_e
 ## Layout
 
 - `apps/gumbel_nn_combat_expert_iteration/`: the training app and dashboard.
-- `agents/combat/nn/`: the network, training, export, and the native `nn_play` worker.
+- `agents/combat/nn/`: the network (entity and inventory models), their encodings, and training.
+- `agents/combat/player/`: the agent that plays fights, search + network (`nn_play`).
 - `agents/combat/search/`: Gumbel search.
 - `environments/combat/`: fight state, actions, and encodings.
 - `infra/`: inference backends, worker plumbing and worker telemetry.

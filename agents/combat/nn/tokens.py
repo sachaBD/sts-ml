@@ -1,16 +1,14 @@
-"""Typed view of the numeric token wire format written by tokens.cpp.
+"""Typed view of the shared numeric token wire format written by tokens.cpp.
 
-Enums describe the schema; tensors deliberately remain numeric for PyTorch/ONNX.
-CardZone applies only to card tokens: other token kinds reuse the numeric columns.
+Tensors deliberately remain numeric for PyTorch/ONNX. Each model's own layout lives with it
+(entity/encoding.py, inventory/model.py); the kinds below are shared by both.
 """
 from dataclasses import dataclass
 from enum import IntEnum
 
-import torch
 from torch import Tensor
 
 WIDTH = 68
-KIND_CAPACITY = 8
 ID_CAPACITY = 1024
 MASKED_LOGIT = -1e9
 
@@ -23,14 +21,6 @@ class TokenKind(IntEnum):
     POTION = 4
     RELIC = 5
     ACTION = 6
-
-
-class CardZone(IntEnum):
-    HAND = 0
-    DRAW = 1
-    DISCARD = 2
-    EXHAUST = 3
-    OFFERED = 4
 
 
 @dataclass(frozen=True)
@@ -51,24 +41,9 @@ class TokenRows:
         return self.data[..., 2].long()
 
     @property
-    def numeric(self) -> Tensor:
-        # The final action column is a row reference, not a numeric feature.
-        return torch.cat((self.data[..., 3:-1], self.data[..., -1:].masked_fill(
-            self.is_kind(TokenKind.ACTION)[..., None], 0)), dim=-1)
-
-    def with_targets(self, embedded: Tensor) -> Tensor:
-        """Add the target monster embedding before attention; row zero means no target."""
-        index = (self.data[..., -1] * self.is_kind(TokenKind.ACTION)).long()
-        target = embedded.gather(-2, index[..., None].expand_as(embedded))
-        return embedded + target * (index > 0)[..., None]
-
-    @property
     def valid(self) -> Tensor:
         return self.kind > 0.5
 
     def is_kind(self, kind: TokenKind) -> Tensor:
         # Float comparisons avoid ONNX CUDA's unsupported integer Equal path.
         return (self.kind - kind).abs() < 0.5
-
-    def in_card_zone(self, zone: CardZone) -> Tensor:
-        return self.is_kind(TokenKind.CARD) & ((self.numeric[..., 0] - zone).abs() < 0.5)

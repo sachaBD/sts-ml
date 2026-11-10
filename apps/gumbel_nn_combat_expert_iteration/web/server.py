@@ -12,7 +12,7 @@ import time
 from urllib.parse import urlsplit
 
 from infra.workers.telemetry import actors, lanes, queues
-from agents.combat.nn.training_telemetry import training
+from agents.combat.nn.training.telemetry import training
 
 from ..dashboard import running, snapshot
 from ..reporting import baselines, by_deck, deck_of, jsonl, outcomes, paired, pool, rate, unpaired

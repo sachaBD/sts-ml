@@ -3,12 +3,12 @@ import unittest
 
 import torch
 
-from ._test_support import combat_tokens, small_spec
-from .model import AUXILIARY, LOSS_BINS, WIN_BINS, ModelSpec, build_model, win_probability
-from .tokens import TokenKind, TokenRows, WIDTH
+from agents.combat.nn._test_support import combat_tokens, small_spec
+from agents.combat.nn.model import AUXILIARY, LOSS_BINS, WIN_BINS, ModelSpec, build_model, win_probability
+from agents.combat.nn.tokens import TokenKind, TokenRows, WIDTH
 
 
-SPECS = [(kind, value) for kind in ('transformer', 'entity') for value in ('win', 'outcome')]
+SPECS = [(kind, value) for kind in ('entity',) for value in ('win', 'outcome')]
 
 
 
@@ -55,7 +55,7 @@ class ModelTests(unittest.TestCase):
                     torch.testing.assert_close(actual, expected)
 
     def test_outcome_win_probability_is_the_win_bin_mass(self):
-        for kind, auxiliary in [(kind, auxiliary) for kind in ('transformer', 'entity') for auxiliary in (False, True)]:
+        for kind, auxiliary in [(kind, auxiliary) for kind in ('entity',) for auxiliary in (False, True)]:
             with self.subTest(kind=kind, auxiliary=auxiliary):
                 spec = ModelSpec(kind, dim=16, layers=1, heads=2, value='outcome', auxiliary=auxiliary)
                 model = build_model(spec).eval()
@@ -81,7 +81,7 @@ class ModelTests(unittest.TestCase):
 
     def test_invalid_architectures_are_rejected(self):
         for invalid in [dict(kind='unknown'), dict(dim=0), dict(layers=0), dict(heads=0), dict(dim=15), dict(value='hp')]:
-            spec = dict(kind='transformer', dim=16, layers=1, heads=2) | invalid
+            spec = dict(kind='entity', dim=16, layers=1, heads=2) | invalid
             with self.subTest(invalid=invalid), self.assertRaises(ValueError):
                 ModelSpec(**spec)
 

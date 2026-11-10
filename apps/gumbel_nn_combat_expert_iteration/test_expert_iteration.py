@@ -9,7 +9,7 @@ import torch
 
 from agents.combat.nn import learner
 from agents.combat.nn.model import ModelSpec
-from agents.combat.nn.play import model_files
+from agents.combat.player.play import model_files
 from . import expert_iteration
 from .config import load
 from .reporting import deck_of
@@ -55,7 +55,7 @@ prune_replay = true
 device = "cpu"
 
 [model]
-kind = "transformer"
+kind = "entity"
 dim = 8
 layers = 1
 heads = 1
@@ -256,7 +256,7 @@ class ExpertIterationInvariants(unittest.TestCase):
         self.assertEqual(json.loads((control.directory / 'status.json').read_text())['phase'], 'stopped')
 
     def test_initial_checkpoint_is_iteration_zero(self):
-        initial = learner.Learner(ModelSpec('transformer', 8, 1, 1), 1e-3, 'cpu', seed=1)
+        initial = learner.Learner(ModelSpec('entity', 8, 1, 1), 1e-3, 'cpu', seed=1)
         initial.save(self.out / 'inputs/initial-model.pt')
         control = self.run_loop(config=CONFIG.replace('iterations = 2', 'iterations = 1'))
         saved = torch.load(control.iteration(0) / 'model.pt', weights_only=True)['net']

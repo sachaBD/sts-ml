@@ -1,9 +1,10 @@
 """Small combat inputs and real training updates shared by contract tests."""
 import torch
 
-from .model import ModelSpec
-from .tokens import CardZone, TokenKind, TokenRows, WIDTH
-from .train import train
+from agents.combat.nn.model import ModelSpec
+from agents.combat.nn.entity.encoding import CardZone
+from agents.combat.nn.tokens import TokenKind, TokenRows, WIDTH
+from agents.combat.nn.training.train import train
 
 
 def small_spec(kind, value='win'):

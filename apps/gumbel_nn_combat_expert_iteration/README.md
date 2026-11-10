@@ -10,7 +10,7 @@ Use a new `[run].id` and `seed_namespace` in a copy of the preset for a new expe
 
 ```sh
 APP=./apps/gumbel_nn_combat_expert_iteration/run.sh
-CONFIG=apps/gumbel_nn_combat_expert_iteration/config/champ_ten.toml
+CONFIG=apps/gumbel_nn_combat_expert_iteration/config/inventory.toml
 mkdir -p scratch
 nohup "$APP" "$CONFIG" > scratch/champ-launch.log 2>&1 &
 # Read the run directory from scratch/champ-launch.log, then:

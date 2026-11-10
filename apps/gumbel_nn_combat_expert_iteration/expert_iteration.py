@@ -13,13 +13,13 @@ import json
 from pathlib import Path
 import time
 
-from agents.combat.nn.learner import Learner
-from agents.combat.nn.train import LOSSES
-from agents.combat.nn.export import ModelExporter
-from agents.combat.nn.play import Search, play
-from agents.combat.nn.replay import Replay
+from agents.combat.nn.training.learner import Learner
+from agents.combat.nn.training.train import LOSSES
+from agents.combat.nn.training.export import ModelExporter
+from agents.combat.player.play import Search, play
+from agents.combat.nn.training.replay import Replay
 from apps.common.app import read_jsonl
-from agents.combat.nn.training_telemetry import write as write_training
+from agents.combat.nn.training.telemetry import write as write_training
 
 from .config import experiment_changes, load
 from .reporting import deck_of

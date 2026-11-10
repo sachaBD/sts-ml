@@ -7,7 +7,7 @@ from unittest.mock import patch
 from .config import experiment_changes, load
 from .test_expert_iteration import CONFIG, EVALUATION
 
-PRESET = Path(__file__).with_name('config') / 'champ_ten.toml'
+PRESET = Path(__file__).with_name('config') / 'inventory.toml'
 
 
 class ConfigTests(unittest.TestCase):
