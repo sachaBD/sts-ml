@@ -1,7 +1,7 @@
 # Combat player
 
-The agent that plays fights: `nn_play` (`nn_play.cpp`), launched by `play.py`. Run `nn_play` with no arguments
-for its options. It knows two interfaces:
+The agent that plays fights: `nn_play` (`nn_play.cpp`), launched by `play.py`. `nn_play --help` lists its
+options. It knows two interfaces:
 
 - `search::SearchFactory` (`search/search.hpp`): a fresh search per decision. `search::SearchConfig`
   (`search/config.hpp`) decides which search runs; the player never names it.

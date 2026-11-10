@@ -19,6 +19,11 @@ if(NOT TARGET infra_inference)
     message(STATUS "nn_play not built: infra_inference unavailable")
     return()
 endif()
+# CLI11 parses nn_play's command line, pinned and built with the project.
+FetchContent_Declare(cli11 URL https://github.com/CLIUtils/CLI11/archive/refs/tags/v2.5.0.tar.gz
+    URL_HASH SHA256=17e02b4cddc2fa348e5dbdbb582c59a3486fa2b2433e70a0c3bacb871334fd55 DOWNLOAD_EXTRACT_TIMESTAMP TRUE)
+FetchContent_MakeAvailable(cli11)
+
 add_executable(nn_play nn_play.cpp)
-target_link_libraries(nn_play PRIVATE player_episodes nn_network)
+target_link_libraries(nn_play PRIVATE player_episodes nn_network CLI11::CLI11)
 target_compile_options(nn_play PRIVATE -Wall -Wextra -Wpedantic)
