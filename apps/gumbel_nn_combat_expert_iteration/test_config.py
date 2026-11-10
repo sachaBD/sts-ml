@@ -1,13 +1,16 @@
 """Invariants of the config: a mistake stops the run before anything is written; resume may only change resumable settings."""
 from dataclasses import replace
+import os
 from pathlib import Path
 import unittest
 from unittest.mock import patch
 
-from .config import experiment_changes, load
+from agents.combat.player.play import check
+from .config import experiment_changes, load, nn_play_settings
 from .test_expert_iteration import CONFIG, EVALUATION
 
 PRESETS = Path(__file__).with_name('config')
+NN_PLAY = Path('build', os.environ.get('STSRL_BUILD_DIR', 'main'), 'agents/combat/player/nn_play')
 
 
 class ConfigTests(unittest.TestCase):
@@ -21,16 +24,24 @@ class ConfigTests(unittest.TestCase):
             with self.subTest(preset=preset.name):
                 load(preset.read_text())
 
+    @unittest.skipUnless(NN_PLAY.exists(), 'nn_play not built')
+    def test_nn_play_accepts_every_preset_and_rejects_a_mistake(self):
+        for preset in sorted(PRESETS.glob('*.toml')):
+            for name, settings in nn_play_settings(load(preset.read_text())).items():
+                with self.subTest(preset=preset.name, settings=name):
+                    check(NN_PLAY, settings)
+        mistake = nn_play_settings(load(CONFIG.replace('rollout_mix = 0.5', 'rollout_mix = 2')))['search']
+        with self.assertRaisesRegex(ValueError, 'rollout mix'):
+            check(NN_PLAY, mistake)
+
     def test_a_mistake_stops_the_run(self):
         self.rejects(CONFIG.replace('steps = 1', 'stepz = 1'), "unknown [training] keys: ['stepz']")
         self.rejects(CONFIG.replace('lr = 0.001\n', ''), 'missing [training].lr')
-        self.rejects(CONFIG.replace('actors = 2', 'actors = "2"'), '[workers].actors must be int')
         self.rejects(CONFIG.replace('batches = [4, 2]', 'batches = [4, 4]'), 'distinct positive batch sizes')
         self.rejects(CONFIG.replace('deployments = [{ tokens = 16, batches = [4, 2], lanes = 2 }]',
                                     'deployments = [{ tokens = 16, batches = [4], lanes = 1 }, '
                                     '{ tokens = 8, batches = [4], lanes = 1 }]'),
                      'strictly increasing')
-        self.rejects(CONFIG.replace('rollout_mix = 0.5', 'rollout_mix = 2'), 'rollout_mix')
         self.rejects(CONFIG.replace('per_iteration = 5', 'per_iteration = 5\nhp_jitter = -0.1'), 'hp_jitter')
         self.rejects(CONFIG.replace('per_iteration = 5', 'per_iteration = 5\nexcluded_cards = ["PURTY"]'), "['PURTY']")
         self.rejects(CONFIG.replace('per_iteration = 5', 'per_iteration = 5\nexcluded_relics = ["RUNIC_DOOM"]'), "['RUNIC_DOOM']")
@@ -54,7 +65,7 @@ class ConfigTests(unittest.TestCase):
         base = load(CONFIG)
         evaluation = base.evaluation.sets[0]
         for changed, expected in ((replace(evaluation, every=7, at=(0, 7)), []),
-                                  (replace(evaluation, search=replace(evaluation.search, particles=6)), ['[evaluation].sets'])):
+                                  (replace(evaluation, search={**evaluation.search, 'particles': 6}), ['[evaluation].sets'])):
             config = replace(base, evaluation=replace(base.evaluation, sets=(changed,)))
             self.assertEqual(experiment_changes(base, config), expected)
 
