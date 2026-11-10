@@ -3,6 +3,7 @@
 The network: two model types, each with its own input encoding, plus training.
 
 - `model.py`: shared base class and `ModelSpec` (`kind = "entity"` or `"inventory_v1"`).
+- `features.*`: what a player can see of a fight, as numbers; both encodings are built from it.
 - `tokens.*`: the shared token format; `tokens.cpp` picks the encoding.
 - `entity/`: the entity model and its encoding.
 - `inventory/`: the inventory_v1 model and its encoding. It needs its own weights and replay. All entities

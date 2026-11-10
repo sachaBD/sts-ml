@@ -1,5 +1,5 @@
 #include "agents/combat/nn/entity/encoding.hpp"
-#include "environments/combat/environment.hpp"
+#include "agents/combat/nn/features.hpp"
 #include <stdexcept>
 
 namespace stsrl::nn {
@@ -31,7 +31,7 @@ std::array<float, 17> card_features(const CardToken& c) {
 stsrl::infra::Tokens encode_entity(const sts::BattleContext& bc, std::span<const sts::search::Action> actions) {
     if (bc.player.hasRelic<sts::RelicId::RUNIC_DOME>()) throw std::invalid_argument{"nn: Runic Dome hides intents"};
     std::vector<int> monster_slots;
-    const auto s = encode_state(bc, CardCoverage::ironclad_events, &monster_slots);
+    const auto s = encode_state(bc, &monster_slots);
     stsrl::infra::Tokens t;
     auto& out = t.data;
     {
@@ -54,7 +54,7 @@ stsrl::infra::Tokens encode_entity(const sts::BattleContext& bc, std::span<const
     for (const auto& x : s.relics) { Row r{out, relic, x.relic_id, 0}; r.put_all(x.numeric); }
     for (const auto& move : actions) {
         using T = sts::search::ActionType;
-        const auto a = encode_action(bc, move.bits, 0, CardCoverage::ironclad_events);
+        const auto a = encode_action(bc, move);
         const int id = a.source_card ? a.source_card->card_id : a.potion_id.value_or(0);
         Row r{out, action, id, int(a.kind) + 1};
         r.put(float(a.card_selection_task)); r.put(float(a.skips_selection)); r.put(float(a.discards_potion));
@@ -64,7 +64,7 @@ stsrl::infra::Tokens encode_entity(const sts::BattleContext& bc, std::span<const
         float selected = 0;
         if (move.getActionType() == T::MULTI_CARD_SELECT)
             for (int i : move.getSelectedIdxs()) {
-                const auto c = encode_action(bc, sts::search::Action{T::SINGLE_CARD_SELECT, i}.bits, 0, CardCoverage::ironclad_events);
+                const auto c = encode_action(bc, sts::search::Action{T::SINGLE_CARD_SELECT, i});
                 if (!c.source_card) throw std::runtime_error{"nn: subset card missing"};
                 const auto f = card_features(*c.source_card);
                 for (std::size_t k = 0; k < f.size(); ++k) subset[k] += f[k];

@@ -1,4 +1,4 @@
-"""Combat starts (combat_v4 `start` objects): fresh-seeded copies, seeded the way the simulator seeds them, and
+"""Fight starts (environments/combat/fight_start.hpp): fresh-seeded copies, seeded the way the simulator seeds them, and
 draws from a pool of decks with their starts varied."""
 import copy
 from dataclasses import dataclass

@@ -1,5 +1,5 @@
 """Builds the app's input files once, offline. A fights file is JSON lines, one playable fight per line:
-{"fight_id": ..., "start": <combat_v4 start>}.
+{"fight_id": ..., "start": <fight start, environments/combat/fight_start.hpp>}.
 
   python -m apps.gumbel_nn_combat_expert_iteration.make_fights decks DECKS.toml OUT.jsonl
       Training fights: one per [[deck]] (name, starts parquet, deck_id, hp, max_hp); fight_id is the deck name.

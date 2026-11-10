@@ -11,7 +11,7 @@ float feature(const stsrl::infra::Tokens& tokens, int row, int column) { return 
 }
 
 TEST(InventoryEncoding, ModifiedCardsInTheDrawPileStayVisible) {
-    auto state = stsrl::scenarios::jaw_worm(1).battle();
+    auto state = stsrl::scenarios::jaw_worm(1);
     const sts::CardInstance strike{sts::CardId::STRIKE_RED};
     state.cards.drawPile = {strike, strike};
     const auto actions = stsrl::combat::legal_actions(state);
@@ -21,7 +21,7 @@ TEST(InventoryEncoding, ModifiedCardsInTheDrawPileStayVisible) {
 }
 
 TEST(InventoryEncoding, HiddenDrawOrderDoesNotLeakIntoInputs) {
-    auto state = stsrl::scenarios::jaw_worm(2).battle();
+    auto state = stsrl::scenarios::jaw_worm(2);
     const auto actions = stsrl::combat::legal_actions(state);
     const auto expected = encode_inventory(state, actions);
     std::reverse(state.cards.drawPile.begin(), state.cards.drawPile.end());
@@ -29,7 +29,7 @@ TEST(InventoryEncoding, HiddenDrawOrderDoesNotLeakIntoInputs) {
 }
 
 TEST(InventoryEncoding, ActionsPointAtTheirSourceCardAndTargetMonster) {
-    auto state = stsrl::scenarios::jaw_worm(3).battle();
+    auto state = stsrl::scenarios::jaw_worm(3);
     state.monsters.arr[1] = state.monsters.arr[0];
     state.monsters.arr[1].idx = 1;
     state.monsters.monsterCount = 2;

@@ -5,7 +5,7 @@ target_compile_options(player_decision PRIVATE -Wall -Wextra -Wpedantic)
 
 foreach(test decision_test targets_test)
     add_executable(player_${test} ${test}.cpp)
-    target_link_libraries(player_${test} PRIVATE player_decision GTest::gtest_main)
+    target_link_libraries(player_${test} PRIVATE player_decision combat_scenarios GTest::gtest_main)
     target_compile_options(player_${test} PRIVATE -Wall -Wextra -Wpedantic)
     gtest_discover_tests(player_${test} PROPERTIES TIMEOUT 10)
 endforeach()

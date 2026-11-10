@@ -3,10 +3,7 @@
 #include "agents/combat/nn/tokens.hpp"
 #include "agents/combat/search/config.hpp"
 #include "environments/combat/public.hpp"
-#include "constants/CharacterClasses.h"
-#include "constants/MonsterEncounters.h"
-#include "constants/Rooms.h"
-#include "game/GameContext.h"
+#include "environments/combat/scenarios/jaw_worm.hpp"
 #include <gtest/gtest.h>
 
 using namespace stsrl::player;
@@ -14,15 +11,6 @@ using namespace stsrl::nn;
 using stsrl::combat::legal_actions;
 
 namespace {
-sts::BattleContext jaw_worm(std::uint64_t seed) {
-    sts::GameContext game{sts::CharacterClass::IRONCLAD, seed, 1};
-    game.floorNum = 1;
-    game.curRoom = sts::Room::MONSTER;
-    sts::BattleContext battle;
-    battle.init(game, sts::MonsterEncounter::JAW_WORM);
-    return battle;
-}
-
 stsrl::search::SearchFactory search() {
     stsrl::search::SearchConfig config;
     config.parse("--sims", "8");
@@ -46,7 +34,7 @@ const std::vector<std::uint64_t> seeds{1, 2, 3};
 
 TEST(Fight, AutoPlaysForcedMovesAndStopsOnlyAtARealChoice) {
     for (const auto seed : seeds) {
-        auto start = jaw_worm(seed);
+        auto start = stsrl::scenarios::jaw_worm(seed);
         if (seed == 1) start.player.energy = 0;  // begins with a forced End Turn
         Fight fight{start, seed};
         std::mt19937_64 random{seed};
@@ -61,7 +49,7 @@ TEST(Fight, AutoPlaysForcedMovesAndStopsOnlyAtARealChoice) {
 
 TEST(Decision, DependsOnlyOnTheFightStartAndTheMovesSoFar) {
     for (const auto seed : seeds) {
-        Fight played{jaw_worm(seed), seed};
+        Fight played{stsrl::scenarios::jaw_worm(seed), seed};
         std::vector<sts::search::Action> moves;
         std::vector<stsrl::search::Result> results;
         while (!played.over()) {
@@ -70,7 +58,7 @@ TEST(Decision, DependsOnlyOnTheFightStartAndTheMovesSoFar) {
             played.play(moves.back());
         }
         for (std::size_t k = 0; k < results.size(); ++k) {
-            Fight replay{jaw_worm(seed), seed};
+            Fight replay{stsrl::scenarios::jaw_worm(seed), seed};
             for (std::size_t i = 0; i < k; ++i) replay.play(moves[i]);
             const auto r = decide(replay);
             EXPECT_EQ(r.action, results[k].action) << "seed " << seed << " decision " << k;

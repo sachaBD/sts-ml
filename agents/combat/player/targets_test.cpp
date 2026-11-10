@@ -1,10 +1,7 @@
 #include "agents/combat/player/decision.hpp"
 #include "agents/combat/player/targets.hpp"
 #include "environments/combat/public.hpp"
-#include "constants/CharacterClasses.h"
-#include "constants/MonsterEncounters.h"
-#include "constants/Rooms.h"
-#include "game/GameContext.h"
+#include "environments/combat/scenarios/jaw_worm.hpp"
 #include <gtest/gtest.h>
 
 using namespace stsrl::player;
@@ -12,12 +9,7 @@ using namespace stsrl::nn;
 
 namespace {
 Fight random_fight(std::uint64_t seed) {
-    sts::GameContext game{sts::CharacterClass::IRONCLAD, seed, 1};
-    game.floorNum = 1;
-    game.curRoom = sts::Room::MONSTER;
-    sts::BattleContext battle;
-    battle.init(game, sts::MonsterEncounter::JAW_WORM);
-    Fight fight{battle, seed};
+    Fight fight{stsrl::scenarios::jaw_worm(seed), seed};
     std::mt19937_64 random{seed};
     while (!fight.over()) {
         const auto actions = stsrl::combat::legal_actions(fight.state());

@@ -6,7 +6,7 @@
 #include "environments/combat/public.hpp"
 #include "infra/workers/actors.hpp"
 #include "infra/workers/telemetry.hpp"
-#include "environments/combat/record_v4.hpp"
+#include "environments/combat/fight_start.hpp"
 #include <atomic>
 #include <chrono>
 #include <cstdio>
@@ -55,7 +55,7 @@ struct Game {
 
     explicit Game(Json r)
         : record(std::move(r)),
-          fight{stsrl::combat_v4::start_battle(record.at("start")), record.at("start").at("seed").get<std::uint64_t>()} {}
+          fight{stsrl::combat::start_battle(record.at("start")), record.at("start").at("seed").get<std::uint64_t>()} {}
 
     // Play on until the search needs the network (its query) or the game is over (nullptr).
     const stsrl::infra::Tokens* advance(const stsrl::search::SearchFactory& search, const NetworkEvaluator& network) {

@@ -21,6 +21,6 @@ See [`apps/gumbel_nn_combat_expert_iteration/README.md`](apps/gumbel_nn_combat_e
 - `agents/combat/nn/`: the network (entity and inventory models), their encodings, and training.
 - `agents/combat/player/`: the agent that plays fights, search + network (`nn_play`).
 - `agents/combat/search/`: Gumbel search.
-- `environments/combat/`: fight state, actions, and encodings.
+- `environments/combat/`: the rules of a fight as a player sees them, and loading fight starts.
 - `infra/`: inference backends, worker plumbing and worker telemetry.
 - `runs/`: the run launcher. Results go in `runs/` (not committed).

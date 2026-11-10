@@ -3,10 +3,10 @@ add_library(combat_search STATIC
     gumbel/gumbel.cpp
     rollout_blend/rollout_blend.cpp
     config.cpp)
-target_link_libraries(combat_search PUBLIC combat_public)
+target_link_libraries(combat_search PUBLIC combat_environment)
 target_compile_options(combat_search PRIVATE -Wall -Wextra -Wpedantic)
 
 add_executable(gumbel_test gumbel/gumbel_test.cpp)
-target_link_libraries(gumbel_test PRIVATE combat_search GTest::gtest_main)
+target_link_libraries(gumbel_test PRIVATE combat_search combat_scenarios GTest::gtest_main)
 target_compile_options(gumbel_test PRIVATE -Wall -Wextra -Wpedantic)
 gtest_discover_tests(gumbel_test PROPERTIES TIMEOUT 60)

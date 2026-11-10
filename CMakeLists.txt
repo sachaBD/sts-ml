@@ -23,24 +23,16 @@ endif()
 set(STS_LIGHTSPEED_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../lightspeed" CACHE PATH "sts_lightspeed checkout")
 add_subdirectory("${STS_LIGHTSPEED_DIR}" "${CMAKE_CURRENT_BINARY_DIR}/sts_lightspeed")
 
-add_library(combat_public STATIC environments/combat/public.cpp)
-target_include_directories(combat_public PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
-target_link_libraries(combat_public PUBLIC sts_lightspeed)
-target_compile_options(combat_public PRIVATE -Wall -Wextra -Wpedantic)
-
-add_library(combat_core STATIC
-    environments/combat/environment.cpp
-    environments/combat/encoding_v4.cpp
-    environments/combat/record_v4.cpp)
-target_include_directories(combat_core PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
-target_link_libraries(combat_core PUBLIC sts_lightspeed combat_public)
-target_compile_options(combat_core PRIVATE -Wall -Wextra -Wpedantic)
+# The rules of a fight as a player sees them, and building a fight from its saved start.
+add_library(combat_environment STATIC environments/combat/public.cpp environments/combat/fight_start.cpp)
+target_include_directories(combat_environment PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
+target_link_libraries(combat_environment PUBLIC sts_lightspeed)
+target_compile_options(combat_environment PRIVATE -Wall -Wextra -Wpedantic)
 
 # Fixed fights used only by tests.
-add_library(combat_scenarios STATIC
-    environments/combat/scenarios/jaw_worm.cpp
-    environments/combat/scenarios/slime_boss.cpp)
-target_link_libraries(combat_scenarios PUBLIC combat_core)
+add_library(combat_scenarios STATIC environments/combat/scenarios/jaw_worm.cpp)
+target_link_libraries(combat_scenarios PUBLIC sts_lightspeed)
+target_include_directories(combat_scenarios PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
 
 enable_testing()
 # GoogleTest for native unit tests, pinned and built with the project (no system install needed).
@@ -51,10 +43,6 @@ set(INSTALL_GTEST OFF CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(googletest)
 include(GoogleTest)
 
-add_executable(encoding_test environments/combat/encoding_test.cpp)
-target_link_libraries(encoding_test PRIVATE combat_scenarios)
-target_compile_options(encoding_test PRIVATE -Wall -Wextra -Wpedantic)
-add_test(NAME encoding_test COMMAND encoding_test)
 
 # Colocated Python tests share CTest with native checks. Never recurse through runs/ output trees.
 set(STSRL_PYTHON "${CMAKE_CURRENT_SOURCE_DIR}/.venv/bin/python3" CACHE FILEPATH "Python interpreter for tests")

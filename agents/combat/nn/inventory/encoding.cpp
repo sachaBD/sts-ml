@@ -1,6 +1,5 @@
 #include "agents/combat/nn/inventory/encoding.hpp"
-#include "environments/combat/environment.hpp"
-#include "environments/combat/encoding_v4.hpp"
+#include "agents/combat/nn/features.hpp"
 #include <algorithm>
 #include <cmath>
 #include <map>
@@ -95,7 +94,7 @@ CardRows write_cards(std::vector<float>& out, const sts::BattleContext& battle) 
     struct Copies { std::array<int, 3> counts{}; std::vector<CardLocation> locations; };
     std::map<std::pair<int, std::array<float, 16>>, Copies> inventory;
     std::vector<CardLocation> locations;
-    const auto cards = encode_cards(battle, CardCoverage::ironclad_events, &locations);
+    const auto cards = encode_cards(battle, &locations);
     CardRows rows;
     for (std::size_t i = 0; i < cards.size(); ++i) {
         const auto& card = cards[i];
@@ -180,8 +179,7 @@ void write_card_subset(Row& row, const sts::BattleContext& battle, sts::search::
     int count = 0;
     if (move.getActionType() == sts::search::ActionType::MULTI_CARD_SELECT)
         for (const int index : move.getSelectedIdxs()) {
-            const auto item = encode_action(battle, sts::search::Action{sts::search::ActionType::SINGLE_CARD_SELECT, index}.bits,
-                                            0, CardCoverage::ironclad_events);
+            const auto item = encode_action(battle, sts::search::Action{sts::search::ActionType::SINGLE_CARD_SELECT, index});
             if (!item.source_card) throw std::logic_error{"inventory_v1: selected card missing"};
             const auto selected = card_features(*item.source_card);
             for (std::size_t j = 0; j < features.size(); ++j) features[j] += selected[j];
@@ -195,7 +193,7 @@ void write_actions(std::vector<float>& out, const sts::BattleContext& battle,
                    std::span<const sts::search::Action> actions, const CardRows& cards,
                    const std::map<int, int>& monster_rows, const std::map<int, int>& potion_rows) {
     for (const auto move : actions) {
-        const auto action = encode_action(battle, move.bits, 0, CardCoverage::ironclad_events);
+        const auto action = encode_action(battle, move);
         const int id = action.source_card ? action.source_card->card_id : action.potion_id.value_or(0);
         Row row{out, Kind::action, id, int(action.kind) + 1};
         row.put(float(action.card_selection_task));
@@ -217,7 +215,7 @@ void write_actions(std::vector<float>& out, const sts::BattleContext& battle,
 infra::Tokens encode_inventory(const sts::BattleContext& battle, std::span<const sts::search::Action> actions) {
     if (battle.player.hasRelic<sts::RelicId::RUNIC_DOME>()) throw std::invalid_argument{"nn: Runic Dome hides intents"};
     std::vector<int> potion_slots;
-    const auto potions = v4::encode_potions(battle, &potion_slots);
+    const auto potions = encode_potions(battle, &potion_slots);
     infra::Tokens tokens;
     auto& out = tokens.data;
     write_context(out, battle, int(potions.size()));
@@ -225,7 +223,7 @@ infra::Tokens encode_inventory(const sts::BattleContext& battle, std::span<const
     const auto card_rows = write_cards(out, battle);
     const auto monster_rows = write_monsters(out, battle);
     const auto potion_rows = write_potions(out, potions, potion_slots);
-    write_relics(out, v4::encode_relics(battle));
+    write_relics(out, encode_relics(battle));
     write_actions(out, battle, actions, card_rows, monster_rows, potion_rows);
     tokens.count = int(out.size() / width);
     tokens.actions = int(actions.size());

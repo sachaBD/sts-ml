@@ -1,10 +1,7 @@
 // Gumbel invariants against fake evaluators: no network, so every expectation follows from the search alone.
 #include "agents/combat/search/gumbel/gumbel.hpp"
 #include "environments/combat/public.hpp"
-#include "constants/CharacterClasses.h"
-#include "constants/MonsterEncounters.h"
-#include "constants/Rooms.h"
-#include "game/GameContext.h"
+#include "environments/combat/scenarios/jaw_worm.hpp"
 #include <gtest/gtest.h>
 #include <algorithm>
 #include <cmath>
@@ -15,15 +12,6 @@ using namespace stsrl::search;
 using stsrl::combat::legal_actions;
 
 namespace {
-sts::BattleContext jaw_worm() {
-    sts::GameContext game{sts::CharacterClass::IRONCLAD, 7, 1};
-    game.floorNum = 1;
-    game.curRoom = sts::Room::MONSTER;
-    sts::BattleContext battle;
-    battle.init(game, sts::MonsterEncounter::JAW_WORM);
-    return battle;
-}
-
 bool wins_now(const sts::BattleContext& state, Action action) {
     auto next = state;
     action.execute(next);
@@ -52,7 +40,7 @@ Gumbel::Settings settings(double gumbel_scale = 0) {
 }  // namespace
 
 TEST(Gumbel, OnlyAsksAboutLiveStatesWithTheirLegalMoves) {
-    Gumbel search{jaw_worm(), settings(1), 1};
+    Gumbel search{stsrl::scenarios::jaw_worm(7), settings(1), 1};
     auto answer = noisy();
     run(search, [&](const Query& q) {
         EXPECT_EQ(q.state.outcome, sts::Outcome::UNDECIDED);
@@ -63,7 +51,7 @@ TEST(Gumbel, OnlyAsksAboutLiveStatesWithTheirLegalMoves) {
 
 TEST(Gumbel, NetworkCallsStayWithinTheSimulationBudget) {
     const auto s = settings(1);
-    Gumbel search{jaw_worm(), s, 1};
+    Gumbel search{stsrl::scenarios::jaw_worm(7), s, 1};
     int queries = 0;
     auto answer = noisy();
     run(search, [&](const Query& q) { ++queries; return answer(q); });
@@ -72,7 +60,7 @@ TEST(Gumbel, NetworkCallsStayWithinTheSimulationBudget) {
 }
 
 TEST(Gumbel, ResultIsAProbabilityOverTheLegalMoves) {
-    const auto root = jaw_worm();
+    const auto root = stsrl::scenarios::jaw_worm(7);
     Gumbel search{root, settings(1), 1};
     const auto r = run(search, noisy());
     EXPECT_TRUE(std::ranges::equal(r.actions, legal_actions(root)));
@@ -85,7 +73,7 @@ TEST(Gumbel, ResultIsAProbabilityOverTheLegalMoves) {
 }
 
 TEST(Gumbel, FlatValuesFollowThePrior) {
-    const auto root = jaw_worm();
+    const auto root = stsrl::scenarios::jaw_worm(7);
     const auto favourite = legal_actions(root).back();
     Gumbel search{root, settings(), 1};
     const auto r = run(search, [&](const Query& q) {
@@ -97,7 +85,7 @@ TEST(Gumbel, FlatValuesFollowThePrior) {
 }
 
 TEST(Gumbel, WinningMoveBeatsAWrongPrior) {
-    auto root = jaw_worm();
+    auto root = stsrl::scenarios::jaw_worm(7);
     root.monsters.arr[0].curHp = 1;
     const auto actions = legal_actions(root);
     const auto loser = std::ranges::find_if(actions, [&](Action a) { return a.getActionType() == sts::search::ActionType::END_TURN; });
@@ -114,7 +102,7 @@ TEST(Gumbel, WinningMoveBeatsAWrongPrior) {
 }
 
 TEST(Gumbel, ZeroSimulationsPlaysTheNetworkAlone) {
-    const auto root = jaw_worm();
+    const auto root = stsrl::scenarios::jaw_worm(7);
     auto s = settings();
     s.simulations = 0;
     Gumbel search{root, s, 1};
@@ -133,7 +121,7 @@ TEST(Gumbel, ZeroSimulationsPlaysTheNetworkAlone) {
 }
 
 TEST(Gumbel, ASingleLegalMoveGetsProbabilityOne) {
-    auto root = jaw_worm();
+    auto root = stsrl::scenarios::jaw_worm(7);
     root.player.energy = 0;
     ASSERT_EQ(legal_actions(root).size(), 1u);
     Gumbel search{root, settings(), 1};
