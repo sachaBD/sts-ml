@@ -1,8 +1,8 @@
-"""Which decks self-play should practise: the ones whose outcome is most uncertain."""
+"""Deck weights: practise the decks whose outcome is most uncertain (win rate near 50%)."""
 import math
 
 
-def deck_distribution(counts, prior_strength, concentration):
+def deck_weights(counts, prior_strength, concentration):
     """Concentration 0 is uniform; 1 selects only maximum-uncertainty decks (ties uniform)."""
     decks = {}
     for deck, c in counts.items():

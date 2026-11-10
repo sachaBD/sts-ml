@@ -1,8 +1,8 @@
-"""Invariants of the deck curriculum."""
+"""Invariants of the deck weights."""
 import math
 import unittest
 
-from agents.combat.nn.training.curriculum import deck_distribution
+from agents.combat.curriculum.deck_weights import deck_weights
 
 
 class DeckDistributionTests(unittest.TestCase):
@@ -12,7 +12,7 @@ class DeckDistributionTests(unittest.TestCase):
         for prior in (0.1, 1, 100):
             previous_peak = 0
             for concentration in (0, 0.3, 0.5, 0.9, math.nextafter(1, 0), 1):
-                decks = deck_distribution(counts, prior, concentration)
+                decks = deck_weights(counts, prior, concentration)
                 self.assertAlmostEqual(math.fsum(d['probability'] for d in decks.values()), 1)
                 self.assertEqual(set(decks), set(counts))
                 for i in range(101):
@@ -32,7 +32,7 @@ class DeckDistributionTests(unittest.TestCase):
     def test_impossible_counts_are_rejected(self):
         for attempts, wins in [(-1, 0), (1, -1), (1, 2)]:
             with self.assertRaises(ValueError):
-                deck_distribution({'a': dict(attempts=attempts, wins=wins)}, 1, 0.5)
+                deck_weights({'a': dict(attempts=attempts, wins=wins)}, 1, 0.5)
 
 
 if __name__ == '__main__':

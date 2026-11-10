@@ -2,7 +2,7 @@
 import json
 
 from apps.common.app import write_json
-from agents.combat.nn.training.curriculum import deck_distribution
+from agents.combat.curriculum.deck_weights import deck_weights
 
 
 def iteration_counts(training, latest: int, recent_most: int):
@@ -22,7 +22,7 @@ def sampling_weights(training, iteration, settings):
     if not path.exists():
         latest = iteration - 1
         counts = iteration_counts(training, latest, settings.history_iterations)
-        decks = deck_distribution(counts, settings.win_rate_prior_strength, settings.sampling_concentration)
+        decks = deck_weights(counts, settings.win_rate_prior_strength, settings.sampling_concentration)
         path.parent.mkdir(exist_ok=True)
         write_json(path, dict(first_iteration=max(1, iteration - settings.history_iterations),
                               last_iteration=latest,
