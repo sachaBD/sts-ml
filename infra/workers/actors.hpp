@@ -25,6 +25,7 @@ struct ActorCounters {
     std::chrono::duration<double> blocked{};  // waiting for inference replies
 };
 struct QueueCounters {
+    std::string backend;                     // Backend::name()
     long requests = 0;                       // requests that left in a batch
     std::chrono::duration<double> waited{};  // their total time from submit to leaving
     std::size_t depth = 0;                  // pending requests, excluding gathered batches

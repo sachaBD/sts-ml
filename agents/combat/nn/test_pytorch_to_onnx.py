@@ -29,15 +29,17 @@ class ExportedDirectory(unittest.TestCase):
             manifest = json.loads((directory / MANIFEST).read_text())
             self.assertEqual(manifest['encoding'], net.encoding)
             self.assertEqual(len(manifest['deployments']), len(deployments))
+            evaluated = [(manifest['cpu'], net.example_tokens(3, 20))]  # longer than every deployment
             for files, deployment in zip(manifest['deployments'], deployments):
                 self.assertEqual(len(files), len(deployment.batches))
-                for file, batch in zip(files, deployment.batches):
-                    tokens = net.example_tokens(batch, deployment.tokens).half()
-                    session = onnxruntime.InferenceSession(str(directory / file), providers=['CPUExecutionProvider'])
-                    with torch.no_grad():
-                        expected = net(tokens.float())
-                    for actual, value in zip(session.run(None, {'tokens': tokens.numpy()}), expected):
-                        np.testing.assert_allclose(actual, value.numpy(), rtol=1e-4, atol=1e-4)
+                evaluated += [(file, net.example_tokens(batch, deployment.tokens).half())
+                              for file, batch in zip(files, deployment.batches)]
+            for file, tokens in evaluated:
+                session = onnxruntime.InferenceSession(str(directory / file), providers=['CPUExecutionProvider'])
+                with torch.no_grad():
+                    expected = net(tokens.float())
+                for actual, value in zip(session.run(None, {'tokens': tokens.numpy()}), expected):
+                    np.testing.assert_allclose(actual, value.numpy(), rtol=1e-4, atol=1e-4)
 
 
 if __name__ == '__main__':

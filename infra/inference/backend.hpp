@@ -6,6 +6,7 @@
 #include <filesystem>
 #include <memory>
 #include <span>
+#include <string>
 #include <vector>
 
 namespace stsrl::infra {
@@ -28,6 +29,7 @@ struct Input {
 class Backend {
 public:
     virtual ~Backend() = default;
+    virtual std::string name() const = 0;  // names the backend in telemetry
     virtual int width() const = 0;      // floats per token
     virtual int max_batch() const = 0;  // most inputs per evaluate()
     // Capacity. The scheduler sends each input to the first backend that accepts it; none accepting is an error.
@@ -45,4 +47,8 @@ public:
 //          $XDG_CACHE_HOME/stsrl/tensorrt-timing (default ~/.cache).
 //   lanes: independent streams/buffers, so lanes evaluate concurrently.
 std::unique_ptr<Backend> gpu_backend(const std::vector<std::filesystem::path>& fixed, int lanes);
+
+// ONNX Runtime on the CPU: the dynamic-shape fp32 model; accepts any input, so it is the last backend for inputs
+// no GPU model fits. Up to `batch` inputs per evaluate(), `lanes` concurrent calls, one thread each.
+std::unique_ptr<Backend> cpu_backend(const std::filesystem::path& onnx, int lanes, int batch);
 }  // namespace stsrl::infra

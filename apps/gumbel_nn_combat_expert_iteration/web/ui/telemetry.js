@@ -47,23 +47,20 @@ function telemetryPanel(root, status) {
     const scaleText = node('div', null, 'topology-dispatch-title');
     scaleText.title = 'Visual scale only, not queue capacity';
     const wait = node('div', null, 'topology-queue-wait'), rate = node('div', null, 'topology-queue-wait');
-    const lanes = node('div', null, 'topology-service-arrow');
-    root.append(name, heading, meter, scaleText, rate, wait, lanes);
+    const total = node('div', null, 'topology-queue-wait'), lanes = node('div', null, 'topology-service-arrow');
+    root.append(name, heading, meter, scaleText, rate, total, wait, lanes);
     let laneStates = [], lastPeak = null, lastScale = null;
     const render = smoothView(root, (queue, latest) => {
-      name.textContent = `Q${queue.id}`;
+      name.textContent = queue.backend === 'cpu' ? `Q${queue.id} · CPU fallback` : `Q${queue.id} · ${queue.backend}`;
+      total.textContent = `${number(latest.requests)} requests (${number(latest.share_pct, 3)}%)`;
+      total.title = 'Requests this backend has evaluated since the worker started, and their share of all requests';
       depth.textContent = `Depth ${number(latest.depth)}`;
       depth.title = 'Pending requests at the latest sample; excludes batches already gathered';
       peakText.textContent = `Peak ${number(latest.peak_depth)}`;
       peakText.title = 'Highest pending count since worker start';
-      const known = Number.isFinite(queue.depth) && Number.isFinite(queue.peak_depth);
-      meter.hidden = scaleText.hidden = !known;
-      if (known) {
-        const scale = queue.scale;
-        width(fill, 100 * queue.depth / scale);
-        peak.style.left = `${100 * queue.peak_depth / scale}%`;
-        scaleText.textContent = `Display scale 0–${number(scale)} requests`;
-      }
+      width(fill, 100 * queue.depth / queue.scale);
+      peak.style.left = `${100 * queue.peak_depth / queue.scale}%`;
+      scaleText.textContent = `Display scale 0–${number(queue.scale)} requests`;
       rate.textContent = `${number(queue.requests_s)} req/s`;
       wait.textContent = `Mean wait · ${number(queue.wait_ms, 2)} ms`;
       wait.title = 'Enqueue to batch gathered; excludes evaluation and replies';
@@ -71,9 +68,8 @@ function telemetryPanel(root, status) {
     });
     return { root, pause: render.pause, update(queue, snap, lanes) {
       laneStates = lanes;
-      const scale = Number.isFinite(queue.depth) && Number.isFinite(queue.peak_depth) ?
-        2 ** Math.ceil(Math.log2(Math.max(1, queue.depth, queue.peak_depth))) : null;
-      const reset = Number.isFinite(lastPeak) && Number.isFinite(queue.peak_depth) && queue.peak_depth < lastPeak;
+      const scale = 2 ** Math.ceil(Math.log2(Math.max(1, queue.depth, queue.peak_depth)));
+      const reset = lastPeak !== null && queue.peak_depth < lastPeak;
       lastPeak = queue.peak_depth;
       render({ ...queue, scale }, snap || reset || scale !== lastScale);
       lastScale = scale;
@@ -142,8 +138,7 @@ function telemetryPanel(root, status) {
       if (requestedGeneration !== generation || !active) return;
       if (actors.length && queues.length && lanes.length) {
         // A falling lifetime peak indicates a restarted self-play worker.
-        resume ||= queues.some(q => previousQueues.some(old => old.id === q.id &&
-          Number.isFinite(q.peak_depth) && Number.isFinite(old.peak_depth) && q.peak_depth < old.peak_depth));
+        resume ||= queues.some(q => previousQueues.some(old => old.id === q.id && q.peak_depth < old.peak_depth));
         previousQueues = queues.map(({ id, peak_depth }) => ({ id, peak_depth }));
         update(sections[0], actors, actorView, resume);
         update(sections[1], queues, queueView, resume, lanes);

@@ -46,8 +46,8 @@ layers = 4
 heads = 6
 mixed_precision = true
 
-# GPU models by token capacity, smallest first: each input goes to the smallest that fits; a longer one is an error.
-# The longest input seen in Champ self-play, with either encoding, is ~550 tokens.
+# GPU models by token capacity, smallest first: each input goes to the smallest that fits. Longer inputs (~1e-5
+# of them in Champ self-play, up to ~550 tokens) run on the CPU, counted per queue in the dashboard.
 [[model.deployments]]
 tokens = 48
 batches = [512, 256, 32]
@@ -55,10 +55,6 @@ batches = [512, 256, 32]
 [[model.deployments]]
 tokens = 128
 batches = [128]
-
-[[model.deployments]]
-tokens = 1024
-batches = [8]
 
 [workers]
 actors = 9

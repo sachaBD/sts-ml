@@ -22,10 +22,14 @@ from agents.combat.nn.model import CombatModel, ModelSpec
 MANIFEST = 'network.json'
 
 
+# The dynamic-shape fp32 model nn_play evaluates on the CPU, for inputs longer than every deployment.
+CPU_MODEL = 'model.onnx'
+
+
 @dataclass(frozen=True)
 class Deployment:
     """Fixed-shape GPU models of one token capacity, one per batch size. nn_play sends each input to the deployment
-    with the smallest capacity that fits it; an input longer than every capacity is an error."""
+    with the smallest capacity that fits it, and inputs longer than every capacity to CPU_MODEL."""
     tokens: int
     batches: tuple[int, ...]
 
@@ -56,8 +60,8 @@ class HalfInput(nn.Module):
 
 
 class ModelExporter:
-    """Writes one architecture as a model directory nn_play plays from: every deployment's ONNX files and MANIFEST
-    naming them. Precision and capacity are deployment choices, not checkpoint architecture."""
+    """Writes one architecture as a model directory nn_play plays from: CPU_MODEL, every deployment's ONNX files and
+    MANIFEST naming them. Precision and capacity are deployment choices, not checkpoint architecture."""
     def __init__(self, model: ModelSpec, deployments: tuple[Deployment, ...], mixed_precision: bool):
         validate(deployments)
         self.model, self.deployments, self.mixed_precision = model, deployments, mixed_precision
@@ -66,8 +70,13 @@ class ModelExporter:
     def export(self, net: CombatModel, directory: Path):
         if net.spec != self.model:
             raise ValueError('export architecture differs from model')
-        snapshot = deepcopy(net).to('cuda' if self.mixed_precision else 'cpu').eval()
+        snapshot = deepcopy(net).cpu().eval()
         try:
+            self.cache.write(snapshot, directory / CPU_MODEL, CPU_MODEL, lambda: torch.onnx.export(
+                snapshot, (snapshot.example_tokens(),), str(directory / CPU_MODEL), dynamo=True,
+                input_names=['tokens'], output_names=['value', 'logits'],
+                dynamic_shapes={'tokens': {0: torch.export.Dim('batch'), 1: torch.export.Dim('tokens')}}))
+            snapshot.to('cuda' if self.mixed_precision else 'cpu')
             for deployment in self.deployments:
                 for batch, file in zip(deployment.batches, deployment.files()):
                     self.cache.write(snapshot, directory / file, file,
@@ -76,7 +85,8 @@ class ModelExporter:
             del snapshot
             if next(net.parameters()).is_cuda or self.mixed_precision:
                 torch.cuda.empty_cache()  # release export/training scratch before the native worker
-        manifest = dict(encoding=net.encoding, deployments=[[str(f) for f in d.files()] for d in self.deployments])
+        manifest = dict(encoding=net.encoding, deployments=[[str(f) for f in d.files()] for d in self.deployments],
+                        cpu=CPU_MODEL)
         (directory / MANIFEST).write_text(json.dumps(manifest, indent=2) + '\n')
 
     def _trace(self, net, path, tokens, batch):

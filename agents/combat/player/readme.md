@@ -26,9 +26,10 @@ nn_play play MODELS SAMPLES.bin --threads 9 --parallel 224 --gpu-wait-us 100 --t
 
 Every option is required. `MODELS` is an exported model directory: its `network.json`, written by
 [`pytorch_to_onnx.py`](../nn/pytorch_to_onnx.py), names the encoding and the GPU deployments, smallest token
-capacity first, so nothing about the network is passed as a flag. Each input goes to the smallest deployment
-that fits it; an input longer than every deployment is an error. `--threads` counts actors and `--parallel`
-is slots per actor. The player checks the models' token width against its encoder.
+capacity first, and the dynamic CPU model, so nothing about the network is passed as a flag. Each input goes
+to the smallest deployment that fits it, and an input longer than every deployment to the CPU; each queue's
+request count is in the telemetry and the dashboard. `--threads` counts actors and `--parallel` is slots per
+actor. The player checks the models' token width against its encoder.
 
 Failures abort collection, never become losses: a stall past `--timeout-ms` is a failure, and shutdown
 waits at most `--shutdown-timeout-ms`. Archive interrupted stages; never append

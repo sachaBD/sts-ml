@@ -327,7 +327,8 @@ void publish(const Shared& shared, const std::vector<std::unique_ptr<InferenceSe
     for (const auto& mailbox : shared.mailboxes) counters.actors.push_back({mailbox->requests, Clock::duration{mailbox->blocked}});
     for (const auto& queue : shared.inference.queues()) {
         std::lock_guard lock{queue->mutex};
-        counters.queues.push_back({queue->requests, Clock::duration{queue->waited}, queue->pending.size(), queue->peak_depth});
+        counters.queues.push_back({queue->backend.name(), queue->requests, Clock::duration{queue->waited},
+                                   queue->pending.size(), queue->peak_depth});
     }
     for (const auto& server : servers)
         counters.lanes.push_back({server->queue(), server->requests, server->capacity, Clock::duration{server->busy}});

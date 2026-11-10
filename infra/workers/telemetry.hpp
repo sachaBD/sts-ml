@@ -19,7 +19,7 @@ public:
         for (const auto& a : counters.actors) actors.push_back({{"requests", a.requests}, {"blocked_seconds", a.blocked.count()}});
         nlohmann::json queues = nlohmann::json::array();
         for (const auto& q : counters.queues)
-            queues.push_back({{"requests", q.requests}, {"waited_seconds", q.waited.count()},
+            queues.push_back({{"backend", q.backend}, {"requests", q.requests}, {"waited_seconds", q.waited.count()},
                               {"depth", q.depth}, {"peak_depth", q.peak_depth}});
         nlohmann::json lanes = nlohmann::json::array();
         for (const auto& l : counters.lanes)

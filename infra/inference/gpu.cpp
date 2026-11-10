@@ -169,6 +169,7 @@ public:
         lanes_.clear();
     }
 
+    std::string name() const override { return "gpu-" + std::to_string(tokens_); }
     int width() const override { return width_; }
     int max_batch() const override { return batch_; }
     int lanes() const override { return lane_count_; }

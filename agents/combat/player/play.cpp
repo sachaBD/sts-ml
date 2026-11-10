@@ -130,12 +130,15 @@ public:
     std::string label() const override { return game_->record.at("fight_id").get<std::string>(); }
 };
 
-// MODELS is an exported model directory (agents/combat/nn/pytorch_to_onnx.py). Its network.json names the encoding
-// and the deployments: the fixed-shape GPU models of each token capacity, smallest capacity first.
+// MODELS is an exported model directory (agents/combat/nn/pytorch_to_onnx.py). Its network.json names the encoding,
+// the GPU deployments (fixed-shape models of each token capacity, smallest first) and the dynamic CPU model.
 struct Network {
     Encoding encoding;
-    std::vector<std::unique_ptr<stsrl::infra::Backend>> backends;  // one per deployment, in order
+    std::vector<std::unique_ptr<stsrl::infra::Backend>> backends;  // the GPU deployments in order, then the CPU
 };
+
+// The CPU takes only inputs longer than every GPU deployment (~1e-5 of them): two lanes of modest batches.
+constexpr int cpu_lanes = 2, cpu_batch = 64;
 
 Network load_network(const std::filesystem::path& models) {
     std::ifstream file{models / "network.json"};
@@ -147,10 +150,11 @@ Network load_network(const std::filesystem::path& models) {
         for (const auto& name : deployment) files.push_back(models / name.get<std::string>());
         // The smallest capacity serves nearly every request, so it gets a second lane; larger ones serve the rare rest.
         network.backends.push_back(stsrl::infra::gpu_backend(files, network.backends.empty() ? 2 : 1));
-        if (network.backends.back()->width() != width)
-            throw std::invalid_argument{"model token width does not match combat encoder"};
     }
     if (network.backends.empty()) throw std::invalid_argument{"network.json has no deployments"};
+    network.backends.push_back(stsrl::infra::cpu_backend(models / manifest.at("cpu").get<std::string>(), cpu_lanes, cpu_batch));
+    for (const auto& backend : network.backends)
+        if (backend->width() != width) throw std::invalid_argument{backend->name() + " model token width does not match combat encoder"};
     return network;
 }
 }  // namespace

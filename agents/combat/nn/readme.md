@@ -8,7 +8,8 @@ The network: two model types, each with its own input encoding, plus training.
 - `entity/`: the entity model and its encoding.
 - `inventory/`: the inventory_v1 model and its encoding. It needs its own weights and replay.
 - `pytorch_to_onnx.py`: writes the trained network as a model directory the player loads: the ONNX files
-  and `network.json`, which describes them (the encoding and the GPU deployments, smallest token capacity first).
+  and `network.json`, which describes them (the encoding, the GPU deployments smallest token capacity first, and the
+  CPU model for longer inputs).
 - `training/`: replay, losses, the learner, telemetry.
 
 The player that uses the network to play fights is in [`../player`](../player). Run training through

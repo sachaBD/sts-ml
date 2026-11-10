@@ -94,6 +94,7 @@ public:
     explicit FakeBackend(Evaluate evaluate = echo, Prepare prepare = {}, int lanes = 1,
                          std::function<bool(const Tokens&)> accepts = {}, int batch = 7)
         : evaluate_{std::move(evaluate)}, prepare_{std::move(prepare)}, lanes_{lanes}, accepts_{std::move(accepts)}, batch_{batch} {}
+    std::string name() const override { return "fake"; }
     int width() const override { return token_width; }
     int max_batch() const override { return batch_; }
     bool accepts(const Tokens& t) const override { return !accepts_ || accepts_(t); }
