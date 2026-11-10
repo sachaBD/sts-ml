@@ -1,0 +1,33 @@
+# The entity encoding's tokens: written by entity/encoding.cpp, read by entity/model.py.
+# A row is its header, then at most `features` values of its kind; unused columns are zero.
+name = "entity"
+version = 0  # the context row's id2
+width = 68
+id_capacity = 1024
+header = ["kind", "id", "id2"]
+link_offset = 0  # a link holds the referenced row's index; 0 (the context row) means none
+
+[kinds]
+context = { id = 1, features = 65 }
+card = { id = 2, features = 17 }
+monster = { id = 3, features = 27 }
+potion = { id = 4, features = 18 }
+relic = { id = 5, features = 3 }
+action = { id = 6, features = 62 }
+
+[links]  # columns holding a row reference
+target = 67
+
+[card_zones]  # a card row's first feature
+hand = 0
+draw = 1
+discard = 2
+exhaust = 3
+offered = 4
+
+[action_kinds]  # an action row's id2
+card = 1
+potion = 2
+single_card_selection = 3
+multi_card_selection = 4
+end_turn = 5

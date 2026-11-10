@@ -27,7 +27,7 @@ class ExportedDirectory(unittest.TestCase):
             exporter.export(net, directory)
 
             manifest = json.loads((directory / MANIFEST).read_text())
-            self.assertEqual(manifest['encoding'], net.encoding)
+            self.assertEqual((directory / manifest['layout']).read_text(), net.layout.path.read_text())
             self.assertEqual(len(manifest['deployments']), len(deployments))
             evaluated = [(manifest['cpu']['file'], net.example_tokens(3, 20))]  # longer than every deployment
             for described, deployment in zip(manifest['deployments'], deployments):

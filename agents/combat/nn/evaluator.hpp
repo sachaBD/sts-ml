@@ -8,11 +8,11 @@
 namespace stsrl::nn {
 class NetworkEvaluator {
 public:
-    explicit NetworkEvaluator(Encoding encoding) : encoding_{encoding} {}
-    infra::Tokens request(const search::Query& query) const { return encode(query.state, query.actions, encoding_); }
+    explicit NetworkEvaluator(std::shared_ptr<const Encoder> encoder) : encoder_{std::move(encoder)} {}
+    infra::Tokens request(const search::Query& query) const { return encoder_->encode(query.state, query.actions); }
     static search::Evaluation answer(const infra::Prediction& prediction) { return {prediction.value, prediction.logits}; }
 
 private:
-    Encoding encoding_;
+    std::shared_ptr<const Encoder> encoder_;
 };
 }  // namespace stsrl::nn

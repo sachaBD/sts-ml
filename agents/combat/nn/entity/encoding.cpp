@@ -1,86 +1,93 @@
 #include "agents/combat/nn/entity/encoding.hpp"
 #include "agents/combat/nn/features.hpp"
+#include <algorithm>
+#include <array>
 #include <stdexcept>
 
 namespace stsrl::nn {
 namespace {
-enum Type { context = 1, card, monster, potion, relic, action };
+// features.hpp's CardZone and EncodedActionKind, in enum order.
+constexpr std::array card_zones{"hand", "draw", "discard", "exhaust", "offered"};
+constexpr std::array action_kinds{"card", "potion", "single_card_selection", "multi_card_selection", "end_turn"};
 
-struct Row {
-    std::vector<float>& out;
-    std::size_t start;
-    Row(std::vector<float>& out, int type, int id, int id2) : out{out}, start{out.size()} {
-        out.resize(start + width, 0);
-        out[start] = float(type); out[start + 1] = float(id); out[start + 2] = float(id2);
+class EntityEncoder final : public Encoder {
+public:
+    explicit EntityEncoder(Layout layout)
+        : Encoder{std::move(layout)}, context_{layout_.kind("context")}, card_{layout_.kind("card")},
+          monster_{layout_.kind("monster")}, potion_{layout_.kind("potion")}, relic_{layout_.kind("relic")},
+          action_{layout_.kind("action")}, target_{layout_.link("target")} {
+        for (std::size_t i = 0; i < card_zones.size(); ++i) zone_[i] = float(layout_.card_zone(card_zones[i]));
+        for (std::size_t i = 0; i < action_kinds.size(); ++i) action_kind_[i] = layout_.action_kind(action_kinds[i]);
     }
-    std::size_t at = 3;
-    void put(float x) {
-        if (at >= std::size_t(width)) throw std::logic_error{"nn: token overflow"};
-        out[start + at++] = x;
+
+    infra::Tokens encode(const sts::BattleContext& bc, std::span<const sts::search::Action> actions) const override {
+        if (bc.player.hasRelic<sts::RelicId::RUNIC_DOME>()) throw std::invalid_argument{"nn: Runic Dome hides intents"};
+        std::vector<int> monster_slots;
+        const auto s = encode_state(bc, &monster_slots);
+        infra::Tokens t;
+        auto& out = t.data;
+        {
+            Row r{out, layout_, context_, 0, layout_.version};
+            r.put_all(s.global.numeric); r.put_all(s.global.player);
+            r.put(float(s.global.input_state)); r.put(float(s.global.card_selection_task)); r.put(s.global.max_hp / 100.f);
+        }
+        for (const auto& c : s.cards) { Row r{out, layout_, card_, c.card_id}; r.put_all(card_features(c)); }
+        for (auto m : s.monsters) {
+            m.status[13] = m.status[14] = 0;  // opaque simulator counters
+            float stances = 0, phase = 0;
+            for (const auto& raw : bc.monsters.arr)
+                if (raw.id == sts::MonsterId::THE_CHAMP && int(raw.id) == m.monster_id) {
+                    stances = float(raw.miscInfo & 3); phase = float((raw.miscInfo >> 2) & 1);
+                }
+            Row r{out, layout_, monster_, m.monster_id, m.move_id};
+            r.put(float(m.previous_move_id)); r.put_all(m.numeric); r.put_all(m.status); r.put(stances); r.put(phase);
+        }
+        for (const auto& p : s.potions) { Row r{out, layout_, potion_, p.potion_id}; r.put_all(p.numeric); }
+        for (const auto& x : s.relics) { Row r{out, layout_, relic_, x.relic_id}; r.put_all(x.numeric); }
+        for (const auto& move : actions) {
+            using T = sts::search::ActionType;
+            const auto a = encode_action(bc, move);
+            const int id = a.source_card ? a.source_card->card_id : a.potion_id.value_or(0);
+            Row r{out, layout_, action_, id, action_kind_[std::size_t(a.kind)]};
+            r.put(float(a.card_selection_task)); r.put(float(a.skips_selection)); r.put(float(a.discards_potion));
+            r.put_all(a.interaction.value_or(std::array<float, 6>{}));
+            r.put_all(a.source_card ? card_features(*a.source_card) : std::array<float, 17>{});
+            std::array<float, 17> subset{};
+            float selected = 0;
+            if (move.getActionType() == T::MULTI_CARD_SELECT)
+                for (int i : move.getSelectedIdxs()) {
+                    const auto c = encode_action(bc, sts::search::Action{T::SINGLE_CARD_SELECT, i});
+                    if (!c.source_card) throw std::runtime_error{"nn: subset card missing"};
+                    const auto f = card_features(*c.source_card);
+                    for (std::size_t k = 0; k < f.size(); ++k) subset[k] += f[k];
+                    ++selected;
+                }
+            r.put(selected); r.put_all(subset);
+            r.put_all(a.potion ? a.potion->numeric : decltype(a.potion->numeric){});
+            if (a.target_monster) {
+                const auto target = std::find(monster_slots.begin(), monster_slots.end(), move.getTargetIdx());
+                if (target == monster_slots.end()) throw std::logic_error{"nn: target monster missing"};
+                r.link(target_, int(1 + s.cards.size() + (target - monster_slots.begin())));  // the monster's row
+            }
+        }
+        t.count = int(out.size()) / layout_.width;
+        t.actions = int(actions.size());
+        return t;
     }
-    template<class R> void put_all(const R& xs) { for (float x : xs) put(x); }
+
+private:
+    std::array<float, 17> card_features(const CardToken& c) const {
+        std::array<float, 17> f{zone_[std::size_t(c.zone)], float(c.card_type), float(c.target_type)};
+        std::copy(c.numeric.begin(), c.numeric.end(), f.begin() + 3);
+        return f;
+    }
+
+    const Layout::Kind context_, card_, monster_, potion_, relic_, action_;
+    const int target_;
+    std::array<float, card_zones.size()> zone_{};
+    std::array<int, action_kinds.size()> action_kind_{};
 };
-
-std::array<float, 17> card_features(const CardToken& c) {
-    std::array<float, 17> f{float(c.zone), float(c.card_type), float(c.target_type)};
-    std::copy(c.numeric.begin(), c.numeric.end(), f.begin() + 3);
-    return f;
-}
 }  // namespace
 
-stsrl::infra::Tokens encode_entity(const sts::BattleContext& bc, std::span<const sts::search::Action> actions) {
-    if (bc.player.hasRelic<sts::RelicId::RUNIC_DOME>()) throw std::invalid_argument{"nn: Runic Dome hides intents"};
-    std::vector<int> monster_slots;
-    const auto s = encode_state(bc, &monster_slots);
-    stsrl::infra::Tokens t;
-    auto& out = t.data;
-    {
-        Row r{out, context, 0, 0};
-        r.put_all(s.global.numeric); r.put_all(s.global.player);
-        r.put(float(s.global.input_state)); r.put(float(s.global.card_selection_task)); r.put(s.global.max_hp / 100.f);
-    }
-    for (const auto& c : s.cards) { Row r{out, card, c.card_id, 0}; r.put_all(card_features(c)); }
-    for (auto m : s.monsters) {
-        m.status[13] = m.status[14] = 0;  // opaque simulator counters
-        float stances = 0, phase = 0;
-        for (const auto& raw : bc.monsters.arr)
-            if (raw.id == sts::MonsterId::THE_CHAMP && int(raw.id) == m.monster_id) {
-                stances = float(raw.miscInfo & 3); phase = float((raw.miscInfo >> 2) & 1);
-            }
-        Row r{out, monster, m.monster_id, m.move_id};
-        r.put(float(m.previous_move_id)); r.put_all(m.numeric); r.put_all(m.status); r.put(stances); r.put(phase);
-    }
-    for (const auto& p : s.potions) { Row r{out, potion, p.potion_id, 0}; r.put_all(p.numeric); }
-    for (const auto& x : s.relics) { Row r{out, relic, x.relic_id, 0}; r.put_all(x.numeric); }
-    for (const auto& move : actions) {
-        using T = sts::search::ActionType;
-        const auto a = encode_action(bc, move);
-        const int id = a.source_card ? a.source_card->card_id : a.potion_id.value_or(0);
-        Row r{out, action, id, int(a.kind) + 1};
-        r.put(float(a.card_selection_task)); r.put(float(a.skips_selection)); r.put(float(a.discards_potion));
-        r.put_all(a.interaction.value_or(std::array<float, 6>{}));
-        r.put_all(a.source_card ? card_features(*a.source_card) : std::array<float, 17>{});
-        std::array<float, 17> subset{};
-        float selected = 0;
-        if (move.getActionType() == T::MULTI_CARD_SELECT)
-            for (int i : move.getSelectedIdxs()) {
-                const auto c = encode_action(bc, sts::search::Action{T::SINGLE_CARD_SELECT, i});
-                if (!c.source_card) throw std::runtime_error{"nn: subset card missing"};
-                const auto f = card_features(*c.source_card);
-                for (std::size_t k = 0; k < f.size(); ++k) subset[k] += f[k];
-                ++selected;
-            }
-        r.put(selected); r.put_all(subset);
-        r.put_all(a.potion ? a.potion->numeric : decltype(a.potion->numeric){});
-        if (a.target_monster) {
-            const auto target = std::find(monster_slots.begin(), monster_slots.end(), move.getTargetIdx());
-            if (target == monster_slots.end()) throw std::logic_error{"nn: target monster missing"};
-            // Column 67 is a row reference, never a numeric feature. Zero means no target.
-            out[r.start + width - 1] = float(1 + s.cards.size() + (target - monster_slots.begin()));
-        }
-    }
-    t.count = int(out.size() / width);
-    t.actions = int(actions.size());
-    return t;
-}
+std::unique_ptr<const Encoder> entity_encoder(Layout layout) { return std::make_unique<EntityEncoder>(std::move(layout)); }
 }  // namespace stsrl::nn

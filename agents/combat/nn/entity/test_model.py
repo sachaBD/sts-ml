@@ -3,9 +3,9 @@ import unittest
 
 import torch
 
-from agents.combat.nn.entity.encoding import CardZone, TokenKind
+from agents.combat.nn.entity.encoding import CardZone, TokenKind, WIDTH
 from agents.combat.nn.model import AUXILIARY, LOSS_BINS, WIN_BINS, ModelSpec, build_model, win_probability
-from agents.combat.nn.tokens import TokenRows, WIDTH
+from agents.combat.nn.tokens import TokenRows
 
 
 def small_spec(value='win'):

@@ -1,15 +1,13 @@
-"""Typed view of the numeric token rows both encodings write (tokens.cpp): kind, id and id2, then features.
+"""Typed view of the numeric token rows every encoding writes (tokens.hpp Row): kind, id and id2, then features.
 
-Tensors deliberately remain numeric for PyTorch/ONNX. Each model's own layout lives with it
-(entity/encoding.py, inventory/model.py).
+Tensors deliberately remain numeric for PyTorch/ONNX. Each encoding's layout is its layout.toml (layout.py).
 """
 from dataclasses import dataclass
 
 from torch import Tensor
 
-WIDTH = 68
-ID_CAPACITY = 1024
 MASKED_LOGIT = -1e9
+FEATURES = 3  # the first feature column, after kind, id and id2 (layout.toml header)
 
 
 @dataclass(frozen=True)

@@ -1,28 +1,34 @@
 """inventory_v1: explicit entities and relationships, with no pre-attention pooling."""
+from pathlib import Path
+
 import torch
 from torch import nn
 
+from agents.combat.nn.layout import load
 from agents.combat.nn.model import CombatModel, context_width
-from agents.combat.nn.tokens import ID_CAPACITY, MASKED_LOGIT, WIDTH, TokenRows
+from agents.combat.nn.tokens import FEATURES, MASKED_LOGIT, TokenRows
 
-# Must match InventoryKind and the feature layouts in inventory/encoding.cpp.
-CONTEXT, CARD, MONSTER, POTION, RELIC, ACTION, PLAYER, PLAYER_EFFECT, MONSTER_EFFECT, INVENTORY = range(1, 11)
-FEATURE_WIDTHS = {CONTEXT: 11, CARD: 17, MONSTER: 13, POTION: 18, RELIC: 3,
-                  ACTION: 60, PLAYER: 11, PLAYER_EFFECT: 4, MONSTER_EFFECT: 2, INVENTORY: 19}
-OWNER, SOURCE, TARGET = 65, 66, 67
-VERSION = 1
-# EncodedActionKind + 1, as written by the native encoder.
-CARD_ACTION, POTION_ACTION, SINGLE_CARD_SELECTION, MULTI_CARD_SELECTION = range(1, 5)
+LAYOUT = load(Path(__file__).with_name('layout.toml'))
+CONTEXT, CARD, MONSTER, POTION, RELIC, ACTION, PLAYER, PLAYER_EFFECT, MONSTER_EFFECT, INVENTORY = (
+    LAYOUT.kinds[name].id for name in ('context', 'card', 'monster', 'potion', 'relic', 'action', 'player',
+                                       'player_effect', 'monster_effect', 'inventory'))
+FEATURE_WIDTHS = {kind.id: kind.features for kind in sorted(LAYOUT.kinds.values(), key=lambda kind: kind.id)}
+OWNER, SOURCE, TARGET = (LAYOUT.links[name] for name in ('owner', 'source', 'target'))
+CARD_ACTION, POTION_ACTION, SINGLE_CARD_SELECTION, MULTI_CARD_SELECTION = (
+    LAYOUT.action_kinds[name] for name in ('card', 'potion', 'single_card_selection', 'multi_card_selection'))
+VERSION, WIDTH, ID_CAPACITY = LAYOUT.version, LAYOUT.width, LAYOUT.id_capacity
+KIND_CAPACITY = 11  # kind embeddings, part of the architecture
+assert max(FEATURE_WIDTHS) < KIND_CAPACITY
 
 
 class InventoryModel(CombatModel):
-    encoding = 'inventory_v1'
+    layout = LAYOUT
 
     def __init__(self, spec):
         super().__init__(spec)
         dim = spec.dim
-        self.kind = nn.Embedding(11, dim)
-        self.id = nn.Embedding(11 * ID_CAPACITY, dim)
+        self.kind = nn.Embedding(KIND_CAPACITY, dim)
+        self.id = nn.Embedding(KIND_CAPACITY * ID_CAPACITY, dim)
         self.id2 = nn.Embedding(ID_CAPACITY, dim)
         # Disjoint type-specific feature slices give independent projections in one matrix multiply.
         # The type embedding supplies the type-specific bias.
@@ -53,7 +59,7 @@ class InventoryModel(CombatModel):
         potion_source = rows.is_kind(ACTION) & ((action_kind - POTION_ACTION).abs() < .5)
         namespace = torch.where(rows.is_kind(INVENTORY) | card_source, CARD, kind)
         namespace = torch.where(potion_source, POTION, namespace)
-        numeric = torch.cat([tokens[..., 3:3 + count] * rows.is_kind(type_)[..., None]
+        numeric = torch.cat([tokens[..., FEATURES:FEATURES + count] * rows.is_kind(type_)[..., None]
                              for type_, count in FEATURE_WIDTHS.items()], dim=-1)
         return (self.kind(kind) + self.id(namespace * ID_CAPACITY + rows.id)
                 + self.id2(rows.id2) + self.numeric(numeric))
@@ -69,7 +75,7 @@ class InventoryModel(CombatModel):
         x = entities
         for column, projection in ((OWNER, self.owner), (SOURCE, self.source), (TARGET, self.target)):
             reference = tokens[..., column]
-            index = (reference.long() - 1).clamp(min=0)
+            index = (reference.long() - LAYOUT.link_offset).clamp(min=0)
             linked = entities.gather(1, index[..., None].expand_as(entities))
             x = x + projection(linked) * (reference > 0)[..., None]
         hidden = self.norm(self.encoder(x, src_key_padding_mask=~rows.valid))

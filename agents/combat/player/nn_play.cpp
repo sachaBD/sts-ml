@@ -52,7 +52,7 @@ int main(int argc, char** argv) try {
     for (std::string line; std::getline(std::cin, line);)
         if (!line.empty()) fights.push_back(Json::parse(line));
     const auto count = fights.size();
-    stsrl::player::Episodes episodes{std::move(fights), search.factory(), stsrl::nn::NetworkEvaluator{network.encoding},
+    stsrl::player::Episodes episodes{std::move(fights), search.factory(), stsrl::nn::NetworkEvaluator{network.encoder},
                                      samples, std::cout};
 
     const auto play_begin = Clock::now();

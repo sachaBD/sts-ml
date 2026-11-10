@@ -8,6 +8,7 @@ initializer (equal to it or its transpose); otherwise that file is traced again,
 from copy import deepcopy
 from dataclasses import dataclass
 import json
+import shutil
 from pathlib import Path
 
 import numpy as np
@@ -20,6 +21,7 @@ from agents.combat.nn.model import CombatModel, ModelSpec
 
 # The model directory's description of itself: everything nn_play needs to know about the network.
 MANIFEST = 'network.json'
+LAYOUT = 'layout.toml'  # a copy of the model's own layout file
 CPU_MODEL = 'model.onnx'  # dynamic shape, fp32
 
 
@@ -91,7 +93,8 @@ class ModelExporter:
             del snapshot
             if next(net.parameters()).is_cuda or self.mixed_precision:
                 torch.cuda.empty_cache()  # release export/training scratch before the native worker
-        manifest = dict(encoding=net.encoding,
+        shutil.copyfile(net.layout.path, directory / LAYOUT)
+        manifest = dict(layout=LAYOUT,
                         deployments=[dict(files=[str(f) for f in d.files()], lanes=d.lanes) for d in self.deployments],
                         cpu=dict(file=CPU_MODEL, lanes=self.cpu.lanes, batch=self.cpu.batch))
         (directory / MANIFEST).write_text(json.dumps(manifest, indent=2) + '\n')

@@ -20,5 +20,7 @@ Produce the strongest completely autonomous agent to play Slay the Spire (sts). 
   Apps orchestrate workflows. The one app is `apps/gumbel_nn_combat_expert_iteration`; delete code it doesn't need.
 - Tests live beside their owners. `make test` runs native and Python tests through CTest;
   do not recursively discover tests through recorded `runs/` outputs.
+- `make test` is the verification bar. Do not build extra verification (GPU runs, scratch harnesses, long
+  jobs) unasked; if it seems worth it, state its cost in one line and ask first.
 - Keep model kinds, frozen architecture specs, checkpoint layouts, and native weight formats compatible
   when moving code. Results and saved weights belong in `runs/`, not source directories.

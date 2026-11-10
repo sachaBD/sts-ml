@@ -1,0 +1,32 @@
+# The inventory_v1 encoding's tokens: written by inventory/encoding.cpp, read by inventory/model.py.
+# A row is its header, then at most `features` values of its kind; unused columns are zero.
+name = "inventory_v1"
+version = 1  # the context row's id2
+width = 68
+id_capacity = 1024
+header = ["kind", "id", "id2"]
+link_offset = 1  # a link holds the referenced row's index + 1; 0 means none
+
+[kinds]  # the model reads each kind's features in id order
+context = { id = 1, features = 11 }
+card = { id = 2, features = 17 }
+monster = { id = 3, features = 13 }
+potion = { id = 4, features = 18 }
+relic = { id = 5, features = 3 }
+action = { id = 6, features = 60 }
+player = { id = 7, features = 11 }
+player_effect = { id = 8, features = 4 }
+monster_effect = { id = 9, features = 2 }
+inventory = { id = 10, features = 19 }
+
+[links]  # columns holding a row reference
+owner = 65
+source = 66
+target = 67
+
+[action_kinds]  # an action row's id2
+card = 1
+potion = 2
+single_card_selection = 3
+multi_card_selection = 4
+end_turn = 5

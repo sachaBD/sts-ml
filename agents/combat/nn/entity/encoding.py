@@ -1,46 +1,37 @@
-"""The entity model's token layout (entity/encoding.cpp)."""
+"""The entity encoding's tokens, as entity/layout.toml describes them (entity/encoding.cpp writes them)."""
 from dataclasses import dataclass
 from enum import IntEnum
+from pathlib import Path
 
 import torch
 from torch import Tensor
 
-from agents.combat.nn.tokens import TokenRows
+from agents.combat.nn.layout import load
+from agents.combat.nn.tokens import FEATURES, TokenRows
 
-KIND_CAPACITY = 8
-
-
-class TokenKind(IntEnum):
-    PADDING = 0
-    CONTEXT = 1
-    CARD = 2
-    MONSTER = 3
-    POTION = 4
-    RELIC = 5
-    ACTION = 6
-
-
-class CardZone(IntEnum):
-    HAND = 0
-    DRAW = 1
-    DISCARD = 2
-    EXHAUST = 3
-    OFFERED = 4
+LAYOUT = load(Path(__file__).with_name('layout.toml'))
+TokenKind = IntEnum('TokenKind', {name.upper(): kind.id for name, kind in LAYOUT.kinds.items()})
+CardZone = IntEnum('CardZone', {name.upper(): value for name, value in LAYOUT.card_zones.items()})
+WIDTH, ID_CAPACITY, TARGET = LAYOUT.width, LAYOUT.id_capacity, LAYOUT.links['target']
+KIND_CAPACITY = 8  # kind embeddings, part of the architecture
+assert max(TokenKind) < KIND_CAPACITY
+assert TARGET == WIDTH - 1  # numeric below treats every other column after the header as a feature
 
 
 @dataclass(frozen=True)
 class EntityRows(TokenRows):
     @property
     def numeric(self) -> Tensor:
-        # The final action column is a row reference, not a numeric feature.
-        return torch.cat((self.data[..., 3:-1], self.data[..., -1:].masked_fill(
+        # An action's target column is a row reference, not a numeric feature.
+        return torch.cat((self.data[..., FEATURES:TARGET], self.data[..., TARGET:].masked_fill(
             self.is_kind(TokenKind.ACTION)[..., None], 0)), dim=-1)
 
     def with_targets(self, embedded: Tensor) -> Tensor:
-        """Add the target monster embedding before attention; row zero means no target."""
-        index = (self.data[..., -1] * self.is_kind(TokenKind.ACTION)).long()
+        """Add the target monster embedding before attention; a zero reference means no target."""
+        reference = self.data[..., TARGET] * self.is_kind(TokenKind.ACTION)
+        index = (reference - LAYOUT.link_offset).clamp(min=0).long()
         target = embedded.gather(-2, index[..., None].expand_as(embedded))
-        return embedded + target * (index > 0)[..., None]
+        return embedded + target * (reference > 0)[..., None]
 
     def in_card_zone(self, zone: CardZone) -> Tensor:
         return self.is_kind(TokenKind.CARD) & ((self.numeric[..., 0] - zone).abs() < 0.5)

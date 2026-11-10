@@ -17,7 +17,8 @@ stsrl::search::SearchFactory search() {
 
 // As nn_play decides.
 stsrl::search::Result decide(const Fight& fight) {
-    const stsrl::nn::NetworkEvaluator network{Encoding::entity};
+    const stsrl::nn::NetworkEvaluator network{
+        make_encoder(load_layout(STSRL_SOURCE_DIR "/agents/combat/nn/entity/layout.toml"))};
     auto random = fight.decision_random();
     Decision decision{search()(fight.state(), random), network};
     while (const auto query = decision.pending()) decision.evaluated(fake_network(*query));

@@ -5,6 +5,8 @@ from dataclasses import dataclass, field
 import torch
 from torch import Tensor, nn
 
+from agents.combat.nn.layout import Layout
+
 
 # Outcome bins on one margin axis: losses by enemy HP left (most first), then wins by player HP (least first).
 LOSS_BINS = WIN_BINS = 10
@@ -55,7 +57,7 @@ class CombatModel(nn.Module, ABC):
     logits are masked below -1e8. Padding must not affect real-token predictions.
     The immutable spec completely identifies the architecture, not its deployment.
     """
-    encoding: str  # the native encoding (agents/combat/nn/tokens.hpp) that writes this model's tokens
+    layout: Layout  # its encoding's layout.toml, which the native encoder writes
 
     def __init__(self, spec: ModelSpec):
         super().__init__()

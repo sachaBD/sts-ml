@@ -4,9 +4,8 @@ import unittest
 import torch
 
 from agents.combat.nn.inventory.model import (ACTION, CARD_ACTION, CARD, CONTEXT, MONSTER, MONSTER_EFFECT,
-                                    OWNER, SOURCE, TARGET, VERSION)
+                                    OWNER, SOURCE, TARGET, VERSION, WIDTH)
 from agents.combat.nn.model import ModelSpec, build_model
-from agents.combat.nn.tokens import WIDTH
 
 
 def inventory_tokens():
