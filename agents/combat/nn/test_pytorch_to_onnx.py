@@ -1,7 +1,7 @@
 """An exported model directory describes itself, and every model it names evaluates as the network does."""
-import json
 from pathlib import Path
 import tempfile
+import tomllib
 import unittest
 
 import numpy as np
@@ -26,7 +26,7 @@ class ExportedDirectory(unittest.TestCase):
                     parameter.add_(0.1)
             exporter.export(net, directory)
 
-            manifest = json.loads((directory / MANIFEST).read_text())
+            manifest = tomllib.loads((directory / MANIFEST).read_text())
             self.assertEqual(manifest['encoding'], net.encoding)
             self.assertEqual(len(manifest['deployments']), len(deployments))
             evaluated = [(manifest['cpu']['file'], net.example_tokens(3, 20))]  # longer than every deployment

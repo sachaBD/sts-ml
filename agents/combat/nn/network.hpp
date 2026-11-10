@@ -6,7 +6,7 @@
 #include <vector>
 
 namespace stsrl::nn {
-// An exported model directory, as agents/combat/nn/pytorch_to_onnx.py writes it.
+// An exported model directory: its network.toml, as agents/combat/nn/pytorch_to_onnx.py writes it.
 struct Network {
     Encoding encoding;
     std::vector<std::unique_ptr<infra::Backend>> backends;  // in the order requests try them

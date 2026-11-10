@@ -97,7 +97,7 @@ class ExpertIterationInvariants(unittest.TestCase):
             self.addCleanup(patcher.stop)
 
     def export(self, net, directory):
-        (directory / 'network.json').touch()
+        (directory / 'network.toml').touch()
 
     def play(self, binary, models, fights, directory, settings, *, progress):
         results = [dict(fight_id=f['fight_id'], won=i % 2 == 0, capped=False, finished_unix=1.0)
@@ -223,7 +223,7 @@ class ExpertIterationInvariants(unittest.TestCase):
         logged = [r['iteration'] for r in control.history() if 'iteration' in r]
         self.assertEqual(logged, [0, 1, 2])
         for it in logged:
-            for name in ('model.pt', 'network.json'):
+            for name in ('model.pt', 'network.toml'):
                 self.assertTrue((control.iteration(it) / name).exists(), f'iter{it}/{name}')
 
     def test_samples_outside_the_replay_window_are_pruned(self):
