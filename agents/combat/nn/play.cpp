@@ -22,6 +22,7 @@
 #include <optional>
 #include <span>
 #include <thread>
+#include <variant>
 
 using namespace stsrl::nn;
 using Json = nlohmann::json;
@@ -124,24 +125,28 @@ struct Shared {
 class CombatEpisode final : public stsrl::infra::Episode {
     std::unique_ptr<Game> game_;
     Shared& shared_;
-    std::uint64_t request_ = 0;
-    bool waiting_ = false, done_ = false;
+    struct Ready { std::uint64_t next_id; };
+    struct Waiting { std::uint64_t id; };
+    struct Done {};
+    std::variant<Ready, Waiting, Done> state_{Ready{0}};
 public:
     CombatEpisode(std::unique_ptr<Game> game, Shared& shared) : game_{std::move(game)}, shared_{shared} {}
     std::optional<stsrl::infra::EvaluationRequest> next_request() override {
-        if (waiting_ || done_) return std::nullopt;
+        const auto* ready = std::get_if<Ready>(&state_);
+        if (!ready) return std::nullopt;
         const auto* tokens = game_->advance(shared_.settings);
-        if (!tokens) { done_ = true; return std::nullopt; }
-        waiting_ = true;
-        return stsrl::infra::EvaluationRequest{request_, tokens};
+        if (!tokens) { state_ = Done{}; return std::nullopt; }
+        const auto id = ready->next_id;
+        state_ = Waiting{id};
+        return stsrl::infra::EvaluationRequest{id, tokens};
     }
     void completed(std::uint64_t id, const stsrl::infra::Prediction& prediction) override {
-        if (!waiting_ || id != request_) throw std::logic_error{"unexpected combat evaluation"};
+        const auto* waiting = std::get_if<Waiting>(&state_);
+        if (!waiting || id != waiting->id) throw std::logic_error{"unexpected combat evaluation"};
         game_->evaluated(prediction);
-        waiting_ = false;
-        ++request_;
+        state_ = Ready{id + 1};
     }
-    bool done() const override { return done_; }
+    bool done() const override { return std::holds_alternative<Done>(state_); }
     void finish() override { shared_.finish(*game_); }
     std::string label() const override { return game_->record.at("fight_id").get<std::string>(); }
 };
