@@ -16,7 +16,7 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
 RUNS, SCRATCH = REPO / "runs", REPO / "scratch"
-REPOS = {"sts_combat_rl": REPO, "sts_lightspeed": REPO.parent / "sts_lightspeed", "sts_ml": REPO.parent / "sts_ml"}
+REPOS = {"sts_combat_rl": REPO, "lightspeed": Path(os.environ.get("STS_LIGHTSPEED_DIR", REPO.parent / "lightspeed"))}
 NAME = re.compile(r"^[a-z0-9][a-z0-9_.-]*$")
 
 HELP = """\
@@ -34,7 +34,7 @@ Exit code of the job is returned. Status ends as "done" (exit 0) or "failed".
 examples:
   ./apps/gumbel_nn_combat_expert_iteration/run.sh apps/gumbel_nn_combat_expert_iteration/config/champ_ten.toml [--scratch]
 
-full contract for jobs, schemas and columns: runs/README.md
+full contract: runs/README.md
 """
 
 

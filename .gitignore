@@ -4,42 +4,9 @@ gmon.out
 .venv/
 /runs/*
 !/runs/README.md
-!/runs/__readme.md
-!/runs/schema=*/
-/runs/schema=*/*
-!/runs/schema=*/schema.py
-!/runs/schema=*/description.md
-!/runs/compact.py
 !/runs/__init__.py
 !/runs/run.py
-!/runs/query.py
 !/runs/test_*.py
 __pycache__/
 *.py[cod]
 /scratch/
-
-# Generated experiment data and artifacts. Keep experiment recipes (configs,
-# scripts, plans, and reports) in source control; keep their outputs local.
-/experiments/**/data/
-/experiments/**/logs/
-/experiments/**/results/
-/experiments/**/eval/
-/experiments/**/out/
-/experiments/**/output/
-/experiments/**/artifacts/
-/experiments/**/*.csv
-/experiments/**/*.json
-/experiments/**/*.jsonl
-/experiments/**/*.log
-/experiments/**/*.out
-/experiments/**/*.npy
-/experiments/**/*.npz
-/experiments/**/*.pt
-/experiments/**/*.pth
-/experiments/**/*.ckpt
-/experiments/**/*.png
-
-# Runtime workers and model artifacts are generated, including the active
-# run-rl deck while it remains outside experiments.
-/experiments/**/bin/
-/experiments/**/*.pid
