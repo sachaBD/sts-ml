@@ -12,3 +12,11 @@ add_executable(nn_inventory_encoding_test inventory/encoding_test.cpp)
 target_link_libraries(nn_inventory_encoding_test PRIVATE nn_tokens combat_scenarios GTest::gtest_main)
 target_compile_options(nn_inventory_encoding_test PRIVATE -Wall -Wextra -Wpedantic)
 gtest_discover_tests(nn_inventory_encoding_test PROPERTIES TIMEOUT 10)
+
+# An exported model directory as inference backends.
+if(TARGET infra_inference)
+    add_library(nn_network STATIC network.cpp)
+    target_link_libraries(nn_network PUBLIC nn_tokens infra_inference)
+    target_include_directories(nn_network SYSTEM PRIVATE "${STS_LIGHTSPEED_DIR}/json/include")
+    target_compile_options(nn_network PRIVATE -Wall -Wextra -Wpedantic)
+endif()
