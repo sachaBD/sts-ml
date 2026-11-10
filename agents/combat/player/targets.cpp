@@ -22,13 +22,14 @@ Targets targets(const Vitals& decision, std::span<const Vitals> turn_starts, con
     const auto next = std::find_if(turn_starts.begin(), turn_starts.end(),
                                    [&](const Vitals& v) { return v.turn > decision.turn; });
     const auto& round = next == turn_starts.end() ? last : *next;
-    return {
-        float(end.outcome == sts::Outcome::PLAYER_VICTORY),
-        float(last.hp) / float(last.max_hp),
-        float(last.enemy_hp) / float(last.enemy_max_hp),
-        float(decision.hp - round.hp) / float(decision.max_hp),
-        float(decision.enemy_hp - round.enemy_hp) / float(decision.enemy_max_hp),
-        float(last.turn - decision.turn),
-    };
+    namespace target = nn::layout::sample::targets;
+    Targets t;
+    t[target::won] = float(end.outcome == sts::Outcome::PLAYER_VICTORY);
+    t[target::hp] = float(last.hp) / float(last.max_hp);
+    t[target::enemy_hp] = float(last.enemy_hp) / float(last.enemy_max_hp);
+    t[target::hp_lost] = float(decision.hp - round.hp) / float(decision.max_hp);
+    t[target::enemy_hp_lost] = float(decision.enemy_hp - round.enemy_hp) / float(decision.enemy_max_hp);
+    t[target::turns_remaining] = float(last.turn - decision.turn);
+    return t;
 }
 }  // namespace stsrl::player

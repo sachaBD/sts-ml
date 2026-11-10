@@ -8,7 +8,7 @@ from torch import Tensor, nn
 
 # Outcome bins on one margin axis: losses by enemy HP left (most first), then wins by player HP (least first).
 LOSS_BINS = WIN_BINS = 10
-# Training-only predictions after the value logits when spec.auxiliary; replay.TARGETS names.
+# Training-only predictions after the value logits when spec.auxiliary; layout.toml [sample].targets names.
 AUXILIARY = ('hp_lost', 'enemy_hp_lost', 'turns_remaining')
 
 

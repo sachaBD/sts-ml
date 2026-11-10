@@ -1,4 +1,5 @@
-# The token layouts the C++ encoders write and the Python models read: the one source for both.
+# The token layouts the C++ encoders write and the Python models read, and the sample record nn_play writes for
+# training: the one source for both languages.
 # C++ gets them as constants generated at build time (layout.py); Python reads this file (layout.py).
 width = 68  # floats per token
 
@@ -64,3 +65,7 @@ potion = 2
 single_card_selection = 3
 multi_card_selection = 4
 end_turn = 5
+
+[sample]  # player/episodes.cpp writes it, training/replay.py reads it
+format = 3  # bump when the record's bytes change
+targets = ["won", "hp", "enemy_hp", "hp_lost", "enemy_hp_lost", "turns_remaining"]  # record order (player/targets.cpp)

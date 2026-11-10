@@ -8,11 +8,12 @@ import struct
 import numpy as np
 import torch
 
+from agents.combat.nn.layout import LAYOUT
 from infra.workers.reader import Reader
 
-# nn_play sample record: token count, action count, token width, targets (targets.hpp order), tokens, policy.
-SAMPLE_FORMAT = 3
-TARGETS = ('won', 'hp', 'enemy_hp', 'hp_lost', 'enemy_hp_lost', 'turns_remaining')
+# nn_play sample record (layout.toml [sample]): token count, action count, token width, targets, tokens, policy.
+SAMPLE_FORMAT = LAYOUT.sample.format
+TARGETS = tuple(LAYOUT.sample.targets)
 HEADER = struct.Struct('<iii' + 'f' * len(TARGETS))
 
 
