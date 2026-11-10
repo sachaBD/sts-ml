@@ -8,27 +8,32 @@
 
 namespace stsrl::nn {
 namespace {
-using Kind = InventoryKind;
+namespace L = layout::inventory_v1;
+static_assert(int(EncodedActionKind::card) + 1 == L::action_kind::card &&
+              int(EncodedActionKind::potion) + 1 == L::action_kind::potion &&
+              int(EncodedActionKind::single_card_selection) + 1 == L::action_kind::single_card_selection &&
+              int(EncodedActionKind::multi_card_selection) + 1 == L::action_kind::multi_card_selection &&
+              int(EncodedActionKind::end_turn) + 1 == L::action_kind::end_turn);
 
 float symlog(float x) { return std::copysign(std::log1p(std::abs(x)), x); }
 
 struct Row {
     std::vector<float>& data;
     int index;
-    int next = 3;
-    Row(std::vector<float>& out, Kind kind, int id = 0, int id2 = 0)
-        : data(out), index(int(out.size() / width)) {
+    int next = layout::row::features, end;
+    Row(std::vector<float>& out, layout::Kind kind, int id = 0, int id2 = 0)
+        : data(out), index(int(out.size() / width)), end{layout::row::features + kind.features} {
         data.resize(data.size() + width, 0);
-        data[index * width] = float(kind);
-        data[index * width + 1] = float(id);
-        data[index * width + 2] = float(id2);
+        data[index * width + layout::row::kind] = float(kind.id);
+        data[index * width + layout::row::id] = float(id);
+        data[index * width + layout::row::id2] = float(id2);
     }
     void put(float value) {
-        if (next >= inventory_owner) throw std::logic_error{"inventory_v1: feature overflow"};
+        if (next >= end) throw std::logic_error{"inventory_v1: more features than the layout gives this kind"};
         data[index * width + next++] = value;
     }
     template<class R> void put_all(const R& values) { for (auto x : values) put(float(x)); }
-    void link(int column, int row) { data[index * width + column] = float(row + 1); }
+    void link(int column, int row) { data[index * width + column] = float(row + L::link_offset); }
 };
 
 std::array<float, 16> card_features(const CardToken& card) {
@@ -41,7 +46,7 @@ using CardRows = std::map<CardLocation, int>;
 
 void write_context(std::vector<float>& out, const sts::BattleContext& battle, int held_potions) {
     const int incoming = incoming_damage(battle);
-    Row row{out, Kind::context, 0, inventory_version};
+    Row row{out, L::kind::context, 0, L::version};
     row.put_all(std::array{battle.turn / 20.f, battle.cards.cardsInHand / 10.f,
         battle.cards.drawPile.size() / 64.f, battle.cards.discardPile.size() / 64.f,
         battle.cards.exhaustPile.size() / 64.f, incoming / 100.f,
@@ -66,22 +71,22 @@ void write_player_effects(std::vector<float>& out, const sts::Player& player, in
         const auto status = static_cast<PlayerStatus>(id);
         const int amount = player_amount(player, status);
         if (!amount) continue;
-        Row row{out, Kind::player_effect, id};
+        Row row{out, L::kind::player_effect, id};
         row.put(symlog(float(amount)));
         row.put(float(id < 32 && (player.justAppliedBits & (1U << id))));
         row.put(status == PS::COMBUST ? symlog(player.combustHpLoss) : 0.f);
         row.put(status == PS::PANACHE ? symlog(player.panacheCounter) : 0.f);
-        row.link(inventory_owner, owner);
+        row.link(L::link::owner, owner);
     }
     if (player.bomb1 || player.bomb2 || player.bomb3) {
-        Row row{out, Kind::player_effect, int(PS::THE_BOMB)};
+        Row row{out, L::kind::player_effect, int(PS::THE_BOMB)};
         row.put_all(std::array{symlog(player.bomb1), symlog(player.bomb2), symlog(player.bomb3)});
-        row.link(inventory_owner, owner);
+        row.link(L::link::owner, owner);
     }
 }
 
 void write_player(std::vector<float>& out, const sts::Player& player) {
-    Row row{out, Kind::player};
+    Row row{out, L::kind::player};
     row.put_all(std::array{player.curHp / 100.f, player.maxHp / 100.f,
         player.maxHp ? player.curHp / float(player.maxHp) : 0.f, player.block / 100.f,
         player.energy / 10.f, player.energyPerTurn / 10.f, player.cardDrawPerTurn / 10.f,
@@ -100,7 +105,7 @@ CardRows write_cards(std::vector<float>& out, const sts::BattleContext& battle) 
         const auto& card = cards[i];
         const auto features = card_features(card);
         if (card.zone == CardZone::hand) {
-            Row row{out, Kind::card, card.card_id};
+            Row row{out, L::kind::card, card.card_id};
             row.put_all(features);
             row.put(0);  // inventory_v1 reserves this field for offered cards.
             rows.emplace(locations[i], row.index);
@@ -111,7 +116,7 @@ CardRows write_cards(std::vector<float>& out, const sts::BattleContext& battle) 
         }
     }
     for (const auto& [variant, copies] : inventory) {
-        Row row{out, Kind::inventory, variant.first};
+        Row row{out, L::kind::inventory, variant.first};
         row.put_all(variant.second);
         for (const auto count : copies.counts) row.put(count / 10.f);
         for (const auto location : copies.locations) rows.emplace(location, row.index);
@@ -124,13 +129,13 @@ void write_monster_effects(std::vector<float>& out, const sts::Monster& monster,
         const auto status = static_cast<sts::MS>(id);
         const int amount = monster.getStatusInternal(status);
         if (!amount) continue;
-        Row row{out, Kind::monster_effect, id + 1};
+        Row row{out, L::kind::monster_effect, id + 1};
         row.put(symlog(float(amount)));
         bool applied = false;
         if (status == sts::MS::WEAK) applied = monster.wasJustApplied<sts::MS::WEAK>();
         if (status == sts::MS::VULNERABLE) applied = monster.wasJustApplied<sts::MS::VULNERABLE>();
         row.put(float(applied));
-        row.link(inventory_owner, owner);
+        row.link(L::link::owner, owner);
     }
 }
 
@@ -141,7 +146,7 @@ std::map<int, int> write_monsters(std::vector<float>& out, const sts::BattleCont
     for (std::size_t i = 0; i < monsters.size(); ++i) {
         const auto& monster = monsters[i];
         const auto& raw = battle.monsters.arr[slots[i]];
-        Row row{out, Kind::monster, monster.monster_id, monster.move_id};
+        Row row{out, L::kind::monster, monster.monster_id, monster.move_id};
         row.put(float(monster.previous_move_id));
         // Strength, weak and vulnerable live in their own effect tokens.
         auto numeric = monster.numeric;
@@ -160,7 +165,7 @@ std::map<int, int> write_potions(std::vector<float>& out, const std::vector<Poti
                                 const std::vector<int>& slots) {
     std::map<int, int> rows;
     for (std::size_t i = 0; i < potions.size(); ++i) {
-        Row row{out, Kind::potion, potions[i].potion_id};
+        Row row{out, L::kind::potion, potions[i].potion_id};
         row.put_all(potions[i].numeric);
         rows.emplace(slots[i], row.index);
     }
@@ -169,7 +174,7 @@ std::map<int, int> write_potions(std::vector<float>& out, const std::vector<Poti
 
 void write_relics(std::vector<float>& out, const std::vector<RelicToken>& relics) {
     for (const auto& relic : relics) {
-        Row row{out, Kind::relic, relic.relic_id};
+        Row row{out, L::kind::relic, relic.relic_id};
         row.put_all(relic.numeric);
     }
 }
@@ -195,7 +200,7 @@ void write_actions(std::vector<float>& out, const sts::BattleContext& battle,
     for (const auto move : actions) {
         const auto action = encode_action(battle, move);
         const int id = action.source_card ? action.source_card->card_id : action.potion_id.value_or(0);
-        Row row{out, Kind::action, id, int(action.kind) + 1};
+        Row row{out, L::kind::action, id, int(action.kind) + 1};
         row.put(float(action.card_selection_task));
         row.put(float(action.skips_selection));
         row.put(float(action.discards_potion));
@@ -205,9 +210,9 @@ void write_actions(std::vector<float>& out, const sts::BattleContext& battle,
         row.put_all(action.potion ? action.potion->numeric : std::array<float, potion_features>{});
         if (action.source_card && action.source_card->zone != CardZone::offered) {
             const int index = action.kind == EncodedActionKind::card ? move.getSourceIdx() : move.getSelectIdx();
-            row.link(inventory_source, cards.at({action.source_card->zone, index}));
-        } else if (action.potion_id) row.link(inventory_source, potion_rows.at(move.getSourceIdx()));
-        if (action.target_monster) row.link(inventory_target, monster_rows.at(move.getTargetIdx()));
+            row.link(L::link::source, cards.at({action.source_card->zone, index}));
+        } else if (action.potion_id) row.link(L::link::source, potion_rows.at(move.getSourceIdx()));
+        if (action.target_monster) row.link(L::link::target, monster_rows.at(move.getTargetIdx()));
     }
 }
 }  // namespace

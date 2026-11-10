@@ -1,6 +1,7 @@
 #pragma once
-// A combat decision as one sequence of width-68 tokens (the network's only input); the legal actions are the
-// last tokens, in the order given. Each model owns its layout: entity/encoding.hpp, inventory/encoding.hpp.
+// A combat decision as one sequence of tokens (the network's only input); the legal actions are the last tokens,
+// in the order given. Each encoding's layout is in layout.toml.
+#include "agents/combat/nn/layout.hpp"
 #include "infra/inference/backend.hpp"
 #include <span>
 #include <string_view>
@@ -9,7 +10,7 @@
 #include "sim/search/Action.h"
 
 namespace stsrl::nn {
-inline constexpr int width = 68;
+inline constexpr int width = layout::width;
 enum class Encoding { entity, inventory_v1 };
 Encoding encoding_from_name(std::string_view);
 
