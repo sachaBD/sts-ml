@@ -1,10 +1,11 @@
 #include "agents/combat/nn/inventory_tokens.hpp"
 #include "environments/combat/environment.hpp"
+#include "environments/combat/encoding_v4.hpp"
 #include <algorithm>
 #include <cmath>
 #include <map>
 #include <stdexcept>
-#include <tuple>
+#include <utility>
 
 namespace stsrl::nn {
 namespace {
@@ -37,32 +38,18 @@ std::array<float, 16> card_features(const CardToken& card) {
     return features;
 }
 
-using CardKey = std::tuple<int, CardType, TargetType, std::array<float, 14>>;
-CardKey card_key(CardToken card) {
-    card.numeric.back() = 0;  // playability is contextual, not an instance modification
-    return {card.card_id, card.card_type, card.target_type, card.numeric};
-}
+using CardRows = std::map<CardLocation, int>;
 
-struct CardRows {
-    std::map<CardKey, int> hand, inventory;
-
-    int source_row(const CardToken& card) const {
-        const auto& rows = card.zone == CardZone::hand ? hand : inventory;
-        const auto found = rows.find(card_key(card));
-        return found == rows.end() ? -1 : found->second;
-    }
-};
-
-void write_context(std::vector<float>& out, const sts::BattleContext& battle, const EncodedCombatState& state) {
-    // Reuse the incoming-damage aggregates calculated by encode_state.
-    const float incoming = state.global.numeric[16], unblocked = state.global.numeric[17];
-    const int held_potions = int(state.potions.size());
+void write_context(std::vector<float>& out, const sts::BattleContext& battle, int held_potions) {
+    const int incoming = incoming_damage(battle);
     Row row{out, Kind::context, 0, inventory_version};
     row.put_all(std::array{battle.turn / 20.f, battle.cards.cardsInHand / 10.f,
         battle.cards.drawPile.size() / 64.f, battle.cards.discardPile.size() / 64.f,
-        battle.cards.exhaustPile.size() / 64.f, incoming, unblocked});
-    row.put(float(state.global.input_state));
-    row.put(float(state.global.card_selection_task));
+        battle.cards.exhaustPile.size() / 64.f, incoming / 100.f,
+        std::max(0, incoming - battle.player.block) / 100.f});
+    row.put(float(battle.inputState));
+    row.put(float(battle.inputState == sts::InputState::CARD_SELECT
+                  ? battle.cardSelectInfo.cardSelectTask : sts::CardSelectTask::INVALID));
     row.put(held_potions / 5.f);
     row.put(std::max(0, battle.potionCapacity - held_potions) / 5.f);
 }
@@ -104,26 +91,31 @@ void write_player(std::vector<float>& out, const sts::Player& player) {
     write_player_effects(out, player, row.index);
 }
 
-CardRows write_cards(std::vector<float>& out, const std::vector<CardToken>& cards) {
-    struct Group { CardToken card; std::array<int, 3> counts{}; };
-    std::map<CardKey, Group> inventory;
+CardRows write_cards(std::vector<float>& out, const sts::BattleContext& battle) {
+    struct Copies { std::array<int, 3> counts{}; std::vector<CardLocation> locations; };
+    std::map<std::pair<int, std::array<float, 16>>, Copies> inventory;
+    std::vector<CardLocation> locations;
+    const auto cards = encode_cards(battle, CardCoverage::ironclad_events, &locations);
     CardRows rows;
-    for (const auto& card : cards) {
-        if (card.zone == CardZone::hand || card.zone == CardZone::offered) {
+    for (std::size_t i = 0; i < cards.size(); ++i) {
+        const auto& card = cards[i];
+        const auto features = card_features(card);
+        if (card.zone == CardZone::hand) {
             Row row{out, Kind::card, card.card_id};
-            row.put_all(card_features(card));
-            row.put(float(card.zone == CardZone::offered));
-            rows.hand.try_emplace(card_key(card), row.index);
+            row.put_all(features);
+            row.put(0);  // inventory_v1 reserves this field for offered cards.
+            rows.emplace(locations[i], row.index);
         } else {
-            auto& group = inventory.try_emplace(card_key(card), Group{card}).first->second;
-            ++group.counts.at(int(card.zone) - int(CardZone::draw));
+            auto& copies = inventory[{card.card_id, features}];
+            ++copies.counts.at(int(card.zone) - int(CardZone::draw));
+            copies.locations.push_back(locations[i]);
         }
     }
-    for (const auto& [variant, group] : inventory) {
-        Row row{out, Kind::inventory, group.card.card_id};
-        row.put_all(card_features(group.card));
-        for (const auto count : group.counts) row.put(count / 10.f);
-        rows.inventory.emplace(variant, row.index);
+    for (const auto& [variant, copies] : inventory) {
+        Row row{out, Kind::inventory, variant.first};
+        row.put_all(variant.second);
+        for (const auto count : copies.counts) row.put(count / 10.f);
+        for (const auto location : copies.locations) rows.emplace(location, row.index);
     }
     return rows;
 }
@@ -143,8 +135,9 @@ void write_monster_effects(std::vector<float>& out, const sts::Monster& monster,
     }
 }
 
-std::map<int, int> write_monsters(std::vector<float>& out, const sts::BattleContext& battle,
-                                 const std::vector<MonsterToken>& monsters, const std::vector<int>& slots) {
+std::map<int, int> write_monsters(std::vector<float>& out, const sts::BattleContext& battle) {
+    std::vector<int> slots;
+    const auto monsters = encode_monsters(battle, &slots);
     std::map<int, int> rows;
     for (std::size_t i = 0; i < monsters.size(); ++i) {
         const auto& monster = monsters[i];
@@ -164,12 +157,13 @@ std::map<int, int> write_monsters(std::vector<float>& out, const sts::BattleCont
     return rows;
 }
 
-std::map<int, int> write_potions(std::vector<float>& out, const std::vector<PotionToken>& potions) {
+std::map<int, int> write_potions(std::vector<float>& out, const std::vector<PotionToken>& potions,
+                                const std::vector<int>& slots) {
     std::map<int, int> rows;
-    for (const auto& potion : potions) {
-        Row row{out, Kind::potion, potion.potion_id};
-        row.put_all(potion.numeric);
-        rows.try_emplace(potion.potion_id, row.index);
+    for (std::size_t i = 0; i < potions.size(); ++i) {
+        Row row{out, Kind::potion, potions[i].potion_id};
+        row.put_all(potions[i].numeric);
+        rows.emplace(slots[i], row.index);
     }
     return rows;
 }
@@ -211,8 +205,10 @@ void write_actions(std::vector<float>& out, const sts::BattleContext& battle,
         row.put_all(action.source_card ? card_features(*action.source_card) : std::array<float, 16>{});
         write_card_subset(row, battle, move);
         row.put_all(action.potion ? action.potion->numeric : std::array<float, potion_features>{});
-        if (action.source_card) row.link(inventory_source, cards.source_row(*action.source_card));
-        else if (action.potion_id) row.link(inventory_source, potion_rows.at(*action.potion_id));
+        if (action.source_card && action.source_card->zone != CardZone::offered) {
+            const int index = action.kind == EncodedActionKind::card ? move.getSourceIdx() : move.getSelectIdx();
+            row.link(inventory_source, cards.at({action.source_card->zone, index}));
+        } else if (action.potion_id) row.link(inventory_source, potion_rows.at(move.getSourceIdx()));
         if (action.target_monster) row.link(inventory_target, monster_rows.at(move.getTargetIdx()));
     }
 }
@@ -220,16 +216,16 @@ void write_actions(std::vector<float>& out, const sts::BattleContext& battle,
 
 infra::Tokens encode_inventory(const sts::BattleContext& battle, std::span<const sts::search::Action> actions) {
     if (battle.player.hasRelic<sts::RelicId::RUNIC_DOME>()) throw std::invalid_argument{"nn: Runic Dome hides intents"};
-    std::vector<int> monster_slots;
-    const auto state = encode_state(battle, CardCoverage::ironclad_events, &monster_slots);
+    std::vector<int> potion_slots;
+    const auto potions = v4::encode_potions(battle, &potion_slots);
     infra::Tokens tokens;
     auto& out = tokens.data;
-    write_context(out, battle, state);
+    write_context(out, battle, int(potions.size()));
     write_player(out, battle.player);
-    const auto card_rows = write_cards(out, state.cards);
-    const auto monster_rows = write_monsters(out, battle, state.monsters, monster_slots);
-    const auto potion_rows = write_potions(out, state.potions);
-    write_relics(out, state.relics);
+    const auto card_rows = write_cards(out, battle);
+    const auto monster_rows = write_monsters(out, battle);
+    const auto potion_rows = write_potions(out, potions, potion_slots);
+    write_relics(out, v4::encode_relics(battle));
     write_actions(out, battle, actions, card_rows, monster_rows, potion_rows);
     tokens.count = int(out.size() / width);
     tokens.actions = int(actions.size());
