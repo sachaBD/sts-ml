@@ -306,15 +306,20 @@ TEST(ActorFailures, EpisodeSourceThrows) {
     }, FakeBackend{}, "start failure");
 }
 
-TEST(ActorFailures, SlowInferenceTimesOutWithoutFreeingPendingEpisodes) {
+// A stall must fail loudly, never hang. Which watchdog notices first (the actor's request timer or the supervisor's
+// heartbeat) is a race by design, so any timeout counts. Margins are 10x so a busy machine cannot flip the outcome.
+constexpr auto watchdog = 10ms, stall = 100ms;
+
+TEST(ActorFailures, StalledInferenceTimesOutAndKeepsItsEpisodesAlive) {
     Log log;
     auto config = small();
-    config.timeout = 30ms;
+    config.timeout = watchdog;
     expect_error(config, log, episodes(log, 20, three_steps), FakeBackend{[&log](auto inputs) {
-        std::this_thread::sleep_for(100ms);
+        std::this_thread::sleep_for(stall);
+        // The backend may still be reading these episodes' tokens: freeing them now would be use-after-free.
         require(log.alive > 0, "episodes freed while their request was pending");
         return echo(inputs);
-    }}, "inference timeout");
+    }}, "timeout");
     EXPECT_EQ(log.finished, 0);
 }
 
@@ -322,17 +327,17 @@ TEST(ActorFailures, StalledEpisodeTimesOut) {
     struct Stalls final : Episode {
         Log& log;
         explicit Stalls(Log& l) : log{l} {}
-        const Tokens* advance() override { std::this_thread::sleep_for(100ms); return nullptr; }
+        const Tokens* advance() override { std::this_thread::sleep_for(stall); return nullptr; }
         void evaluated(const Prediction&) override {}
         void finish() override { ++log.finished; }
         std::string label() const override { return "stalls"; }
     };
     Log log;
     auto config = small();
-    config.timeout = 30ms;
+    config.timeout = watchdog;
     expect_error(config, log, [&]() -> std::unique_ptr<Episode> {
         return log.started++ == 0 ? std::make_unique<Stalls>(log) : nullptr;
-    }, FakeBackend{}, "actor timeout");
+    }, FakeBackend{}, "timeout");
     EXPECT_EQ(log.finished, 0);
 }
 
