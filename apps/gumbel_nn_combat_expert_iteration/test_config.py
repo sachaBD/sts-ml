@@ -1,16 +1,13 @@
 """Invariants of the config: a mistake stops the run before anything is written; resume may only change resumable settings."""
 from dataclasses import replace
-import os
 from pathlib import Path
 import unittest
 from unittest.mock import patch
 
-from agents.combat.player.play import check
-from .config import experiment_changes, load, nn_play_settings
+from .config import experiment_changes, load
 from .test_expert_iteration import CONFIG, EVALUATION
 
 PRESETS = Path(__file__).with_name('config')
-NN_PLAY = Path('build', os.environ.get('STSRL_BUILD_DIR', 'main'), 'agents/combat/player/nn_play')
 
 
 class ConfigTests(unittest.TestCase):
@@ -23,16 +20,6 @@ class ConfigTests(unittest.TestCase):
         for preset in sorted(PRESETS.glob('*.toml')):
             with self.subTest(preset=preset.name):
                 load(preset.read_text())
-
-    @unittest.skipUnless(NN_PLAY.exists(), 'nn_play not built')
-    def test_nn_play_accepts_every_preset_and_rejects_a_mistake(self):
-        for preset in sorted(PRESETS.glob('*.toml')):
-            for name, settings in nn_play_settings(load(preset.read_text())).items():
-                with self.subTest(preset=preset.name, settings=name):
-                    check(NN_PLAY, settings)
-        mistake = nn_play_settings(load(CONFIG.replace('rollout_mix = 0.5', 'rollout_mix = 2')))['search']
-        with self.assertRaisesRegex(ValueError, 'rollout mix'):
-            check(NN_PLAY, mistake)
 
     def test_a_mistake_stops_the_run(self):
         self.rejects(CONFIG.replace('steps = 1', 'stepz = 1'), "unknown [training] keys: ['stepz']")

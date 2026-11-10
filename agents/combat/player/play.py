@@ -1,7 +1,7 @@
 """Plays fights with the native nn_play: one process per call, so each stage gets a fresh CUDA context
 (a crash is recoverable by a new process) and never shares GPU state with the PyTorch learner.
 
-nn_play's settings are a table of [search] and [workers] tables; nn_play alone knows their keys (play_config.hpp)."""
+nn_play's settings pass through as written; agents/combat/player/play_config.hpp owns them."""
 import json
 import os
 import shutil

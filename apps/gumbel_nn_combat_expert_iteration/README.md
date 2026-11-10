@@ -34,7 +34,7 @@ name = "validation"
 fights = "path/to/validation.jsonl"
 at = [0]
 every = 3
-[evaluation.sets.search]  # nn_play's [search], as in self-play's
+[evaluation.sets.search]  # owned by nn_play: agents/combat/player/play_config.hpp
 sims = 64
 gumbel_scale = 0.0
 rollout_mix = 0.0

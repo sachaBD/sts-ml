@@ -17,10 +17,10 @@ using Clock = std::chrono::steady_clock;
 
 int main(int argc, char** argv) try {
     CLI::App app{"Plays the fight starts on stdin with search and the network. Appends each fight's samples to SAMPLES "
-                 "and prints one result line to stdout. PLAY is a TOML file of [search] and [workers] settings "
-                 "(play_config.hpp). MODELS is an exported model directory: its network.json names the encoding, the GPU "
-                 "deployments (smallest token capacity first) and the CPU model, with their lanes. Each input goes to the "
-                 "smallest deployment that fits it, else the CPU.", "nn_play"};
+                 "and prints one result line to stdout. PLAY is its settings file (play_config.hpp). MODELS is an exported "
+                 "model directory: its network.json names the encoding, the GPU deployments (smallest token capacity "
+                 "first) and the CPU model, with their lanes. Each input goes to the smallest deployment that fits it, "
+                 "else the CPU.", "nn_play"};
     std::filesystem::path play, models, samples, telemetry_path;
     bool check = false;
     app.add_option("PLAY", play, "settings file")->required();
