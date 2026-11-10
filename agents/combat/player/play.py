@@ -64,7 +64,7 @@ def play(binary, models, fights, directory, search, workers, *, progress=lambda 
         raise FileExistsError(f'{samples}: refusing to append duplicate gameplay')
     starts = directory / 'starts.jsonl'
     starts.write_text(''.join(json.dumps(f) + '\n' for f in fights))
-    command = [str(binary), 'play', str(models), str(samples),
+    command = [str(binary), str(models), str(samples),
                '--threads', str(workers.actors), '--parallel', str(workers.slots),
                '--gpu-wait-us', str(workers.gpu_wait_us), '--timeout-ms', str(workers.timeout_ms),
                '--shutdown-timeout-ms', str(workers.shutdown_timeout_ms),

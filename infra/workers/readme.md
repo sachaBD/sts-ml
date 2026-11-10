@@ -84,6 +84,6 @@ exceed wall time. `actors_stats.server_cpu_pct` is average CPU use per server la
 | Backend interface, CPU/GPU backends | `infra/inference/backend.hpp` |
 | Component benchmarks | `python -m infra.benchmarks MODEL_DIR REPLAY_FILE...` (`infra/benchmarks/`) |
 | Learner (losses, optimizer step) | `agents/combat/nn/training/train.py`: agent-specific, stays with the agent |
-| Episode for combat (search + simulator) | `agents/combat/player/play.cpp`: agent-specific |
+| Episode for combat (search + simulator) | `agents/combat/player/episodes.hpp`: agent-specific |
 
 `infra` knows nothing about Slay the Spire: workers depend on inference, and neither imports `agents/`, `environments/` or `apps/`.

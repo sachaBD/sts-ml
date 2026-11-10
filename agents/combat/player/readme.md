@@ -1,14 +1,14 @@
 # Combat player
 
-The agent that plays fights: `nn_play` (`play.cpp`), launched by `play.py`. Run `nn_play` with no arguments
-for its options. It knows two interfaces:
+The agent that plays fights: `nn_play` (`nn_play.cpp`), launched by `play.py`. `nn_play --help` lists its
+options. It knows two interfaces:
 
 - `search::SearchFactory` (`search/search.hpp`): a fresh search per decision. `search::SearchConfig`
   (`search/config.hpp`) decides which search runs; the player never names it.
 - `nn::NetworkEvaluator` (`nn/evaluator.hpp`): a search query becomes network tokens; a prediction becomes an
   evaluation.
 
-`Decision` joins one search to the network. `play.cpp::CombatEpisode` implements `infra::Episode`, so infra
+`Decision` joins one search to the network. `Episodes` (`episodes.hpp`) hands fights to infra as `infra::Episode`s, so infra
 batches the network calls of every fight in flight ([infra's contract](../../../infra/workers/readme.md)).
 
 ## Why a separate process

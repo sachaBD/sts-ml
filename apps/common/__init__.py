@@ -1,1 +1,1 @@
-"""What the apps share: running (app.py), C++ workers (worker.py) and replaying stored fights (replay.py)."""
+"""What the apps share: the run launcher (launch.sh) and the app command line and file helpers (app.py)."""
