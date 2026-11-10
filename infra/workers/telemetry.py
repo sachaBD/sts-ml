@@ -1,4 +1,4 @@
-"""Rates from run_actors Counters, as JSON lines written by monitoring/telemetry.hpp."""
+"""Rates from run_actors Counters, as JSON lines written by infra/workers/telemetry.hpp."""
 from dataclasses import dataclass
 import json
 from pathlib import Path

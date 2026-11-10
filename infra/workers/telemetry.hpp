@@ -6,8 +6,8 @@
 #include <nlohmann/json.hpp>
 #include <stdexcept>
 
-namespace stsrl::monitoring {
-// Each run_actors Counters as one JSON line; monitoring/telemetry.py reads them.
+namespace stsrl::infra {
+// Each run_actors Counters as one JSON line; infra/workers/telemetry.py reads them.
 class TelemetryFile {
 public:
     explicit TelemetryFile(const std::filesystem::path& path) : out_{path} {
@@ -31,4 +31,4 @@ public:
 private:
     std::ofstream out_;
 };
-}  // namespace stsrl::monitoring
+}  // namespace stsrl::infra

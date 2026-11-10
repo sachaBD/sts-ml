@@ -1,4 +1,4 @@
-// The live execution view consumes the existing monitoring.telemetry states directly.
+// The live execution view consumes the infra.workers.telemetry states directly.
 function telemetryPanel(root, status) {
   const node = (tag, text, className) => {
     const element = document.createElement(tag);

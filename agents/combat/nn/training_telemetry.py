@@ -3,7 +3,7 @@ from dataclasses import asdict, dataclass
 import json
 from pathlib import Path
 
-from .telemetry import WINDOW
+from infra.workers.telemetry import WINDOW
 
 
 def write(stream, counters):

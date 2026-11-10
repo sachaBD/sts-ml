@@ -86,6 +86,5 @@ endif()
 # Workers depend on inference, never the reverse.
 add_subdirectory(infra/inference)
 add_subdirectory(infra/workers)
-add_subdirectory(monitoring)
 add_subdirectory(agents/combat/search)
 add_subdirectory(agents/combat/nn)

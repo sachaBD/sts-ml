@@ -19,7 +19,7 @@ from agents.combat.nn.export import ModelExporter
 from agents.combat.nn.play import Search, play
 from agents.combat.nn.replay import Replay
 from apps.common.app import read_jsonl
-from monitoring.training import write as write_training
+from agents.combat.nn.training_telemetry import write as write_training
 
 from .config import experiment_changes, load
 from .reporting import deck_of

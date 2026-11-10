@@ -5,7 +5,7 @@
 #include "agents/combat/search/gumbel/gumbel.hpp"
 #include "environments/combat/public.hpp"
 #include "infra/workers/actors.hpp"
-#include "monitoring/telemetry.hpp"
+#include "infra/workers/telemetry.hpp"
 #include "environments/combat/record_v4.hpp"
 #include "sim/search/PublicBeliefCombatSearch.h"
 #include <atomic>
@@ -293,7 +293,7 @@ int main(int argc, char** argv) try {
     config.batch_wait = std::chrono::microseconds{gpu_wait_us};
     config.timeout = std::chrono::milliseconds{timeout_ms};
     config.shutdown_timeout = std::chrono::milliseconds{shutdown_timeout_ms};
-    std::optional<stsrl::monitoring::TelemetryFile> telemetry_file;
+    std::optional<stsrl::infra::TelemetryFile> telemetry_file;
     if (!telemetry.empty()) {
         telemetry_file.emplace(telemetry);
         config.on_counters = [&](const stsrl::infra::Counters& counters) { telemetry_file->write(counters); };

@@ -7,3 +7,6 @@ add_executable(infra_actors_test actors_test.cpp)
 target_link_libraries(infra_actors_test PRIVATE infra_actors GTest::gtest_main)
 target_compile_options(infra_actors_test PRIVATE -Wall -Wextra -Wpedantic)
 gtest_discover_tests(infra_actors_test PROPERTIES TIMEOUT 30)
+
+# telemetry.hpp (header-only) writes run_actors Counters as JSON lines.
+target_include_directories(infra_actors SYSTEM PUBLIC "${STS_LIGHTSPEED_DIR}/json/include")

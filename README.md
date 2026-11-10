@@ -21,5 +21,5 @@ See [`apps/gumbel_nn_combat_expert_iteration/README.md`](apps/gumbel_nn_combat_e
 - `agents/combat/nn/`: the network, training, export, and the native `nn_play` worker.
 - `agents/combat/search/`: Gumbel search.
 - `environments/combat/`: fight state, actions, and encodings.
-- `infra/`: inference backends and worker plumbing.
-- `monitoring/`, `runs/`: telemetry and the run launcher. Results go in `runs/` (not committed).
+- `infra/`: inference backends, worker plumbing and worker telemetry.
+- `runs/`: the run launcher. Results go in `runs/` (not committed).
