@@ -21,7 +21,7 @@ public:
     virtual ~Episode() = default;
     // Claims one request. Null means blocked or done(); claiming never returns the same outstanding request twice.
     // The episode bounds outstanding work and owns immutable tokens until completed(id).
-    // IDs are unique among outstanding requests; completions may arrive in any order.
+    // Issued IDs strictly increase within an episode, including across completions. Completion order is unrestricted.
     virtual std::optional<EvaluationRequest> next_request() = 0;
     virtual void completed(std::uint64_t id, const Prediction&) = 0;
     // True only when no requests remain outstanding and no further work can be produced.

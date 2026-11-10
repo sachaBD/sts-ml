@@ -33,11 +33,13 @@ class FakeEpisode final : public Episode {
     const int id_;
     int left_, step_ = 0;
     bool waiting_ = false, finished_ = false;
+    const bool reuse_ids_;
     Tokens tokens_{std::vector<float>(2 * token_width), 2, 1};
 
     void on_owner() const { require(std::this_thread::get_id() == owner_, "episode used off its Actor thread"); }
 public:
-    FakeEpisode(Log& log, int id, int steps) : log_{log}, id_{id}, left_{steps} {
+    FakeEpisode(Log& log, int id, int steps, bool reuse_ids = false)
+        : log_{log}, id_{id}, left_{steps}, reuse_ids_{reuse_ids} {
         tokens_.data[0] = float(id + 1) / 1000;
         const int alive = ++log_.alive;
         for (int seen = log_.most_alive; seen < alive && !log_.most_alive.compare_exchange_weak(seen, alive);) {}
@@ -56,11 +58,11 @@ public:
         if (!left_) return std::nullopt;
         waiting_ = true;
         tokens_.data[1] = float(step_);
-        return EvaluationRequest{0, &tokens_};  // reuse after completion exercises scheduler generations
+        return EvaluationRequest{reuse_ids_ ? 0 : std::uint64_t(step_), &tokens_};
     }
     void completed(std::uint64_t id, const Prediction& p) override {
         on_owner();
-        require(id == 0, "wrong request id");
+        require(id == (reuse_ids_ ? 0 : std::uint64_t(step_)), "wrong request id");
         require(waiting_, "prediction without a request");
         require(p.value == float(id_ + 1) / 1000 && p.logits == std::vector<float>{float(step_)}, "prediction misrouted");
         waiting_ = false; --left_; ++step_; ++log_.evaluated;
@@ -506,7 +508,7 @@ TEST(ActorFailures, InvalidRequestLifecyclesAreRejectedRatherThanFinishedOrStall
             std::pair{Violation::blocked_without_requests, "episode blocked without outstanding requests"},
             std::pair{Violation::done_with_requests, "episode done with outstanding requests"},
             std::pair{Violation::request_when_done, "done episode produced a request"},
-            std::pair{Violation::duplicate_id, "duplicate episode request id"}}) {
+            std::pair{Violation::duplicate_id, "episode request IDs must strictly increase"}}) {
         SCOPED_TRACE(error);
         std::atomic<bool> second_claim{false};
         bool started = false;
@@ -525,4 +527,18 @@ TEST(ActorFailures, InvalidRequestLifecyclesAreRejectedRatherThanFinishedOrStall
             return std::make_unique<Invalid>(violation, second_claim);
         }, std::move(backend), error);
     }
+}
+
+TEST(ActorFailures, CompletedRequestIdsCannotBeReusedWithinAnEpisode) {
+    Log log;
+    bool started = false;
+    auto config = small(1, 1);
+    config.actors = 1;
+    expect_error(config, log, [&]() -> std::unique_ptr<Episode> {
+        if (started) return nullptr;
+        started = true;
+        return std::make_unique<FakeEpisode>(log, 0, 3, true);
+    }, FakeBackend{}, "episode request IDs must strictly increase");
+    EXPECT_EQ(log.evaluated, 1) << "the original request must complete before its ID is reused";
+    EXPECT_EQ(log.finished, 0);
 }

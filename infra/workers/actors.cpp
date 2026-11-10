@@ -142,6 +142,7 @@ class Actor {
         std::unique_ptr<Episode> episode;
         bool ready = false;
         std::uint64_t generation = 0;
+        std::optional<std::uint64_t> last_id;
         std::map<std::uint64_t, Outstanding> pending;
         std::string label;
     };
@@ -161,6 +162,7 @@ class Actor {
     void refill(std::size_t i) {
         auto& slot = slots_[i];
         slot.episode = shared_.next();
+        slot.last_id.reset();
         slot.label = slot.episode ? slot.episode->label() : std::string{};
         if (slot.episode) { ready(i); ++active_; }
     }
@@ -212,8 +214,9 @@ class Actor {
         if (tokens->count <= 0 || tokens->actions <= 0 || tokens->actions > tokens->count ||
             tokens->data.size() != std::size_t(tokens->count) * width || tokens->attended < 0 || tokens->attended > tokens->count)
             throw std::runtime_error{"invalid tokens from episode " + slot.label};
-        for (const auto& [generation, outstanding] : slot.pending)
-            if (outstanding.id == request->id) throw std::runtime_error{"duplicate episode request id"};
+        if (slot.last_id && request->id <= *slot.last_id)
+            throw std::runtime_error{"episode request IDs must strictly increase"};
+        slot.last_id = request->id;
         auto [it, inserted] = slot.pending.emplace(++slot.generation, Outstanding{request->id, Clock::now(), {}});
         shared_.inference.submit({id_, i, slot.generation, {tokens, {}}, &slot.label, {}}, it->second.packed);
         ++mailbox_.requests;

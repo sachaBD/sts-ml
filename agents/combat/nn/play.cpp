@@ -125,12 +125,12 @@ class CombatEpisode final : public stsrl::infra::Episode {
     std::unique_ptr<Game> game_;
     Shared& shared_;
     std::optional<stsrl::infra::EvaluationRequest> pending_;
+    std::uint64_t next_id_ = 0;
 public:
     CombatEpisode(std::unique_ptr<Game> game, Shared& shared) : game_{std::move(game)}, shared_{shared} {}
     std::optional<stsrl::infra::EvaluationRequest> next_request() override {
         if (pending_) return std::nullopt;
-        // Single-flight requests may reuse their ID after completion.
-        if (const auto* tokens = game_->advance(shared_.settings)) pending_ = stsrl::infra::EvaluationRequest{0, tokens};
+        if (const auto* tokens = game_->advance(shared_.settings)) pending_ = stsrl::infra::EvaluationRequest{next_id_++, tokens};
         return pending_;
     }
     void completed(std::uint64_t id, const stsrl::infra::Prediction& prediction) override {
