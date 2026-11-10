@@ -92,7 +92,7 @@ public:
     using Evaluate = std::function<std::vector<Prediction>(std::span<const Input>)>;
     using Prepare = std::function<void(const Tokens&, std::vector<std::uint16_t>&)>;
     explicit FakeBackend(Evaluate evaluate = echo, Prepare prepare = {}, int lanes = 1,
-                         std::function<bool(const Tokens&)> accepts = {}, int batch = 64)
+                         std::function<bool(const Tokens&)> accepts = {}, int batch = 7)
         : evaluate_{std::move(evaluate)}, prepare_{std::move(prepare)}, lanes_{lanes}, accepts_{std::move(accepts)}, batch_{batch} {}
     int width() const override { return token_width; }
     int max_batch() const override { return batch_; }
@@ -108,9 +108,9 @@ private:
     int batch_;
 };
 
-ActorConfig small(int slots = 3, int batch = 7) {
+ActorConfig small(int slots = 3) {
     ActorConfig c;
-    c.actors = 4; c.slots = slots; c.batch = batch; c.timeout = 2s; c.shutdown_timeout = 1s;
+    c.actors = 4; c.slots = slots; c.timeout = 2s; c.shutdown_timeout = 1s;
     return c;
 }
 
@@ -133,8 +133,8 @@ class CompletesAllWork : public testing::TestWithParam<std::tuple<int, int, int>
 TEST_P(CompletesAllWork, EveryRequestAnsweredOnceAndCapacityRespected) {
     const auto [slots, batch, lanes] = GetParam();
     Log log;
-    FakeBackend backend{echo, {}, lanes};
-    run_actors(small(slots, batch), episodes(log, 100), backend);
+    FakeBackend backend{echo, {}, lanes, {}, batch};
+    run_actors(small(slots), episodes(log, 100), backend);
     EXPECT_EQ(log.finished, 100);
     EXPECT_EQ(log.evaluated, total_steps(100));
     EXPECT_EQ(log.alive, 0);
@@ -155,8 +155,8 @@ TEST(Actors, LanesEvaluateConcurrentlyUpToTheirCount) {
             std::this_thread::sleep_for(1ms);  // long enough for another lane to gather a batch
             --running;
             return echo(inputs);
-        }, {}, lanes};
-        run_actors(small(3, 2), episodes(log, 100, three_steps), backend);
+        }, {}, lanes, {}, 2};
+        run_actors(small(3), episodes(log, 100, three_steps), backend);
         EXPECT_EQ(log.finished, 100);
         EXPECT_EQ(most, lanes) << "lanes must overlap, and never exceed the backend's count";
     }
@@ -220,8 +220,8 @@ TEST(Actors, QueueDepthExcludesEvaluatingBatchAndPeakSurvivesDrain) {
         while (!sampled && std::chrono::steady_clock::now() < deadline) std::this_thread::sleep_for(1ms);
         require(sampled, "no counters published while evaluation was blocked");
         return echo(inputs);
-    }};
-    auto config = small(4, 1);
+    }, {}, 1, {}, 1};
+    auto config = small(4);
     config.actors = 1;
     config.timeout = 5s;
     std::vector<Counters> snapshots;
@@ -278,8 +278,8 @@ TEST(ActorFailures, OneLaneFailsWhileAnotherStillOwnsInputs) {
         std::this_thread::sleep_for(10ms);  // cancellation must not destroy the first lane's borrowed tokens
         require(log.alive > 0, "episodes freed before both lanes returned");
         return echo(inputs);
-    }, {}, 2};
-    expect_error(small(3, 2), log, episodes(log, 40, three_steps), std::move(backend), "lane failed");
+    }, {}, 2, {}, 2};
+    expect_error(small(3), log, episodes(log, 40, three_steps), std::move(backend), "lane failed");
 }
 
 TEST(ActorFailures, WrongPredictionCount) {
@@ -360,7 +360,7 @@ TEST(ActorsDeathTest, HungBackendExitsProcess) {
 }
 
 TEST(Actors, MixedBackendsPreserveRepliesWithoutWideWorkBlockingNarrow) {
-    for (bool wide_accepts : {true, false}) {
+    {
         Log log;
         std::atomic<int> fast_calls{0}, fast_rows{0}, wide_rows{0};
         const auto fits = [](const Tokens& t) { return (int(t.data[0] * 1000 + .5f) + int(t.data[1])) % 2 == 0; };
@@ -379,8 +379,8 @@ TEST(Actors, MixedBackendsPreserveRepliesWithoutWideWorkBlockingNarrow) {
             wide_rows += inputs.size();
             return echo(inputs);
         }, [](const Tokens&, auto& packed) { packed.assign(2, 1); }, 1,
-           [=](const Tokens&) { return wide_accepts; }, 2};
-        run_actors(small(7, 7), episodes(log, 100), {&narrow, &wide});
+           [](const Tokens&) { return true; }, 2};
+        run_actors(small(7), episodes(log, 100), {&narrow, &wide});
         EXPECT_EQ(log.finished, 100);
         EXPECT_EQ(log.evaluated, total_steps(100));
         EXPECT_EQ(fast_rows + wide_rows, total_steps(100));
@@ -390,30 +390,9 @@ TEST(Actors, MixedBackendsPreserveRepliesWithoutWideWorkBlockingNarrow) {
     }
 }
 
-TEST(Actors, RowsNoBackendAcceptsReachOnlyTheLastWithoutBlockingTheOthers) {
+TEST(ActorFailures, ARequestNoBackendAcceptsIsAFailure) {
     Log log;
-    std::atomic<int> wide_calls{0}, rows{0};
-    const auto kind = [](const Tokens& t) { return (int(t.data[0] * 1000 + .5f) + int(t.data[1])) % 3; };
-    const auto only = [&](int k, const char* name) {
-        return [&, k, name](std::span<const Input> inputs) {
-            for (const auto& i : inputs) require(kind(*i.tokens) == k, name);
-            rows += int(inputs.size());
-            return echo(inputs);
-        };
-    };
-    FakeBackend narrow{only(0, "narrow got a row it does not accept"), {}, 1, [&](const Tokens& t) { return kind(t) == 0; }, 7};
-    FakeBackend wide{[&, check = only(1, "wide got a row it does not accept")](auto inputs) {
-        ++wide_calls;
-        return check(inputs);
-    }, {}, 1, [&](const Tokens& t) { return kind(t) == 1; }, 7};
-    FakeBackend overflow{[&, check = only(2, "overflow got an accepted row")](auto inputs) {
-        const auto deadline = std::chrono::steady_clock::now() + 1s;
-        while (wide_calls < 2 && std::chrono::steady_clock::now() < deadline) std::this_thread::sleep_for(1ms);
-        require(wide_calls >= 2, "overflow work blocked the wide lane");
-        return check(inputs);
-    }, {}, 1, [](const Tokens&) { return false; }, 7};
-    run_actors(small(7, 7), episodes(log, 100), {&narrow, &wide, &overflow});
-    EXPECT_EQ(log.finished, 100);
-    EXPECT_EQ(rows, total_steps(100));
-    EXPECT_EQ(log.alive, 0);
+    const auto even = [](const Tokens& t) { return int(t.data[0] * 1000 + .5f) % 2 == 0; };
+    FakeBackend narrow{echo, {}, 1, even};
+    expect_error(small(), log, episodes(log, 20), std::move(narrow), "no backend accepts");
 }

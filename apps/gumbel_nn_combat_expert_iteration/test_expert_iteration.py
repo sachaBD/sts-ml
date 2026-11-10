@@ -55,16 +55,17 @@ device = "cpu"
 
 [model]
 kind = "entity"
+value = "win"
+auxiliary = false
 dim = 8
 layers = 1
 heads = 1
-gpu_tokens = 16
+mixed_precision = false
+deployments = [{ tokens = 16, batches = [4, 2] }]
 
 [workers]
 actors = 2
 slots = 1
-gpu_batch = 512
-gpu_bank = [256, 32]
 gpu_wait_us = 100
 timeout_ms = 321
 shutdown_timeout_ms = 123
@@ -251,7 +252,7 @@ class ExpertIterationInvariants(unittest.TestCase):
         self.assertEqual(json.loads((control.directory / 'status.json').read_text())['phase'], 'stopped')
 
     def test_initial_checkpoint_is_iteration_zero(self):
-        initial = learner.Learner(ModelSpec('entity', 8, 1, 1), 1e-3, 'cpu', seed=1)
+        initial = learner.Learner(ModelSpec('entity', 8, 1, 1, 'win', False), 1e-3, 'cpu', seed=1)
         initial.save(self.out / 'inputs/initial-model.pt')
         control = self.run_loop(config=CONFIG.replace('iterations = 2', 'iterations = 1'))
         saved = torch.load(control.iteration(0) / 'model.pt', weights_only=True)['net']

@@ -15,7 +15,7 @@ from agents.combat.nn.training.train import AUXILIARY_WEIGHT, LOSSES, losses, ou
 
 
 class Tiny(torch.nn.Module):
-    spec = ModelSpec('entity', 1, 1, 1)
+    spec = ModelSpec('entity', 1, 1, 1, 'win', False)
 
     def __init__(self):
         super().__init__()

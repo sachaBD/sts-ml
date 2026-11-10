@@ -20,7 +20,7 @@ used by the InferenceServer during play and by the Learner during train.
 |---|---|---|---|---|
 | Loop | 1 | python `loop` | both | starts play, runs train, exports models, prunes old replay |
 | Actor | 9 (`--workers`) | native `nn_play` | play | plays K games each (`--parallel`): search + simulator, requests NN evals, writes samples |
-| InferenceServer | one per backend lane: 2 narrow GPU + 1 wide GPU + 2 CPU (`--cpu-lanes`) / 1 (CPU only) | native `nn_play` | play | one queue per backend; a request goes to the first backend that accepts it, else the last (CPU) |
+| InferenceServer | one per backend lane: 2 for the smallest GPU deployment, 1 for each larger | native `nn_play` | play | one queue per backend; a request goes to the first backend that accepts it; none accepting is an error |
 | Reader | 4 threads | python `loop` | train | reads sampled rows with coarse `pread` tasks; Replay builds padded batches |
 | Learner | 1 | python `loop` | train | takes ready batches, runs the GPU training step |
 

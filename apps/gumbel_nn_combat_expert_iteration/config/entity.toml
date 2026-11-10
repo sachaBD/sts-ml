@@ -42,18 +42,25 @@ auxiliary = true
 dim = 192
 layers = 4
 heads = 6
-gpu_tokens = 64
-gpu_attended = 24
-gpu_wide_tokens = 128
-gpu_wide_attended = 64
-gpu_mixed_precision = true
+mixed_precision = true
+
+# GPU models by token capacity, smallest first: each input goes to the smallest that fits; a longer one is an error.
+# The longest input seen in Champ self-play, with either encoding, is ~550 tokens.
+[[model.deployments]]
+tokens = 64
+batches = [512, 256, 32]
+
+[[model.deployments]]
+tokens = 128
+batches = [32]
+
+[[model.deployments]]
+tokens = 1024
+batches = [8]
 
 [workers]
 actors = 9
 slots = 224
-gpu_batch = 512
-gpu_wide_batch = 32
-gpu_bank = [256, 32]
 gpu_wait_us = 100
 timeout_ms = 60000
 shutdown_timeout_ms = 5000

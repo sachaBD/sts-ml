@@ -15,7 +15,7 @@ from typing import get_args
 
 from agents.combat.player.play import Search, Workers
 from agents.combat.nn.model import ModelSpec
-from agents.combat.nn.pytorch_to_onnx import ExportSpec
+from agents.combat.nn.pytorch_to_onnx import Deployment, validate as validate_deployments
 from apps.common.app import check_keys, required
 from environments.combat.starts import Starts
 
@@ -81,13 +81,10 @@ class Model:
     dim: int
     layers: int
     heads: int
-    gpu_tokens: int
-    gpu_attended: int | None = None
-    gpu_mixed_precision: bool = False
-    value: str = 'win'  # win: one win logit; outcome: loss/win outcome bins (agents/combat/nn/model.py)
-    auxiliary: bool = False  # train HP lost, enemy HP lost and turns remaining heads
-    gpu_wide_tokens: int = resumable(default=0)
-    gpu_wide_attended: int | None = resumable(default=None)
+    value: str  # win: one win logit; outcome: loss/win outcome bins (agents/combat/nn/model.py)
+    auxiliary: bool  # train HP lost, enemy HP lost and turns remaining heads
+    mixed_precision: bool  # fp16 compute in the exported GPU models
+    deployments: tuple[Deployment, ...]  # smallest token capacity first (agents/combat/nn/pytorch_to_onnx.py)
 
     def architecture(self):
         return ModelSpec(self.kind, self.dim, self.layers, self.heads, self.value, self.auxiliary)
@@ -121,14 +118,6 @@ class Config:
     model: Model
     workers: Workers
     evaluation: Evaluation
-
-    def deployments(self):
-        """The narrow and optional wide GPU deployments every exported model directory holds."""
-        m, w = self.model, self.workers
-        narrow = ExportSpec(m.gpu_tokens, (w.gpu_batch, *w.gpu_bank), m.gpu_attended, m.gpu_mixed_precision)
-        wide = (ExportSpec(m.gpu_wide_tokens, (w.gpu_wide_batch,), m.gpu_wide_attended, m.gpu_mixed_precision)
-                if m.gpu_wide_tokens else None)
-        return narrow, wide
 
 
 def section(cls, table, name):
@@ -192,21 +181,12 @@ def validate(c):
     need(not t.value_batch or t.max_train_rows == 0, 'value_batch requires max_train_rows = 0')
     need(t.lr_half_life >= 0 and 0 <= t.lr_final < t.lr, 'training: nonnegative lr_half_life, lr_final in [0, lr)')
     need(t.lr_half_life or t.lr_final == 0, 'training: lr_final requires lr_half_life')
-    need(m.gpu_wide_tokens >= 0, 'nonnegative gpu_wide_tokens required')
-    need(m.gpu_wide_tokens or m.gpu_wide_attended is None, 'gpu_wide_attended requires gpu_wide_tokens')
-    need(all(0 < b < w.gpu_batch for b in w.gpu_bank), 'workers.gpu_bank: each batch positive and below gpu_batch')
-    narrow, wide = c.deployments()
     try:
-        for deployment in (narrow, wide or narrow):
-            deployment.validate(m.architecture())
+        m.architecture()
+        validate_deployments(m.deployments)
     except ValueError as error:
         sys.exit(f'config: {error}')
-    if wide:
-        need(wide.tokens >= narrow.tokens, 'wide deployment must cover narrow token capacity')
-        need((wide.attended or wide.tokens) >= (narrow.attended or narrow.tokens),
-             'wide deployment must cover narrow attention capacity')
-    need(w.actors > 0 and w.slots > 0 and w.gpu_batch > 0 and w.gpu_wait_us >= 0 and w.timeout_ms > 0
-         and w.shutdown_timeout_ms > 0 and w.gpu_wide_batch > 0,
+    need(w.actors > 0 and w.slots > 0 and w.gpu_wait_us >= 0 and w.timeout_ms > 0 and w.shutdown_timeout_ms > 0,
          'workers: positive counts and timeouts, nonnegative gpu_wait_us')
     need(len({s.name for s in e.sets}) == len(e.sets), 'evaluation: set names must be unique')
     for s in e.sets:

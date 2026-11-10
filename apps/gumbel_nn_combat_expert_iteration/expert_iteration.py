@@ -56,7 +56,7 @@ class ExpertIteration:
                       for s in config.evaluation.sets}
         m, t = config.model, config.training
         self.learner = Learner(m.architecture(), t.lr, t.device)
-        self.exporter = ModelExporter(m.architecture(), *config.deployments())
+        self.exporter = ModelExporter(m.architecture(), m.deployments, m.mixed_precision)
 
     def run(self, resume_from=None):
         self.control.status(stage='initialization', phase='initialize')
@@ -114,8 +114,6 @@ class ExpertIteration:
         recorded.rename(recorded.with_name(f'config-before-resume-{time.time_ns()}.toml'))
         recorded.write_text((self.inputs.parent / 'config.toml').read_text())
         self.learner.load(self.control.iteration(completed) / 'model.pt')
-        # The wide deployment may change on resume; rebuild it from the committed checkpoint.
-        self.exporter.export_wide(self.learner.net, self.control.iteration(completed))
         self.control.log(resume_from=completed, fights_per_iteration=self.config.starts.per_iteration)
         # A stop or crash between the checkpoint and its evaluation must not skip that evaluation.
         self.evaluate(completed)

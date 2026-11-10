@@ -67,20 +67,11 @@ def gpu_stats(worker_log, tail=8192):
     return stats[-2:]
 
 
-def cpu_fallback(stats):
-    # GPU retries are already counted in leaves; oversized rows are not.
-    if not all(k in stats for k in ('leaves', 'cpu_leaves', 'cpu_precision_retries')):
-        return None
-    requests = stats['leaves'] + stats['cpu_leaves']
-    return (stats['cpu_leaves'] + stats['cpu_precision_retries']) / requests if requests else None
-
-
 @lru_cache(maxsize=None)
 def inference_summary(worker_log):
     stats = gpu_stats(worker_log)
     last = stats[-1] if stats else {}
-    return dict(nn=last['leaves'] / last['seconds'] if last.get('seconds') else None,
-                cpu_fallback=cpu_fallback(last))
+    return dict(nn=last['leaves'] / last['seconds'] if last.get('seconds') else None)
 
 
 def system():
@@ -155,7 +146,7 @@ def api(out, reference=None):
         r, gpu, worker = timing.get(b['it'], {}), training / f'iter{b["it"]:03d}/gpu.csv', training / f'iter{b["it"]:03d}/worker.log'
         b.update(loss=loss.get(b['it']), play=r.get('play_seconds'), fit=r.get('train_seconds'),
                  gps=r['games'] / r['play_seconds'] if r else None, gpu=gpu_summary(gpu) if gpu.exists() else {},
-                 **(inference_summary(worker) if worker.exists() else dict(nn=None, cpu_fallback=None)))
+                 **(inference_summary(worker) if worker.exists() else dict(nn=None)))
     decks = sorted({d for b in train + test for d in b['rates'] if d != 'all'})
 
     trend = []
@@ -182,8 +173,6 @@ def api(out, reference=None):
     speed['typical'] = median(typical) if typical else None
     nn = [b['nn'] for b in train if b['nn']]
     speed['nn_typical'] = median(nn) if nn else None
-    if train:
-        speed.update(cpu_fallback=train[-1]['cpu_fallback'], fallback_source=f'iteration {train[-1]["it"]} self-play')
     if data['state'] in ('running', 'stopping') and progress.get('phase') == 'play' and progress.get('directory'):
         directory = Path(progress['directory'])
         results = outcomes(directory / 'results.jsonl')
@@ -193,9 +182,6 @@ def api(out, reference=None):
         elapsed = time.time() - (starts.stat().st_mtime if starts.exists() else progress['time'])
         speed['stage'] = len(results) / elapsed if elapsed > 0 else None
         stats = gpu_stats(directory / 'worker.log') if (directory / 'worker.log').exists() else []
-        if stats:
-            speed.update(cpu_fallback=cpu_fallback(stats[-1]),
-                         fallback_source='this evaluation' if live['test'] else 'this self-play')
         if len(stats) == 2 and stats[1]['seconds'] > stats[0]['seconds']:
             speed['nn'] = (stats[1]['leaves'] - stats[0]['leaves']) / (stats[1]['seconds'] - stats[0]['seconds'])
         if speed['typical'] and not live['test']:
@@ -242,7 +228,7 @@ def main():
     p.add_argument('--port', type=int, default=8740)
     p.add_argument('--host', default='127.0.0.1')
     p.add_argument('--baselines', type=Path, help='historical outcome maps to compare without modifying run inputs')
-    p.add_argument('--mock', choices=('normal', 'fallback', 'stale', 'missing'))
+    p.add_argument('--mock', choices=('normal', 'stale', 'missing'))
     a = p.parse_args()
     if bool(a.run) == bool(a.mock):
         p.error('provide either RUN or --mock SCENARIO')

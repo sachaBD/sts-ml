@@ -14,6 +14,7 @@
 #include <fstream>
 #include <filesystem>
 #include <iostream>
+#include <map>
 #include <mutex>
 #include <nlohmann/json.hpp>
 #include <optional>
@@ -129,30 +130,27 @@ public:
     std::string label() const override { return game_->record.at("fight_id").get<std::string>(); }
 };
 
-// MODELS is an exported model directory (agents/combat/nn/pytorch_to_onnx.py); its network.json names the
-// encoding and the ONNX files, so nothing about the network is passed separately.
+// MODELS is an exported model directory (agents/combat/nn/pytorch_to_onnx.py). Its network.json names the encoding
+// and the deployments: the fixed-shape GPU models of each token capacity, smallest capacity first.
 struct Network {
     Encoding encoding;
-    std::vector<std::unique_ptr<stsrl::infra::Backend>> backends;  // narrow GPU, optional wide GPU, then CPU overflow
+    std::vector<std::unique_ptr<stsrl::infra::Backend>> backends;  // one per deployment, in order
 };
 
-Network load_network(const std::filesystem::path& models, int cpu_lanes) {
+Network load_network(const std::filesystem::path& models) {
     std::ifstream file{models / "network.json"};
     if (!file) throw std::invalid_argument{"no network.json in " + models.string()};
     const auto manifest = Json::parse(file);
-    const auto cpu = models / manifest.at("cpu").get<std::string>();
-    const auto gpu = [&](const Json& deployment, int lanes) {
-        std::vector<std::filesystem::path> files;
-        for (const auto& name : deployment.at("files")) files.push_back(models / name.get<std::string>());
-        return stsrl::infra::gpu_backend(cpu, files, lanes, deployment.at("attended").get<int>());
-    };
     Network network{encoding_from_name(manifest.at("encoding").get<std::string>()), {}};
-    network.backends.push_back(gpu(manifest.at("gpu"), 2));
-    if (manifest.contains("wide")) network.backends.push_back(gpu(manifest.at("wide"), 1));
-    // Rows no GPU model accepts get their own queue, so they never hold up a GPU lane.
-    network.backends.push_back(stsrl::infra::cpu_backend(cpu, cpu_lanes));
-    for (const auto& backend : network.backends)
-        if (backend->width() != width) throw std::invalid_argument{"model token width does not match combat encoder"};
+    for (const auto& deployment : manifest.at("deployments")) {
+        std::vector<std::filesystem::path> files;
+        for (const auto& name : deployment) files.push_back(models / name.get<std::string>());
+        // The smallest capacity serves nearly every request, so it gets a second lane; larger ones serve the rare rest.
+        network.backends.push_back(stsrl::infra::gpu_backend(files, network.backends.empty() ? 2 : 1));
+        if (network.backends.back()->width() != width)
+            throw std::invalid_argument{"model token width does not match combat encoder"};
+    }
+    if (network.backends.empty()) throw std::invalid_argument{"network.json has no deployments"};
     return network;
 }
 }  // namespace
@@ -160,30 +158,32 @@ Network load_network(const std::filesystem::path& models, int cpu_lanes) {
 int main(int argc, char** argv) try {
     const std::string mode = argc > 1 ? argv[1] : "";
     if (mode != "play" || argc < 4 || argc % 2) {
-        std::cerr << "usage: nn_play play MODELS SAMPLES.bin [--threads T] [--parallel G] [--gpu-wait-us U] [--cpu-lanes L]\n"
-                     "                    [--timeout-ms M] [--shutdown-timeout-ms M] [--telemetry TELEMETRY.jsonl] "
-                  << stsrl::search::SearchConfig::usage << "\n";
+        std::cerr << "usage: nn_play play MODELS SAMPLES.bin --threads T --parallel G --gpu-wait-us U --timeout-ms M\n"
+                     "                    --shutdown-timeout-ms M --telemetry TELEMETRY.jsonl\n"
+                     "                    --sims S --particles P --gumbel-scale G --rollout-mix M\n";
         return 2;
     }
-    int threads = 9, parallel = 224, gpu_wait_us = 100, cpu_lanes = 2;
-    int timeout_ms = 60'000, shutdown_timeout_ms = 5'000;
-    std::string telemetry;
-    stsrl::search::SearchConfig search;
-    for (int i = 4; i + 1 < argc; i += 2) {
-        const std::string k = argv[i], v = argv[i + 1];
-        if (k == "--threads") threads = std::stoi(v);
-        else if (k == "--cpu-lanes") cpu_lanes = std::stoi(v);
-        else if (k == "--parallel") parallel = std::stoi(v);
-        else if (k == "--timeout-ms") timeout_ms = std::stoi(v);
-        else if (k == "--shutdown-timeout-ms") shutdown_timeout_ms = std::stoi(v);
-        else if (k == "--telemetry") telemetry = v;
-        else if (k == "--gpu-wait-us") gpu_wait_us = std::stoi(v);
-        else if (!search.parse(k, v)) throw std::invalid_argument{"unknown option " + k};
-    }
-    if (threads < 1 || parallel < 1 || cpu_lanes < 1 || gpu_wait_us < 0 || timeout_ms <= 0 || shutdown_timeout_ms <= 0)
-        throw std::invalid_argument{"positive threads/slots/lanes/timeouts and nonnegative wait required"};
+    std::map<std::string, std::string> options;  // every option is required, once
+    for (int i = 4; i + 1 < argc; i += 2)
+        if (!options.emplace(argv[i], argv[i + 1]).second) throw std::invalid_argument{std::string{"repeated option "} + argv[i]};
+    const auto take = [&options](const std::string& name) {
+        const auto found = options.find(name);
+        if (found == options.end()) throw std::invalid_argument{"missing option " + name};
+        const auto value = found->second;
+        options.erase(found);
+        return value;
+    };
+    const int threads = std::stoi(take("--threads")), parallel = std::stoi(take("--parallel"));
+    const int gpu_wait_us = std::stoi(take("--gpu-wait-us")), timeout_ms = std::stoi(take("--timeout-ms"));
+    const int shutdown_timeout_ms = std::stoi(take("--shutdown-timeout-ms"));
+    const auto telemetry = take("--telemetry");
+    const stsrl::search::SearchConfig search{std::stoi(take("--sims")), std::stoi(take("--particles")),
+                                             std::stod(take("--gumbel-scale")), std::stod(take("--rollout-mix"))};
+    if (!options.empty()) throw std::invalid_argument{"unknown option " + options.begin()->first};
+    if (threads < 1 || parallel < 1 || gpu_wait_us < 0 || timeout_ms <= 0 || shutdown_timeout_ms <= 0)
+        throw std::invalid_argument{"positive threads/slots/timeouts and nonnegative wait required"};
     const auto setup_begin = Clock::now();
-    const auto network = load_network(argv[2], cpu_lanes);
+    const auto network = load_network(argv[2]);
     std::vector<stsrl::infra::Backend*> backends;
     for (const auto& backend : network.backends) backends.push_back(backend.get());
     std::cerr << "timing: evaluator setup "
@@ -197,15 +197,11 @@ int main(int argc, char** argv) try {
     const double play_wall_start = std::chrono::duration<double>(std::chrono::system_clock::now().time_since_epoch()).count();
     stsrl::infra::ActorConfig config;
     config.actors = threads; config.slots = parallel;
-    config.batch = backends.front()->max_batch();  // the largest exported GPU batch
     config.batch_wait = std::chrono::microseconds{gpu_wait_us};
     config.timeout = std::chrono::milliseconds{timeout_ms};
     config.shutdown_timeout = std::chrono::milliseconds{shutdown_timeout_ms};
-    std::optional<stsrl::infra::TelemetryFile> telemetry_file;
-    if (!telemetry.empty()) {
-        telemetry_file.emplace(telemetry);
-        config.on_counters = [&](const stsrl::infra::Counters& counters) { telemetry_file->write(counters); };
-    }
+    stsrl::infra::TelemetryFile telemetry_file{telemetry};
+    config.on_counters = [&](const stsrl::infra::Counters& counters) { telemetry_file.write(counters); };
     try {
         stsrl::infra::run_actors(config, [&]() -> std::unique_ptr<stsrl::infra::Episode> {
             auto game = shared.next_game();

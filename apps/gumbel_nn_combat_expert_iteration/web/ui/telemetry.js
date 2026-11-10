@@ -51,7 +51,7 @@ function telemetryPanel(root, status) {
     root.append(name, heading, meter, scaleText, rate, wait, lanes);
     let laneStates = [], lastPeak = null, lastScale = null;
     const render = smoothView(root, (queue, latest) => {
-      name.textContent = queue.id === 0 ? 'Q0 · Narrow' : queue.id === 1 ? 'Q1 · Wide / oversized' : `Q${queue.id}`;
+      name.textContent = `Q${queue.id}`;
       depth.textContent = `Depth ${number(latest.depth)}`;
       depth.title = 'Pending requests at the latest sample; excludes batches already gathered';
       peakText.textContent = `Peak ${number(latest.peak_depth)}`;
@@ -93,7 +93,7 @@ function telemetryPanel(root, status) {
     const render = smoothView(root, (lane, latest) => {
       name.textContent = `L${latest.id} · Q${latest.queue}`;
       busyText.textContent = `${percent(lane.busy_pct)} busy`;
-      busyText.title = 'Evaluation and reply wall time, including CPU fallback; not GPU utilisation';
+      busyText.title = 'Evaluation and reply wall time; not GPU utilisation';
       busy.textContent = lane.busy_pct >= 6.5 ? 'Busy' : '';
       idle.textContent = Number.isFinite(lane.busy_pct) && lane.busy_pct <= 93.5 ? 'Idle' : '';
       width(busy, lane.busy_pct);

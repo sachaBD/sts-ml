@@ -4,12 +4,12 @@ import unittest
 import torch
 
 from agents.combat.nn.entity.encoding import CardZone
-from agents.combat.nn.model import AUXILIARY, LOSS_BINS, WIN_BINS, ModelSpec, build_model
+from agents.combat.nn.model import AUXILIARY, LOSS_BINS, WIN_BINS, ModelSpec, build_model, win_probability
 from agents.combat.nn.tokens import TokenKind, TokenRows, WIDTH
 
 
 def small_spec(value='win'):
-    return ModelSpec('entity', dim=16, layers=1, heads=2, value=value)
+    return ModelSpec('entity', dim=16, layers=1, heads=2, value=value, auxiliary=False)
 
 
 def combat_tokens():
@@ -79,7 +79,8 @@ class ModelTests(unittest.TestCase):
                 tokens = combat_tokens()
                 tokens = torch.cat([tokens, torch.zeros(len(tokens), 5, WIDTH)], dim=1)
 
-                for actual, expected in zip(model(tokens), model.predict(tokens)):
+                context, logits = model.heads(tokens)
+                for actual, expected in zip(model(tokens), (win_probability(context, model.spec), logits)):
                     torch.testing.assert_close(actual, expected)
 
     def test_win_probability_is_the_mass_of_the_win_bins(self):
@@ -103,13 +104,6 @@ class ModelTests(unittest.TestCase):
         # ...yet the same move aimed at different monsters is scored differently.
         self.assertGreater(abs((logits[0, 3] - logits[0, 4]).item()), 1e-5)
         self.assertGreater(abs((logits[0, 5] - logits[0, 6]).item()), 1e-5)
-
-    def test_attention_overflow_is_nan_so_the_worker_falls_back_to_the_full_model(self):
-        model = build_model(small_spec()).eval()
-        tokens = combat_tokens()
-        values, _ = model.deployed(attended=1)(tokens)
-        self.assertTrue(torch.isnan(values).all())
-        self.assertTrue(torch.isfinite(model(tokens)[0]).all())
 
 
 if __name__ == '__main__':

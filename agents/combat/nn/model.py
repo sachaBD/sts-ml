@@ -19,8 +19,8 @@ class ModelSpec:
     dim: int
     layers: int
     heads: int
-    value: str = 'win'  # win: one win logit; outcome: LOSS_BINS + WIN_BINS outcome logits
-    auxiliary: bool = False  # AUXILIARY predictions follow the value logits
+    value: str  # win: one win logit; outcome: LOSS_BINS + WIN_BINS outcome logits
+    auxiliary: bool  # AUXILIARY predictions follow the value logits
     encoding_version: int = field(default=2, init=False)  # action-to-target row references
 
     def __post_init__(self):
@@ -57,7 +57,6 @@ class CombatModel(nn.Module, ABC):
     The immutable spec completely identifies the architecture, not its deployment.
     """
     encoding: str  # the native encoding (agents/combat/nn/tokens.hpp) that writes this model's tokens
-    bounded_attention = False  # deployed() can cap how many tokens attend
 
     def __init__(self, spec: ModelSpec):
         super().__init__()
@@ -73,24 +72,14 @@ class CombatModel(nn.Module, ABC):
         context, logits = self.heads(tokens)
         return win_probability(context, self.spec), logits
 
-    def deployed(self, attended: int | None) -> nn.Module:
-        """The module exported for fixed-shape GPU inference; `attended` caps the tokens that attend."""
-        if attended is not None:
-            raise ValueError(f'{self.spec.kind} models cannot cap attention')
-        return self
-
     @abstractmethod
     def heads(self, tokens: Tensor) -> tuple[Tensor, Tensor]:
         """Context readout [B, context_width(spec)] (value logits, then AUXILIARY) and action logits [B,T]."""
         raise NotImplementedError
 
 
-def model_class(kind: str) -> type[CombatModel]:
+def build_model(spec: ModelSpec) -> CombatModel:
     from agents.combat.nn.entity.model import EntityModel
     from agents.combat.nn.inventory.model import InventoryModel
 
-    return {'entity': EntityModel, 'inventory_v1': InventoryModel}[kind]
-
-
-def build_model(spec: ModelSpec) -> CombatModel:
-    return model_class(spec.kind)(spec)
+    return {'entity': EntityModel, 'inventory_v1': InventoryModel}[spec.kind](spec)

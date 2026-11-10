@@ -20,7 +20,7 @@ foreach(provider ${INFRA_ORT_PROVIDERS})
     file(CREATE_LINK "${provider}" "${INFRA_ORT_DIR}/${name}" SYMBOLIC)
 endforeach()
 
-add_library(infra_inference STATIC cpu.cpp gpu.cpp)
+add_library(infra_inference STATIC gpu.cpp)
 target_include_directories(infra_inference PUBLIC "${PROJECT_SOURCE_DIR}")
 target_include_directories(infra_inference SYSTEM PRIVATE "${INFRA_ORT_INCLUDE}")
 target_link_libraries(infra_inference PUBLIC "${INFRA_ORT_DIR}/libonnxruntime.so.1" CUDA::cudart)

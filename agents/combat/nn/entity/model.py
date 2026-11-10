@@ -10,12 +10,9 @@ from agents.combat.nn.tokens import ID_CAPACITY, MASKED_LOGIT, TokenKind, WIDTH
 class EntityModel(CombatModel):
     """Pool relics and draw/discard/exhaust cards, then attend over retained tokens.
 
-    Predictions are scattered back to the original action positions. A bounded view
-    can be requested by an export adapter; overflow is explicit rather than silently
-    dropping actions. Normal forward evaluates every retained token.
+    Predictions are scattered back to the original action positions.
     """
     encoding = 'entity'
-    bounded_attention = True
 
     def __init__(self, spec):
         super().__init__(spec)
@@ -39,23 +36,20 @@ class EntityModel(CombatModel):
         _, keep = self._group_masks(EntityRows(tokens))
         return self._heads(tokens, int(keep.sum(dim=1).max()))
 
-    def deployed(self, attended: int | None) -> nn.Module:
-        return AttentionCapped(self, attended)
-
-    def predict(self, tokens: Tensor, slots: int | None = None) -> tuple[Tensor, Tensor]:
-        """Evaluate an optional bounded attention view; overflow returns a NaN value."""
-        context, logits = self._heads(tokens, slots)
+    def forward(self, tokens: Tensor) -> tuple[Tensor, Tensor]:
+        # Exported for fixed shapes: every row keeps a slot, so no shape depends on the data.
+        context, logits = self._heads(tokens, tokens.shape[1])
         return win_probability(context, self.spec), logits
 
-    def _heads(self, tokens: Tensor, slots: int | None) -> tuple[Tensor, Tensor]:
+    def _heads(self, tokens: Tensor, capacity: int) -> tuple[Tensor, Tensor]:
         rows = EntityRows(tokens)
         groups, keep = self._group_masks(rows)
         embedded = self._embed(rows)
         embedded = rows.with_targets(embedded)
         pooled = self._pool(embedded, groups)
-        retained, index, valid = self._compact(embedded, keep, slots)
+        retained, index, valid = self._compact(embedded, keep, capacity)
         hidden = self._attend(retained, pooled, valid)
-        return self._readout(rows, hidden, index, keep)
+        return self._readout(rows, hidden, index)
 
     def _group_masks(self, rows: EntityRows) -> tuple[Tensor, Tensor]:
         """Relics, draw, discard, exhaust; every other real token stays individual."""
@@ -74,10 +68,9 @@ class EntityModel(CombatModel):
         """Shared item transform, sum per group, then normalize."""
         return self.group_norm(groups.to(embedded.dtype) @ self.item(embedded) + self.group)
 
-    def _compact(self, embedded: Tensor, keep: Tensor, slots: int | None) -> tuple[Tensor, Tensor, Tensor]:
-        """Retained embeddings, original indices and valid mask, in original row order."""
+    def _compact(self, embedded: Tensor, keep: Tensor, capacity: int) -> tuple[Tensor, Tensor, Tensor]:
+        """Every retained row in original order, padded to `capacity` rows: embeddings, original indices, valid mask."""
         length = embedded.shape[1]
-        capacity = length if slots is None else min(slots, length)
         order = keep.float() * (2 * length) - torch.arange(length, device=embedded.device, dtype=torch.float32)
         index = order.topk(capacity, dim=1).indices
         retained = embedded.gather(1, index[..., None].expand(-1, -1, embedded.shape[-1]))
@@ -90,24 +83,12 @@ class EntityModel(CombatModel):
         sequence = torch.cat([retained[:, :1], pooled, retained[:, 1:]], dim=1)
         return self.norm(self.encoder(sequence, src_key_padding_mask=padding))
 
-    def _readout(self, rows: EntityRows, hidden: Tensor, index: Tensor, keep: Tensor) -> tuple[Tensor, Tensor]:
-        """Value head at context; action scores returned to wire positions, with explicit overflow."""
+    def _readout(self, rows: EntityRows, hidden: Tensor, index: Tensor) -> tuple[Tensor, Tensor]:
+        """Value head at context; action scores returned to wire positions."""
         value = self.value(hidden[:, 0]).float()
-        overflow = keep.sum(dim=1, keepdim=True) > index.shape[1]
-        value = torch.where(overflow, torch.full_like(value, float('nan')), value)
         pooled_count = self.group.shape[0]
         retained = torch.cat([hidden[:, :1], hidden[:, 1 + pooled_count:]], dim=1)
         scores = self.policy(retained).squeeze(-1).float()
         logits = torch.full_like(rows.kind, MASKED_LOGIT).scatter(1, index, scores)
         return value, logits.masked_fill(~rows.is_kind(TokenKind.ACTION), MASKED_LOGIT)
 
-
-class AttentionCapped(nn.Module):
-    """At most `slots` tokens attend; a row needing more gets a NaN value, which the native backend
-    re-evaluates on the full CPU model."""
-    def __init__(self, net: EntityModel, slots: int | None):
-        super().__init__()
-        self.net, self.slots = net, slots
-
-    def forward(self, tokens):
-        return self.net.predict(tokens, self.slots)

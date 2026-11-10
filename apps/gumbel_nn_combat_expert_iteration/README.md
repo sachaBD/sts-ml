@@ -128,7 +128,7 @@ visibly labeled and the quality tab is disabled:
 
 ```sh
 .venv/bin/python -m apps.gumbel_nn_combat_expert_iteration.web --mock normal --port 8003
-# Other scenarios: --mock fallback, --mock stale, --mock missing
+# Other scenarios: --mock stale, --mock missing
 ```
 
 ## Recovery

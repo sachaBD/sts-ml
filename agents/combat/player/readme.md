@@ -20,17 +20,18 @@ packing and synchronous CPU/GPU inference. Neither layer imports combat code.
 See [infra's contract](../../../infra/workers/readme.md).
 
 ```
-nn_play play MODELS SAMPLES.bin --threads 9 --parallel 224 --gpu-wait-us 100
+nn_play play MODELS SAMPLES.bin --threads 9 --parallel 224 --gpu-wait-us 100 --timeout-ms 60000 \
+  --shutdown-timeout-ms 5000 --telemetry telemetry.jsonl --sims 64 --particles 8 --gumbel-scale 1 --rollout-mix 0
 ```
 
-`MODELS` is an exported model directory. Its `network.json`, written by
-[`pytorch_to_onnx.py`](../nn/pytorch_to_onnx.py), names the encoding, the dynamic CPU model and the
-fixed-shape GPU models (narrow, and optionally wide) with their attention caps, so nothing about the network
-is passed as a flag. `--threads` counts actors and `--parallel` is slots per actor; the inference batch is
-the largest exported GPU batch. The player checks the models' token width against its encoder.
+Every option is required. `MODELS` is an exported model directory: its `network.json`, written by
+[`pytorch_to_onnx.py`](../nn/pytorch_to_onnx.py), names the encoding and the GPU deployments, smallest token
+capacity first, so nothing about the network is passed as a flag. Each input goes to the smallest deployment
+that fits it; an input longer than every deployment is an error. `--threads` counts actors and `--parallel`
+is slots per actor. The player checks the models' token width against its encoder.
 
-Failures abort collection, never become losses. Defaults are a 60-second stall
-deadline and 5-second shutdown grace. Archive interrupted stages; never append
+Failures abort collection, never become losses: a stall past `--timeout-ms` is a failure, and shutdown
+waits at most `--shutdown-timeout-ms`. Archive interrupted stages; never append
 partial replay. A poisoned CUDA context exits without teardown for the app's
 bounded process supervisor to handle.
 

@@ -2,7 +2,7 @@
 import math
 import time
 
-SCENARIOS = ('normal', 'fallback', 'stale', 'missing')
+SCENARIOS = ('normal', 'stale', 'missing')
 
 
 class MockHealth:
@@ -90,11 +90,7 @@ class MockHealth:
         now = time.time()
         elapsed = max(0, now - self.started)
         topology = self.topology(now)
-        oversized, retries = (4000, 2000) if self.scenario == 'fallback' else (30, 15)
-        requests = 60000 + oversized
-        native_values = dict(nn_s=requests / 60, gpu_s=1000, cpu_oversized_s=oversized / 60,
-                             precision_retry_s=retries / 60, fallback=100 * (oversized + retries) / requests,
-                             batch_fill=100 * 60000 / 65536)
+        native_values = dict(nn_s=1000, gpu_s=1000, batch_fill=100 * 60000 / 65536)
         age = 300 if self.scenario == 'stale' else 3
         metrics = {key: dict(current=value, age=age, stale=age > 130) for key, value in native_values.items()}
         cpu = 35 + 15 * math.sin(elapsed * .2)
@@ -109,8 +105,7 @@ class MockHealth:
             topology['time'] = now - 300
         return dict(version=1, ready=True, mock=True, time=now, interval=1, state='running',
                     config={'run': {'id': f'MOCK · {self.scenario}'},
-                            'workers': dict(actors=9, slots=224, gpu_batch=512,
-                                            gpu_bank=[256, 32], gpu_wait_us=100)},
+                            'workers': dict(actors=9, slots=224, gpu_wait_us=100)},
                     progress=dict(stage='iteration 42', phase='play', done=7400 + int(elapsed * 5) % 2600, total=10000),
                     metrics=metrics, topology=topology,
                     machine=dict(cores=[max(0, min(100, 45 + 40 * math.sin(elapsed * .4 + i))) for i in range(12)],
