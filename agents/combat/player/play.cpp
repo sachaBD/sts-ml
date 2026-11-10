@@ -2,21 +2,18 @@
 #include "agents/combat/player/decision.hpp"
 #include "agents/combat/player/targets.hpp"
 #include "agents/combat/nn/tokens.hpp"
-#include "agents/combat/search/gumbel/gumbel.hpp"
+#include "agents/combat/search/config.hpp"
 #include "environments/combat/public.hpp"
 #include "infra/workers/actors.hpp"
 #include "infra/workers/telemetry.hpp"
 #include "environments/combat/record_v4.hpp"
-#include "sim/search/PublicBeliefCombatSearch.h"
 #include <atomic>
 #include <chrono>
-#include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <fstream>
 #include <filesystem>
 #include <iostream>
-#include <map>
 #include <mutex>
 #include <nlohmann/json.hpp>
 #include <optional>
@@ -52,31 +49,27 @@ void write(std::ofstream& out, const Sample& sample, std::span<const Vitals> tur
 struct Game {
     Json record;  // its fights-file line
     Fight fight;
-    double rollout_mix;
-    Encoding encoding;
     std::optional<Decision> decision;
     std::vector<Sample> decisions;  // state, improved policy and vitals per searched move
     Clock::time_point begin = Clock::now();
 
-    Game(Json r, double mix, Encoding encoding_)
+    explicit Game(Json r)
         : record(std::move(r)),
-          fight{stsrl::combat_v4::start_battle(record.at("start")), record.at("start").at("seed").get<std::uint64_t>()},
-          rollout_mix{mix}, encoding{encoding_} {}
+          fight{stsrl::combat_v4::start_battle(record.at("start")), record.at("start").at("seed").get<std::uint64_t>()} {}
 
     // Play on until the search needs the network (its query) or the game is over (nullptr).
-    const stsrl::infra::Tokens* advance(const stsrl::search::Gumbel::Settings& settings) {
+    const stsrl::infra::Tokens* advance(const stsrl::search::SearchFactory& search, const NetworkEvaluator& network) {
         for (;;) {
             if (decision) {
                 if (const auto query = decision->pending()) return query;
                 auto r = decision->result();
-                decisions.push_back({encode(fight.state(), r.actions, encoding), std::move(r.policy), vitals(fight.state())});
+                decisions.push_back({network.request({fight.state(), r.actions}), std::move(r.policy), vitals(fight.state())});
                 decision.reset();
                 fight.play(r.action);
             }
             if (fight.over()) return nullptr;
             auto random = fight.decision_random();
-            auto search = std::make_unique<stsrl::search::Gumbel>(fight.state(), settings, random());
-            decision.emplace(fight.state(), std::move(search), rollout_mix, random(), encoding);
+            decision.emplace(search(fight.state(), random), network);
         }
     }
 
@@ -85,9 +78,8 @@ struct Game {
 
 // Everything the worker threads share.
 struct Shared {
-    stsrl::search::Gumbel::Settings settings;
-    double rollout_mix = 0;
-    Encoding encoding = Encoding::legacy;
+    stsrl::search::SearchFactory search;
+    NetworkEvaluator network;
     std::vector<Json> fights;
     std::atomic<std::size_t> next{0};
     std::mutex output;
@@ -97,7 +89,7 @@ struct Shared {
 
     std::unique_ptr<Game> next_game() {
         const auto i = next++;
-        return i < fights.size() ? std::make_unique<Game>(fights[i], rollout_mix, encoding) : nullptr;
+        return i < fights.size() ? std::make_unique<Game>(fights[i]) : nullptr;
     }
 
     void finish(const Game& g) {
@@ -130,98 +122,24 @@ class CombatEpisode final : public stsrl::infra::Episode {
 public:
     CombatEpisode(std::unique_ptr<Game> game, Shared& shared) : game_{std::move(game)}, shared_{shared} {}
     const stsrl::infra::Tokens* advance() override {
-        return game_->advance(shared_.settings);
+        return game_->advance(shared_.search, shared_.network);
     }
     void evaluated(const stsrl::infra::Prediction& prediction) override { game_->evaluated(prediction); }
     void finish() override { shared_.finish(*game_); }
     std::string label() const override { return game_->record.at("fight_id").get<std::string>(); }
 };
 
-void import(std::ofstream& samples, Encoding encoding) {
-    using Public = sts::search::PublicBeliefCombatSearch;
-    for (std::string line; std::getline(std::cin, line);) {
-        if (line.empty()) continue;
-        const auto record = Json::parse(line);
-        const auto& fight = record.at("fight");
-        std::map<int, const Json*> searched;
-        for (const auto& row : record.at("search")) searched[row.at("step").get<int>()] = &row;
-        auto state = stsrl::combat_v4::start_battle(fight.at("start"));
-        const bool won = fight.at("won").get<bool>();
-        std::vector<Sample> decisions;
-        std::vector<Vitals> turn_starts;
-        observe(turn_starts, state);
-        int step = 0;
-        for (const auto& bits : fight.at("actions")) {
-            if (searched.contains(step)) {
-                const auto actions = stsrl::combat::legal_actions(state);
-                std::vector<float> policy(actions.size(), 0);
-                float total = 0;
-                for (const auto& child : searched[step]->at("children")) {
-                    const auto key = Public::publicActionKey(state, sts::search::Action{child.at("action").get<std::uint32_t>()});
-                    std::size_t i = 0;
-                    while (i < actions.size() && Public::publicActionKey(state, actions[i]) != key) ++i;
-                    if (i == actions.size()) {
-                        std::string message = "import: recorded action is not legal; fight=" +
-                            fight.at("fight_id").get<std::string>() + " step=" + std::to_string(step) +
-                            " action=" + std::to_string(child.at("action").get<std::uint32_t>()) + " legal=";
-                        for (const auto a : actions) message += std::to_string(a.bits) + ",";
-                        message += " hand=" + std::to_string(state.cards.cardsInHand) +
-                            " energy=" + std::to_string(state.player.energy);
-                        for (int h = 0; h < state.cards.cardsInHand; ++h) {
-                            const auto& c = state.cards.hand[h];
-                            message += " " + std::to_string(h) + ":" + sts::getCardEnumName(c.id) +
-                                ":" + std::to_string(c.costForTurn);
-                        }
-                        throw std::runtime_error{message};
-                    }
-                    policy[i] += child.at("visits").get<float>(); total += child.at("visits").get<float>();
-                }
-                if (actions.size() > 1 && total > 0) {
-                    for (auto& p : policy) p /= total;
-                    decisions.push_back({encode(state, actions, encoding), std::move(policy), vitals(state)});
-                }
-            }
-            sts::search::Action{bits.get<std::uint32_t>()}.execute(state);
-            observe(turn_starts, state);
-            ++step;
-        }
-        if ((state.outcome == sts::Outcome::PLAYER_VICTORY) != won) throw std::runtime_error{"import: fight did not replay"};
-        for (const auto& sample : decisions) write(samples, sample, turn_starts, state);
-    }
-}
 }  // namespace
 
 int main(int argc, char** argv) try {
-    if (argc > 1 && std::string{argv[1]} == "check") {
-        // Capability/shape preflight only: no network, search, or game outcomes.
-        if (argc != 2 && !(argc == 4 && std::string{argv[2]} == "--encoding"))
-            throw std::invalid_argument{"check accepts only --encoding NAME"};
-        const auto encoding = argc == 4 ? encoding_from_name(argv[3]) : Encoding::legacy;
-        std::string line;
-        while (std::getline(std::cin, line)) {
-            if (line.empty()) continue;
-            const auto fight = Json::parse(line);
-            const auto state = stsrl::combat_v4::start_battle(fight.at("start"));
-            const auto tokens = encode(state, stsrl::combat::legal_actions(state), encoding);
-            std::cout << Json{{"fight_id", fight.at("fight_id")}, {"tokens", tokens.count},
-                              {"actions", tokens.actions}}.dump() << std::endl;
-        }
-        return 0;
-    }
     const std::string mode = argc > 1 ? argv[1] : "";
-    if (mode == "import" && (argc == 3 || (argc == 5 && std::string{argv[3]} == "--encoding"))) {
-        std::ofstream samples{argv[2], std::ios::binary | std::ios::app};
-        import(samples, argc == 5 ? encoding_from_name(argv[4]) : Encoding::legacy);
-        return 0;
-    }
     if (mode != "play" || argc < 4 || argc % 2) {
         std::cerr << "usage: nn_play play MODEL.onnx SAMPLES.bin [--threads T] [--parallel G] [--gpu-model FIXED.onnx\n"
                      "                    --gpu-batch B] [--gpu-bank SMALLER.onnx,...] [--gpu-wait-us U]\n"
                      "                    [--gpu-attended A] [--gpu-wide-model WIDE.onnx] [--gpu-wide-attended A] [--cpu-lanes L]\n"
-                     "                    [--sims S] [--rollout-mix M] [--value-scale V]\n"
-                     "                    [--gumbel-scale G] [--particles P] [--timeout-ms M] [--shutdown-timeout-ms M]\n"
-                     "                    [--telemetry TELEMETRY.jsonl] [--encoding legacy|inventory_v1]\n"
-                     "       nn_play import SAMPLES.bin [--encoding legacy|inventory_v1]\n";
+                     "                    [--timeout-ms M] [--shutdown-timeout-ms M] [--telemetry TELEMETRY.jsonl]\n"
+                     "                    [--encoding legacy|inventory_v1] "
+                  << stsrl::search::SearchConfig::usage << "\n";
         return 2;
     }
     int threads = 9, parallel = 224, gpu_batch = 512, gpu_wait_us = 100, cpu_lanes = 2;
@@ -229,8 +147,7 @@ int main(int argc, char** argv) try {
     std::string gpu_model, gpu_wide_model, telemetry;
     int gpu_attended = 0, gpu_wide_attended = 0;
     std::vector<std::filesystem::path> gpu_bank;
-    stsrl::search::Gumbel::Settings settings;
-    double rollout_mix = 0.5;
+    stsrl::search::SearchConfig search;
     Encoding encoding = Encoding::legacy;
     for (int i = 4; i + 1 < argc; i += 2) {
         const std::string k = argv[i], v = argv[i + 1];
@@ -255,17 +172,10 @@ int main(int argc, char** argv) try {
         else if (k == "--gpu-wide-model") gpu_wide_model = v;
         else if (k == "--gpu-wide-attended") gpu_wide_attended = std::stoi(v);
         else if (k == "--encoding") encoding = encoding_from_name(v);
-        else if (k == "--sims") settings.simulations = std::stoi(v);
-        else if (k == "--value-scale") settings.value_scale = std::stod(v);
-        else if (k == "--rollout-mix") rollout_mix = std::stod(v);
-        else if (k == "--gumbel-scale") settings.gumbel_scale = std::stod(v);
-        else if (k == "--particles") settings.particles = std::stoi(v);
-        else throw std::invalid_argument{"unknown option " + k};
+        else if (!search.parse(k, v)) throw std::invalid_argument{"unknown option " + k};
     }
-    if (threads < 1 || parallel < 1 || gpu_batch < 1 || cpu_lanes < 1 || gpu_wait_us < 0 || timeout_ms <= 0 || shutdown_timeout_ms <= 0 ||
-        settings.simulations < 0 || settings.particles < 1 || rollout_mix < 0 || rollout_mix > 1 || settings.gumbel_scale < 0 ||
-        !std::isfinite(settings.value_scale) || settings.value_scale < 0)
-        throw std::invalid_argument{"positive threads/slots/batch/particles/timeouts, nonnegative sims, rollout mix in [0,1], nonnegative noise/wait, finite nonnegative value scale required"};
+    if (threads < 1 || parallel < 1 || gpu_batch < 1 || cpu_lanes < 1 || gpu_wait_us < 0 || timeout_ms <= 0 || shutdown_timeout_ms <= 0)
+        throw std::invalid_argument{"positive threads/slots/batch/timeouts and nonnegative wait required"};
     if (gpu_model.empty() && (!gpu_bank.empty() || !gpu_wide_model.empty()))
         throw std::invalid_argument{"GPU bank and wide model require gpu-model"};
     if (gpu_attended < 0 || gpu_wide_attended < 0) throw std::invalid_argument{"nonnegative attention capacities required"};
@@ -282,7 +192,7 @@ int main(int argc, char** argv) try {
         if (backend->width() != width) throw std::invalid_argument{"model token width does not match combat encoder"};
     std::cerr << "timing: evaluator setup "
               << std::chrono::duration<double>(Clock::now() - setup_begin).count() << " s\n";
-    Shared shared{settings, rollout_mix, encoding, {}, {}, {},
+    Shared shared{search.factory(), NetworkEvaluator{encoding}, {}, {}, {},
                   std::ofstream{argv[3], std::ios::binary | std::ios::app | std::ios::ate},
                   std::filesystem::path{argv[3]}.filename().string()};
     for (std::string line; std::getline(std::cin, line);)

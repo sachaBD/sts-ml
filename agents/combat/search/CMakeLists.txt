@@ -1,7 +1,8 @@
 # Combat searches know the simulator and nothing else: no network, inference, threads or files.
 add_library(combat_search STATIC
     gumbel/gumbel.cpp
-    rollout_blend/rollout_blend.cpp)
+    rollout_blend/rollout_blend.cpp
+    config.cpp)
 target_link_libraries(combat_search PUBLIC combat_public)
 target_compile_options(combat_search PRIVATE -Wall -Wextra -Wpedantic)
 

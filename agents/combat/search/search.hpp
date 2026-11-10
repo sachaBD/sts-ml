@@ -2,7 +2,10 @@
 // A search never calls the network itself: it asks for evaluations. Whoever drives it decides how to answer, so one GPU can serve many searches at once (infra/workers), or a test can answer one search inline.
 #include "combat/BattleContext.h"
 #include "sim/search/Action.h"
+#include <functional>
+#include <memory>
 #include <optional>
+#include <random>
 #include <span>
 #include <type_traits>
 #include <vector>
@@ -36,6 +39,9 @@ public:
     virtual void evaluated(const Evaluation&) = 0;
     virtual Result result() const = 0;
 };
+
+// A fresh search for one decision. It draws all its randomness from `random`, so the caller decides reproducibility.
+using SearchFactory = std::function<std::unique_ptr<CombatSearch>(const sts::BattleContext&, std::mt19937_64& random)>;
 
 template<class F>
 concept Evaluator = std::is_invocable_r_v<Evaluation, F&, const Query&>;

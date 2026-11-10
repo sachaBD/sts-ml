@@ -57,7 +57,7 @@ TEST(Targets, OutcomeMatchesHowTheFightEnded) {
         EXPECT_LE(t.hp, 1);
         EXPECT_GE(t.enemy_hp, 0);
         EXPECT_LE(t.enemy_hp, 1);
-        if (won) EXPECT_EQ(t.enemy_hp, 0);
-        if (won) EXPECT_GT(t.hp, 0);
+        if (won) { EXPECT_EQ(t.enemy_hp, 0); }
+        if (won) { EXPECT_GT(t.hp, 0); }
     }
 }

@@ -1,4 +1,4 @@
-# The agent: Gumbel search guided by the network, playing fights (nn_play).
+# The agent: a search guided by the network, playing fights (nn_play).
 add_library(player_decision STATIC decision.cpp targets.cpp)
 target_link_libraries(player_decision PUBLIC nn_tokens combat_search)
 target_compile_options(player_decision PRIVATE -Wall -Wextra -Wpedantic)

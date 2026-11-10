@@ -1,7 +1,7 @@
 #include "agents/combat/player/decision.hpp"
 #include "agents/combat/player/fake_network.hpp"
 #include "agents/combat/nn/tokens.hpp"
-#include "agents/combat/search/gumbel/gumbel.hpp"
+#include "agents/combat/search/config.hpp"
 #include "environments/combat/public.hpp"
 #include "constants/CharacterClasses.h"
 #include "constants/MonsterEncounters.h"
@@ -12,7 +12,6 @@
 using namespace stsrl::player;
 using namespace stsrl::nn;
 using stsrl::combat::legal_actions;
-using stsrl::search::Gumbel;
 
 namespace {
 sts::BattleContext jaw_worm(std::uint64_t seed) {
@@ -24,19 +23,20 @@ sts::BattleContext jaw_worm(std::uint64_t seed) {
     return battle;
 }
 
-Gumbel::Settings gumbel() {
-    Gumbel::Settings s;
-    s.simulations = 8;
-    s.particles = 2;
-    s.gumbel_scale = 1;
-    return s;
+stsrl::search::SearchFactory search() {
+    stsrl::search::SearchConfig config;
+    config.parse("--sims", "8");
+    config.parse("--particles", "2");
+    config.parse("--gumbel-scale", "1");
+    config.parse("--rollout-mix", "0.5");
+    return config.factory();
 }
 
 // As nn_play decides.
-stsrl::search::Result decide(const Fight& fight, double rollout_mix) {
+stsrl::search::Result decide(const Fight& fight) {
+    const stsrl::nn::NetworkEvaluator network;
     auto random = fight.decision_random();
-    auto search = std::make_unique<Gumbel>(fight.state(), gumbel(), random());
-    Decision decision{fight.state(), std::move(search), rollout_mix, random()};
+    Decision decision{search()(fight.state(), random), network};
     while (const auto query = decision.pending()) decision.evaluated(fake_network(*query));
     return decision.result();
 }
@@ -65,36 +65,17 @@ TEST(Decision, DependsOnlyOnTheFightStartAndTheMovesSoFar) {
         std::vector<sts::search::Action> moves;
         std::vector<stsrl::search::Result> results;
         while (!played.over()) {
-            results.push_back(decide(played, 0.5));
+            results.push_back(decide(played));
             moves.push_back(results.back().action);
             played.play(moves.back());
         }
         for (std::size_t k = 0; k < results.size(); ++k) {
             Fight replay{jaw_worm(seed), seed};
             for (std::size_t i = 0; i < k; ++i) replay.play(moves[i]);
-            const auto r = decide(replay, 0.5);
+            const auto r = decide(replay);
             EXPECT_EQ(r.action, results[k].action) << "seed " << seed << " decision " << k;
             EXPECT_EQ(r.policy, results[k].policy) << "seed " << seed << " decision " << k;
             EXPECT_EQ(r.value, results[k].value) << "seed " << seed << " decision " << k;
-        }
-    }
-}
-
-TEST(Decision, ZeroRolloutMixIsSearchOnTheNetworkAlone) {
-    for (const auto seed : seeds) {
-        Fight fight{jaw_worm(seed), seed};
-        while (!fight.over()) {
-            auto random = fight.decision_random();
-            Gumbel bare{fight.state(), gumbel(), random()};
-            const auto expected = stsrl::search::run(bare, [](const stsrl::search::Query& q) {
-                const auto p = fake_network(encode(q.state, q.actions));
-                return stsrl::search::Evaluation{p.value, p.logits};
-            });
-            const auto r = decide(fight, 0);
-            EXPECT_EQ(r.action, expected.action);
-            EXPECT_EQ(r.policy, expected.policy);
-            EXPECT_EQ(r.value, expected.value);
-            fight.play(r.action);
         }
     }
 }

@@ -1,5 +1,4 @@
 #include "agents/combat/player/decision.hpp"
-#include "agents/combat/nn/tokens.hpp"
 #include "environments/combat/public.hpp"
 
 namespace stsrl::player {
@@ -34,21 +33,17 @@ std::mt19937_64 Fight::decision_random() const {
     return std::mt19937_64{seeds};
 }
 
-Decision::Decision(const sts::BattleContext& state, std::unique_ptr<search::CombatSearch> search,
-                   double rollout_mix, std::uint64_t rollout_seed, nn::Encoding encoding)
-    : search_{std::move(search)}, encoding_{encoding} {
-    if (rollout_mix > 0) blend_.emplace(state, rollout_mix, rollout_seed);
-    encode_query();
+Decision::Decision(std::unique_ptr<search::CombatSearch> search, const nn::NetworkEvaluator& network)
+    : search_{std::move(search)}, network_{network} {
+    next_request();
 }
 
 void Decision::evaluated(const infra::Prediction& prediction) {
-    search::Evaluation evaluation{prediction.value, prediction.logits};
-    if (blend_) evaluation = (*blend_)(*search_->pending(), std::move(evaluation));
-    search_->evaluated(evaluation);
-    encode_query();
+    search_->evaluated(nn::NetworkEvaluator::answer(prediction));
+    next_request();
 }
 
-void Decision::encode_query() {
-    if (const auto query = search_->pending()) query_ = nn::encode(query->state, query->actions, encoding_);
+void Decision::next_request() {
+    if (const auto query = search_->pending()) request_ = network_.request(*query);
 }
 }  // namespace stsrl::player

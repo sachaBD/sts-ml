@@ -1,11 +1,16 @@
 # Combat player
 
-The agent that plays fights: Gumbel search guided by the network, run by `nn_play` (`play.cpp`), launched from Python by `play.py`.
+The agent that plays fights, run by `nn_play` (`play.cpp`) and launched from Python by `play.py`. It knows two interfaces:
+
+- `search::SearchFactory` (`search/search.hpp`): a fresh search per decision. `search::SearchConfig` (`search/config.hpp`)
+  owns the search flags and which search runs; the player never names it.
+- `nn::NetworkEvaluator` (`nn/evaluator.hpp`): a search query becomes network tokens; a prediction becomes an evaluation.
+
+`Decision` joins one search to the network; infra batches the network calls of every decision in flight.
 
 ## Combat episodes on shared infrastructure
 
-`play.cpp::CombatEpisode` implements `infra::Episode`: it owns a fight and Gumbel
-search, advances until inference is needed, consumes a prediction, and writes the
+`play.cpp::CombatEpisode` implements `infra::Episode`: it owns a fight and its search, advances until inference is needed, consumes a prediction, and writes the
 finished game's samples and result under the output lock. Only immutable
 `infra::Tokens` and `infra::Prediction` cross the worker boundary.
 

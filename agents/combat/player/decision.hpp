@@ -1,12 +1,9 @@
 #pragma once
+#include "agents/combat/nn/evaluator.hpp"
 #include "agents/combat/player/targets.hpp"
-#include "agents/combat/nn/tokens.hpp"
-#include "agents/combat/search/rollout_blend/rollout_blend.hpp"
 #include "agents/combat/search/search.hpp"
-#include "infra/inference/backend.hpp"
 #include <cstdint>
 #include <memory>
-#include <optional>
 #include <random>
 
 namespace stsrl::player {
@@ -31,20 +28,18 @@ private:
     std::vector<Vitals> turn_starts_;
 };
 
-// A search answered by the network, with leaf values blended with guided rollouts when rollout_mix > 0.
+// One decision: a search whose queries the network answers. pending() is the network request, if any.
 class Decision {
 public:
-    Decision(const sts::BattleContext& state, std::unique_ptr<search::CombatSearch>, double rollout_mix,
-             std::uint64_t rollout_seed, nn::Encoding encoding = nn::Encoding::legacy);
-    const infra::Tokens* pending() const { return search_->pending() ? &query_ : nullptr; }
-    void evaluated(const infra::Prediction&);
+    Decision(std::unique_ptr<search::CombatSearch>, const nn::NetworkEvaluator&);
+    const infra::Tokens* pending() const { return search_->pending() ? &request_ : nullptr; }
+    void evaluated(const infra::Prediction& prediction);
     search::Result result() const { return search_->result(); }
 
 private:
-    void encode_query();
+    void next_request();
     std::unique_ptr<search::CombatSearch> search_;
-    std::optional<search::RolloutBlend> blend_;
-    infra::Tokens query_;
-    nn::Encoding encoding_;
+    const nn::NetworkEvaluator& network_;
+    infra::Tokens request_;
 };
 }  // namespace stsrl::player
