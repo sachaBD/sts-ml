@@ -20,7 +20,7 @@ struct Prediction {
     std::vector<float> logits;  // one per action
 };
 
-// A request as the backend sees it. Both views stay owned and immutable by the Actor until the reply.
+// A request as the backend sees it. The actor connection owns both views’ storage until completion.
 struct Input {
     const Tokens* tokens;
     std::span<const std::uint16_t> packed;  // Backend::prepare output; empty = not prepared

@@ -60,7 +60,7 @@ exceed wall time. `actors_stats.server_cpu_pct` is average CPU use per server la
 |---|---|
 | Loop -> nn_play | spawn subprocess; model paths as args; starts on stdin |
 | nn_play -> Loop | one JSON result line per finished game on stdout; errors to `worker.log` |
-| Actor <-> InferenceServer | in-process: per-Actor mailbox (mutex, request/completion deques bounded by the episodes’ outstanding-request limits) + condition-variable wakeups |
+| Actor <-> InferenceServer | actor-owned inference connection: submit owned tokens, receive completions; shared backend request inboxes and per-connection completion inboxes |
 | Actor -> Disk | shared mutex-guarded `ofstream` appending `samples-0.bin` |
 | Reader -> Disk | `pread` exact row bytes |
 | Reader -> Learner | in-process bounded `queue.Queue` of padded batches |
@@ -79,7 +79,8 @@ exceed wall time. `actors_stats.server_cpu_pct` is average CPU use per server la
 
 | Piece | Where |
 |---|---|
-| Actor, InferenceServer, supervision | `infra/workers/actors.hpp` |
+| Actor lifecycle and supervision | `infra/workers/actors.hpp` |
+| Inference connection, routing, batching and lane execution | `infra/workers/inference_service.hpp` |
 | Reader, prefetch queue | `infra/workers/reader.py` |
 | Backend interface, CPU/GPU backends | `infra/inference/backend.hpp` |
 | Component benchmarks | `python -m infra.benchmarks MODEL_DIR REPLAY_FILE...` (`infra/benchmarks/`) |

@@ -61,17 +61,17 @@ struct Game {
           fight{stsrl::combat_v4::start_battle(record.at("start")), record.at("start").at("seed").get<std::uint64_t>()},
           rollout_mix{mix} {}
 
-    // Play on until the search needs the network (its query) or the game is over (nullptr).
-    const stsrl::infra::Tokens* advance(const stsrl::search::Gumbel::Settings& settings) {
+    // Transfers the next encoded query, or returns null when the game is over.
+    std::optional<stsrl::infra::Tokens> advance(const stsrl::search::Gumbel::Settings& settings) {
         for (;;) {
             if (decision) {
-                if (const auto query = decision->pending()) return query;
+                if (auto query = decision->next_query()) return query;
                 auto r = decision->result();
                 decisions.push_back({encode(fight.state(), r.actions), std::move(r.policy), vitals(fight.state())});
                 decision.reset();
                 fight.play(r.action);
             }
-            if (fight.over()) return nullptr;
+            if (fight.over()) return std::nullopt;
             auto random = fight.decision_random();
             auto search = std::make_unique<stsrl::search::Gumbel>(fight.state(), settings, random());
             decision.emplace(fight.state(), std::move(search), rollout_mix, random());
@@ -124,17 +124,19 @@ struct Shared {
 class CombatEpisode final : public stsrl::infra::Episode {
     std::unique_ptr<Game> game_;
     Shared& shared_;
-    std::optional<stsrl::infra::EvaluationRequest> pending_;
+    std::optional<std::uint64_t> pending_;
     std::uint64_t next_id_ = 0;
 public:
     CombatEpisode(std::unique_ptr<Game> game, Shared& shared) : game_{std::move(game)}, shared_{shared} {}
     std::optional<stsrl::infra::EvaluationRequest> next_request() override {
         if (pending_) return std::nullopt;
-        if (const auto* tokens = game_->advance(shared_.settings)) pending_ = stsrl::infra::EvaluationRequest{next_id_++, tokens};
-        return pending_;
+        auto tokens = game_->advance(shared_.settings);
+        if (!tokens) return std::nullopt;
+        pending_ = next_id_++;
+        return stsrl::infra::EvaluationRequest{*pending_, std::move(*tokens)};
     }
     void completed(std::uint64_t id, const stsrl::infra::Prediction& prediction) override {
-        if (!pending_ || id != pending_->id) throw std::logic_error{"unexpected combat evaluation"};
+        if (!pending_ || id != *pending_) throw std::logic_error{"unexpected combat evaluation"};
         game_->evaluated(prediction);
         pending_.reset();
     }

@@ -2,7 +2,7 @@
 // Actors play episodes; InferenceServer lanes batch their network requests onto a Backend.
 // Episodes and their lifecycle methods stay on their Actor; only immutable token views and predictions cross threads.
 // On failure, episode/request storage stays alive until inference has stopped accessing it.
-#include "infra/inference/backend.hpp"
+#include "infra/workers/inference_service.hpp"
 #include <chrono>
 #include <functional>
 #include <memory>
@@ -11,16 +11,11 @@
 #include <vector>
 
 namespace stsrl::infra {
-struct EvaluationRequest {
-    std::uint64_t id;
-    const Tokens* tokens;
-};
-
 class Episode {
 public:
     virtual ~Episode() = default;
     // Claims one request. Null means blocked or done(); claiming never returns the same outstanding request twice.
-    // The episode bounds outstanding work and owns immutable tokens until completed(id).
+    // Tokens transfer to the actor connection; the episode bounds outstanding work.
     // Issued IDs strictly increase within an episode, including across completions. Completion order is unrestricted.
     virtual std::optional<EvaluationRequest> next_request() = 0;
     virtual void completed(std::uint64_t id, const Prediction&) = 0;
@@ -34,18 +29,6 @@ public:
 struct ActorCounters {
     long requests = 0;                        // inference requests submitted
     std::chrono::duration<double> blocked{};  // waiting for inference replies
-};
-struct QueueCounters {
-    long requests = 0;                       // requests that left in a batch
-    std::chrono::duration<double> waited{};  // their total time from submit to leaving
-    std::size_t depth = 0;                  // pending requests, excluding gathered batches
-    std::size_t peak_depth = 0;             // largest pending count since run_actors began
-};
-struct LaneCounters {
-    int queue = 0;                         // index into Counters::queues
-    long requests = 0;                     // requests evaluated
-    long capacity = 0;                     // batch cap summed over batches
-    std::chrono::duration<double> busy{};  // evaluating and replying
 };
 struct Counters {
     std::chrono::system_clock::time_point time;  // when captured

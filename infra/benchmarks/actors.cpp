@@ -1,4 +1,4 @@
-// Actor + InferenceServer routing capacity: free episodes and a free backend, so only the plumbing costs anything.
+// Actor + inference connection routing capacity: constant token payloads and a free backend.
 // Production shape: 9 Actors x 224 slots, batches of up to 512, 100 us batch wait.
 // infra_bench_actors [SECONDS]  ->  one JSON line on stdout
 #include "infra/workers/actors.hpp"
@@ -19,7 +19,7 @@ public:
     std::optional<EvaluationRequest> next_request() override {
         if (!left_ || waiting_) return std::nullopt;
         waiting_ = true;
-        return EvaluationRequest{std::uint64_t(steps - left_), &tokens_};
+        return EvaluationRequest{std::uint64_t(steps - left_), tokens_};
     }
     void completed(std::uint64_t, const Prediction&) override { waiting_ = false; --left_; }
     bool done() const override { return !left_ && !waiting_; }

@@ -36,7 +36,7 @@ stsrl::search::Result decide(const Fight& fight, double rollout_mix) {
     auto random = fight.decision_random();
     auto search = std::make_unique<Gumbel>(fight.state(), gumbel(), random());
     Decision decision{fight.state(), std::move(search), rollout_mix, random()};
-    while (const auto query = decision.pending()) decision.evaluated(fake_network(*query));
+    while (const auto query = decision.next_query()) decision.evaluated(fake_network(*query));
     return decision.result();
 }
 
@@ -96,4 +96,15 @@ TEST(Decision, WithoutRolloutsIsTheSearchOnTheNetwork) {
             fight.play(r.action);
         }
     }
+}
+
+TEST(Decision, ClaimTransfersTokensAndCannotRepeatBeforeEvaluation) {
+    Fight fight{jaw_worm(1), 1};
+    auto random = fight.decision_random();
+    Decision decision{fight.state(), std::make_unique<Gumbel>(fight.state(), gumbel(), random()), 0, random()};
+    const auto tokens = decision.next_query();
+    ASSERT_TRUE(tokens);
+    EXPECT_FALSE(decision.next_query());
+    decision.evaluated(fake_network(*tokens));
+    EXPECT_TRUE(decision.next_query());
 }

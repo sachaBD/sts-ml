@@ -7,6 +7,7 @@
 #include <memory>
 #include <optional>
 #include <random>
+#include <utility>
 
 namespace stsrl::nn {
 class Fight {
@@ -35,7 +36,7 @@ class Decision {
 public:
     Decision(const sts::BattleContext& state, std::unique_ptr<search::CombatSearch>, double rollout_mix,
              std::uint64_t rollout_seed);
-    const infra::Tokens* pending() const { return search_->pending() ? &query_ : nullptr; }
+    std::optional<infra::Tokens> next_query() { return std::exchange(query_, std::nullopt); }
     void evaluated(const infra::Prediction&);
     search::Result result() const { return search_->result(); }
 
@@ -43,6 +44,6 @@ private:
     void encode_query();
     std::unique_ptr<search::CombatSearch> search_;
     std::optional<search::RolloutBlend> blend_;
-    infra::Tokens query_;
+    std::optional<infra::Tokens> query_;
 };
 }  // namespace stsrl::nn
