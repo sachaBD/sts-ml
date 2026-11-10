@@ -1,9 +1,9 @@
 # Combat owns episodes/search/encoding; infra owns workers and inference.
-add_library(nn_decision STATIC decision.cpp explanation.cpp targets.cpp tokens.cpp)
+add_library(nn_decision STATIC decision.cpp explanation.cpp targets.cpp tokens.cpp inventory_tokens.cpp)
 target_link_libraries(nn_decision PUBLIC combat_core combat_search)
 target_compile_options(nn_decision PRIVATE -Wall -Wextra -Wpedantic)
 
-foreach(test decision_test explanation_test targets_test)
+foreach(test decision_test explanation_test targets_test inventory_tokens_test)
     add_executable(nn_${test} ${test}.cpp)
     target_link_libraries(nn_${test} PRIVATE nn_decision GTest::gtest_main)
     target_compile_options(nn_${test} PRIVATE -Wall -Wextra -Wpedantic)

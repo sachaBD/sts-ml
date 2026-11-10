@@ -2,6 +2,7 @@
 
 #include "environments/combat/encoding.hpp"
 
+#include <compare>
 #include <cstddef>
 #include <cstdint>
 #include <memory>
@@ -24,9 +25,21 @@ struct Decision {
     std::vector<LegalAction> legal_actions;
 };
 
+enum class CardCoverage { legacy_act1, ironclad_events };
+struct CardLocation {
+    CardZone zone;
+    int index;
+    auto operator<=>(const CardLocation&) const = default;
+};
+
+// Sorted features; optional locations map rows back to simulator storage, not model inputs.
+[[nodiscard]] std::vector<CardToken> encode_cards(const sts::BattleContext&, CardCoverage,
+                                                 std::vector<CardLocation>* locations = nullptr);
+[[nodiscard]] std::vector<MonsterToken> encode_monsters(const sts::BattleContext&, std::vector<int>* slots = nullptr);
+[[nodiscard]] int incoming_damage(const sts::BattleContext&);
+
 // The state part of Decision::encoding (all but legal_actions): what the value net reads.
 // monster_slots, when requested, maps the sorted monster tokens back to simulator slots.
-enum class CardCoverage { legacy_act1, ironclad_events };
 [[nodiscard]] EncodedCombatState encode_state(const sts::BattleContext& state,
                                              CardCoverage coverage = CardCoverage::legacy_act1,
                                              std::vector<int>* monster_slots = nullptr);

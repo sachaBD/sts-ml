@@ -194,14 +194,63 @@ CombatEnvironment::~CombatEnvironment() = default;
 CombatEnvironment::CombatEnvironment(CombatEnvironment&&) noexcept = default;
 CombatEnvironment& CombatEnvironment::operator=(CombatEnvironment&&) noexcept = default;
 
+std::vector<CardToken> encode_cards(const sts::BattleContext& state, CardCoverage coverage,
+                                    std::vector<CardLocation>* locations) {
+    struct Entry { CardToken token; CardLocation location; };
+    std::vector<Entry> cards;
+    cards.reserve(state.cards.cardsInHand + state.cards.drawPile.size() + state.cards.discardPile.size()
+                  + state.cards.exhaustPile.size());
+    const auto append = [&](const auto& pile, int count, CardZone zone) {
+        for (int i = 0; i < count; ++i)
+            cards.push_back({encode_card(state, pile[i], zone,
+                zone == CardZone::hand && pile[i].canUseOnAnyTarget(state), coverage), {zone, i}});
+    };
+    append(state.cards.hand, state.cards.cardsInHand, CardZone::hand);
+    append(state.cards.drawPile, int(state.cards.drawPile.size()), CardZone::draw);
+    append(state.cards.discardPile, int(state.cards.discardPile.size()), CardZone::discard);
+    append(state.cards.exhaustPile, int(state.cards.exhaustPile.size()), CardZone::exhaust);
+    std::sort(cards.begin(), cards.end(), [](const auto& a, const auto& b) { return card_less(a.token, b.token); });
+    std::vector<CardToken> tokens;
+    tokens.reserve(cards.size());
+    if (locations) locations->clear();
+    for (const auto& card : cards) {
+        tokens.push_back(card.token);
+        if (locations) locations->push_back(card.location);
+    }
+    return tokens;
+}
+
+std::vector<MonsterToken> encode_monsters(const sts::BattleContext& state, std::vector<int>* slots) {
+    struct Entry { MonsterToken token; int slot; };
+    std::vector<Entry> monsters;
+    for (int slot = 0; slot < int(state.monsters.arr.size()); ++slot) {
+        const auto& monster = state.monsters.arr[slot];
+        if (monster.id != sts::MonsterId::INVALID && monster.isAlive())
+            monsters.push_back({encode_monster(state, monster), slot});
+    }
+    std::sort(monsters.begin(), monsters.end(), [](const auto& a, const auto& b) { return monster_less(a.token, b.token); });
+    std::vector<MonsterToken> tokens;
+    if (slots) slots->clear();
+    for (const auto& monster : monsters) {
+        tokens.push_back(monster.token);
+        if (slots) slots->push_back(monster.slot);
+    }
+    return tokens;
+}
+
+int incoming_damage(const sts::BattleContext& state) {
+    int damage = 0;
+    for (const auto& monster : state.monsters.arr) if (monster.id != sts::MonsterId::INVALID && monster.isAlive()) {
+        const auto move = monster.getMoveBaseDamage(state);
+        damage += monster.calculateDamageToPlayer(state, move.damage) * move.attackCount;
+    }
+    return damage;
+}
+
 EncodedCombatState encode_state(const sts::BattleContext& state, CardCoverage coverage, std::vector<int>* monster_slots) {
     EncodedCombatState encoding;
     const auto& player = state.player;
-    int incoming = 0;
-    for (const auto& monster : state.monsters.arr) if (monster.id != sts::MonsterId::INVALID && monster.isAlive()) {
-        const auto damage = monster.getMoveBaseDamage(state);
-        incoming += monster.calculateDamageToPlayer(state, damage.damage) * damage.attackCount;
-    }
+    const int incoming = incoming_damage(state);
     const int select_task = state.inputState == sts::InputState::CARD_SELECT
         ? static_cast<int>(state.cardSelectInfo.cardSelectTask)
         : static_cast<int>(sts::CardSelectTask::INVALID);
@@ -232,35 +281,16 @@ EncodedCombatState encode_state(const sts::BattleContext& state, CardCoverage co
     v4::encode_player(state, encoding.global);
     encoding.potions = v4::encode_potions(state);
     encoding.relics = v4::encode_relics(state);
-    struct PendingCard { CardToken token; int hand_index = -1; const sts::CardInstance* card = nullptr; };
-    struct PendingMonster { MonsterToken token; int slot; const sts::Monster* monster; };
-    std::vector<PendingCard> cards;
-    cards.reserve(state.cards.cardsInHand + state.cards.drawPile.size() + state.cards.discardPile.size()
-                  + state.cards.exhaustPile.size());
-    for (int i = 0; i < state.cards.cardsInHand; ++i)
-        cards.push_back({encode_card(state, state.cards.hand[i], CardZone::hand, state.cards.hand[i].canUseOnAnyTarget(state), coverage), i, &state.cards.hand[i]});
-    for (const auto& card : state.cards.drawPile) cards.push_back({encode_card(state, card, CardZone::draw, false, coverage), -1, &card});
-    for (const auto& card : state.cards.discardPile) cards.push_back({encode_card(state, card, CardZone::discard, false, coverage), -1, &card});
-    for (const auto& card : state.cards.exhaustPile) cards.push_back({encode_card(state, card, CardZone::exhaust, false, coverage), -1, &card});
-    std::sort(cards.begin(), cards.end(), [](const auto& a, const auto& b) { return card_less(a.token, b.token); });
-    encoding.cards.reserve(cards.size());
-    for (const auto& card : cards) encoding.cards.push_back(card.token);
-    std::vector<PendingMonster> monsters;
-    for (int slot = 0; slot < static_cast<int>(state.monsters.arr.size()); ++slot) {
-        const auto& monster = state.monsters.arr[slot];
-        if (monster.id != sts::MonsterId::INVALID && monster.isAlive()) monsters.push_back({encode_monster(state, monster), slot, &monster});
-    }
-    std::sort(monsters.begin(), monsters.end(), [](const auto& a, const auto& b) { return monster_less(a.token, b.token); });
-    if (monster_slots) monster_slots->clear();
-    for (const auto& monster : monsters) {
-        encoding.monsters.push_back(monster.token);
-        if (monster_slots) monster_slots->push_back(monster.slot);
-    }
-    for (std::size_t ci = 0; ci < cards.size(); ++ci) {
-        const auto& source = cards[ci];
-        if (source.hand_index < 0) continue;  // (before card_meta: only hand cards interact)
-        for (std::size_t mi = 0; mi < monsters.size(); ++mi)
-            if (const auto numeric = interaction_numeric(state, *source.card, monsters[mi].slot, coverage))
+    std::vector<CardLocation> card_locations;
+    std::vector<int> slots;
+    encoding.cards = encode_cards(state, coverage, &card_locations);
+    encoding.monsters = encode_monsters(state, &slots);
+    if (monster_slots) *monster_slots = slots;
+    for (std::size_t ci = 0; ci < encoding.cards.size(); ++ci) {
+        const auto location = card_locations[ci];
+        if (location.zone != CardZone::hand) continue;
+        for (std::size_t mi = 0; mi < slots.size(); ++mi)
+            if (const auto numeric = interaction_numeric(state, state.cards.hand[location.index], slots[mi], coverage))
                 encoding.card_monster_interactions.push_back({std::uint16_t(ci), std::uint8_t(mi), *numeric});
     }
     return encoding;

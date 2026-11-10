@@ -195,8 +195,10 @@ class ExpertIteration:
     def play(self, stage, models, games, directory, search):
         self.control.status(stage=stage, phase='play', done=0, total=len(games), directory=str(directory))
         return play(self.inputs / 'nn_play', models, games, directory, search, self.config.workers,
+                    encoding=self.learner.net.encoding,
                     gpu_attended=self.config.model.gpu_attended or 0,
                     gpu_wide_attended=self.config.model.gpu_wide_attended or 0,
+                    gpu_wide_model=models / 'wide/model-gpu.onnx' if self.wide_exporter is not None else None,
                     progress=lambda done, pid: self.control.status(stage=stage, phase='play', done=done,
                                                                    total=len(games), child_pid=pid,
                                                                    directory=str(directory)))

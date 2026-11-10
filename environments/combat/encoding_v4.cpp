@@ -20,6 +20,7 @@
 #include <stdexcept>
 #include <string>
 #include <tuple>
+#include <utility>
 
 namespace stsrl::v4 {
 namespace {
@@ -139,12 +140,18 @@ PotionToken encode_potion(const sts::BattleContext& state, sts::Potion potion) {
     return token;
 }
 
-std::vector<PotionToken> encode_potions(const sts::BattleContext& state) {
-    std::vector<PotionToken> tokens;
+std::vector<PotionToken> encode_potions(const sts::BattleContext& state, std::vector<int>* slots) {
+    std::vector<std::pair<PotionToken, int>> potions;
     for (int i = 0; i < state.potionCapacity; ++i)
         if (state.potions[i] != sts::Potion::EMPTY_POTION_SLOT && state.potions[i] != sts::Potion::INVALID)
-            tokens.push_back(encode_potion(state, state.potions[i]));
-    std::ranges::sort(tokens, {}, [](const PotionToken& t) { return std::tie(t.potion_id, t.numeric); });
+            potions.emplace_back(encode_potion(state, state.potions[i]), i);
+    std::ranges::sort(potions, {}, [](const auto& p) { return std::tie(p.first.potion_id, p.first.numeric); });
+    std::vector<PotionToken> tokens;
+    if (slots) slots->clear();
+    for (const auto& [token, slot] : potions) {
+        tokens.push_back(token);
+        if (slots) slots->push_back(slot);
+    }
     return tokens;
 }
 

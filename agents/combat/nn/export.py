@@ -8,7 +8,6 @@ from torch import nn
 from .pooled_transformer import PooledTransformer
 from .graphs import GraphCache
 from .model import CombatModel, ModelSpec
-from .tokens import TokenKind, WIDTH
 from .play import model_files
 
 
@@ -98,12 +97,11 @@ class ModelExporter:
     def _trace(self, net, path, batch):
         options = dict(dynamo=True, input_names=['tokens'], output_names=['value', 'logits'])
         if batch is None:
-            example = torch.zeros(2, 3, WIDTH)
-            example[:, 0, 0], example[:, 1:, 0] = TokenKind.CONTEXT, TokenKind.ACTION
+            example = net.example_tokens()
             options['dynamic_shapes'] = {'tokens': {0: torch.export.Dim('batch'), 1: torch.export.Dim('tokens')}}
             model = net
         else:
             device = next(net.parameters()).device
-            example = torch.zeros(batch, self.deployment.tokens, WIDTH, dtype=torch.float16, device=device)
+            example = net.example_tokens(batch, self.deployment.tokens).to(device=device, dtype=torch.float16)
             model = HalfInput(deployment_view(net, self.deployment), self.deployment.mixed_precision).eval()
         torch.onnx.export(model, (example,), str(path), **options)

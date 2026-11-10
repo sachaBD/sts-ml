@@ -1,9 +1,11 @@
-"""Combat prediction contract and the two supported architectures. No deployment policy."""
+"""Combat prediction contract and persisted architectures. No deployment policy."""
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 
 import torch
 from torch import Tensor, nn
+
+from .tokens import TokenKind, WIDTH
 
 # Outcome bins on one margin axis: losses by enemy HP left (most first), then wins by player HP (least first).
 LOSS_BINS = WIN_BINS = 10
@@ -22,8 +24,8 @@ class ModelSpec:
     encoding_version: int = field(default=2, init=False)  # action-to-target row references
 
     def __post_init__(self):
-        if self.kind not in ('transformer', 'entity'):
-            raise ValueError('model.kind: transformer or entity')
+        if self.kind not in ('transformer', 'entity', 'inventory_v1'):
+            raise ValueError('model.kind: transformer, entity or inventory_v1')
         if self.value not in ('win', 'outcome'):
             raise ValueError('model.value: win or outcome')
         if min(self.dim, self.layers, self.heads) <= 0 or self.dim % self.heads:
@@ -54,9 +56,17 @@ class CombatModel(nn.Module, ABC):
     logits are masked below -1e8. Padding must not affect real-token predictions.
     The immutable spec completely identifies the architecture, not its deployment.
     """
+    encoding = 'legacy'
+
     def __init__(self, spec: ModelSpec):
         super().__init__()
         self.spec = spec
+
+    def example_tokens(self, batch=2, length=3) -> Tensor:
+        """A CPU input in this model's schema for tracing and compile warm-up."""
+        tokens = torch.zeros(batch, length, WIDTH)
+        tokens[:, 0, 0], tokens[:, 1:, 0] = TokenKind.CONTEXT, TokenKind.ACTION
+        return tokens
 
     def forward(self, tokens: Tensor) -> tuple[Tensor, Tensor]:
         context, logits = self.heads(tokens)
@@ -71,5 +81,6 @@ class CombatModel(nn.Module, ABC):
 def build_model(spec: ModelSpec) -> CombatModel:
     from .pooled_transformer import PooledTransformer
     from .transformer import Transformer
+    from .inventory_transformer import InventoryTransformer
 
-    return {'transformer': Transformer, 'entity': PooledTransformer}[spec.kind](spec)
+    return {'transformer': Transformer, 'entity': PooledTransformer, 'inventory_v1': InventoryTransformer}[spec.kind](spec)
