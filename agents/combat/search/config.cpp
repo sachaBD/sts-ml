@@ -5,12 +5,16 @@
 #include <stdexcept>
 
 namespace stsrl::search {
-SearchFactory SearchConfig::factory() const {
-    if (simulations < 0 || particles < 1 || !std::isfinite(gumbel_scale) || gumbel_scale < 0 ||
+void SearchConfig::validate() const {
+    if (sims < 0 || particles < 1 || !std::isfinite(gumbel_scale) || gumbel_scale < 0 ||
         !(rollout_mix >= 0 && rollout_mix <= 1))
         throw std::invalid_argument{"search: nonnegative sims and gumbel scale, positive particles, rollout mix in [0, 1]"};
+}
+
+SearchFactory SearchConfig::factory() const {
+    validate();
     Gumbel::Settings gumbel;
-    gumbel.simulations = simulations;
+    gumbel.simulations = sims;
     gumbel.particles = particles;
     gumbel.gumbel_scale = gumbel_scale;
     return [gumbel, mix = rollout_mix](const sts::BattleContext& state, std::mt19937_64& random) {

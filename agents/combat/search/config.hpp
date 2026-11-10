@@ -4,11 +4,12 @@
 
 namespace stsrl::search {
 struct SearchConfig {
-    int simulations, particles;
+    int sims, particles;
     double gumbel_scale;  // 1 explores (self-play); 0 is deterministic (evaluation)
     double rollout_mix;   // above 0, each leaf value is blended with a guided rollout's outcome
 
-    // Gumbel search; throws on settings out of range.
+    void validate() const;  // throws on settings out of range
+    // Gumbel search; validates first.
     SearchFactory factory() const;
 };
 }  // namespace stsrl::search

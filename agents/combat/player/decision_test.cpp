@@ -12,7 +12,7 @@ using stsrl::combat::legal_actions;
 
 namespace {
 stsrl::search::SearchFactory search() {
-    return stsrl::search::SearchConfig{.simulations = 8, .particles = 2, .gumbel_scale = 1, .rollout_mix = 0.5}.factory();
+    return stsrl::search::SearchConfig{.sims = 8, .particles = 2, .gumbel_scale = 1, .rollout_mix = 0.5}.factory();
 }
 
 // As nn_play decides.

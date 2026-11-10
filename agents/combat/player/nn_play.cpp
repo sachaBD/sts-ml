@@ -32,7 +32,7 @@ int main(int argc, char** argv) try {
     app.add_option("--timeout-ms", timeout_ms, "an actor, request or inference lane stalled this long is a failure")->required();
     app.add_option("--shutdown-timeout-ms", shutdown_timeout_ms, "longest shutdown waits for native calls before exiting nonzero")->required();
     app.add_option("--telemetry", telemetry_path, "actor, queue and lane counters as JSON lines, about once a second")->required();
-    app.add_option("--sims", search.simulations, "Gumbel search simulations per decision")->required();
+    app.add_option("--sims", search.sims, "Gumbel search simulations per decision")->required();
     app.add_option("--particles", search.particles, "worlds sampled for what the player cannot see; each simulation plays one")->required();
     app.add_option("--gumbel-scale", search.gumbel_scale, "1 explores (self-play); 0 is deterministic (evaluation)")->required();
     app.add_option("--rollout-mix", search.rollout_mix, "in [0, 1]: weight of a guided rollout's outcome in each leaf value")->required();
