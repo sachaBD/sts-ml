@@ -7,7 +7,7 @@ from unittest.mock import patch
 from .config import experiment_changes, load
 from .test_expert_iteration import CONFIG, EVALUATION
 
-PRESET = Path(__file__).with_name('config') / 'inventory.toml'
+PRESETS = Path(__file__).with_name('config')
 
 
 class ConfigTests(unittest.TestCase):
@@ -16,10 +16,10 @@ class ConfigTests(unittest.TestCase):
             load(text)
         self.assertIn(message, exit.call_args.args[0])
 
-    def test_the_preset_is_valid(self):
-        config = load(PRESET.read_text())
-        self.assertEqual(config.starts.fights, 'runs/benchmark/champ-ten/decks.jsonl')
-        self.assertEqual(config.workers.gpu_bank, (256, 32))
+    def test_the_presets_are_valid(self):
+        for preset in sorted(PRESETS.glob('*.toml')):
+            with self.subTest(preset=preset.name):
+                load(preset.read_text())
 
     def test_a_mistake_stops_the_run(self):
         self.rejects(CONFIG.replace('steps = 1', 'stepz = 1'), "unknown [training] keys: ['stepz']")

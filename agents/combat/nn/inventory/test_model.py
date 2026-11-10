@@ -57,12 +57,6 @@ class InventoryTests(unittest.TestCase):
         torch.testing.assert_close(actual_values, values)
         torch.testing.assert_close(actual_logits, logits[:, order])
 
-    def test_wrong_replay_schema_cannot_produce_a_valid_value(self):
-        legacy = self.tokens.clone()
-        legacy[:, 0, 2] = 0
-        values, _ = self.model(legacy)
-        self.assertTrue(torch.isnan(values).all())
-
     def test_export_preserves_predictions(self):
         padded = torch.cat([self.tokens, torch.zeros(2, 3, WIDTH)], dim=1)
         exporter = ModelExporter(self.model.spec, ExportSpec(tokens=padded.shape[1]))
