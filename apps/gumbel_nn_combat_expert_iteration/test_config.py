@@ -54,7 +54,7 @@ class ConfigTests(unittest.TestCase):
         base = load(CONFIG)
         evaluation = base.evaluation.sets[0]
         for changed, expected in ((replace(evaluation, every=7, at=(0, 7)), []),
-                                  (replace(evaluation, particles=6), ['[evaluation].sets'])):
+                                  (replace(evaluation, search=replace(evaluation.search, particles=6)), ['[evaluation].sets'])):
             config = replace(base, evaluation=replace(base.evaluation, sets=(changed,)))
             self.assertEqual(experiment_changes(base, config), expected)
 

@@ -96,9 +96,10 @@ class Model:
 
 
 @dataclass(frozen=True)
-class EvaluationSet(Search):
+class EvaluationSet:
     name: str
     fights: str
+    search: Search
     at: tuple[int, ...] = resumable()
     every: int = resumable()
 
@@ -136,6 +137,9 @@ def section(cls, table, name):
         kind = f.type
         if isinstance(kind, types.UnionType):  # optional: X | None
             kind = next(t for t in get_args(kind) if t is not type(None))
+        if is_dataclass(kind):
+            values[f.name] = section(kind, required(table, f.name, name, dict), f'{name}.{f.name}')
+            continue
         if getattr(kind, '__origin__', None) is tuple:
             item = get_args(kind)[0]
             items = required(table, f.name, name, list)
@@ -175,7 +179,7 @@ def validate(c):
     need(math.isfinite(st.win_rate_prior_strength) and st.win_rate_prior_strength > 0,
          'starts: finite positive win_rate_prior_strength')
     need(0 <= st.sampling_concentration <= 1, 'starts: sampling_concentration in [0, 1]')
-    for name, search in [('search', s)] + [(f'evaluation set {x.name}', x) for x in e.sets]:
+    for name, search in [('search', s)] + [(f'evaluation set {x.name}', x.search) for x in e.sets]:
         need(search.sims >= 0 and math.isfinite(search.gumbel_scale) and search.gumbel_scale >= 0
              and 0 <= search.rollout_mix <= 1 and search.particles > 0,
              f'{name}: nonnegative sims and gumbel_scale, rollout_mix in [0, 1], positive particles')
