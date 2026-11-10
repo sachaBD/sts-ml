@@ -7,8 +7,10 @@ import unittest
 import numpy as np
 import torch
 
-from agents.combat.nn.tokens import WIDTH
 from agents.combat.nn.training.replay import HEADER, SAMPLE_FORMAT, TARGETS, Replay, index
+
+
+WIDTH = 5  # replay knows no encoding: any token width is a valid record
 
 
 def samples(directory, decks):
@@ -23,7 +25,7 @@ def samples(directory, decks):
                 tokens = np.zeros((n, WIDTH), dtype=np.float32)
                 tokens[0, :2] = [1, identity]
                 tokens[-2:, 0] = 6
-                stream.write(HEADER.pack(n, 2, won, *[.5] * (len(TARGETS) - 1)))
+                stream.write(HEADER.pack(n, 2, WIDTH, won, *[.5] * (len(TARGETS) - 1)))
                 stream.write(tokens.tobytes())
                 stream.write(np.array([.25, .75], dtype=np.float32).tobytes())
             results.append(dict(fight_id=f'test:1:{deck}:0', won=bool(won), decisions=count, sample_format=SAMPLE_FORMAT,
@@ -76,7 +78,7 @@ class ReplayTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             path = samples(Path(tmp) / 'iter001', [('a', 3, 1, 1)])
             results = path.parent / 'results.jsonl'
-            results.write_text(results.read_text().replace(f'"sample_format": {SAMPLE_FORMAT}', '"sample_format": 1'))
+            results.write_text(results.read_text().replace(f'"sample_format": {SAMPLE_FORMAT}', '"sample_format": 2'))
             with self.assertRaisesRegex(ValueError, 'sample format'): index(path)
 
     def test_large_values_and_ids_survive_loading(self):

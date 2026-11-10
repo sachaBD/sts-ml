@@ -5,7 +5,6 @@ import torch
 
 from agents.combat.nn.model import build_model
 from agents.combat.nn.training.replay import TARGETS
-from agents.combat.nn.tokens import TokenKind, TokenRows
 from agents.combat.nn.training.train import losses, score, train
 
 
@@ -24,8 +23,8 @@ class Learner:
         self.losses = torch.compile(losses, dynamic=True)
         tokens = self.net.example_tokens()
         self.net.train()
-        policy = TokenRows(tokens).is_kind(TokenKind.ACTION).float()
-        policy /= policy.sum(dim=1, keepdim=True)
+        policy = torch.zeros(tokens.shape[:2])
+        policy[:, 1:] = 1 / (tokens.shape[1] - 1)  # uniform over example_tokens' legal actions
         self.losses(self.net, tokens, policy, torch.ones(len(tokens), len(TARGETS)), self.device).sum().backward()
         self.optimizer.zero_grad(set_to_none=True)
 

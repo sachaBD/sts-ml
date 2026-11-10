@@ -3,8 +3,8 @@ import torch
 from torch import Tensor, nn
 
 from agents.combat.nn.model import CombatModel, context_width, win_probability
-from agents.combat.nn.entity.encoding import CardZone, EntityRows, KIND_CAPACITY
-from agents.combat.nn.tokens import ID_CAPACITY, MASKED_LOGIT, TokenKind, WIDTH
+from agents.combat.nn.entity.encoding import CardZone, EntityRows, KIND_CAPACITY, TokenKind
+from agents.combat.nn.tokens import ID_CAPACITY, MASKED_LOGIT, WIDTH
 
 
 class EntityModel(CombatModel):
@@ -29,6 +29,11 @@ class EntityModel(CombatModel):
         self.norm = nn.LayerNorm(dim)
         self.value = nn.Linear(dim, context_width(spec))
         self.policy = nn.Linear(dim, 1)
+
+    def example_tokens(self, batch=2, length=3):
+        tokens = torch.zeros(batch, length, WIDTH)
+        tokens[:, 0, 0], tokens[:, 1:, 0] = TokenKind.CONTEXT, TokenKind.ACTION
+        return tokens
 
     def heads(self, tokens):
         # Attend over the longest retained row rather than the padded length: identical predictions, and

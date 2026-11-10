@@ -5,9 +5,19 @@ from enum import IntEnum
 import torch
 from torch import Tensor
 
-from agents.combat.nn.tokens import TokenKind, TokenRows
+from agents.combat.nn.tokens import TokenRows
 
 KIND_CAPACITY = 8
+
+
+class TokenKind(IntEnum):
+    PADDING = 0
+    CONTEXT = 1
+    CARD = 2
+    MONSTER = 3
+    POTION = 4
+    RELIC = 5
+    ACTION = 6
 
 
 class CardZone(IntEnum):

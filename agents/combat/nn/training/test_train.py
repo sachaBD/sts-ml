@@ -10,7 +10,6 @@ import torch
 from agents.combat.nn.model import LOSS_BINS, WIN_BINS, ModelSpec, build_model
 from agents.combat.nn.training.replay import Replay, TARGETS
 from agents.combat.nn.training.test_replay import samples
-from agents.combat.nn.tokens import WIDTH
 from agents.combat.nn.training.train import AUXILIARY_WEIGHT, LOSSES, losses, outcome_bin, train
 
 
@@ -24,14 +23,13 @@ class Tiny(torch.nn.Module):
         self.policy = torch.nn.Parameter(torch.tensor(.4))
 
     def heads(self, tokens):
-        hidden = self.trunk * tokens[:, :, 3]
-        return self.value * hidden[:, :1], (self.policy * hidden).masked_fill(tokens[:, :, 0] != 6, -1e9)
+        hidden = self.trunk * tokens.sum(-1)
+        not_action = torch.arange(tokens.shape[1]) == 0  # example_tokens: a context row, then legal actions
+        return self.value * hidden[:, :1], (self.policy * hidden).masked_fill(not_action, -1e9)
 
 
-def batch(size, scale):
-    tokens = torch.zeros(size, 3, WIDTH)
-    tokens[:, :, 0] = torch.tensor([1, 6, 6])
-    tokens[:, :, 3] = scale * torch.arange(1, size + 1)[:, None] * torch.tensor([1., 2., -1.])
+def batch(size):
+    tokens = build_model(Tiny.spec).example_tokens(size, 3)
     policy = torch.tensor([0., .25, .75]).expand(size, -1)
     targets = torch.rand(size, len(TARGETS), generator=torch.Generator().manual_seed(size))
     targets[:, TARGETS.index('won')] = torch.arange(size).remainder(2).float()
@@ -47,7 +45,7 @@ class TrainingTests(unittest.TestCase):
         torch.set_num_threads(1)
 
     def test_losses_do_not_depend_on_how_the_batch_is_split(self):
-        policy_batch, value_batch = batch(5, 2.), batch(3, -3.)
+        policy_batch, value_batch = batch(5), batch(3)  # samples differ in their targets
         torch.manual_seed(0)
         nets = dict(tiny=Tiny, auxiliary=lambda: build_model(ModelSpec('entity', 8, 1, 1, 'outcome', True)))
         # Tiny checks every partition; the real model's bf16 matmuls round differently per microbatch shape.
