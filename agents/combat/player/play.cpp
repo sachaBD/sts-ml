@@ -162,9 +162,21 @@ Network load_network(const std::filesystem::path& models) {
 int main(int argc, char** argv) try {
     const std::string mode = argc > 1 ? argv[1] : "";
     if (mode != "play" || argc < 4 || argc % 2) {
-        std::cerr << "usage: nn_play play MODELS SAMPLES.bin --threads T --parallel G --gpu-wait-us U --timeout-ms M\n"
-                     "                    --shutdown-timeout-ms M --telemetry TELEMETRY.jsonl\n"
-                     "                    --sims S --particles P --gumbel-scale G --rollout-mix M\n";
+        std::cerr << "usage: nn_play play MODELS SAMPLES.bin OPTIONS < STARTS.jsonl > RESULTS.jsonl\n"
+                     "Plays each fight start on stdin; appends its samples to SAMPLES.bin and prints one result line.\n"
+                     "MODELS is an exported model directory: its network.json names the encoding, the GPU models by\n"
+                     "token capacity and the CPU model. Each input goes to the smallest GPU model that fits, else the CPU.\n"
+                     "Every option is required:\n"
+                     "  --threads T                actors (CPU threads playing fights)\n"
+                     "  --parallel G               fights in flight per actor\n"
+                     "  --gpu-wait-us U            longest a partial inference batch waits for more requests\n"
+                     "  --timeout-ms M             an actor, request or inference lane stalled this long is a failure\n"
+                     "  --shutdown-timeout-ms M    longest shutdown waits for native calls before exiting nonzero\n"
+                     "  --telemetry FILE.jsonl     actor, queue and lane counters, about once a second\n"
+                     "  --sims S                   Gumbel search simulations per decision\n"
+                     "  --particles P              worlds sampled for what the player cannot see; each simulation plays one\n"
+                     "  --gumbel-scale G           1 explores (self-play); 0 is deterministic (evaluation)\n"
+                     "  --rollout-mix M            in [0, 1]: weight of a guided rollout's outcome in each leaf value\n";
         return 2;
     }
     std::map<std::string, std::string> options;  // every option is required, once
