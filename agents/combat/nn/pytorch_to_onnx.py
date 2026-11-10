@@ -7,7 +7,6 @@ initializer (equal to it or its transpose); otherwise that file is traced again,
 """
 from copy import deepcopy
 from dataclasses import dataclass
-import json
 from pathlib import Path
 
 import numpy as np
@@ -15,11 +14,12 @@ import onnx
 from onnx import numpy_helper
 import torch
 from torch import nn
+import tomli_w
 
 from agents.combat.nn.model import CombatModel, ModelSpec
 
 # The model directory's description of itself: everything nn_play needs to know about the network.
-MANIFEST = 'network.json'
+MANIFEST = 'network.toml'  # read by agents/combat/nn/network.cpp
 CPU_MODEL = 'model.onnx'  # dynamic shape, fp32
 
 
@@ -94,7 +94,7 @@ class ModelExporter:
         manifest = dict(encoding=net.encoding,
                         deployments=[dict(files=[str(f) for f in d.files()], lanes=d.lanes) for d in self.deployments],
                         cpu=dict(file=CPU_MODEL, lanes=self.cpu.lanes, batch=self.cpu.batch))
-        (directory / MANIFEST).write_text(json.dumps(manifest, indent=2) + '\n')
+        (directory / MANIFEST).write_text(tomli_w.dumps(manifest))
 
     def _trace(self, net, path, tokens, batch):
         device = next(net.parameters()).device
