@@ -10,6 +10,7 @@ dependencies = [
     "torch==2.14.0",  # CUDA 12.6 build, see [tool.uv.sources]
     "numpy==2.5.2",
     "pyarrow==23.0.1",
+    "tomli-w==1.2.0",  # writes nn_play's PLAY.toml (agents/combat/player/play.py); tomllib only reads
     "sts-lightspeed",  # Python names of the simulator's enums, from the sibling lightspeed checkout
     # PyTorch to ONNX (agents/combat/nn/pytorch_to_onnx.py), and the ONNX Runtime + TensorRT nn_play links against.
     "onnx==1.23.1",

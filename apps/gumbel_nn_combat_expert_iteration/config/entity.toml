@@ -71,29 +71,32 @@ cohorts = "runs/benchmark/champ-full-corpus-v2/frozen/cohorts.json"
 [[evaluation.sets]]
 name = "validation"
 fights = "runs/benchmark/champ-full-corpus-v2/frozen/validation.jsonl"
+at = [0]
+every = 3
+[evaluation.sets.search]
 sims = 64
 gumbel_scale = 0.0
 rollout_mix = 0
 particles = 8
-at = [0]
-every = 3
 
 [[evaluation.sets]]
 name = "legacy_core"
 fights = "runs/benchmark/legacy-core50-extended10/legacy_core.jsonl"
+at = [0]
+every = 3
+[evaluation.sets.search]
 sims = 64
 gumbel_scale = 0.0
 rollout_mix = 0
 particles = 8
-at = [0]
-every = 3
 
 [[evaluation.sets]]
 name = "legacy_extended"
 fights = "runs/benchmark/legacy-core50-extended10/legacy_extended.jsonl"
+at = [0]
+every = 3
+[evaluation.sets.search]
 sims = 64
 gumbel_scale = 0.0
 rollout_mix = 0
 particles = 8
-at = [0]
-every = 3

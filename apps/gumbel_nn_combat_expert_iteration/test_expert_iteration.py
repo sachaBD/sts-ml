@@ -17,13 +17,14 @@ from .run_control import RunControl
 EVALUATION = """
 [[evaluation.sets]]
 name = "validation"
+at = [0]
+every = 0
+fights = "unused"
+[evaluation.sets.search]
 gumbel_scale = 0.0
 rollout_mix = 0.0
 particles = 3
 sims = 0
-at = [0]
-every = 0
-fights = "unused"
 """
 
 CONFIG = """
@@ -98,10 +99,11 @@ class ExpertIterationInvariants(unittest.TestCase):
     def export(self, net, directory):
         (directory / 'network.json').touch()
 
-    def play(self, binary, models, fights, directory, search, workers, *, progress):
+    def play(self, binary, models, fights, directory, settings, *, progress):
         results = [dict(fight_id=f['fight_id'], won=i % 2 == 0, capped=False, finished_unix=1.0)
                    for i, f in enumerate(fights)]
-        self.plays.append(dict(models=models, directory=directory, search=search, fights=fights, results=results))
+        self.plays.append(dict(models=models, directory=directory, search=settings['search'], fights=fights,
+                               results=results))
         directory.mkdir(parents=True)
         (directory / 'samples-0.bin').touch()
         return results
@@ -173,8 +175,8 @@ class ExpertIterationInvariants(unittest.TestCase):
         config = (CONFIG.replace('every = 0', 'every = 1')
                   .replace('rollout_mix = 0.5', 'rollout_mix = 0.5\nrollout_mix_decay = 2'))
         self.run_loop(config=config)
-        self.assertEqual({p['search'].rollout_mix for p in self.evaluations()}, {0})
-        mixes = [p['search'].rollout_mix for p in self.self_play()]
+        self.assertEqual({p['search']['rollout_mix'] for p in self.evaluations()}, {0})
+        mixes = [p['search']['rollout_mix'] for p in self.self_play()]
         self.assertEqual(mixes, sorted(mixes, reverse=True))
         self.assertTrue(mixes[0] > 0 and mixes[-1] == 0)
 
@@ -189,7 +191,7 @@ class ExpertIterationInvariants(unittest.TestCase):
         self.assertEqual([(p['directory'].parent.name, p['directory'].name) for p in evaluations],
                          [('iter000', 'validation'), ('iter001', 'validation'),
                           ('iter002', 'validation'), ('iter002', 'retention')])
-        self.assertEqual([p['search'].sims for p in evaluations], [0, 0, 0, 12])
+        self.assertEqual([p['search']['sims'] for p in evaluations], [0, 0, 0, 12])
         self.assertEqual([(r['test'], r['set']) for r in control.history() if 'test' in r],
                          [(0, 'validation'), (1, 'validation'), (2, 'validation'), (2, 'retention')])
 

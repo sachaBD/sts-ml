@@ -16,12 +16,12 @@ import time
 from agents.combat.nn.training.learner import Learner
 from agents.combat.nn.training.train import LOSSES
 from agents.combat.nn.pytorch_to_onnx import ModelExporter
-from agents.combat.player.play import Search, play
+from agents.combat.player.play import play
 from agents.combat.nn.training.replay import Replay
 from apps.common.app import read_jsonl
 from agents.combat.nn.training.telemetry import write as write_training
 
-from .config import experiment_changes, load
+from .config import experiment_changes, load, self_play_search
 from .reporting import deck_of
 from .run_control import RunControl, delete_samples
 from .sampling import sampling_weights
@@ -80,7 +80,8 @@ class ExpertIteration:
             played = time.time()
             states, loss = self.train(it)
             self.control.log(iteration=it, games=len(results), wins=sum(r['won'] for r in results), states=states, **loss,
-                             rollout_mix=self.config.search.at(it).rollout_mix, lr=self.config.training.lr_at(it),
+                             rollout_mix=self_play_search(self.config.search, it)['rollout_mix'],
+                             lr=self.config.training.lr_at(it),
                              play_seconds=round(played - begin), train_seconds=round(time.time() - played),
                              **collection_stats(results))
             self.evaluate(it)
@@ -125,7 +126,7 @@ class ExpertIteration:
         weights = sampling_weights(self.control.directory, it, s) if s.sampling_concentration else None
         fights = s.draw(self.pool, f'{self.config.run.seed_namespace}:{it}', s.per_iteration,
                         weights=[weights[d['fight_id']] for d in self.pool] if weights is not None else None)
-        results = self.play(f'iteration {it}', previous, fights, directory, self.config.search.at(it))
+        results = self.play(f'iteration {it}', previous, fights, directory, self_play_search(self.config.search, it))
         counts = json.loads((previous / 'decks.json').read_text())
         (directory / 'decks.json').write_text(json.dumps(tally(counts, results)))
         return results
@@ -169,9 +170,8 @@ class ExpertIteration:
             directory = self.control.directory / 'test' / f'iter{it:03d}' / evaluation.name
             self.control.archive(directory)
             begin = time.time()
-            search = Search(evaluation.sims, evaluation.gumbel_scale, evaluation.rollout_mix, evaluation.particles)
             results = self.play(f'evaluation {evaluation.name} iteration {it}', self.control.iteration(it),
-                                self.tests[evaluation.name], directory, search)
+                                self.tests[evaluation.name], directory, evaluation.search)
             self.control.log(test=it, set=evaluation.name, games=len(results), wins=sum(r['won'] for r in results),
                              seconds=round(time.time() - begin), **collection_stats(results))
             if self.config.training.prune_replay:
@@ -179,7 +179,7 @@ class ExpertIteration:
 
     def play(self, stage, models, games, directory, search):
         self.control.status(stage=stage, phase='play', done=0, total=len(games), directory=str(directory))
-        return play(self.inputs / 'nn_play', models, games, directory, search, self.config.workers,
+        return play(self.inputs / 'nn_play', models, games, directory, dict(search=search, workers=self.config.workers),
                     progress=lambda done, pid: self.control.status(stage=stage, phase='play', done=done,
                                                                    total=len(games), child_pid=pid,
                                                                    directory=str(directory)))
