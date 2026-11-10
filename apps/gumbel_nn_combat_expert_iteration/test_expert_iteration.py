@@ -17,13 +17,14 @@ from .run_control import RunControl
 EVALUATION = """
 [[evaluation.sets]]
 name = "validation"
+at = [0]
+every = 0
+fights = "unused"
+[evaluation.sets.search]
 gumbel_scale = 0.0
 rollout_mix = 0.0
 particles = 3
 sims = 0
-at = [0]
-every = 0
-fights = "unused"
 """
 
 CONFIG = """
