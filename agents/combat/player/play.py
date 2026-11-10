@@ -3,11 +3,12 @@
 from dataclasses import dataclass
 import json
 import os
+import shutil
 from pathlib import Path
 import subprocess
 import sys
 
-from agents.combat.player.metrics import DeviceSampler
+from agents.combat.nn.training.export import model_files
 
 
 @dataclass(frozen=True)
@@ -30,10 +31,33 @@ class Workers:
     gpu_wide_batch: int = 32
 
 
-def model_files(directory, gpu_bank):
-    """What nn_play loads from a model directory: the dynamic model, the fixed-batch GPU model and its smaller bank."""
-    return dict(dynamic=directory / 'model.onnx', gpu=directory / 'model-gpu.onnx',
-                bank=[directory / f'model-gpu-b{b}.onnx' for b in gpu_bank])
+class DeviceSampler:
+    """Optional per-stage NVML CSV. Missing nvidia-smi leaves GPU counters unavailable."""
+    def __init__(self, path, enabled=True):
+        self.path, self.enabled = Path(path), enabled
+        self.process = self.stream = None
+
+    def __enter__(self):
+        binary = shutil.which('nvidia-smi') if self.enabled else None
+        if binary:
+            self.stream = self.path.open('w')
+            fields = 'timestamp,utilization.gpu,utilization.memory,memory.used,memory.total'
+            try:
+                self.process = subprocess.Popen([binary,'--id=0',f'--query-gpu={fields}','--format=csv,nounits','-lms','250'],
+                                                stdout=self.stream,stderr=subprocess.DEVNULL)
+            except OSError:
+                self.stream.close(); self.stream = None
+        return self
+
+    def __exit__(self, *error):
+        if self.process:
+            if self.process.poll() is None:
+                self.process.terminate()
+            try: self.process.wait(timeout=2)
+            except subprocess.TimeoutExpired:
+                self.process.kill(); self.process.wait()
+        if self.stream:
+            self.stream.close()
 
 
 def play(binary, models, fights, directory, search, workers, progress=lambda done, pid: None, sample_devices=True,

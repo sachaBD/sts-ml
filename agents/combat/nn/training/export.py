@@ -8,7 +8,12 @@ from torch import nn
 from agents.combat.nn.entity.model import PooledTransformer
 from agents.combat.nn.training.graphs import GraphCache
 from agents.combat.nn.model import CombatModel, ModelSpec
-from agents.combat.player.play import model_files
+
+
+def model_files(directory, gpu_bank):
+    """What nn_play loads from a model directory: the dynamic model, the fixed-batch GPU model and its smaller bank."""
+    return dict(dynamic=directory / 'model.onnx', gpu=directory / 'model-gpu.onnx',
+                bank=[directory / f'model-gpu-b{b}.onnx' for b in gpu_bank])
 
 
 @dataclass(frozen=True)

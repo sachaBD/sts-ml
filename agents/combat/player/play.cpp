@@ -23,6 +23,7 @@
 #include <span>
 #include <thread>
 
+using namespace stsrl::player;
 using namespace stsrl::nn;
 using Json = nlohmann::json;
 using Clock = std::chrono::steady_clock;

@@ -7,9 +7,9 @@ from unittest.mock import MagicMock, patch
 
 import torch
 
-from agents.combat.nn import learner
+from agents.combat.nn.training import learner
 from agents.combat.nn.model import ModelSpec
-from agents.combat.player.play import model_files
+from agents.combat.nn.training.export import model_files
 from . import expert_iteration
 from .config import load
 from .reporting import deck_of

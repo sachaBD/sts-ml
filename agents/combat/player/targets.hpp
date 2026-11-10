@@ -4,7 +4,7 @@
 #include <span>
 #include <vector>
 
-namespace stsrl::nn {
+namespace stsrl::player {
 // Health at one point of a fight; enemy totals cover every monster slot.
 struct Vitals {
     int turn, hp, max_hp, enemy_hp, enemy_max_hp;
@@ -21,4 +21,4 @@ void observe(std::vector<Vitals>& turn_starts, const sts::BattleContext&);
 
 // turn_starts holds the vitals at the first input of each turn, in turn order.
 Targets targets(const Vitals& decision, std::span<const Vitals> turn_starts, const sts::BattleContext& end);
-}  // namespace stsrl::nn
+}  // namespace stsrl::player

@@ -18,6 +18,16 @@ from agents.combat.nn.training.replay import HEADER, TARGETS
 ROOT = Path(__file__).resolve().parents[3]
 
 
+def last_json(text, prefix):
+    for line in reversed(text.splitlines()):
+        if line.startswith(prefix + ': '):
+            try:
+                return json.loads(line[len(prefix)+2:])
+            except json.JSONDecodeError:
+                continue # live log may end halfway through a write
+    return {}
+
+
 @unittest.skipUnless(os.environ.get('NN_TEST_MODEL') and os.environ.get('NN_TEST_STARTS'), 'explicit frozen model/starts required')
 class WorkerIntegrationTests(unittest.TestCase):
     def setUp(self):
@@ -41,7 +51,6 @@ class WorkerIntegrationTests(unittest.TestCase):
             result = subprocess.run(command, input='\n'.join(self.starts[:count])+'\n', text=True,
                                     stdout=subprocess.PIPE, stderr=errors, env=env, timeout=90, check=True)
         (directory / 'results.jsonl').write_text(result.stdout)
-        from agents.combat.player.metrics import last_json
         native_log=(directory/'worker.log').read_text()
         stats=last_json(native_log,'play_stats')
         self.assertEqual(stats['games'],count)

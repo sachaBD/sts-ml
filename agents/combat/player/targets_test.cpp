@@ -7,6 +7,7 @@
 #include "game/GameContext.h"
 #include <gtest/gtest.h>
 
+using namespace stsrl::player;
 using namespace stsrl::nn;
 
 namespace {

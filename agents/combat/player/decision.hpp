@@ -9,7 +9,7 @@
 #include <optional>
 #include <random>
 
-namespace stsrl::nn {
+namespace stsrl::player {
 class Fight {
 public:
     static constexpr int max_turns = 50, max_steps = 512;  // an undecided fight past either is lost
@@ -35,7 +35,7 @@ private:
 class Decision {
 public:
     Decision(const sts::BattleContext& state, std::unique_ptr<search::CombatSearch>, double rollout_mix,
-             std::uint64_t rollout_seed, Encoding encoding = Encoding::legacy);
+             std::uint64_t rollout_seed, nn::Encoding encoding = nn::Encoding::legacy);
     const infra::Tokens* pending() const { return search_->pending() ? &query_ : nullptr; }
     void evaluated(const infra::Prediction&);
     search::Result result() const { return search_->result(); }
@@ -45,6 +45,6 @@ private:
     std::unique_ptr<search::CombatSearch> search_;
     std::optional<search::RolloutBlend> blend_;
     infra::Tokens query_;
-    Encoding encoding_;
+    nn::Encoding encoding_;
 };
-}  // namespace stsrl::nn
+}  // namespace stsrl::player

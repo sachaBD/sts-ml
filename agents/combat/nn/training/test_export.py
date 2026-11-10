@@ -7,9 +7,10 @@ import unittest
 import onnxruntime as ort
 import torch
 
-from agents.combat.nn._test_support import combat_tokens, small_spec, train_once
+from agents.combat.nn.entity.test_model import combat_tokens, small_spec
 from agents.combat.nn.training.export import ExportSpec, ModelExporter
 from agents.combat.nn.training.learner import Learner
+from agents.combat.nn.training.test_learner import train_once
 from agents.combat.nn.model import ModelSpec, build_model
 from agents.combat.nn.tokens import WIDTH
 
@@ -26,17 +27,16 @@ def model_predictions(model, tokens):
         return tuple(output.cpu() for output in model(tokens))
 
 
-class ExportContract:
+class EntityExportTests(unittest.TestCase):
     def setUp(self):
         torch.set_num_threads(1)
-        self.learner = Learner(small_spec(self.kind), lr=1e-3, device='cpu')
+        self.learner = Learner(small_spec(), lr=1e-3, device='cpu')
         self.model = self.learner.net.eval()
         self.tokens = combat_tokens()
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
         self.directory = Path(temporary.name)
-        capacity = 6 if self.kind == 'entity' else None
-        self.deployment = ExportSpec(tokens=10, attended=capacity)
+        self.deployment = ExportSpec(tokens=10, attended=6)
         self.exporter = ModelExporter(self.model.spec, self.deployment, reuse=True)
 
     def test_exported_predictions_follow_current_weights(self):
@@ -75,14 +75,6 @@ class ExportContract:
 
         torch.testing.assert_close(actual, expected, rtol=3e-3, atol=2e-3)
 
-
-class TransformerExportTests(ExportContract, unittest.TestCase):
-    kind = 'entity'
-
-
-class PooledTransformerExportTests(ExportContract, unittest.TestCase):
-    kind = 'entity'
-
     def test_attention_overflow_requires_the_full_cpu_model(self):
         exporter = ModelExporter(self.model.spec, ExportSpec(tokens=10, attended=1))
 
@@ -109,24 +101,23 @@ class TargetAssociationExportTests(unittest.TestCase):
         permuted = tokens[:, [0, 2, 1, 3, 4, 5, 6, 7]].clone()
         permuted[0, 3:7, -1] = torch.tensor([2, 1, 2, 1])
 
-        for kind in ('entity',):
-            with self.subTest(kind=kind), tempfile.TemporaryDirectory() as temporary:
-                torch.manual_seed(7)
-                model = build_model(ModelSpec(kind, 16, 1, 2)).eval()
-                directory = Path(temporary)
-                ModelExporter(model.spec, ExportSpec(tokens=8, attended=8 if kind == 'entity' else None)).export(
-                    model, directory, batch=1, bank=())
-                for filename, dtype in [('model.onnx', torch.float32), ('model-gpu.onnx', torch.float16)]:
-                    path = directory / filename
-                    inputs = tokens.to(dtype)
-                    expected = model_predictions(model, tokens)
-                    actual = onnx_predictions(path, inputs)
-                    torch.testing.assert_close(actual, expected, rtol=2e-4, atol=2e-5)
-                    torch.testing.assert_close(onnx_predictions(path, permuted.to(dtype)), actual,
-                                               rtol=2e-4, atol=2e-5)
-                    _, logits = actual
-                    self.assertGreater(abs((logits[0, 3] - logits[0, 4]).item()), 1e-5)
-                    self.assertGreater(abs((logits[0, 5] - logits[0, 6]).item()), 1e-5)
+        with tempfile.TemporaryDirectory() as temporary:
+            torch.manual_seed(7)
+            model = build_model(ModelSpec('entity', 16, 1, 2)).eval()
+            directory = Path(temporary)
+            ModelExporter(model.spec, ExportSpec(tokens=8, attended=8)).export(
+                model, directory, batch=1, bank=())
+            for filename, dtype in [('model.onnx', torch.float32), ('model-gpu.onnx', torch.float16)]:
+                path = directory / filename
+                inputs = tokens.to(dtype)
+                expected = model_predictions(model, tokens)
+                actual = onnx_predictions(path, inputs)
+                torch.testing.assert_close(actual, expected, rtol=2e-4, atol=2e-5)
+                torch.testing.assert_close(onnx_predictions(path, permuted.to(dtype)), actual,
+                                           rtol=2e-4, atol=2e-5)
+                _, logits = actual
+                self.assertGreater(abs((logits[0, 3] - logits[0, 4]).item()), 1e-5)
+                self.assertGreater(abs((logits[0, 5] - logits[0, 6]).item()), 1e-5)
 
 
 if __name__ == '__main__':

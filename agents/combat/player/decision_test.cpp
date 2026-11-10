@@ -9,6 +9,7 @@
 #include "game/GameContext.h"
 #include <gtest/gtest.h>
 
+using namespace stsrl::player;
 using namespace stsrl::nn;
 using stsrl::combat::legal_actions;
 using stsrl::search::Gumbel;

@@ -1,15 +1,28 @@
-"""Behavior shared by both supported combat models."""
+"""Entity model behavior, and the model contract every kind must keep."""
 import unittest
 
 import torch
 
-from agents.combat.nn._test_support import combat_tokens, small_spec
+from agents.combat.nn.entity.encoding import CardZone
 from agents.combat.nn.model import AUXILIARY, LOSS_BINS, WIN_BINS, ModelSpec, build_model, win_probability
 from agents.combat.nn.tokens import TokenKind, TokenRows, WIDTH
 
 
-SPECS = [(kind, value) for kind in ('entity',) for value in ('win', 'outcome')]
+def small_spec(value='win'):
+    return ModelSpec('entity', dim=16, layers=1, heads=2, value=value)
 
+
+def combat_tokens():
+    kinds = [TokenKind.CONTEXT, TokenKind.MONSTER, TokenKind.RELIC,
+             TokenKind.CARD, TokenKind.CARD, TokenKind.CARD, TokenKind.CARD,
+             TokenKind.ACTION, TokenKind.ACTION, TokenKind.ACTION]
+    tokens = torch.zeros(2, len(kinds), WIDTH)
+    tokens[..., 0] = torch.tensor(kinds)
+    tokens[..., 1] = torch.arange(len(kinds))
+    tokens[:, 4:7, 3] = torch.tensor([CardZone.DRAW, CardZone.DISCARD, CardZone.EXHAUST])
+    tokens[1, 3, 3] = CardZone.OFFERED
+    tokens[..., 4:] = torch.rand(2, len(kinds), WIDTH - 4)
+    return tokens
 
 
 class ModelTests(unittest.TestCase):
@@ -18,10 +31,10 @@ class ModelTests(unittest.TestCase):
         torch.manual_seed(0)
 
     def test_predictions_are_probabilities_over_legal_actions(self):
-        for kind, value in SPECS:
-            with self.subTest(kind=kind, value=value):
+        for value in ('win', 'outcome'):
+            with self.subTest(value=value):
                 tokens = combat_tokens()
-                values, logits = build_model(small_spec(kind, value)).eval()(tokens)
+                values, logits = build_model(small_spec(value)).eval()(tokens)
                 actions = TokenRows(tokens).is_kind(TokenKind.ACTION)
 
                 self.assertEqual(values.shape, (len(tokens),))
@@ -32,9 +45,9 @@ class ModelTests(unittest.TestCase):
                 self.assertTrue((logits.softmax(dim=1)[~actions] == 0).all())
 
     def test_padding_does_not_change_predictions(self):
-        for kind, value in SPECS:
-            with self.subTest(kind=kind, value=value):
-                model = build_model(small_spec(kind, value)).eval()
+        for value in ('win', 'outcome'):
+            with self.subTest(value=value):
+                model = build_model(small_spec(value)).eval()
                 tokens = combat_tokens()
                 padding = torch.zeros(len(tokens), 5, WIDTH)
                 expected_values, expected_logits = model(tokens)
@@ -47,7 +60,7 @@ class ModelTests(unittest.TestCase):
     def test_entity_forward_matches_attention_over_every_position(self):
         for value in ('win', 'outcome'):
             with self.subTest(value=value):
-                model = build_model(small_spec('entity', value)).eval()
+                model = build_model(small_spec(value)).eval()
                 tokens = combat_tokens()
                 tokens = torch.cat([tokens, torch.zeros(len(tokens), 5, WIDTH)], dim=1)
 
@@ -55,9 +68,9 @@ class ModelTests(unittest.TestCase):
                     torch.testing.assert_close(actual, expected)
 
     def test_outcome_win_probability_is_the_win_bin_mass(self):
-        for kind, auxiliary in [(kind, auxiliary) for kind in ('entity',) for auxiliary in (False, True)]:
-            with self.subTest(kind=kind, auxiliary=auxiliary):
-                spec = ModelSpec(kind, dim=16, layers=1, heads=2, value='outcome', auxiliary=auxiliary)
+        for auxiliary in (False, True):
+            with self.subTest(auxiliary=auxiliary):
+                spec = ModelSpec('entity', dim=16, layers=1, heads=2, value='outcome', auxiliary=auxiliary)
                 model = build_model(spec).eval()
                 tokens = combat_tokens()
                 context, _ = model.heads(tokens)

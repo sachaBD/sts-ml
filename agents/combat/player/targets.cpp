@@ -2,7 +2,7 @@
 #include <algorithm>
 #include <stdexcept>
 
-namespace stsrl::nn {
+namespace stsrl::player {
 Vitals vitals(const sts::BattleContext& state) {
     Vitals v{state.turn, state.player.curHp, state.player.maxHp, 0, 0};
     for (int i = 0; i < state.monsters.monsterCount; ++i) {
@@ -31,4 +31,4 @@ Targets targets(const Vitals& decision, std::span<const Vitals> turn_starts, con
         float(last.turn - decision.turn),
     };
 }
-}  // namespace stsrl::nn
+}  // namespace stsrl::player

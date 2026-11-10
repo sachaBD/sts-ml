@@ -1,4 +1,8 @@
-# Combat episodes on shared infrastructure
+# Combat player
+
+The agent that plays fights: Gumbel search guided by the network, run by `nn_play` (`play.cpp`), launched from Python by `play.py`.
+
+## Combat episodes on shared infrastructure
 
 `play.cpp::CombatEpisode` implements `infra::Episode`: it owns a fight and Gumbel
 search, advances until inference is needed, consumes a prediction, and writes the
