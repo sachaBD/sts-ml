@@ -5,6 +5,7 @@
 #include <chrono>
 #include <functional>
 #include <memory>
+#include <span>
 #include <string>
 #include <vector>
 
@@ -12,9 +13,9 @@ namespace stsrl::infra {
 class Episode {
 public:
     virtual ~Episode() = default;
-    // Play on until the network is needed (tokens stay immutable until evaluated()) or the episode is over (nullptr).
-    virtual const Tokens* advance() = 0;
-    virtual void evaluated(const Prediction&) = 0;
+    // Play on until the network is needed (requests stay immutable until evaluated()) or the episode is over (none).
+    virtual std::span<const Tokens> advance() = 0;
+    virtual void evaluated(std::span<const Prediction>) = 0;  // one per request, in order
     virtual void finish() = 0;                // record the result; called once, on the owning Actor
     virtual std::string label() const = 0;    // names the episode in errors
 };

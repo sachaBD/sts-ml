@@ -25,20 +25,22 @@ struct Log {
     int most_alive_per_thread = 0;
 };
 
-// Requests `steps` predictions. Each must come back to it, on the thread that created it, exactly once,
-// carrying its own id and step number (the backend echoes them).
+// Requests `steps` waves of `wave` predictions. Each must come back to it, on the thread that created it,
+// exactly once and in request order, carrying its own id and request number (the backend echoes them).
 class FakeEpisode final : public Episode {
     Log& log_;
     const std::thread::id owner_ = std::this_thread::get_id();
-    const int id_;
+    const int id_, wave_;
     int left_, step_ = 0;
     bool waiting_ = false, finished_ = false;
-    Tokens tokens_{std::vector<float>(2 * token_width), 2, 1};
+    std::vector<Tokens> requests_;
 
     void on_owner() const { require(std::this_thread::get_id() == owner_, "episode used off its Actor thread"); }
+    float number(int request) const { return float(step_ * wave_ + request); }
 public:
-    FakeEpisode(Log& log, int id, int steps) : log_{log}, id_{id}, left_{steps} {
-        tokens_.data[0] = float(id + 1) / 1000;
+    FakeEpisode(Log& log, int id, int steps, int wave)
+        : log_{log}, id_{id}, wave_{wave}, left_{steps}, requests_(wave, Tokens{std::vector<float>(2 * token_width), 2, 1}) {
+        for (auto& tokens : requests_) tokens.data[0] = float(id + 1) / 1000;
         const int alive = ++log_.alive;
         for (int seen = log_.most_alive; seen < alive && !log_.most_alive.compare_exchange_weak(seen, alive);) {}
         std::lock_guard lock{log_.mutex};
@@ -49,19 +51,21 @@ public:
         std::lock_guard lock{log_.mutex};
         --log_.alive_per_thread[owner_];
     }
-    const Tokens* advance() override {
+    std::span<const Tokens> advance() override {
         on_owner();
         require(!waiting_ && !finished_, "advanced while waiting or finished");
-        if (!left_) return nullptr;
+        if (!left_) return {};
         waiting_ = true;
-        tokens_.data[1] = float(step_);
-        return &tokens_;
+        for (int r = 0; r < wave_; ++r) requests_[r].data[1] = number(r);
+        return requests_;
     }
-    void evaluated(const Prediction& p) override {
+    void evaluated(std::span<const Prediction> predictions) override {
         on_owner();
-        require(waiting_, "prediction without a request");
-        require(p.value == float(id_ + 1) / 1000 && p.logits == std::vector<float>{float(step_)}, "prediction misrouted");
-        waiting_ = false; --left_; ++step_; ++log_.evaluated;
+        require(waiting_ && int(predictions.size()) == wave_, "predictions without their requests");
+        for (int r = 0; r < wave_; ++r)
+            require(predictions[r].value == float(id_ + 1) / 1000 && predictions[r].logits == std::vector<float>{number(r)},
+                    "prediction misrouted");
+        waiting_ = false; --left_; ++step_; log_.evaluated += wave_;
     }
     void finish() override {
         on_owner();
@@ -71,11 +75,11 @@ public:
     std::string label() const override { return "fake-" + std::to_string(id_); }
 };
 
-// `count` episodes; episode i makes steps(i) requests.
-NextEpisode episodes(Log& log, int count, std::function<int(int)> steps = [](int i) { return i % 19; }) {
-    return [&log, count, steps]() -> std::unique_ptr<Episode> {
+// `count` episodes; episode i makes steps(i) waves of `wave` requests.
+NextEpisode episodes(Log& log, int count, std::function<int(int)> steps = [](int i) { return i % 19; }, int wave = 1) {
+    return [&log, count, steps, wave]() -> std::unique_ptr<Episode> {
         const int id = log.started++;
-        return id < count ? std::make_unique<FakeEpisode>(log, id, steps(id)) : nullptr;
+        return id < count ? std::make_unique<FakeEpisode>(log, id, steps(id), wave) : nullptr;
     };
 }
 const auto three_steps = [](int) { return 3; };  // every episode needs inference before it can finish
@@ -161,6 +165,20 @@ TEST(Actors, LanesEvaluateConcurrentlyUpToTheirCount) {
         EXPECT_EQ(log.finished, 100);
         EXPECT_EQ(most, lanes) << "lanes must overlap, and never exceed the backend's count";
     }
+}
+
+TEST(Actors, AnEpisodeGetsItsWholeWaveInRequestOrder) {
+    constexpr int wave = 4;
+    Log log;
+    FakeBackend backend{[](std::span<const Input> inputs) {
+        // Lanes answer one request each, the later ones in a wave sooner.
+        const int request = int(inputs[0].tokens->data[1]) % wave;
+        std::this_thread::sleep_for(std::chrono::milliseconds(wave - request));
+        return echo(inputs);
+    }, {}, wave, {}, 1};
+    run_actors(small(2), episodes(log, 16, three_steps, wave), backend);
+    EXPECT_EQ(log.finished, 16);
+    EXPECT_EQ(log.evaluated, 16 * 3 * wave);
 }
 
 TEST(Actors, PrepareRunsOnOwnerAndPackedInputStaysStable) {
@@ -328,8 +346,8 @@ TEST(ActorFailures, StalledEpisodeTimesOut) {
     struct Stalls final : Episode {
         Log& log;
         explicit Stalls(Log& l) : log{l} {}
-        const Tokens* advance() override { std::this_thread::sleep_for(stall); return nullptr; }
-        void evaluated(const Prediction&) override {}
+        std::span<const Tokens> advance() override { std::this_thread::sleep_for(stall); return {}; }
+        void evaluated(std::span<const Prediction>) override {}
         void finish() override { ++log.finished; }
         std::string label() const override { return "stalls"; }
     };

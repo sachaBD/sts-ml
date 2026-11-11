@@ -5,6 +5,7 @@
 #include <cstdint>
 #include <memory>
 #include <random>
+#include <span>
 #include <unordered_map>
 
 namespace stsrl::player {
@@ -39,21 +40,23 @@ private:
     std::unordered_map<std::uint64_t, infra::Prediction> by_request_;  // a hash of the request's bytes
 };
 
-// One decision: a search whose queries the network answers. pending() is the network request, if any.
+// One decision: a search whose queries the network answers. pending() is the network requests, if any.
 // A request found in `previous` is answered from it instead.
 class Decision {
 public:
     Decision(std::unique_ptr<search::CombatSearch>, const nn::NetworkEvaluator&, Answers previous = {});
-    const infra::Tokens* pending() const { return search_->pending() ? &request_ : nullptr; }
-    void evaluated(const infra::Prediction& prediction);
+    std::span<const infra::Tokens> pending() const { return requests_; }
+    void evaluated(std::span<const infra::Prediction>);  // one per pending request, in order
     search::Result result() const { return search_->result(); }
     Answers answers() && { return std::move(answers_); }  // every answer this decision used
 
 private:
-    void next_request();
+    void next_requests();
+    void answer(std::span<const infra::Prediction>);
     std::unique_ptr<search::CombatSearch> search_;
     const nn::NetworkEvaluator& network_;
     Answers previous_, answers_;
-    infra::Tokens request_;
+    std::vector<infra::Tokens> requests_;
+    std::vector<const infra::Prediction*> known_;  // per search query: its answer in previous_, or null for the next request
 };
 }  // namespace stsrl::player

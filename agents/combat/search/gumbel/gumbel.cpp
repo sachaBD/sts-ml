@@ -2,6 +2,7 @@
 #include "environments/combat/public.hpp"
 #include <algorithm>
 #include <cmath>
+#include <functional>
 #include <iostream>
 #include <random>
 #include <stdexcept>
@@ -117,6 +118,8 @@ void play(sts::BattleContext& state, std::uint64_t key) {
 
 struct Gumbel::Impl {
     struct Step { Node* node; std::size_t edge; Node* reached; };
+    using Path = std::vector<Step>;
+    struct Leaf { Node* node; sts::BattleContext state; std::vector<Action> actions; };
 
     Settings s;
     std::uint64_t fight_seed;
@@ -129,36 +132,51 @@ struct Gumbel::Impl {
     std::vector<int> schedule;
     int simulation = 0;
 
-    Node* leaf = nullptr;
-    sts::BattleContext leaf_state;
-    std::vector<Action> leaf_actions;
-    std::vector<Step> path;
+    // The wave: every simulation of one Sequential Halving pass, descended from the same statistics.
+    // Nothing is backed up until the whole wave is answered, so answers cannot change which leaves it asks for.
+    std::vector<Leaf> leaves;
+    std::vector<Query> queries;  // views of leaves
+    std::vector<std::pair<Path, Node*>> backups;  // in issue order
 
     Impl(const sts::BattleContext& observed, const Settings& settings, std::uint64_t seed)
         : s{settings}, fight_seed{observed.seed}, rng{seed}, chance{observed, settings.particles}, actions{combat::legal_actions(observed)},
           root{*(nodes[Chance::node_key(observed)] = std::make_unique<Node>())},
-          leaf{&root}, leaf_state{observed}, leaf_actions{actions} {}
+          leaves{{&root, observed, actions}}, queries{{leaves[0].state, leaves[0].actions}}, backups{{{}, &root}} {}
 
-    void evaluated(const Evaluation& e) {
-        expand(*leaf, e);
-        backup(*leaf);
-        if (leaf == &root) {
+    void evaluated(std::span<const Evaluation> e) {
+        if (leaves.empty() || e.size() != leaves.size()) throw std::invalid_argument{"gumbel: one evaluation per pending query"};
+        for (std::size_t i = 0; i < e.size(); ++i) expand(leaves[i], e[i]);
+        if (leaves.front().node == &root) {
             std::extreme_value_distribution<double> g;
             for (std::size_t i = 0; i < actions.size(); ++i) gumbel.push_back(s.gumbel_scale * g(rng));
             schedule = halving_schedule(std::min<int>(s.considered_actions, int(actions.size())), s.simulations);
         }
-        leaf = nullptr;
-        while (!leaf && simulation < int(schedule.size())) simulate();
+        leaves.clear();
+        queries.clear();
+        do {
+            for (const auto& [path, end] : backups) backup(path, *end);
+            backups.clear();
+            if (simulation < int(schedule.size()))
+                for (const auto edge : ranked(schedule[simulation], pass_width())) simulate(edge);
+        } while (leaves.empty() && !backups.empty());
+        for (const auto& leaf : leaves) queries.push_back({leaf.state, leaf.actions});
     }
 
-    // Descends until a finished fight (backed up now) or a new node (left pending for the evaluator).
-    void simulate() {
+    // The schedule repeats a visit count once per action in the pass.
+    std::size_t pass_width() const {
+        const auto first = schedule.begin() + simulation;
+        return std::find_if(first, schedule.end(), [&](int v) { return v != *first; }) - first;
+    }
+
+    // Descends until a finished fight or a node already on the path (backed up with the wave), or a node
+    // without an evaluation (left for the evaluator, once however many simulations reach it).
+    void simulate(std::size_t root_edge) {
         auto state = chance.start(rng);
-        path.clear();
+        Path path;
         Node* node = &root;
-        const int considered = schedule[simulation++];
+        ++simulation;
         for (;;) {
-            const auto edge = node == &root ? root_choice(considered) : interior_choice(*node);
+            const auto edge = node == &root ? root_edge : interior_choice(*node);
             play(state, node->keys[edge]);
             auto& next = nodes[Chance::node_key(state)];
             const bool created = !next;
@@ -173,18 +191,17 @@ struct Gumbel::Impl {
                       << " bootstrap=" << next->value << " path_action_keys=[";
                 for (const auto& step : path) error << step.node->keys[step.edge] << ',';
                 error << "]\n" << state;
-                backup(*next);
+                backups.emplace_back(std::move(path), next.get());
                 return;
             }
             if (state.outcome != sts::Outcome::UNDECIDED) {
                 next->value = state.outcome == sts::Outcome::PLAYER_VICTORY;
-                backup(*next);
+                backups.emplace_back(std::move(path), next.get());
                 return;
             }
-            if (created) {
-                leaf = next.get();
-                leaf_state = state;
-                leaf_actions = combat::legal_actions(state);
+            if (created) leaves.push_back({next.get(), state, combat::legal_actions(state)});
+            if (std::ranges::find(leaves, next.get(), &Leaf::node) != leaves.end()) {
+                backups.emplace_back(std::move(path), next.get());
                 return;
             }
             node = next.get();
@@ -193,7 +210,7 @@ struct Gumbel::Impl {
 
     // The one place values change: `end`'s value is counted at every node on the path, and each edge
     // counts the node it reached.
-    void backup(Node& end) {
+    static void backup(const Path& path, Node& end) {
         const double value = end.value;
         for (const auto& [node, edge, reached] : path) {
             auto& counts = node->reached[edge];
@@ -207,22 +224,24 @@ struct Gumbel::Impl {
         }
     }
 
-    void expand(Node& n, const Evaluation& e) {
+    static void expand(const Leaf& leaf, const Evaluation& e) {
+        auto& n = *leaf.node;
         n.value = e.value;
         n.logits.assign(e.logits.begin(), e.logits.end());
         n.prior = softmax(n.logits);
-        for (const auto a : leaf_actions) n.keys.push_back(combat::action_key(leaf_state, a));
+        for (const auto a : leaf.actions) n.keys.push_back(combat::action_key(leaf.state, a));
         n.reached.resize(n.keys.size());
     }
 
-    // Root: argmax of gumbel + logits + sigma among actions with exactly `considered` visits.
-    std::size_t root_choice(int considered) const {
+    // Root: the best `count` by gumbel + logits + sigma among actions with exactly `considered` visits.
+    std::vector<std::size_t> ranked(int considered, std::size_t count) const {
         const auto q = sigma(root, s);
-        std::size_t best = 0; double best_score = -INFINITY;
+        std::vector<std::size_t> edges;
         for (std::size_t i = 0; i < q.size(); ++i)
-            if (visits(root, i) == considered && gumbel[i] + root.logits[i] + q[i] > best_score)
-                best = i, best_score = gumbel[i] + root.logits[i] + q[i];
-        return best;
+            if (visits(root, i) == considered) edges.push_back(i);
+        std::ranges::stable_sort(edges, std::greater{}, [&](std::size_t i) { return gumbel[i] + root.logits[i] + q[i]; });
+        edges.resize(std::min(count, edges.size()));
+        return edges;
     }
 
     // Interior: argmax of improved policy - visits / (1 + total).
@@ -238,7 +257,7 @@ struct Gumbel::Impl {
     }
 
     Graph graph() const {
-        if (leaf) throw std::logic_error{"gumbel: graph requires a completed search"};
+        if (!leaves.empty()) throw std::logic_error{"gumbel: graph requires a completed search"};
         std::unordered_map<const Node*, std::uint64_t> observations;
         for (const auto& [key, node] : nodes) observations.emplace(node.get(), key);
         Graph out{observations.at(&root), {}, gumbel};
@@ -268,7 +287,7 @@ struct Gumbel::Impl {
         double value_sum = 0;
         for (std::size_t i = 0; i < root.keys.size(); ++i)
             if (const int v = visits(root, i)) { most = std::max(most, v); sum += v; value_sum += v * q(root, i); }
-        Result r{actions[root_choice(most)], actions, {}, float(sum ? value_sum / sum : root.value)};
+        Result r{actions[ranked(most, 1).front()], actions, {}, float(sum ? value_sum / sum : root.value)};
         for (double p : improved_policy(root, s)) r.policy.push_back(float(p));
         return r;
     }
@@ -278,12 +297,8 @@ Gumbel::Gumbel(const sts::BattleContext& observed, const Settings& settings, std
     : impl_{std::make_unique<Impl>(observed, settings, seed)} {}
 Gumbel::~Gumbel() = default;
 
-std::optional<Query> Gumbel::pending() const {
-    if (!impl_->leaf) return std::nullopt;
-    return Query{impl_->leaf_state, impl_->leaf_actions};
-}
-
-void Gumbel::evaluated(const Evaluation& evaluation) { impl_->evaluated(evaluation); }
+std::span<const Query> Gumbel::pending() const { return impl_->queries; }
+void Gumbel::evaluated(std::span<const Evaluation> evaluations) { impl_->evaluated(evaluations); }
 Gumbel::Graph Gumbel::graph() const { return impl_->graph(); }
 Result Gumbel::result() const { return impl_->result(); }
 }  // namespace stsrl::search

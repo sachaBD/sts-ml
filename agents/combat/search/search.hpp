@@ -4,7 +4,6 @@
 #include "sim/search/Action.h"
 #include <functional>
 #include <memory>
-#include <optional>
 #include <random>
 #include <span>
 #include <type_traits>
@@ -35,8 +34,9 @@ struct Result {
 class CombatSearch {
 public:
     virtual ~CombatSearch() = default;
-    virtual std::optional<Query> pending() const = 0;
-    virtual void evaluated(const Evaluation&) = 0;
+    // Queries that can be answered together; empty once the search is done.
+    virtual std::span<const Query> pending() const = 0;
+    virtual void evaluated(std::span<const Evaluation>) = 0;  // one per pending query, in order
     virtual Result result() const = 0;
 };
 
@@ -47,7 +47,11 @@ template<class F>
 concept Evaluator = std::is_invocable_r_v<Evaluation, F&, const Query&>;
 
 Result run(CombatSearch& search, Evaluator auto&& evaluate) {
-    while (const auto query = search.pending()) search.evaluated(evaluate(*query));
+    for (auto queries = search.pending(); !queries.empty(); queries = search.pending()) {
+        std::vector<Evaluation> evaluations;
+        for (const auto& query : queries) evaluations.push_back(evaluate(query));
+        search.evaluated(evaluations);
+    }
     return search.result();
 }
 }  // namespace stsrl::search
