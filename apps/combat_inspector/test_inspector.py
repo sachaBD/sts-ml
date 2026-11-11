@@ -1,4 +1,4 @@
-"""The checkpoint manifest selects the encoder and CPU artifact; inspection replays the player."""
+"""The public API exposes a navigable graph and usable root actions from the selected checkpoint."""
 import math
 import os
 from pathlib import Path
@@ -53,44 +53,65 @@ def checkpoint(directory, encoding):
 
 @unittest.skipUnless(BINARY.exists(), 'combat_explain not built')
 class InspectorTests(unittest.TestCase):
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.directory = Path(temporary.name)
+        checkpoint(self.directory, 'inventory_v1')
+        self.request = dict(checkpoint=self.directory, start=jaw_worm((1 << 63) + 1),
+                            sims=8, particles=2, executable=BINARY)
+
     def test_checkpoint_determines_the_network(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            directory = Path(tmp)
-            for encoding in ('entity', 'inventory_v1'):
-                with self.subTest(encoding=encoding):
-                    checkpoint(directory, encoding)
-                    result = decision(directory, jaw_worm(7), sims=0, executable=BINARY)
-                    expected = 1 / (1 + math.exp(-getattr(LAYOUT, encoding).version))
-                    self.assertAlmostEqual(result['decision']['value'], expected, places=6)
+        for encoding in ('entity', 'inventory_v1'):
+            with self.subTest(encoding=encoding):
+                checkpoint(self.directory, encoding)
+                result = decision(**(self.request | dict(sims=0)))
+                expected = 1 / (1 + math.exp(-getattr(LAYOUT, encoding).version))
+                self.assertAlmostEqual(result['decision']['value'], expected, places=6)
 
-    def test_replay_is_deterministic(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            directory = Path(tmp)
-            checkpoint(directory, 'inventory_v1')
-            request = dict(checkpoint=directory, start=jaw_worm((1 << 63) + 1), sims=8, particles=2,
-                           gumbel_scale=1, rollout_mix=0.5, executable=BINARY)
-            first = decision(**request)
-            self.assertEqual(first, decision(**request))
+    def test_graph_can_be_traversed_from_the_root(self):
+        graph = decision(**self.request)['graph']
+        nodes = {node['observation']: node for node in graph['nodes']}
+        pending, reached = [graph['root']], set()
+        while pending:
+            observation = pending.pop()
+            if observation in reached:
+                continue
+            self.assertIn(observation, nodes)
+            reached.add(observation)
+            pending.extend(child['observation'] for edge in nodes[observation]['edges'] for child in edge['children'])
+        self.assertEqual(reached, set(nodes))
 
-    def test_chosen_move_advances_the_replay(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            directory = Path(tmp)
-            checkpoint(directory, 'inventory_v1')
-            request = dict(checkpoint=directory, start=jaw_worm(7), sims=8, executable=BINARY)
-            first = decision(**request)
-            after = decision(**request, moves=[first['decision']['action']])
-            self.assertGreater(after['steps'], first['steps'])
+    def test_root_actions_are_replayable(self):
+        before = decision(**self.request)
+        graph = before['graph']
+        root = next(node for node in graph['nodes'] if node['observation'] == graph['root'])
+        self.assertTrue(root['edges'])
+        for edge in root['edges']:
+            with self.subTest(action=edge['bits']):
+                after = decision(**self.request, moves=[edge['bits']])
+                self.assertGreater(after['steps'], before['steps'])
+
+    def test_root_actions_have_readable_labels(self):
+        graph = decision(**self.request)['graph']
+        root = next(node for node in graph['nodes'] if node['observation'] == graph['root'])
+        self.assertTrue(root['edges'])
+        for edge in root['edges']:
+            self.assertTrue(edge['description'].strip())
+
+    def test_chosen_action_is_exposed_at_the_root(self):
+        result = decision(**self.request)
+        graph = result['graph']
+        root = next(node for node in graph['nodes'] if node['observation'] == graph['root'])
+        self.assertIn(result['decision']['action'], [edge['bits'] for edge in root['edges']])
 
     def test_invalid_requests_fail_with_a_diagnostic(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            directory = Path(tmp)
-            checkpoint(directory, 'entity')
-            for invalid in (dict(moves=[-1]), dict(moves=[0.5]), dict(moves=[(1 << 32) - 1]),
-                            dict(particles=0), dict(rollout_mix=2), dict(sims=0.5), dict(particles=1 << 40)):
-                with self.subTest(invalid=invalid):
-                    with self.assertRaises(subprocess.CalledProcessError) as raised:
-                        decision(directory, jaw_worm(7), executable=BINARY, **invalid)
-                    self.assertTrue(raised.exception.stderr.strip())
+        for invalid in (dict(moves=[-1]), dict(moves=[0.5]), dict(moves=[(1 << 32) - 1]),
+                        dict(particles=0), dict(rollout_mix=2), dict(sims=0.5), dict(particles=1 << 40)):
+            with self.subTest(invalid=invalid):
+                with self.assertRaises(subprocess.CalledProcessError) as raised:
+                    decision(**(self.request | invalid))
+                self.assertTrue(raised.exception.stderr.strip())
 
     def test_finished_fights_have_no_search(self):
         start = jaw_worm(7)

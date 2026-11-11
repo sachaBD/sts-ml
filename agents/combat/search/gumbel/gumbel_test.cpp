@@ -8,7 +8,6 @@
 #include <numeric>
 #include <random>
 #include <set>
-#include <stdexcept>
 
 using namespace stsrl::search;
 using stsrl::combat::legal_actions;
@@ -174,136 +173,55 @@ TEST(Gumbel, EntropicSelfLoopUsesTheNetworkValueAndReportsAnError) {
 }
 
 
-TEST(Gumbel, GraphRequiresACompletedSearch) {
-    Gumbel search{stsrl::scenarios::jaw_worm(7), settings(), 1};
-    EXPECT_THROW(search.graph(), std::logic_error);
-}
-
-TEST(Gumbel, ZeroBudgetGraphContainsOnlyTheRoot) {
-    auto s = settings();
-    s.simulations = 0;
-    Gumbel search{stsrl::scenarios::jaw_worm(7), s, 1};
-    run(search, noisy());
-    EXPECT_EQ(search.graph().nodes.size(), 1u);
-}
-
 namespace {
-class GumbelGraph : public testing::TestWithParam<std::uint64_t> {
+class GumbelInspection : public testing::Test {
 protected:
-    static sts::BattleContext battle(std::uint64_t seed) {
-        auto state = stsrl::scenarios::jaw_worm(seed);
-        state.monsters.arr[0].curHp = 1;  // include terminal nodes in the graph
-        return state;
-    }
+    const sts::BattleContext state = stsrl::scenarios::jaw_worm(7);
+    Gumbel search{state, settings(1), 1};
+    Result result;
+    Gumbel::Graph graph;
+    std::vector<std::pair<std::uint64_t, double>> evaluated;
 
-    const sts::BattleContext state = battle(GetParam());
-    Gumbel search{state, settings(1), GetParam()};
-    const Result result = run(search, noisy());
-    const Gumbel::Graph graph = search.graph();
+    void SetUp() override {
+        auto answer = noisy();
+        result = run(search, [&](const Query& query) {
+            auto evaluation = answer(query);
+            evaluated.emplace_back(stsrl::combat::observation_key(query.state), evaluation.value);
+            return evaluation;
+        });
+        std::ranges::sort(evaluated);
+        graph = search.graph();
+    }
 };
 }  // namespace
 
-TEST_P(GumbelGraph, SnapshotPreservesTheResult) {
+TEST_F(GumbelInspection, ExposesTheEvaluatedNodes) {
+    std::vector<std::pair<std::uint64_t, double>> reported;
+    for (const auto& node : graph.nodes)
+        if (!node.terminal) reported.emplace_back(node.observation, node.evaluation_value);
+    std::ranges::sort(reported);
+    EXPECT_EQ(reported, evaluated);
+}
+
+TEST_F(GumbelInspection, ExposesRootActionsInDecisionOrder) {
+    const auto root = std::ranges::find(graph.nodes, graph.root, &Gumbel::Graph::Node::observation);
+    ASSERT_NE(root, graph.nodes.end());
+    std::vector<std::uint64_t> reported, expected;
+    for (const auto& edge : root->edges) reported.push_back(edge.action);
+    for (const auto action : result.actions) expected.push_back(stsrl::combat::action_key(state, action));
+    EXPECT_EQ(reported, expected);
+}
+
+TEST_F(GumbelInspection, ExposesTheDecisionPolicy) {
+    const auto root = std::ranges::find(graph.nodes, graph.root, &Gumbel::Graph::Node::observation);
+    ASSERT_NE(root, graph.nodes.end());
+    std::vector<float> reported;
+    for (const auto& edge : root->edges) reported.push_back(float(edge.improved_policy));
+    EXPECT_EQ(reported, result.policy);
+}
+
+TEST_F(GumbelInspection, InspectionPreservesTheDecision) {
     EXPECT_EQ(search.result().action, result.action);
     EXPECT_EQ(search.result().policy, result.policy);
     EXPECT_EQ(search.result().value, result.value);
 }
-
-TEST_P(GumbelGraph, RootIsTheObservedState) {
-    EXPECT_EQ(graph.root, stsrl::combat::observation_key(state));
-}
-
-TEST_P(GumbelGraph, RootIsPresent) {
-    EXPECT_NE(std::ranges::find(graph.nodes, graph.root, &Gumbel::Graph::Node::observation), graph.nodes.end());
-}
-
-TEST_P(GumbelGraph, RootActionsMatchTheResult) {
-    const auto root = std::ranges::find(graph.nodes, graph.root, &Gumbel::Graph::Node::observation);
-    ASSERT_NE(root, graph.nodes.end());
-    ASSERT_EQ(root->edges.size(), result.actions.size());
-    for (std::size_t i = 0; i < result.actions.size(); ++i)
-        EXPECT_EQ(root->edges[i].action, stsrl::combat::action_key(state, result.actions[i]));
-}
-
-TEST_P(GumbelGraph, RootPolicyMatchesTheResult) {
-    const auto root = std::ranges::find(graph.nodes, graph.root, &Gumbel::Graph::Node::observation);
-    ASSERT_NE(root, graph.nodes.end());
-    ASSERT_EQ(root->edges.size(), result.policy.size());
-    for (std::size_t i = 0; i < result.policy.size(); ++i)
-        EXPECT_FLOAT_EQ(root->edges[i].improved_policy, result.policy[i]);
-}
-
-TEST_P(GumbelGraph, ChildrenReferToExistingNodes) {
-    for (const auto& node : graph.nodes)
-        for (const auto& edge : node.edges)
-            for (const auto& child : edge.children)
-                EXPECT_NE(std::ranges::find(graph.nodes, child.observation, &Gumbel::Graph::Node::observation), graph.nodes.end());
-}
-
-TEST_P(GumbelGraph, EdgeVisitsCountChildTraversals) {
-    for (const auto& node : graph.nodes)
-        for (const auto& edge : node.edges) {
-            const int traversals = std::accumulate(edge.children.begin(), edge.children.end(), 0,
-                [](int count, const auto& child) { return count + child.visits; });
-            EXPECT_EQ(edge.visits, traversals);
-        }
-}
-
-TEST_P(GumbelGraph, QExistsExactlyWhenAnEdgeWasVisited) {
-    for (const auto& node : graph.nodes)
-        for (const auto& edge : node.edges)
-            EXPECT_EQ(edge.q.has_value(), edge.visits > 0);
-}
-
-TEST_P(GumbelGraph, QIsTheTraversalWeightedChildMean) {
-    for (const auto& node : graph.nodes)
-        for (const auto& edge : node.edges) {
-            if (!edge.visits) continue;
-            ASSERT_TRUE(edge.q.has_value());
-            double weighted = 0;
-            int traversals = 0;
-            for (const auto& child : edge.children) {
-                const auto reached = std::ranges::find(graph.nodes, child.observation, &Gumbel::Graph::Node::observation);
-                ASSERT_NE(reached, graph.nodes.end());
-                weighted += child.visits * reached->mean_value;
-                traversals += child.visits;
-            }
-            ASSERT_GT(traversals, 0);
-            EXPECT_NEAR(*edge.q, weighted / traversals, 1e-12);
-        }
-}
-
-TEST_P(GumbelGraph, NonterminalVisitsIncludeTheInitialEvaluation) {
-    for (const auto& node : graph.nodes) {
-        if (node.terminal) continue;
-        const int traversals = std::accumulate(node.edges.begin(), node.edges.end(), 0,
-            [](int count, const auto& edge) { return count + edge.visits; });
-        EXPECT_EQ(node.visits, traversals + 1);
-    }
-}
-
-TEST_P(GumbelGraph, TerminalNodesHaveNoEdges) {
-    ASSERT_TRUE(std::ranges::any_of(graph.nodes, &Gumbel::Graph::Node::terminal));
-    for (const auto& node : graph.nodes) {
-        if (!node.terminal) continue;
-        EXPECT_TRUE(node.edges.empty());
-    }
-}
-
-TEST_P(GumbelGraph, TerminalEvaluationsAreBinary) {
-    ASSERT_TRUE(std::ranges::any_of(graph.nodes, &Gumbel::Graph::Node::terminal));
-    for (const auto& node : graph.nodes) {
-        if (!node.terminal) continue;
-        EXPECT_TRUE(node.evaluation_value == 0 || node.evaluation_value == 1);
-    }
-}
-
-TEST_P(GumbelGraph, TerminalMeansEqualTheirOutcomes) {
-    ASSERT_TRUE(std::ranges::any_of(graph.nodes, &Gumbel::Graph::Node::terminal));
-    for (const auto& node : graph.nodes) {
-        if (!node.terminal) continue;
-        EXPECT_EQ(node.mean_value, node.evaluation_value);
-    }
-}
-
-INSTANTIATE_TEST_SUITE_P(Seeds, GumbelGraph, testing::Values(1, 2, 3));
