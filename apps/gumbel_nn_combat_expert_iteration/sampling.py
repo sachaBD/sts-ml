@@ -1,7 +1,7 @@
 """Each iteration's deck sampling policy: past deck counts in, curriculum weights saved before collection."""
 import json
 
-from apps.common.app import write_json
+from .files import write_json
 from agents.combat.curriculum.deck_weights import deck_weights
 
 

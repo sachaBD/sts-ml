@@ -17,8 +17,26 @@ from typing import get_args
 
 from agents.combat.nn.model import ModelSpec
 from agents.combat.nn.pytorch_to_onnx import Cpu, Deployment, validate as validate_deployments
-from apps.common.app import check_keys, required
 from environments.combat.starts import Starts
+
+
+def check_keys(table, allowed, name):
+    """Exit on a config key outside `allowed` (a typo would otherwise be ignored)."""
+    if unknown := sorted(set(table) - set(allowed)):
+        sys.exit(f"unknown [{name}] keys: {unknown}")
+
+
+def required(table, key, name, kind=None):
+    """table[key], of type `kind` if given (int excludes bool; float accepts int); exits naming the missing or
+    mistyped [name].key. Settings have no defaults."""
+    if key not in table:
+        sys.exit(f"missing [{name}].{key}")
+    value = table[key]
+    if kind is not None:
+        kinds = (int, float) if kind is float else kind
+        if not isinstance(value, kinds) or (isinstance(value, bool) and kind is not bool):
+            sys.exit(f"[{name}].{key} must be {kind.__name__}, got {value!r}")
+    return value
 
 
 def resumable(**kwargs):

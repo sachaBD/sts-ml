@@ -18,7 +18,7 @@ from agents.combat.nn.training.train import LOSSES
 from agents.combat.nn.pytorch_to_onnx import ModelExporter
 from agents.combat.player.play import play
 from agents.combat.nn.training.replay import Replay
-from apps.common.app import read_jsonl
+from .files import read_jsonl
 from agents.combat.nn.training.telemetry import write as write_training
 
 from .config import experiment_changes, load, self_play_search

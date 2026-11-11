@@ -15,5 +15,9 @@ case ${1:-} in
             exec .venv/bin/python -m apps.gumbel_nn_combat_expert_iteration.dashboard "$out" "${@:3}"
         fi
         ;;
-    *) exec "$root/apps/common/launch.sh" gumbel_nn_combat_v1 apps/gumbel_nn_combat_expert_iteration/prepare.py "$@" ;;
+    *)
+        config=$(realpath "${1:?usage: run.sh CONFIG.toml [--scratch] [--overwrite] | stop|status RUN_DIRECTORY}")
+        cd "$root"  # the config's paths are relative to the repo root
+        exec .venv/bin/python -m apps.gumbel_nn_combat_expert_iteration.launch "$config" "${@:2}"
+        ;;
 esac
