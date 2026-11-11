@@ -17,7 +17,7 @@ import tomllib
 
 import pyarrow.parquet as pq
 
-from apps.common.app import read_jsonl
+from apps.gumbel_nn_combat_expert_iteration.files import read_jsonl
 from environments.combat.starts import fights
 from runs.run import run_dir
 

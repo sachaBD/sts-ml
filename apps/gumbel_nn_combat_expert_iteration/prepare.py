@@ -5,18 +5,27 @@
 Everything the run reads is copied into OUT once: config.toml and inputs/{nn_play, starts.json, evaluation/NAME.jsonl, ...}.
 """
 import argparse
+import os
 from pathlib import Path
 import re
+import shutil
 import subprocess
 import sys
 
-from apps.common.app import read_jsonl, snapshot, write_json
 from agents.combat.player.play import check
 from apps.gumbel_nn_combat_expert_iteration.config import load, nn_play_settings
+from apps.gumbel_nn_combat_expert_iteration.files import read_jsonl, write_json
 
 # Where the recipe and dashboards find each optional evaluation input.
 EVALUATION_INPUTS = {'final_fights': 'FINAL_TEST_DO_NOT_USE_FOR_SELECTION.jsonl',
                      'baselines': 'baselines.json', 'cohorts': 'cohorts.json'}
+
+
+def snapshot(path, out, name):
+    """A read-only copy of `path` in `out`, so a rebuild or retrain can't change this run."""
+    copy = out / name
+    shutil.copy2(path, copy)
+    copy.chmod(0o555 if os.access(path, os.X_OK) else 0o444)
 
 
 def inputs(config):

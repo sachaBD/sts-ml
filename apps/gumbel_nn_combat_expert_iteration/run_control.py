@@ -14,7 +14,7 @@ import os
 import shutil
 import time
 
-from apps.common.app import read_jsonl
+from .files import read_jsonl
 
 
 class RunControl:
