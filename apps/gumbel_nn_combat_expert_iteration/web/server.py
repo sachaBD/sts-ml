@@ -4,14 +4,13 @@ from dataclasses import asdict
 from functools import lru_cache
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
-import re
 import subprocess
 from pathlib import Path
 from statistics import median
 import time
 from urllib.parse import urlsplit
 
-from infra.workers.telemetry import actors, lanes, queues
+from infra.workers.telemetry import actors, evaluated_per_second, lanes, queues
 from agents.combat.nn.training.telemetry import training
 
 from ..dashboard import running, snapshot
@@ -27,20 +26,6 @@ LABELS = dict(mcts20k='MCTS20k', puct='PUCT')
 finished = lru_cache(maxsize=None)(outcomes)  # completed result files never change
 
 
-def losses(logs):
-    """Final train-step losses from the run logs; each loss line precedes its iteration's log row."""
-    out, pending = {}, None
-    for path in sorted(logs.glob('*.log'), key=lambda f: f.stat().st_mtime):
-        for line in path.read_text(errors='replace').splitlines():
-            m = re.search(r'step (\d+)/(\d+): value ([\d.]+) policy ([\d.]+)', line)
-            if m and m[1] == m[2]:
-                pending = dict(value=float(m[3]), policy=float(m[4]))
-            elif line.startswith('{"iteration"') and pending:
-                out[json.loads(line)['iteration']] = pending
-                pending = None
-    return out
-
-
 @lru_cache(maxsize=None)
 def gpu_summary(path):
     util, mem = [], []
@@ -52,26 +37,9 @@ def gpu_summary(path):
     return dict(util=sum(util) / len(util), vram=max(mem) / 1024) if util else {}
 
 
-def gpu_stats(worker_log, tail=8192):
-    """Last two cumulative gpu_stats records from a stage's worker.log (NN evaluations = leaves)."""
-    with open(worker_log, 'rb') as f:
-        f.seek(max(0, f.seek(0, 2) - tail))
-        lines = f.read().decode(errors='replace').splitlines()
-    stats = []
-    for line in lines:
-        if line.startswith('gpu_stats: '):
-            try:
-                stats.append(json.loads(line[11:]))
-            except json.JSONDecodeError:
-                pass
-    return stats[-2:]
-
-
 @lru_cache(maxsize=None)
-def inference_summary(worker_log):
-    stats = gpu_stats(worker_log)
-    last = stats[-1] if stats else {}
-    return dict(nn=last['leaves'] / last['seconds'] if last.get('seconds') else None)
+def finished_evaluated_per_second(telemetry):
+    return evaluated_per_second(Path(telemetry))  # a finished stage's telemetry never changes
 
 
 def system():
@@ -130,8 +98,7 @@ def api(out, reference=None):
     train = [dict(it=i, rates=by_deck(finished(training / f'iter{i:03d}/results.jsonl'))) for i in its]
     test_results = {i: finished(training / f'test/iter{i:03d}/results.jsonl') for i in tests}
     test = [dict(it=i, rates=by_deck(r)) for i, r in test_results.items()]
-    loss = losses(out.parent / 'logs')
-    # Structured iteration records take precedence; console logs support older runs.
+    loss = {}
     for row in history:
         if 'iteration' not in row:
             continue
@@ -140,13 +107,14 @@ def api(out, reference=None):
             ('heldout_value', 'heldout_value_loss'), ('heldout_policy', 'heldout_policy_loss'),
         ) if row.get(key) is not None}
         if values:
-            loss.setdefault(row['iteration'], {}).update(values)
+            loss[row['iteration']] = values
     timing = {r['iteration']: r for r in history if r.get('play_seconds')}
     for b in train:
-        r, gpu, worker = timing.get(b['it'], {}), training / f'iter{b["it"]:03d}/gpu.csv', training / f'iter{b["it"]:03d}/worker.log'
+        r, directory = timing.get(b['it'], {}), training / f'iter{b["it"]:03d}'
+        gpu = directory / 'gpu.csv'
         b.update(loss=loss.get(b['it']), play=r.get('play_seconds'), fit=r.get('train_seconds'),
                  gps=r['games'] / r['play_seconds'] if r else None, gpu=gpu_summary(gpu) if gpu.exists() else {},
-                 **(inference_summary(worker) if worker.exists() else dict(nn=None)))
+                 nn=finished_evaluated_per_second(str(directory / 'telemetry.jsonl')))
     decks = sorted({d for b in train + test for d in b['rates'] if d != 'all'})
 
     trend = []
@@ -181,9 +149,8 @@ def api(out, reference=None):
         starts = directory / 'starts.jsonl'
         elapsed = time.time() - (starts.stat().st_mtime if starts.exists() else progress['time'])
         speed['stage'] = len(results) / elapsed if elapsed > 0 else None
-        stats = gpu_stats(directory / 'worker.log') if (directory / 'worker.log').exists() else []
-        if len(stats) == 2 and stats[1]['seconds'] > stats[0]['seconds']:
-            speed['nn'] = (stats[1]['leaves'] - stats[0]['leaves']) / (stats[1]['seconds'] - stats[0]['seconds'])
+        if serving := lanes(directory / 'telemetry.jsonl'):
+            speed['nn'] = sum(lane.requests_s for lane in serving)
         if speed['typical'] and not live['test']:
             speed['eta'] = max(0, progress['total'] / speed['typical'] - elapsed)
     return dict(state=data['state'], run=data['config']['run']['id'], progress=progress, live=live,

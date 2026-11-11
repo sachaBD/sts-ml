@@ -3,16 +3,11 @@
 #include <onnxruntime_cxx_api.h>
 #include <algorithm>
 #include <array>
-#include <chrono>
-#include <cstdio>
-#include <mutex>
 #include <numeric>
 #include <stdexcept>
 
 namespace stsrl::infra {
 namespace {
-using Clock = std::chrono::steady_clock;
-double since(Clock::time_point t) { return std::chrono::duration<double>(Clock::now() - t).count(); }
 // B*T*T attention cells per call: one unusually long row must not pad a whole batch to its length.
 constexpr std::size_t attention_cells = 2048 * 64 * 64;
 
@@ -31,11 +26,6 @@ public:
         width_ = int(shape[2]);
     }
 
-    ~CpuBackend() override {
-        std::lock_guard lock{stats_mutex_};
-        print();
-    }
-
     std::string name() const override { return "cpu"; }
     int width() const override { return width_; }
     int max_batch() const override { return batch_; }
@@ -44,7 +34,6 @@ public:
     void prepare(const Tokens&, std::vector<std::uint16_t>& packed) const override { packed.clear(); }
 
     std::vector<Prediction> evaluate(std::span<const Input> inputs) override {
-        const auto begin = Clock::now();
         // Shortest first, then chunk so no chunk exceeds the attention budget.
         std::vector<std::size_t> order(inputs.size());
         std::iota(order.begin(), order.end(), 0);
@@ -61,9 +50,6 @@ public:
             for (std::size_t i = 0; i < chunk.size(); ++i) out[order[at + i]] = std::move(predictions[i]);
             at += chunk.size();
         }
-        std::lock_guard lock{stats_mutex_};
-        ++batches_; leaves_ += long(inputs.size()); busy_ += since(begin);
-        if (since(begin_) - reported_ >= 60) { print(); reported_ = since(begin_); }
         return out;
     }
 
@@ -91,19 +77,10 @@ private:
         return out;
     }
 
-    void print() const {  // caller holds stats_mutex_; busy is summed over lanes, so it can exceed wall time
-        std::fprintf(stderr, "cpu_stats: {\"seconds\":%.3f,\"lanes\":%d,\"batches\":%ld,\"leaves\":%ld,\"busy\":%.3f}\n",
-                     since(begin_), lanes_, batches_, leaves_, busy_);
-    }
-
     Ort::Env env_{ORT_LOGGING_LEVEL_WARNING, "infra-cpu"};
     Ort::Session session_{nullptr};  // Run is safe to call concurrently, so lanes share it
     const int lanes_, batch_;
     int width_ = 0;
-    std::mutex stats_mutex_;
-    long batches_ = 0, leaves_ = 0;
-    double busy_ = 0, reported_ = 0;
-    const Clock::time_point begin_ = Clock::now();
 };
 }  // namespace
 

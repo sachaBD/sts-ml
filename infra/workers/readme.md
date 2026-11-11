@@ -51,8 +51,7 @@ used by the InferenceServer during play and by the Learner during train.
                             └──────────────┘
 ```
 
-`gpu_stats` and `cpu_stats` timings (except wall-clock `seconds`) are summed over lanes, not device utilization; they can
-exceed wall time. `actors_stats.server_cpu_pct` is average CPU use per server lane.
+`actors_stats.server_cpu_pct` is average CPU use per server lane.
 
 ## Communication
 

@@ -7,19 +7,14 @@
 #include <algorithm>
 #include <array>
 #include <bit>
-#include <chrono>
-#include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <limits>
-#include <map>
 #include <mutex>
 #include <stdexcept>
 
 namespace stsrl::infra {
 namespace {
-using Clock = std::chrono::steady_clock;
-double since(Clock::time_point t) { return std::chrono::duration<double>(Clock::now() - t).count(); }
 // Vectorized float32 -> fp16 for the first multiple of 8 values; returns how many it converted.
 __attribute__((target("avx,f16c")))
 std::size_t to_fp16_f16c(std::span<const float> source, std::uint16_t* destination) {
@@ -161,12 +156,6 @@ public:
         }
         batch_ = engines.back()->batch;
         for (auto& lane : lanes_) { lane->allocate(batch_, tokens_, width_); free_.push_back(lane.get()); }
-        begin_ = Clock::now();
-    }
-
-    ~GpuBackend() override {
-        report();
-        lanes_.clear();
     }
 
     std::string name() const override { return "gpu-" + std::to_string(tokens_); }
@@ -182,34 +171,16 @@ public:
 
     std::vector<Prediction> evaluate(std::span<const Input> inputs) override {
         if (std::ssize(inputs) > batch_) throw std::invalid_argument{"gpu backend: batch too large"};
-        const auto begin = Clock::now();
-        Stats stats;
         std::vector<Prediction> out(inputs.size());
         if (!inputs.empty()) {
             Lane& lane = acquire();
-            try { run(lane, inputs, out, stats); } catch (...) { release(lane); throw; }
+            try { run(lane, inputs, out); } catch (...) { release(lane); throw; }
             release(lane);
         }
-        stats.busy = since(begin);
-        std::lock_guard lock{stats_mutex_};
-        total_ += stats;
-        if (since(begin_) - reported_ >= 60) { print(); reported_ = since(begin_); }
         return out;
     }
 
 private:
-    // Summed over lanes, so the seconds can exceed wall time while lanes overlap.
-    struct Stats {
-        long batches = 0, leaves = 0, capacity = 0;
-        std::map<int, long> shapes;
-        double busy = 0, h2d = 0, inference = 0, d2h = 0;
-        Stats& operator+=(const Stats& o) {
-            batches += o.batches; leaves += o.leaves; capacity += o.capacity; busy += o.busy; h2d += o.h2d; inference += o.inference; d2h += o.d2h;
-            for (const auto& [batch, count] : o.shapes) shapes[batch] += count;
-            return *this;
-        }
-    };
-
     Lane& acquire() {
         std::lock_guard lock{lanes_mutex_};
         if (free_.empty()) throw std::logic_error{"gpu backend: more concurrent evaluate() calls than lanes"};
@@ -223,7 +194,7 @@ private:
         free_.push_back(&lane);
     }
 
-    void run(Lane& lane, std::span<const Input> inputs, std::vector<Prediction>& out, Stats& stats) {
+    void run(Lane& lane, std::span<const Input> inputs, std::vector<Prediction>& out) {
         const std::size_t stride = std::size_t(tokens_) * width_;
         const int n = int(inputs.size());
         for (int k = 0; k < n; ++k) {
@@ -232,48 +203,25 @@ private:
             std::memcpy(lane.host_in + k * stride, packed.data(), packed.size_bytes());
         }
         auto& engine = **std::find_if(lane.engines.begin(), lane.engines.end(), [n](const auto& e) { return e->batch >= n; });
-        auto t = Clock::now();
         check(cudaMemcpyAsync(lane.in, lane.host_in, n * stride * sizeof(std::uint16_t), cudaMemcpyHostToDevice, lane.stream));
         check(cudaStreamSynchronize(lane.stream));
-        stats.h2d += since(t); t = Clock::now();
         engine.session.Run(Ort::RunOptions{}, engine.binding);
         check(cudaStreamSynchronize(lane.stream));
-        stats.inference += since(t); t = Clock::now();
         check(cudaMemcpyAsync(lane.host_value, lane.value, n * sizeof(float), cudaMemcpyDeviceToHost, lane.stream));
         check(cudaMemcpyAsync(lane.host_logits, lane.logits, std::size_t(n) * tokens_ * sizeof(float), cudaMemcpyDeviceToHost, lane.stream));
         check(cudaStreamSynchronize(lane.stream));
-        stats.d2h += since(t);
         for (int k = 0; k < n; ++k) {
             const auto& tokens = *inputs[k].tokens;
             const float* logits = lane.host_logits + std::size_t(k) * tokens_;
             out[k] = {lane.host_value[k], {logits + tokens.count - tokens.actions, logits + tokens.count}};
         }
-        ++stats.batches; stats.leaves += n; stats.capacity += engine.batch; ++stats.shapes[engine.batch];
-    }
-
-    void report() {
-        std::lock_guard lock{stats_mutex_};
-        print();
-    }
-
-    void print() const {  // caller holds stats_mutex_
-        const auto& s = total_;
-        std::fprintf(stderr, "gpu_stats: {\"seconds\":%.3f,\"lanes\":%d,\"tokens\":%d,\"batches\":%ld,\"leaves\":%ld,\"capacity\":%ld,"
-                     "\"busy\":%.3f,\"h2d_seconds\":%.3f,\"inference_seconds\":%.3f,\"d2h_seconds\":%.3f,\"shapes\":{",
-                     since(begin_), lane_count_, tokens_, s.batches, s.leaves, s.capacity, s.busy, s.h2d, s.inference, s.d2h);
-        const char* separator = "";
-        for (const auto& [batch, count] : s.shapes) { std::fprintf(stderr, "%s\"%d\":%ld", separator, batch, count); separator = ","; }
-        std::fprintf(stderr, "}}\n");
     }
 
     Ort::Env env_{ORT_LOGGING_LEVEL_WARNING, "infra-gpu"};
     std::vector<std::unique_ptr<Lane>> lanes_;
-    std::mutex lanes_mutex_, stats_mutex_;
+    std::mutex lanes_mutex_;
     std::vector<Lane*> free_;
     int batch_ = 0, tokens_ = 0, width_ = 0;
-    Stats total_;
-    double reported_ = 0;
-    Clock::time_point begin_;
 };
 }  // namespace
 
