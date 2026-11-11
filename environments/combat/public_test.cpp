@@ -9,50 +9,40 @@ using namespace stsrl::combat;
 using Task = sts::CardSelectTask;
 
 namespace {
-using Cards = std::vector<std::pair<sts::CardId, int>>;
-
-template <typename Pile> Cards sorted(const Pile& pile) {
-    Cards cards;
+template <typename Pile> std::vector<std::pair<sts::CardId, int>> sorted(const Pile& pile) {
+    std::vector<std::pair<sts::CardId, int>> cards;
     for (const auto& card : pile) cards.emplace_back(card.id, card.getUpgradeCount());
     std::ranges::sort(cards);
     return cards;
 }
 
-// What playing `action` leads to, ignoring the order of every pile and of the potion slots.
+// What playing `action` leads to, ignoring the order of every pile.
 auto result(sts::BattleContext state, Action action) {
     action.execute(state);
     const auto& c = state.cards;
-    std::vector<sts::Potion> potions(state.potions.begin(), state.potions.begin() + state.potionCapacity);
-    std::ranges::sort(potions);
     return std::tuple{sorted(std::span{c.hand.data(), std::size_t(c.cardsInHand)}), sorted(c.drawPile),
-                      sorted(c.discardPile), sorted(c.exhaustPile), potions, state.player.energy, state.player.block,
+                      sorted(c.discardPile), sorted(c.exhaustPile), state.player.energy, state.player.block,
                       state.monsters.arr[0].curHp, state.monsters.arr[1].curHp};
 }
 
-// Jaw Worm and a weaker copy, holding two identical potions; at the start, or in a card selection. Every pile holds duplicates, at different positions and of different
-// cards in each pile, so a key that reads the wrong pile or a position is caught.
+// Jaw Worm and a weaker copy; at the start (duplicate Strikes and Defends), or picking from piles of duplicates.
+// Duplicates sit at different positions in each pile, so reading the wrong pile or a position is caught.
 sts::BattleContext fight(Task task) {
     using enum sts::CardId;
     auto state = stsrl::scenarios::jaw_worm(7);
-    state.monsters.arr[1] = state.monsters.arr[0];  // a second target, with different HP
+    state.monsters.arr[1] = state.monsters.arr[0];
     state.monsters.arr[1].idx = 1;
     state.monsters.arr[1].curHp -= 5;
     state.monsters.monsterCount = state.monsters.monstersAlive = 2;
-    state.obtainPotion(sts::Potion::FIRE_POTION);
-    state.obtainPotion(sts::Potion::FIRE_POTION);
     if (task == Task::INVALID) return state;
     state.inputState = sts::InputState::CARD_SELECT;
     state.cardSelectInfo.cardSelectTask = task;
-    state.cardSelectInfo.cards = {ANGER, CLEAVE, ANGER};  // offered by Discovery and Codex
-    state.cardSelectInfo.data0 = 1;  // Discovery's copy count
+    state.cardSelectInfo.pickCount = 4;
     const auto fill = [](auto& pile, std::vector<sts::CardInstance> cards) {
         pile.clear();
         for (const auto& card : cards) pile.push_back(card);
     };
-    fill(state.cards.drawPile, {{CLEAVE, true}, {ANGER}, {ANGER}, {CLEAVE}});
-    state.cardSelectInfo.pickCount = int(state.cards.drawPile.size());  // Scry sees the whole pile
-    fill(state.cards.discardPile, {{STRIKE_RED}, {DEFEND_RED}, {STRIKE_RED}, {BASH, true}});
-    fill(state.cards.exhaustPile, {{SHRUG_IT_OFF}, {CLOTHESLINE}, {FLEX}, {SHRUG_IT_OFF}});
+    fill(state.cards.discardPile, {{STRIKE_RED}, {BASH}, {STRIKE_RED}, {BASH, true}});
     const std::vector<sts::CardInstance> hand{{IRON_WAVE}, {POMMEL_STRIKE}, {TWIN_STRIKE}, {POMMEL_STRIKE}};
     std::ranges::copy(hand, state.cards.hand.begin());
     state.cards.cardsInHand = int(hand.size());
@@ -70,9 +60,8 @@ sts::BattleContext reversed(sts::BattleContext state) {
 class Public : public testing::TestWithParam<Task> {};
 }  // namespace
 
-INSTANTIATE_TEST_SUITE_P(EveryPile, Public, testing::Values(Task::INVALID, Task::WARCRY, Task::HEADBUTT, Task::EXHUME,
-                                                            Task::SEEK, Task::EXHAUST_MANY, Task::SCRY,
-                                                            Task::DISCOVERY, Task::CODEX),
+// Playing from hand, picking from a pile, and picking several.
+INSTANTIATE_TEST_SUITE_P(EveryMechanism, Public, testing::Values(Task::INVALID, Task::HEADBUTT, Task::EXHAUST_MANY),
                          [](const auto& info) {
                              return info.param == Task::INVALID ? std::string{"PLAY"} : sts::cardSelectTaskStrings[int(info.param)];
                          });

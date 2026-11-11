@@ -32,29 +32,32 @@ std::uint64_t card_identity(const sts::CardInstance& card) {
     return hash;
 }
 
-// What a move's positions refer to; empty when it names none.
+// The cards a selection picks among. Offers (Codex, Discovery, Wish) have fixed slots, so their positions stay.
+std::span<const sts::CardInstance> selection_pile(const sts::BattleContext& state) {
+    using enum sts::CardSelectTask;
+    const auto& cards = state.cards;
+    switch (state.cardSelectInfo.cardSelectTask) {
+    case CODEX: case DISCOVERY: case WISH: return {};
+    case HEADBUTT: case HOLOGRAM: case LIQUID_MEMORIES_POTION: case MEDITATE: return cards.discardPile;
+    case EXHUME: return cards.exhaustPile;
+    case SECRET_TECHNIQUE: case SECRET_WEAPON: case SEEK: case OMNISCIENCE: case SCRY: return cards.drawPile;
+    default: return {cards.hand.data(), std::size_t(cards.cardsInHand)};
+    }
+}
+
+// The cards a move's positions refer to; empty when it names none.
 std::vector<std::uint64_t> chosen(const sts::BattleContext& state, Action action) {
     using enum sts::search::ActionType;
-    using enum sts::CardSelectTask;
-    const auto task = state.cardSelectInfo.cardSelectTask;
-    switch (action.getActionType()) {
-    case CARD: return {card_identity(state.cards.hand[action.getSourceIdx()])};
-    case POTION: return {std::uint64_t(state.potions[action.getSourceIdx()])};
-    case SINGLE_CARD_SELECT: {
-        const auto i = action.getSelectIdx();
-        if (const auto pile = selection_pile(state); pile != Pile::offered) return {card_identity(cards_in(state, pile)[i])};
-        if (task == WISH || i == 3) return {};  // Wish offers no cards; Codex's fourth choice skips
-        return {card_identity(sts::CardInstance{state.cardSelectInfo.cards[i]})};
-    }
-    case MULTI_CARD_SELECT: {
-        const auto pile = cards_in(state, selection_pile(state));
-        std::vector<std::uint64_t> cards;
-        for (const int i : action.getSelectedIdxs()) cards.push_back(card_identity(pile[i]));
-        std::ranges::sort(cards);
-        return cards;
-    }
-    default: return {};
-    }
+    const auto type = action.getActionType();
+    if (type == CARD) return {card_identity(state.cards.hand[action.getSourceIdx()])};
+    if (type != SINGLE_CARD_SELECT && type != MULTI_CARD_SELECT) return {};
+    const auto pile = selection_pile(state);
+    if (pile.empty()) return {};
+    std::vector<std::uint64_t> cards;
+    if (type == SINGLE_CARD_SELECT) cards.push_back(card_identity(pile[action.getSelectIdx()]));
+    else for (const int i : action.getSelectedIdxs()) cards.push_back(card_identity(pile[i]));
+    std::ranges::sort(cards);
+    return cards;
 }
 
 // Fresh RNG streams and a reshuffled draw pile. The pile is sorted before shuffling so that its sampled
@@ -93,35 +96,12 @@ std::vector<Action> legal_actions(const sts::BattleContext& state) {
 }
 
 std::uint64_t action_key(const sts::BattleContext& state, Action action) {
-    const auto choice = chosen(state, action);
-    auto key = fold(0, choice.empty() ? action.bits : action.bits & ~0xFFFFu);  // positions: the low 16 bits
-    for (const auto item : choice) key = fold(key, item);
+    const auto cards = chosen(state, action);
+    auto key = fold(0, cards.empty() ? action.bits : action.bits & ~0xFFFFu);  // positions: the low 16 bits
+    for (const auto card : cards) key = fold(key, card);
     return key;
 }
 std::uint64_t observation_key(const sts::BattleContext& state) { return Public::observationKey(state); }
-
-Pile selection_pile(const sts::BattleContext& state) {
-    using enum sts::CardSelectTask;
-    switch (state.cardSelectInfo.cardSelectTask) {
-    case CODEX: case DISCOVERY: case WISH: return Pile::offered;
-    case HEADBUTT: case HOLOGRAM: case LIQUID_MEMORIES_POTION: case MEDITATE: return Pile::discard;
-    case EXHUME: return Pile::exhaust;
-    case SECRET_TECHNIQUE: case SECRET_WEAPON: case SEEK: case OMNISCIENCE: case SCRY: return Pile::draw;
-    default: return Pile::hand;
-    }
-}
-
-std::span<const sts::CardInstance> cards_in(const sts::BattleContext& state, Pile pile) {
-    const auto& cards = state.cards;
-    switch (pile) {
-    case Pile::hand: return {cards.hand.data(), std::size_t(cards.cardsInHand)};
-    case Pile::draw: return cards.drawPile;
-    case Pile::discard: return cards.discardPile;
-    case Pile::exhaust: return cards.exhaustPile;
-    case Pile::offered: return {};
-    }
-    return {};
-}
 
 std::vector<sts::BattleContext> particles(const sts::BattleContext& observed, int count, std::uint64_t stream) {
     if (count < 1) throw std::invalid_argument{"particles: count must be >= 1"};
