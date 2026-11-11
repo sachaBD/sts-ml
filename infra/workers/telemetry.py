@@ -57,14 +57,28 @@ def lanes(telemetry: Path) -> list[LaneState]:
             for i, (latest, d) in enumerate(rows)]
 
 
-def deltas(telemetry: Path, section: str) -> tuple[list[tuple[dict, dict]], float]:
-    """Each entry's latest values and increase over the last WINDOW seconds (less, early on), and those seconds."""
-    records = []
+def evaluated_per_second(telemetry: Path) -> float | None:
+    """Requests every lane evaluated per second, over the whole of run_actors; None before two records."""
+    rows = read(telemetry)
+    if len(rows) < 2 or rows[-1]['time'] <= rows[0]['time']:
+        return None
+    evaluated = [sum(lane['requests'] for lane in r['lanes']) for r in (rows[0], rows[-1])]
+    return (evaluated[1] - evaluated[0]) / (rows[-1]['time'] - rows[0]['time'])
+
+
+def read(telemetry: Path) -> list[dict]:
+    rows = []
     for line in telemetry.read_text().splitlines() if telemetry.exists() else []:
         try:
-            records.append(json.loads(line))
+            rows.append(json.loads(line))
         except json.JSONDecodeError:
             pass  # a write in progress
+    return rows
+
+
+def deltas(telemetry: Path, section: str) -> tuple[list[tuple[dict, dict]], float]:
+    """Each entry's latest values and increase over the last WINDOW seconds (less, early on), and those seconds."""
+    records = read(telemetry)
     if len(records) < 2:
         return [], 0
     new = records[-1]
