@@ -85,10 +85,19 @@ std::vector<int> halving_schedule(int m, int simulations) {
     return out;
 }
 
-// Edges are public keys because card slots can differ between worlds.
-void play(sts::BattleContext& state, std::uint64_t key) {
-    for (const auto a : combat::legal_actions(state))
-        if (combat::action_key(state, a) == key) { a.execute(state); return; }
+// Edges are public keys because card slots can differ between worlds. Forced single-action
+// follow-ups (such as End Turn at 0 energy) are played immediately, matching Fight::play.
+std::vector<Action> play(sts::BattleContext& state, std::uint64_t key) {
+    for (const auto a : combat::legal_actions(state)) {
+        if (combat::action_key(state, a) != key) continue;
+        a.execute(state);
+        while (state.outcome == sts::Outcome::UNDECIDED) {
+            auto actions = combat::legal_actions(state);
+            if (actions.size() != 1) return actions;
+            actions[0].execute(state);
+        }
+        return {};
+    }
     throw std::runtime_error{"gumbel: action missing in a particle"};
 }
 }  // namespace
@@ -133,7 +142,7 @@ struct Gumbel::Impl {
         for (;;) {
             const auto edge = node == &root ? root_choice(schedule[simulation]) : interior_choice(*node);
             path.emplace_back(node, edge);
-            play(state, node->keys[edge]);
+            auto next = play(state, node->keys[edge]);
             if (state.outcome != sts::Outcome::UNDECIDED) { backup(state.outcome == sts::Outcome::PLAYER_VICTORY); return; }
             auto& child = node->children[edge][Chance::child_key(state)];
             if (!child) {
@@ -141,7 +150,7 @@ struct Gumbel::Impl {
                 child->id = nodes++;
                 leaf = child.get();
                 leaf_state = state;
-                leaf_actions = combat::legal_actions(state);
+                leaf_actions = std::move(next);
                 return;
             }
             node = child.get();

@@ -56,6 +56,7 @@ TEST(Gumbel, QueriesAreLiveLegalDecisions) {
     auto answer = noisy();
     run(search, [&](const Query& q) {
         EXPECT_EQ(q.state.outcome, sts::Outcome::UNDECIDED);
+        EXPECT_GT(q.actions.size(), 1u);
         EXPECT_TRUE(std::ranges::equal(q.actions, legal_actions(q.state)));
         return answer(q);
     });
