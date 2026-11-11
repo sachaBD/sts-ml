@@ -18,6 +18,7 @@ See [`apps/gumbel_nn_combat_expert_iteration/README.md`](apps/gumbel_nn_combat_e
 ## Layout
 
 - `apps/gumbel_nn_combat_expert_iteration/`: the training app and dashboard.
+- [`apps/combat_inspector/`](apps/combat_inspector/README.md): Python API for inspecting a decision's search graph.
 - `agents/combat/nn/`: the network (entity and inventory models), their encodings, and training.
 - `agents/combat/player/`: the agent that plays fights, search + network (`nn_play`).
 - `agents/combat/search/`: Gumbel search.

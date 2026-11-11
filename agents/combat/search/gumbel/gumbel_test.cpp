@@ -171,3 +171,57 @@ TEST(Gumbel, EntropicSelfLoopUsesTheNetworkValueAndReportsAnError) {
     EXPECT_NE(errors.find("path_action_keys=["), std::string::npos);
     EXPECT_NE(errors.find("BattleContext:"), std::string::npos);
 }
+
+
+namespace {
+class GumbelInspection : public testing::Test {
+protected:
+    const sts::BattleContext state = stsrl::scenarios::jaw_worm(7);
+    Gumbel search{state, settings(1), 1};
+    Result result;
+    Gumbel::Graph graph;
+    std::vector<std::pair<std::uint64_t, double>> evaluated;
+
+    void SetUp() override {
+        auto answer = noisy();
+        result = run(search, [&](const Query& query) {
+            auto evaluation = answer(query);
+            evaluated.emplace_back(stsrl::combat::observation_key(query.state), evaluation.value);
+            return evaluation;
+        });
+        std::ranges::sort(evaluated);
+        graph = search.graph();
+    }
+};
+}  // namespace
+
+TEST_F(GumbelInspection, ExposesTheEvaluatedNodes) {
+    std::vector<std::pair<std::uint64_t, double>> reported;
+    for (const auto& node : graph.nodes)
+        if (!node.terminal) reported.emplace_back(node.observation, node.evaluation_value);
+    std::ranges::sort(reported);
+    EXPECT_EQ(reported, evaluated);
+}
+
+TEST_F(GumbelInspection, ExposesRootActionsInDecisionOrder) {
+    const auto root = std::ranges::find(graph.nodes, graph.root, &Gumbel::Graph::Node::observation);
+    ASSERT_NE(root, graph.nodes.end());
+    std::vector<std::uint64_t> reported, expected;
+    for (const auto& edge : root->edges) reported.push_back(edge.action);
+    for (const auto action : result.actions) expected.push_back(stsrl::combat::action_key(state, action));
+    EXPECT_EQ(reported, expected);
+}
+
+TEST_F(GumbelInspection, ExposesTheDecisionPolicy) {
+    const auto root = std::ranges::find(graph.nodes, graph.root, &Gumbel::Graph::Node::observation);
+    ASSERT_NE(root, graph.nodes.end());
+    std::vector<float> reported;
+    for (const auto& edge : root->edges) reported.push_back(float(edge.improved_policy));
+    EXPECT_EQ(reported, result.policy);
+}
+
+TEST_F(GumbelInspection, InspectionPreservesTheDecision) {
+    EXPECT_EQ(search.result().action, result.action);
+    EXPECT_EQ(search.result().policy, result.policy);
+    EXPECT_EQ(search.result().value, result.value);
+}

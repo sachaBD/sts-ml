@@ -77,3 +77,5 @@ add_subdirectory(infra/workers)
 add_subdirectory(agents/combat/search)
 add_subdirectory(agents/combat/nn)
 add_subdirectory(agents/combat/player)
+
+add_subdirectory(apps/combat_inspector)
