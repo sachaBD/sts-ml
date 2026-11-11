@@ -9,7 +9,7 @@
 namespace stsrl::combat {
 using sts::search::Action;
 
-// One action per public key: identical card copies in different hand slots are one move.
+// A move is the cards it chooses, not where they sit: identical cards are one move, whatever the pile order.
 std::vector<Action> legal_actions(const sts::BattleContext&);
 std::uint64_t action_key(const sts::BattleContext&, Action);
 std::uint64_t observation_key(const sts::BattleContext&);

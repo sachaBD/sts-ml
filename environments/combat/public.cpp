@@ -3,6 +3,7 @@
 #include "sim/search/PublicBeliefCombatSearch.h"
 #include <algorithm>
 #include <set>
+#include <span>
 #include <stdexcept>
 #include <tuple>
 
@@ -16,6 +17,47 @@ std::uint64_t next_seed(std::uint64_t& state) {  // splitmix64
     value = (value ^ (value >> 30)) * 0xBF58476D1CE4E5B9ULL;
     value = (value ^ (value >> 27)) * 0x94D049BB133111EBULL;
     return value ^ (value >> 31);
+}
+
+std::uint64_t fold(std::uint64_t hash, std::uint64_t value) { return next_seed(hash ^= value); }
+
+// Never position or uniqueId.
+std::uint64_t card_identity(const sts::CardInstance& card) {
+    std::uint64_t hash = 0;
+    for (const std::uint64_t field : {std::uint64_t(card.id), std::uint64_t(card.getUpgradeCount()),
+                                      std::uint64_t(card.specialData), std::uint64_t(card.cost),
+                                      std::uint64_t(card.costForTurn), std::uint64_t(card.freeToPlayOnce),
+                                      std::uint64_t(card.retain)})
+        hash = fold(hash, field);
+    return hash;
+}
+
+// The cards a selection picks among. Offers (Codex, Discovery, Wish) have fixed slots, so their positions stay.
+std::span<const sts::CardInstance> selection_pile(const sts::BattleContext& state) {
+    using enum sts::CardSelectTask;
+    const auto& cards = state.cards;
+    switch (state.cardSelectInfo.cardSelectTask) {
+    case CODEX: case DISCOVERY: case WISH: return {};
+    case HEADBUTT: case HOLOGRAM: case LIQUID_MEMORIES_POTION: case MEDITATE: return cards.discardPile;
+    case EXHUME: return cards.exhaustPile;
+    case SECRET_TECHNIQUE: case SECRET_WEAPON: case SEEK: case OMNISCIENCE: case SCRY: return cards.drawPile;
+    default: return {cards.hand.data(), std::size_t(cards.cardsInHand)};
+    }
+}
+
+// The cards a move's positions refer to; empty when it names none.
+std::vector<std::uint64_t> chosen(const sts::BattleContext& state, Action action) {
+    using enum sts::search::ActionType;
+    const auto type = action.getActionType();
+    if (type == CARD) return {card_identity(state.cards.hand[action.getSourceIdx()])};
+    if (type != SINGLE_CARD_SELECT && type != MULTI_CARD_SELECT) return {};
+    const auto pile = selection_pile(state);
+    if (pile.empty()) return {};
+    std::vector<std::uint64_t> cards;
+    if (type == SINGLE_CARD_SELECT) cards.push_back(card_identity(pile[action.getSelectIdx()]));
+    else for (const int i : action.getSelectedIdxs()) cards.push_back(card_identity(pile[i]));
+    std::ranges::sort(cards);
+    return cards;
 }
 
 // Fresh RNG streams and a reshuffled draw pile. The pile is sorted before shuffling so that its sampled
@@ -53,7 +95,12 @@ std::vector<Action> legal_actions(const sts::BattleContext& state) {
     return actions;
 }
 
-std::uint64_t action_key(const sts::BattleContext& state, Action action) { return Public::publicActionKey(state, action); }
+std::uint64_t action_key(const sts::BattleContext& state, Action action) {
+    const auto cards = chosen(state, action);
+    auto key = fold(0, cards.empty() ? action.bits : action.bits & ~0xFFFFu);  // positions: the low 16 bits
+    for (const auto card : cards) key = fold(key, card);
+    return key;
+}
 std::uint64_t observation_key(const sts::BattleContext& state) { return Public::observationKey(state); }
 
 std::vector<sts::BattleContext> particles(const sts::BattleContext& observed, int count, std::uint64_t stream) {
