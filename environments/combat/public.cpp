@@ -21,7 +21,7 @@ std::uint64_t next_seed(std::uint64_t& state) {  // splitmix64
 
 std::uint64_t fold(std::uint64_t hash, std::uint64_t value) { return next_seed(hash ^= value); }
 
-// Everything that makes a card play differently; never its position or uniqueId.
+// Never position or uniqueId.
 std::uint64_t card_identity(const sts::CardInstance& card) {
     std::uint64_t hash = 0;
     for (const std::uint64_t field : {std::uint64_t(card.id), std::uint64_t(card.getUpgradeCount()),
@@ -32,8 +32,7 @@ std::uint64_t card_identity(const sts::CardInstance& card) {
     return hash;
 }
 
-// What the positions in a move refer to: the card played, the potion used, or the cards selected or offered.
-// Empty when the move names no position (end turn, stance, enemy, Wish, skipping a Codex).
+// What a move's positions refer to; empty when it names none.
 std::vector<std::uint64_t> chosen(const sts::BattleContext& state, Action action) {
     using enum sts::search::ActionType;
     using enum sts::CardSelectTask;
@@ -93,7 +92,6 @@ std::vector<Action> legal_actions(const sts::BattleContext& state) {
     return actions;
 }
 
-// A move is what it chooses, not where that sits: its positions are replaced by what they refer to.
 std::uint64_t action_key(const sts::BattleContext& state, Action action) {
     const auto choice = chosen(state, action);
     auto key = fold(0, choice.empty() ? action.bits : action.bits & ~0xFFFFu);  // positions: the low 16 bits
