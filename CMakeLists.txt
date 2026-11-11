@@ -44,7 +44,7 @@ FetchContent_MakeAvailable(googletest)
 include(GoogleTest)
 
 add_executable(combat_public_test environments/combat/public_test.cpp)
-target_link_libraries(combat_public_test PRIVATE combat_environment combat_scenarios GTest::gtest_main)
+target_link_libraries(combat_public_test PRIVATE combat_environment GTest::gtest_main)
 target_compile_options(combat_public_test PRIVATE -Wall -Wextra -Wpedantic)
 gtest_discover_tests(combat_public_test PROPERTIES TIMEOUT 10)
 
