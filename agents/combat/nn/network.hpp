@@ -12,5 +12,6 @@ struct Network {
     std::vector<std::unique_ptr<infra::Backend>> backends;  // in the order requests try them
 };
 
-Network load_network(const std::filesystem::path& models);
+enum class Backends { all, cpu };
+Network load_network(const std::filesystem::path& models, Backends = Backends::all);
 }  // namespace stsrl::nn

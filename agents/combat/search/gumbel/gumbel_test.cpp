@@ -173,34 +173,52 @@ TEST(Gumbel, EntropicSelfLoopUsesTheNetworkValueAndReportsAnError) {
 }
 
 
-TEST(GumbelTree, SnapshotAgreesWithTheSearchAndDoesNotChangeIt) {
-    for (const auto seed : {1u, 2u, 3u}) {
-        const auto state = stsrl::scenarios::jaw_worm(seed);
-        Gumbel inspected{state, settings(1), seed}, control{state, settings(1), seed};
-        auto answer = noisy();
-        while (const auto query = inspected.pending()) {
-            inspected.evaluated(answer(*query));
-            const auto snapshot = inspected.tree();
-            EXPECT_FALSE(snapshot.nodes.empty());
-        }
-        const auto expected = run(control, noisy());
-        const auto result = inspected.result();
-        EXPECT_EQ(result.action, expected.action);
-        EXPECT_EQ(result.policy, expected.policy);
-        EXPECT_EQ(result.value, expected.value);
-        const auto tree = inspected.tree();
-        const auto root = std::ranges::find(tree.nodes, tree.root, &Gumbel::Tree::Node::observation);
-        ASSERT_NE(root, tree.nodes.end());
+TEST(GumbelGraph, ReportsTheValuesAndCountsUsedByTheSearchWithoutChangingTheResult) {
+    for (const auto seed : {1u, 2u, 3u}) for (const int simulations : {0, 8, 64}) {
+        auto state = stsrl::scenarios::jaw_worm(seed);
+        state.monsters.arr[0].curHp = 1;  // exercises terminal nodes as well as evaluated nodes
+        auto s = settings(1);
+        s.simulations = simulations;
+        Gumbel search{state, s, seed};
+        EXPECT_THROW(search.graph(), std::logic_error);
+        const auto result = run(search, noisy());
+        const auto graph = search.graph();
+        EXPECT_EQ(search.result().action, result.action);
+        EXPECT_EQ(search.result().policy, result.policy);
+        EXPECT_EQ(search.result().value, result.value);
+        const auto root = std::ranges::find(graph.nodes, graph.root, &Gumbel::Graph::Node::observation);
+        ASSERT_NE(root, graph.nodes.end());
         ASSERT_EQ(root->edges.size(), result.policy.size());
-        for (std::size_t i = 0; i < result.policy.size(); ++i)
-            EXPECT_FLOAT_EQ(root->edges[i].improved, result.policy[i]);
-        for (const auto& node : tree.nodes) for (const auto& edge : node.edges) {
-            int count = 0;
-            for (const auto& child : edge.children) {
-                EXPECT_NE(std::ranges::find(tree.nodes, child.observation, &Gumbel::Tree::Node::observation), tree.nodes.end());
-                count += child.visits;
+        EXPECT_EQ(graph.root, stsrl::combat::observation_key(state));
+        for (std::size_t i = 0; i < result.policy.size(); ++i) {
+            EXPECT_FLOAT_EQ(root->edges[i].improved_policy, result.policy[i]);
+            EXPECT_EQ(root->edges[i].action, stsrl::combat::action_key(state, result.actions[i]));
+        }
+        for (const auto& node : graph.nodes) {
+            if (node.terminal) {
+                EXPECT_TRUE(node.edges.empty());
+                EXPECT_TRUE(node.evaluation_value == 0 || node.evaluation_value == 1);
+                EXPECT_EQ(node.mean_value, node.evaluation_value);
+                continue;
             }
-            EXPECT_EQ(count, edge.visits);
+            int traversals = 0;
+            for (const auto& edge : node.edges) {
+                int count = 0;
+                double weighted = 0;
+                for (const auto& child : edge.children) {
+                    const auto reached = std::ranges::find(graph.nodes, child.observation, &Gumbel::Graph::Node::observation);
+                    ASSERT_NE(reached, graph.nodes.end());
+                    weighted += child.visits * reached->mean_value;
+                    count += child.visits;
+                }
+                EXPECT_EQ(count, edge.visits);
+                ASSERT_EQ(edge.q.has_value(), count > 0);
+                if (count) {
+                    EXPECT_NEAR(*edge.q, weighted / count, 1e-12);
+                }
+                traversals += count;
+            }
+            EXPECT_EQ(node.visits, traversals + 1);
         }
     }
 }

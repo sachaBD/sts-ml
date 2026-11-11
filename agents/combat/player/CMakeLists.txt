@@ -3,14 +3,6 @@ add_library(player_decision STATIC decision.cpp targets.cpp)
 target_link_libraries(player_decision PUBLIC nn_tokens combat_search)
 target_compile_options(player_decision PRIVATE -Wall -Wextra -Wpedantic)
 
-add_library(player_explanation STATIC explanation.cpp)
-target_link_libraries(player_explanation PUBLIC player_decision)
-target_compile_options(player_explanation PRIVATE -Wall -Wextra -Wpedantic)
-
-add_executable(player_explanation_test explanation_test.cpp)
-target_link_libraries(player_explanation_test PRIVATE player_explanation combat_scenarios GTest::gtest_main)
-gtest_discover_tests(player_explanation_test PROPERTIES TIMEOUT 30)
-
 # Fights as infra episodes, recording each finished one.
 add_library(player_episodes STATIC episodes.cpp)
 target_link_libraries(player_episodes PUBLIC player_decision infra_actors)
