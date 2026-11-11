@@ -2,8 +2,10 @@
 #include "environments/combat/public.hpp"
 #include <algorithm>
 #include <cmath>
+#include <iostream>
 #include <random>
 #include <stdexcept>
+#include <syncstream>
 #include <unordered_map>
 
 namespace stsrl::search {
@@ -117,6 +119,7 @@ struct Gumbel::Impl {
     struct Step { Node* node; std::size_t edge; Node* reached; };
 
     Settings s;
+    std::uint64_t fight_seed;
     std::mt19937_64 rng;
     Chance chance;
     std::vector<Action> actions;
@@ -132,7 +135,7 @@ struct Gumbel::Impl {
     std::vector<Step> path;
 
     Impl(const sts::BattleContext& observed, const Settings& settings, std::uint64_t seed)
-        : s{settings}, rng{seed}, chance{observed, settings.particles}, actions{combat::legal_actions(observed)},
+        : s{settings}, fight_seed{observed.seed}, rng{seed}, chance{observed, settings.particles}, actions{combat::legal_actions(observed)},
           root{*(nodes[Chance::node_key(observed)] = std::make_unique<Node>())},
           leaf{&root}, leaf_state{observed}, leaf_actions{actions} {}
 
@@ -160,9 +163,19 @@ struct Gumbel::Impl {
             auto& next = nodes[Chance::node_key(state)];
             const bool created = !next;
             if (created) next = std::make_unique<Node>();
-            if (std::ranges::any_of(path, [&](const Step& step) { return step.node == next.get(); }))
-                throw std::logic_error{"gumbel: a state repeated within one simulation"};
+            const bool cycle = next.get() == node ||
+                std::ranges::any_of(path, [&](const Step& step) { return step.node == next.get(); });
             path.push_back({node, edge, next.get()});
+            if (cycle) {
+                std::osyncstream error{std::cerr};
+                error << "ERROR gumbel: cycle truncated; fight_seed=" << fight_seed
+                      << " simulation=" << simulation << " observation=" << Chance::node_key(state)
+                      << " bootstrap=" << next->value << " path_action_keys=[";
+                for (const auto& step : path) error << step.node->keys[step.edge] << ',';
+                error << "]\n" << state;
+                backup(*next);
+                return;
+            }
             if (state.outcome != sts::Outcome::UNDECIDED) {
                 next->value = state.outcome == sts::Outcome::PLAYER_VICTORY;
                 backup(*next);
@@ -188,7 +201,10 @@ struct Gumbel::Impl {
             if (found == counts.end()) counts.emplace_back(reached, 1); else ++found->second;
             node->value_sum += value; ++node->visits;
         }
-        end.value_sum += value; ++end.visits;
+        // A cycle's endpoint was already counted as a source on this path.
+        if (std::ranges::none_of(path, [&](const Step& step) { return step.node == &end; })) {
+            end.value_sum += value; ++end.visits;
+        }
     }
 
     void expand(Node& n, const Evaluation& e) {

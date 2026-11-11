@@ -143,3 +143,36 @@ TEST(Gumbel, ASingleLegalMoveGetsProbabilityOne) {
     EXPECT_EQ(r.policy, std::vector<float>{1.f});
 }
 
+
+TEST(Gumbel, EntropicSelfLoopUsesTheNetworkValueAndReportsAnError) {
+    auto state = stsrl::scenarios::jaw_worm(13);
+    state.potionCapacity = state.potionCount = 2;
+    state.potions[0] = sts::Potion::ENTROPIC_BREW;
+    state.potions[1] = sts::Potion::COLORLESS_POTION;
+    const Action brew{sts::search::ActionType::POTION, 0};
+    auto particle = stsrl::combat::particles(state, 1).front();
+    const auto before = stsrl::combat::observation_key(particle);
+    brew.execute(particle);
+    ASSERT_EQ(stsrl::combat::observation_key(particle), before);
+    auto s = settings();
+    s.particles = 1;
+    s.considered_actions = 1;
+    s.simulations = 8;
+    Gumbel search{state, s, 1};
+    int queries = 0;
+    testing::internal::CaptureStderr();
+    const auto result = run(search, [&](const Query& q) {
+        ++queries;
+        Evaluation answer{0.37f, std::vector<float>(q.actions.size(), -100.f)};
+        for (std::size_t i = 0; i < q.actions.size(); ++i)
+            if (q.actions[i] == brew) answer.logits[i] = 100.f;
+        return answer;
+    });
+    const auto errors = testing::internal::GetCapturedStderr();
+    EXPECT_EQ(queries, 1);
+    EXPECT_FLOAT_EQ(result.value, 0.37f);
+    EXPECT_EQ(result.action, brew);
+    EXPECT_NE(errors.find("ERROR gumbel: cycle truncated"), std::string::npos);
+    EXPECT_NE(errors.find("path_action_keys=["), std::string::npos);
+    EXPECT_NE(errors.find("BattleContext:"), std::string::npos);
+}
