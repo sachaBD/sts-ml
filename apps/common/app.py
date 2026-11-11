@@ -1,33 +1,10 @@
-"""The app entry point, config checks and run helpers shared by the apps."""
-import argparse
+"""Config checks and run helpers shared by the apps."""
 import hashlib
 import json
-import logging
 import os
 import shutil
 import sys
-import tomllib
 from pathlib import Path
-
-
-def main(run, inputs=lambda config: ()):
-    """Command line of every app (apps/common/launch.sh):
-      SCRIPT CONFIG.toml --out DIR   run(config, config_path, out); its return value is the exit code
-      SCRIPT CONFIG.toml --inputs    print inputs(config), the run ids it reads, one per line
-    """
-    parser = argparse.ArgumentParser(description=sys.modules["__main__"].__doc__)
-    parser.add_argument("config", type=Path)
-    parser.add_argument("--out", type=Path, help="run output dir")
-    parser.add_argument("--inputs", action="store_true", help="print the input run ids (for apps/common/launch.sh)")
-    args = parser.parse_args()
-    config = tomllib.loads(args.config.read_text())
-    if args.inputs:
-        print(*inputs(config), sep="\n")
-        return
-    if args.out is None:
-        parser.error("--out is required")
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s", datefmt="%H:%M:%S", stream=sys.stdout)
-    sys.exit(run(config, args.config, args.out) or 0)
 
 
 def check_keys(table, allowed, name):

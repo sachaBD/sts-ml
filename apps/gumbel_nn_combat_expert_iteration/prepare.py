@@ -1,13 +1,16 @@
-"""Freeze a run's inputs, then launch expert_iteration.py on them. See README.md.
+"""Freeze a run's inputs, then launch expert_iteration.py on them; launch.py runs it as the run's job. See README.md.
+
+  python -m apps.gumbel_nn_combat_expert_iteration.prepare CONFIG.toml --out OUT
 
 Everything the run reads is copied into OUT once: config.toml and inputs/{nn_play, starts.json, evaluation/NAME.jsonl, ...}.
 """
+import argparse
 from pathlib import Path
 import re
 import subprocess
 import sys
 
-from apps.common.app import main, read_jsonl, snapshot, write_json
+from apps.common.app import read_jsonl, snapshot, write_json
 from agents.combat.player.play import check
 from apps.gumbel_nn_combat_expert_iteration.config import load, nn_play_settings
 
@@ -16,15 +19,15 @@ EVALUATION_INPUTS = {'final_fights': 'FINAL_TEST_DO_NOT_USE_FOR_SELECTION.jsonl'
                      'baselines': 'baselines.json', 'cohorts': 'cohorts.json'}
 
 
-def inputs(raw):
-    """The files this run reads (lineage for apps/common/launch.sh)."""
-    run, starts, evaluation = (raw.get(k, {}) for k in ('run', 'starts', 'evaluation'))
-    paths = [starts.get('fights'), run.get('initial_checkpoint'), *(s.get('fights') for s in evaluation.get('sets', [])),
-             *(evaluation.get(k) for k in EVALUATION_INPUTS)]
+def inputs(config):
+    """The files this run reads, as written in the config: what run() freezes."""
+    e = config.evaluation
+    paths = [config.starts.fights, config.run.initial_checkpoint, *(s.fights for s in e.sets),
+             *(getattr(e, key) for key in EVALUATION_INPUTS)]
     return sorted(p for p in paths if p)
 
 
-def run(_raw, config_path, out):
+def run(config_path, out):
     config = load(config_path.read_text())
     decks = read_jsonl(config.starts.fights)
     names = [f['fight_id'] for f in decks]
@@ -60,5 +63,13 @@ def run(_raw, config_path, out):
         subprocess.run(command, check=True)
 
 
+def main():
+    p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    p.add_argument('config', type=Path)
+    p.add_argument('--out', type=Path, required=True, help='the run output directory')
+    a = p.parse_args()
+    run(a.config, a.out)
+
+
 if __name__ == '__main__':
-    main(run, inputs)
+    main()
