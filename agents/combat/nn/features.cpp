@@ -7,6 +7,7 @@
 // Scaling: counts that can grow without bound use symlog (sign * log1p|x|), flags are 0 / 1, and potion
 // magnitudes are divided by a fixed typical size.
 #include "agents/combat/nn/features.hpp"
+#include "environments/combat/public.hpp"
 
 #include "combat/BattleContext.h"
 #include "constants/MonsterStatusEffects.h"
@@ -340,28 +341,15 @@ MonsterToken encode_monster(const sts::BattleContext& state, const sts::Monster&
 bool card_less(const CardToken& a, const CardToken& b) { return std::tie(a.card_id, a.zone, a.card_type, a.target_type, a.numeric) < std::tie(b.card_id, b.zone, b.card_type, b.target_type, b.numeric); }
 bool monster_less(const MonsterToken& a, const MonsterToken& b) { return std::tie(a.monster_id, a.move_id, a.numeric, a.previous_move_id, a.status) < std::tie(b.monster_id, b.move_id, b.numeric, b.previous_move_id, b.status); }
 
-const sts::CardInstance* selected_card(const sts::BattleContext& state, const sts::search::Action& action,
-                                       CardZone& zone) {
-    if (state.inputState != sts::InputState::CARD_SELECT) {
-        zone = CardZone::hand;
-        return nullptr;
+CardZone zone_of(combat::Pile pile) {
+    switch (pile) {
+    case combat::Pile::hand: return CardZone::hand;
+    case combat::Pile::draw: return CardZone::draw;
+    case combat::Pile::discard: return CardZone::discard;
+    case combat::Pile::exhaust: return CardZone::exhaust;
+    case combat::Pile::offered: return CardZone::offered;
     }
-    const auto index = action.getSelectIdx();
-    switch (state.cardSelectInfo.cardSelectTask) {
-    case sts::CardSelectTask::CODEX:
-    case sts::CardSelectTask::DISCOVERY:
-        zone = CardZone::offered;
-        return nullptr;
-    case sts::CardSelectTask::HOLOGRAM: case sts::CardSelectTask::LIQUID_MEMORIES_POTION:
-    case sts::CardSelectTask::HEADBUTT: case sts::CardSelectTask::MEDITATE:
-        zone = CardZone::discard; return index >= 0 && index < static_cast<int>(state.cards.discardPile.size()) ? &state.cards.discardPile[index] : nullptr;
-    case sts::CardSelectTask::EXHUME:
-        zone = CardZone::exhaust; return index >= 0 && index < static_cast<int>(state.cards.exhaustPile.size()) ? &state.cards.exhaustPile[index] : nullptr;
-    case sts::CardSelectTask::SECRET_TECHNIQUE: case sts::CardSelectTask::SECRET_WEAPON: case sts::CardSelectTask::SEEK:
-        zone = CardZone::draw; return index >= 0 && index < static_cast<int>(state.cards.drawPile.size()) ? &state.cards.drawPile[index] : nullptr;
-    default:
-        zone = CardZone::hand; return index >= 0 && index < state.cards.cardsInHand ? &state.cards.hand[index] : nullptr;
-    }
+    throw std::logic_error{"features: unknown pile"};
 }
 
 // The card x monster interaction numeric of `card` (in hand) played at monster slot `slot`; nullopt when it
@@ -506,8 +494,10 @@ ActionToken encode_action(const sts::BattleContext& state, const sts::search::Ac
                                                                 : info.discovery_Cards()[selected];
             token.source_card = CardToken{.card_id = static_cast<int>(id), .zone = CardZone::offered};
         } else {
-            CardZone zone{};
-            if (const auto* card = selected_card(state, action, zone)) token.source_card = encode_card(state, *card, zone, false);
+            const auto pile = combat::selection_pile(state);
+            const auto cards = combat::cards_in(state, pile);
+            if (selected >= 0 && selected < static_cast<int>(cards.size()))
+                token.source_card = encode_card(state, cards[selected], zone_of(pile), false);
         }
     }
     const bool requires_target = action.getActionType() == sts::search::ActionType::CARD
