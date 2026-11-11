@@ -48,6 +48,17 @@ std::vector<std::uint64_t> chosen(const sts::BattleContext& state, Action action
     return cards;
 }
 
+// Nothing a player can see or do depends on the order of the hand, discard or exhaust piles. The draw pile's
+// order is hidden, or seen and kept (Frozen Eye).
+sts::BattleContext unordered(sts::BattleContext state) {
+    const auto by_identity = [](const auto& a, const auto& b) { return card_identity(a) < card_identity(b); };
+    auto& cards = state.cards;
+    std::sort(cards.hand.begin(), cards.hand.begin() + cards.cardsInHand, by_identity);
+    std::sort(cards.discardPile.begin(), cards.discardPile.end(), by_identity);
+    std::sort(cards.exhaustPile.begin(), cards.exhaustPile.end(), by_identity);
+    return state;
+}
+
 // Fresh RNG streams and a reshuffled draw pile. The pile is sorted before shuffling so that its sampled
 // order does not depend on the hidden true order.
 sts::BattleContext particle(const sts::BattleContext& observed, std::uint64_t seed) {
@@ -89,7 +100,7 @@ std::uint64_t action_key(const sts::BattleContext& state, Action action) {
     for (const auto item : choice) key = fold(key, item);
     return key;
 }
-std::uint64_t observation_key(const sts::BattleContext& state) { return Public::observationKey(state); }
+std::uint64_t observation_key(const sts::BattleContext& state) { return Public::observationKey(unordered(state)); }
 
 Pile selection_pile(const sts::BattleContext& state) {
     using enum sts::CardSelectTask;
@@ -123,6 +134,6 @@ std::vector<sts::BattleContext> particles(const sts::BattleContext& observed, in
 }
 
 std::vector<sts::BattleContext> particles(const sts::BattleContext& observed, int count) {
-    return particles(observed, count, Public::publicObservation(observed));
+    return particles(observed, count, observation_key(observed));
 }
 }  // namespace stsrl::combat

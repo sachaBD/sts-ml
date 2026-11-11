@@ -1,4 +1,5 @@
 #include "environments/combat/public.hpp"
+#include "environments/combat/scenarios/jaw_worm.hpp"
 #include <gtest/gtest.h>
 
 using namespace stsrl::combat;
@@ -18,6 +19,18 @@ sts::BattleContext headbutt(std::vector<sts::CardInstance> discard) {
     state.inputState = sts::InputState::CARD_SELECT;
     state.cardSelectInfo.cardSelectTask = sts::CardSelectTask::HEADBUTT;
     for (const auto& card : discard) state.cards.discardPile.push_back(card);
+    return state;
+}
+
+// A whole, initialised state whose hand, discard and exhaust piles all hold `cards`.
+sts::BattleContext with_piles(std::vector<sts::CardInstance> cards) {
+    auto state = stsrl::scenarios::jaw_worm(7);
+    std::ranges::copy(cards, state.cards.hand.begin());
+    state.cards.cardsInHand = int(cards.size());
+    for (auto* pile : {&state.cards.discardPile, &state.cards.exhaustPile}) {
+        pile->clear();
+        for (const auto& card : cards) pile->push_back(card);
+    }
     return state;
 }
 
@@ -65,4 +78,10 @@ TEST(ActionKey, UsingAPotionIsThePotionAndTarget) {
     EXPECT_EQ(use(0, 0), use(2, 0));
     EXPECT_NE(use(0, 0), use(1, 0));
     EXPECT_NE(use(0, 0), use(0, 1));
+}
+
+TEST(ObservationKey, IgnoresTheOrderOfHandDiscardAndExhaust) {
+    const auto state = with_piles({{STRIKE_RED}, {BASH}, {DEFEND_RED}});
+    EXPECT_EQ(observation_key(state), observation_key(with_piles({{DEFEND_RED}, {STRIKE_RED}, {BASH}})));
+    EXPECT_NE(observation_key(state), observation_key(with_piles({{DEFEND_RED}, {STRIKE_RED}, {BASH, true}})));
 }
