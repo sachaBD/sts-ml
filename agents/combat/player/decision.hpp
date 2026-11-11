@@ -5,6 +5,7 @@
 #include <cstdint>
 #include <memory>
 #include <random>
+#include <unordered_map>
 
 namespace stsrl::player {
 class Fight {
@@ -28,18 +29,25 @@ private:
     std::vector<Vitals> turn_starts_;
 };
 
+// Network answers by a hash of the exact request, so a repeated request needs no network call.
+using Answers = std::unordered_map<std::uint64_t, infra::Prediction>;
+
 // One decision: a search whose queries the network answers. pending() is the network request, if any.
+// Requests the previous decision already sent are answered from its answers, which the next search often repeats.
 class Decision {
 public:
-    Decision(std::unique_ptr<search::CombatSearch>, const nn::NetworkEvaluator&);
+    Decision(std::unique_ptr<search::CombatSearch>, const nn::NetworkEvaluator&, Answers previous = {});
     const infra::Tokens* pending() const { return search_->pending() ? &request_ : nullptr; }
     void evaluated(const infra::Prediction& prediction);
     search::Result result() const { return search_->result(); }
+    Answers answers() && { return std::move(answers_); }  // every answer this decision used
 
 private:
     void next_request();
     std::unique_ptr<search::CombatSearch> search_;
     const nn::NetworkEvaluator& network_;
+    Answers previous_, answers_;
     infra::Tokens request_;
+    std::uint64_t request_key_ = 0;
 };
 }  // namespace stsrl::player

@@ -1,5 +1,7 @@
 #include "agents/combat/player/decision.hpp"
 #include "environments/combat/public.hpp"
+#include <functional>
+#include <string_view>
 
 namespace stsrl::player {
 Fight::Fight(const sts::BattleContext& start, std::uint64_t seed) : state_{start}, seed_{seed} {
@@ -33,17 +35,33 @@ std::mt19937_64 Fight::decision_random() const {
     return std::mt19937_64{seeds};
 }
 
-Decision::Decision(std::unique_ptr<search::CombatSearch> search, const nn::NetworkEvaluator& network)
-    : search_{std::move(search)}, network_{network} {
+namespace {
+// The data's length and the action count fix the shape, so equal keys mean equal requests (up to hash collision).
+std::uint64_t key(const infra::Tokens& tokens) {
+    const std::string_view bytes{reinterpret_cast<const char*>(tokens.data.data()), tokens.data.size() * sizeof(float)};
+    return std::hash<std::string_view>{}(bytes) ^ std::uint64_t(tokens.actions);
+}
+}  // namespace
+
+Decision::Decision(std::unique_ptr<search::CombatSearch> search, const nn::NetworkEvaluator& network, Answers previous)
+    : search_{std::move(search)}, network_{network}, previous_{std::move(previous)} {
     next_request();
 }
 
 void Decision::evaluated(const infra::Prediction& prediction) {
+    answers_.emplace(request_key_, prediction);
     search_->evaluated(nn::NetworkEvaluator::answer(prediction));
     next_request();
 }
 
 void Decision::next_request() {
-    if (const auto query = search_->pending()) request_ = network_.request(*query);
+    while (const auto query = search_->pending()) {
+        request_ = network_.request(*query);
+        request_key_ = key(request_);
+        const auto known = previous_.find(request_key_);
+        if (known == previous_.end()) return;
+        answers_.insert(*known);
+        search_->evaluated(nn::NetworkEvaluator::answer(known->second));
+    }
 }
 }  // namespace stsrl::player

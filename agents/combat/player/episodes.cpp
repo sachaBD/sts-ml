@@ -37,6 +37,7 @@ struct Episodes::Game {
     Json record;  // its fights-file line
     Fight fight;
     std::optional<Decision> decision;
+    Answers answers;  // the last decision's, for the next
     std::vector<Sample> decisions;  // state, improved policy and vitals per searched move
     Clock::time_point begin = Clock::now();
 
@@ -51,12 +52,13 @@ struct Episodes::Game {
                 if (const auto query = decision->pending()) return query;
                 auto r = decision->result();
                 decisions.push_back({network.request({fight.state(), r.actions}), std::move(r.policy), vitals(fight.state())});
+                answers = std::move(*decision).answers();
                 decision.reset();
                 fight.play(r.action);
             }
             if (fight.over()) return nullptr;
             auto random = fight.decision_random();
-            decision.emplace(search(fight.state(), random), network);
+            decision.emplace(search(fight.state(), random), network, std::move(answers));
         }
     }
 };
