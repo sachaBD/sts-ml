@@ -32,11 +32,12 @@ std::uint64_t card_identity(const sts::CardInstance& card) {
     return hash;
 }
 
-// The cards a move's positions refer to; empty when it names none.
+// What a move's positions refer to: cards, or a potion; empty when it names none.
 std::vector<std::uint64_t> chosen(const sts::BattleContext& state, Action action) {
     using enum sts::search::ActionType;
     const auto type = action.getActionType();
     if (type == CARD) return {card_identity(state.cards.hand[action.getSourceIdx()])};
+    if (type == POTION) return {std::uint64_t(state.potions[action.getSourceIdx()])};
     if (type != SINGLE_CARD_SELECT && type != MULTI_CARD_SELECT) return {};
     const auto pile = cards_in(state, selection_pile(state));
     if (pile.empty()) return {};  // offers have fixed slots, so their positions stay
@@ -83,9 +84,9 @@ std::vector<Action> legal_actions(const sts::BattleContext& state) {
 }
 
 std::uint64_t action_key(const sts::BattleContext& state, Action action) {
-    const auto cards = chosen(state, action);
-    auto key = fold(0, cards.empty() ? action.bits : action.bits & ~0xFFFFu);  // positions: the low 16 bits
-    for (const auto card : cards) key = fold(key, card);
+    const auto choice = chosen(state, action);
+    auto key = fold(0, choice.empty() ? action.bits : action.bits & ~0xFFFFu);  // positions: the low 16 bits
+    for (const auto item : choice) key = fold(key, item);
     return key;
 }
 std::uint64_t observation_key(const sts::BattleContext& state) { return Public::observationKey(state); }
