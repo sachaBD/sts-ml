@@ -7,6 +7,7 @@
 #include <cmath>
 #include <numeric>
 #include <random>
+#include <set>
 
 using namespace stsrl::search;
 using stsrl::combat::legal_actions;
@@ -57,6 +58,18 @@ TEST(Gumbel, NetworkCallsStayWithinTheSimulationBudget) {
     run(search, [&](const Query& q) { ++queries; return answer(q); });
     EXPECT_LE(queries, s.simulations + 1);
     EXPECT_FALSE(search.pending());
+}
+
+TEST(Gumbel, NeverAsksAboutTheSameStateTwice) {
+    auto s = settings(1);
+    s.simulations = 256;
+    Gumbel search{stsrl::scenarios::jaw_worm(7), s, 1};
+    std::set<std::uint64_t> asked;
+    auto answer = noisy();
+    run(search, [&](const Query& q) {
+        EXPECT_TRUE(asked.insert(stsrl::combat::observation_key(q.state)).second);
+        return answer(q);
+    });
 }
 
 TEST(Gumbel, ResultIsAProbabilityOverTheLegalMoves) {
