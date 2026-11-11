@@ -1,6 +1,8 @@
 #pragma once
 // Training targets for one decision, derived once its fight is over.
+#include "agents/combat/nn/layout.hpp"
 #include "combat/BattleContext.h"
+#include <array>
 #include <span>
 #include <vector>
 
@@ -11,10 +13,9 @@ struct Vitals {
 };
 Vitals vitals(const sts::BattleContext&);
 
-// Sample-record order. Fractions are of max HP; a round runs from the decision to the start of our next turn.
-struct Targets {
-    float won, hp, enemy_hp, hp_lost, enemy_hp_lost, turns_remaining;
-};
+// Indexed by nn::layout::sample::targets. Fractions are of max HP; a round runs from the decision to the start of
+// our next turn.
+using Targets = std::array<float, nn::layout::sample::targets::count>;
 
 // Records the state's vitals when it is the first input of a turn not yet recorded; call at every input.
 void observe(std::vector<Vitals>& turn_starts, const sts::BattleContext&);

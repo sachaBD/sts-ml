@@ -16,7 +16,6 @@ SPEC = ModelSpec('entity', dim=16, layers=1, heads=2, value='win', auxiliary=Fal
 def train_once(learner, tokens):
     policy = torch.zeros(tokens.shape[:2])
     policy[:, 1:] = 1 / (tokens.shape[1] - 1)  # example_tokens: a context row, then legal actions
-    # won, hp, enemy_hp, hp_lost, enemy_hp_lost, turns_remaining
     targets = torch.tensor([[1., .5, 0., .1, .2, 3.], [0., 0., .4, .3, 0., 0.]])
     train(learner.net, learner.optimizer, tokens, policy, targets,
           steps=1, batch=2, device='cpu', log=lambda _: None)
