@@ -16,16 +16,18 @@ template <typename Pile> std::vector<std::pair<sts::CardId, int>> sorted(const P
     return cards;
 }
 
-// What playing `action` leads to, ignoring the order of every pile.
+// What playing `action` leads to, ignoring the order of every pile and of the potion slots.
 auto result(sts::BattleContext state, Action action) {
     action.execute(state);
     const auto& c = state.cards;
+    std::vector<sts::Potion> potions(state.potions.begin(), state.potions.begin() + state.potionCapacity);
+    std::ranges::sort(potions);
     return std::tuple{sorted(std::span{c.hand.data(), std::size_t(c.cardsInHand)}), sorted(c.drawPile),
-                      sorted(c.discardPile), sorted(c.exhaustPile), state.player.energy, state.player.block,
+                      sorted(c.discardPile), sorted(c.exhaustPile), potions, state.player.energy, state.player.block,
                       state.monsters.arr[0].curHp, state.monsters.arr[1].curHp};
 }
 
-// Jaw Worm and a weaker copy; at the start (duplicate Strikes and Defends), or picking from piles of duplicates.
+// Jaw Worm and a weaker copy, holding two identical potions; at the start (duplicate Strikes and Defends), or picking from piles of duplicates.
 // Duplicates sit at different positions in each pile, so reading the wrong pile or a position is caught.
 sts::BattleContext fight(Task task) {
     using enum sts::CardId;
@@ -34,6 +36,8 @@ sts::BattleContext fight(Task task) {
     state.monsters.arr[1].idx = 1;
     state.monsters.arr[1].curHp -= 5;
     state.monsters.monsterCount = state.monsters.monstersAlive = 2;
+    state.obtainPotion(sts::Potion::FIRE_POTION);
+    state.obtainPotion(sts::Potion::FIRE_POTION);
     if (task == Task::INVALID) return state;
     state.inputState = sts::InputState::CARD_SELECT;
     state.cardSelectInfo.cardSelectTask = task;
