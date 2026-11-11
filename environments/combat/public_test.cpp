@@ -55,3 +55,14 @@ TEST(ActionKey, PickingSeveralIsTheSetOfCards) {
     EXPECT_EQ(pick_many(hand, 0b011), pick_many(hand, 0b110));
     EXPECT_NE(pick_many(hand, 0b011), pick_many(hand, 0b101));
 }
+
+TEST(ActionKey, UsingAPotionIsThePotionAndTarget) {
+    sts::BattleContext state;
+    state.potionCapacity = 3;
+    state.potions[0] = state.potions[2] = sts::Potion::FIRE_POTION;
+    state.potions[1] = sts::Potion::BLOCK_POTION;
+    const auto use = [&](int slot, int target) { return action_key(state, Action{Type::POTION, slot, target}); };
+    EXPECT_EQ(use(0, 0), use(2, 0));
+    EXPECT_NE(use(0, 0), use(1, 0));
+    EXPECT_NE(use(0, 0), use(0, 1));
+}
