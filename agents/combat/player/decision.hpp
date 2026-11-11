@@ -29,8 +29,15 @@ private:
     std::vector<Vitals> turn_starts_;
 };
 
-// Network answers by a hash of the exact request, so a repeated request needs no network call.
-using Answers = std::unordered_map<std::uint64_t, infra::Prediction>;
+// The network's answers by exact request, so a repeated request needs no network call.
+class Answers {
+public:
+    const infra::Prediction* find(const infra::Tokens&) const;
+    void add(const infra::Tokens&, const infra::Prediction&);
+
+private:
+    std::unordered_map<std::uint64_t, infra::Prediction> by_request_;  // a hash of the request's bytes
+};
 
 // One decision: a search whose queries the network answers. pending() is the network request, if any.
 // Requests the previous decision already sent are answered from its answers, which the next search often repeats.
@@ -48,6 +55,5 @@ private:
     const nn::NetworkEvaluator& network_;
     Answers previous_, answers_;
     infra::Tokens request_;
-    std::uint64_t request_key_ = 0;
 };
 }  // namespace stsrl::player

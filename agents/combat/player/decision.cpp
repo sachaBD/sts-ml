@@ -43,13 +43,20 @@ std::uint64_t key(const infra::Tokens& tokens) {
 }
 }  // namespace
 
+const infra::Prediction* Answers::find(const infra::Tokens& request) const {
+    const auto found = by_request_.find(key(request));
+    return found == by_request_.end() ? nullptr : &found->second;
+}
+
+void Answers::add(const infra::Tokens& request, const infra::Prediction& answer) { by_request_.emplace(key(request), answer); }
+
 Decision::Decision(std::unique_ptr<search::CombatSearch> search, const nn::NetworkEvaluator& network, Answers previous)
     : search_{std::move(search)}, network_{network}, previous_{std::move(previous)} {
     next_request();
 }
 
 void Decision::evaluated(const infra::Prediction& prediction) {
-    answers_.emplace(request_key_, prediction);
+    answers_.add(request_, prediction);
     search_->evaluated(nn::NetworkEvaluator::answer(prediction));
     next_request();
 }
@@ -57,11 +64,10 @@ void Decision::evaluated(const infra::Prediction& prediction) {
 void Decision::next_request() {
     while (const auto query = search_->pending()) {
         request_ = network_.request(*query);
-        request_key_ = key(request_);
-        const auto known = previous_.find(request_key_);
-        if (known == previous_.end()) return;
-        answers_.insert(*known);
-        search_->evaluated(nn::NetworkEvaluator::answer(known->second));
+        const auto* known = previous_.find(request_);
+        if (!known) return;
+        answers_.add(request_, *known);
+        search_->evaluated(nn::NetworkEvaluator::answer(*known));
     }
 }
 }  // namespace stsrl::player
