@@ -2,32 +2,52 @@
 #include "environments/combat/public.hpp"
 #include <algorithm>
 #include <cmath>
-#include <map>
 #include <random>
 #include <stdexcept>
+#include <unordered_map>
 
 namespace stsrl::search {
 namespace {
+// Values live only on nodes; an edge only counts where it led. Every other value is derived from these.
 struct Node {
-    std::vector<std::uint64_t> keys;  // edges, by public action key
-    std::vector<double> logits, prior, value_sum;
-    std::vector<int> visits;
-    std::vector<std::map<std::uint64_t, std::unique_ptr<Node>>> children;  // per edge, by Chance::child_key
-    double value = 0;
-    int total = 0;
-    int id = 0;  // creation order
+    double value = 0;  // the network's estimate, or a finished fight's outcome
+    double value_sum = 0;  // over every simulation through this node, by any path
+    int visits = 0;
+    std::vector<std::uint64_t> keys;  // edges, by action key
+    std::vector<double> logits, prior;
+    std::vector<std::vector<std::pair<Node*, int>>> reached;  // per edge: each node it led to, and how often
 };
 
-// How the tree meets hidden information and chance: where a simulation starts, and which children
-// a move can lead to. Particles: every simulation plays out in one sampled world, and children are
-// told apart by what the player can see, so all worlds share one tree.
+double q(const Node& n) { return n.value_sum / n.visits; }
+
+int visits(const Node& n, std::size_t edge) {
+    int count = 0;
+    for (const auto& [child, times] : n.reached[edge]) count += times;
+    return count;
+}
+
+double q(const Node& n, std::size_t edge) {
+    double sum = 0;
+    for (const auto& [child, times] : n.reached[edge]) sum += times * q(*child);
+    return sum / visits(n, edge);
+}
+
+int total(const Node& n) {
+    int count = 0;
+    for (std::size_t e = 0; e < n.keys.size(); ++e) count += visits(n, e);
+    return count;
+}
+
+// How the search meets hidden information and chance: where a simulation starts, and which node a state is.
+// Particles: every simulation plays out in one sampled world, and nodes are told apart by what the player
+// can see, so all worlds and all move orders share one graph.
 class Particles {
 public:
     Particles(const sts::BattleContext& observed, int count) : worlds_{combat::particles(observed, count)} {}
     sts::BattleContext start(std::mt19937_64& rng) const {
         return worlds_[std::uniform_int_distribution<std::size_t>{0, worlds_.size() - 1}(rng)];
     }
-    static std::uint64_t child_key(const sts::BattleContext& state) { return combat::observation_key(state); }
+    static std::uint64_t node_key(const sts::BattleContext& state) { return combat::observation_key(state); }
 
 private:
     std::vector<sts::BattleContext> worlds_;
@@ -47,16 +67,17 @@ std::vector<double> sigma(const Node& n, const Gumbel::Settings& s) {
     double prior_visited = 0, weighted = 0;
     int most = 0;
     for (std::size_t i = 0; i < n.keys.size(); ++i)
-        if (n.visits[i]) {
-            prior_visited += n.prior[i]; weighted += n.prior[i] * n.value_sum[i] / n.visits[i];
-            most = std::max(most, n.visits[i]);
+        if (const int v = visits(n, i)) {
+            prior_visited += n.prior[i]; weighted += n.prior[i] * q(n, i);
+            most = std::max(most, v);
         }
-    const double mixed = prior_visited > 0 ? (n.value + n.total * weighted / prior_visited) / (n.total + 1) : n.value;
-    std::vector<double> q(n.keys.size());
-    for (std::size_t i = 0; i < q.size(); ++i) q[i] = n.visits[i] ? n.value_sum[i] / n.visits[i] : mixed;
-    const double low = *std::min_element(q.begin(), q.end());
-    for (auto& v : q) v = (s.maxvisit_init + most) * s.value_scale * (v - low);
-    return q;
+    const int sum = total(n);
+    const double mixed = prior_visited > 0 ? (n.value + sum * weighted / prior_visited) / (sum + 1) : n.value;
+    std::vector<double> completed(n.keys.size());
+    for (std::size_t i = 0; i < completed.size(); ++i) completed[i] = visits(n, i) ? q(n, i) : mixed;
+    const double low = *std::min_element(completed.begin(), completed.end());
+    for (auto& v : completed) v = (s.maxvisit_init + most) * s.value_scale * (v - low);
+    return completed;
 }
 
 std::vector<double> improved_policy(const Node& n, const Gumbel::Settings& s) {
@@ -93,32 +114,35 @@ void play(sts::BattleContext& state, std::uint64_t key) {
 }  // namespace
 
 struct Gumbel::Impl {
+    struct Step { Node* node; std::size_t edge; Node* reached; };
+
     Settings s;
     std::mt19937_64 rng;
     Chance chance;
     std::vector<Action> actions;
-    Node root;
+    std::unordered_map<std::uint64_t, std::unique_ptr<Node>> nodes;  // by Chance::node_key
+    Node& root;
     std::vector<double> gumbel;
     std::vector<int> schedule;
-    int simulation = 0, nodes = 1;
+    int simulation = 0;
 
     Node* leaf = nullptr;
     sts::BattleContext leaf_state;
     std::vector<Action> leaf_actions;
-    std::vector<std::pair<Node*, std::size_t>> path;
+    std::vector<Step> path;
 
     Impl(const sts::BattleContext& observed, const Settings& settings, std::uint64_t seed)
         : s{settings}, rng{seed}, chance{observed, settings.particles}, actions{combat::legal_actions(observed)},
+          root{*(nodes[Chance::node_key(observed)] = std::make_unique<Node>())},
           leaf{&root}, leaf_state{observed}, leaf_actions{actions} {}
 
     void evaluated(const Evaluation& e) {
         expand(*leaf, e);
+        backup(*leaf);
         if (leaf == &root) {
             std::extreme_value_distribution<double> g;
             for (std::size_t i = 0; i < actions.size(); ++i) gumbel.push_back(s.gumbel_scale * g(rng));
             schedule = halving_schedule(std::min<int>(s.considered_actions, int(actions.size())), s.simulations);
-        } else {
-            backup(e.value);
         }
         leaf = nullptr;
         while (!leaf && simulation < int(schedule.size())) simulate();
@@ -129,27 +153,42 @@ struct Gumbel::Impl {
         auto state = chance.start(rng);
         path.clear();
         Node* node = &root;
+        const int considered = schedule[simulation++];
         for (;;) {
-            const auto edge = node == &root ? root_choice(schedule[simulation]) : interior_choice(*node);
-            path.emplace_back(node, edge);
+            const auto edge = node == &root ? root_choice(considered) : interior_choice(*node);
             play(state, node->keys[edge]);
-            if (state.outcome != sts::Outcome::UNDECIDED) { backup(state.outcome == sts::Outcome::PLAYER_VICTORY); return; }
-            auto& child = node->children[edge][Chance::child_key(state)];
-            if (!child) {
-                child = std::make_unique<Node>();
-                child->id = nodes++;
-                leaf = child.get();
+            auto& next = nodes[Chance::node_key(state)];
+            const bool created = !next;
+            if (created) next = std::make_unique<Node>();
+            if (std::ranges::any_of(path, [&](const Step& step) { return step.node == next.get(); }))
+                throw std::logic_error{"gumbel: a state repeated within one simulation"};
+            path.push_back({node, edge, next.get()});
+            if (state.outcome != sts::Outcome::UNDECIDED) {
+                next->value = state.outcome == sts::Outcome::PLAYER_VICTORY;
+                backup(*next);
+                return;
+            }
+            if (created) {
+                leaf = next.get();
                 leaf_state = state;
                 leaf_actions = combat::legal_actions(state);
                 return;
             }
-            node = child.get();
+            node = next.get();
         }
     }
 
-    void backup(double value) {
-        for (auto [n, e] : path) { ++n->visits[e]; n->value_sum[e] += value; ++n->total; }
-        ++simulation;
+    // The one place values change: `end`'s value is counted at every node on the path, and each edge
+    // counts the node it reached.
+    void backup(Node& end) {
+        const double value = end.value;
+        for (const auto& [node, edge, reached] : path) {
+            auto& counts = node->reached[edge];
+            const auto found = std::ranges::find(counts, reached, &std::pair<Node*, int>::first);
+            if (found == counts.end()) counts.emplace_back(reached, 1); else ++found->second;
+            node->value_sum += value; ++node->visits;
+        }
+        end.value_sum += value; ++end.visits;
     }
 
     void expand(Node& n, const Evaluation& e) {
@@ -157,7 +196,7 @@ struct Gumbel::Impl {
         n.logits.assign(e.logits.begin(), e.logits.end());
         n.prior = softmax(n.logits);
         for (const auto a : leaf_actions) n.keys.push_back(combat::action_key(leaf_state, a));
-        n.value_sum.assign(n.keys.size(), 0); n.visits.assign(n.keys.size(), 0); n.children.resize(n.keys.size());
+        n.reached.resize(n.keys.size());
     }
 
     // Root: argmax of gumbel + logits + sigma among actions with exactly `considered` visits.
@@ -165,7 +204,7 @@ struct Gumbel::Impl {
         const auto q = sigma(root, s);
         std::size_t best = 0; double best_score = -INFINITY;
         for (std::size_t i = 0; i < q.size(); ++i)
-            if (root.visits[i] == considered && gumbel[i] + root.logits[i] + q[i] > best_score)
+            if (visits(root, i) == considered && gumbel[i] + root.logits[i] + q[i] > best_score)
                 best = i, best_score = gumbel[i] + root.logits[i] + q[i];
         return best;
     }
@@ -173,20 +212,21 @@ struct Gumbel::Impl {
     // Interior: argmax of improved policy - visits / (1 + total).
     std::size_t interior_choice(const Node& n) const {
         const auto pi = improved_policy(n, s);
+        const int sum = total(n);
         std::size_t best = 0; double best_score = -INFINITY;
         for (std::size_t i = 0; i < pi.size(); ++i) {
-            const double score = pi[i] - double(n.visits[i]) / (1 + n.total);
+            const double score = pi[i] - double(visits(n, i)) / (1 + sum);
             if (score > best_score) best = i, best_score = score;
         }
         return best;
     }
 
     Result result() const {
-        const int most = *std::max_element(root.visits.begin(), root.visits.end());
+        int most = 0, sum = 0;
         double value_sum = 0;
-        for (double v : root.value_sum) value_sum += v;
-        Result r{actions[root_choice(most)], actions, {},
-                 float(root.total ? value_sum / root.total : root.value)};
+        for (std::size_t i = 0; i < root.keys.size(); ++i)
+            if (const int v = visits(root, i)) { most = std::max(most, v); sum += v; value_sum += v * q(root, i); }
+        Result r{actions[root_choice(most)], actions, {}, float(sum ? value_sum / sum : root.value)};
         for (double p : improved_policy(root, s)) r.policy.push_back(float(p));
         return r;
     }
