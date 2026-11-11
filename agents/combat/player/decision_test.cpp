@@ -5,8 +5,6 @@
 #include "environments/combat/public.hpp"
 #include "environments/combat/scenarios/jaw_worm.hpp"
 #include <gtest/gtest.h>
-#include <cmath>
-#include <map>
 
 using namespace stsrl::player;
 using namespace stsrl::nn;
@@ -63,35 +61,4 @@ TEST(Decision, DependsOnlyOnTheFightStartAndTheMovesSoFar) {
             EXPECT_EQ(r.value, results[k].value) << "seed " << seed << " decision " << k;
         }
     }
-}
-
-
-TEST(Decision, InspectionPreservesNetworkAndRolloutValueSemantics) {
-    for (const auto encoding : {Encoding::entity, Encoding::inventory_v1})
-        for (const double mix : {0.0, 0.3, 1.0}) {
-            Fight fight{stsrl::scenarios::jaw_worm(7), 7};
-            const NetworkEvaluator network{encoding};
-            auto random = fight.decision_random();
-            const stsrl::search::SearchConfig config{16, 2, 1, mix};
-            auto search = config.create(fight.state(), random);
-            Decision decision{std::move(search.search), network};
-            std::map<std::uint64_t, float> predictions;
-            while (const auto tokens = decision.pending()) {
-                const auto prediction = fake_network(*tokens);
-                predictions.emplace(stsrl::combat::observation_key(search.gumbel.pending()->state), prediction.value);
-                decision.evaluated(prediction);
-            }
-            const auto graph = search.gumbel.graph();
-            for (const auto& node : graph.nodes) {
-                if (node.terminal) continue;
-                const auto value = predictions.at(node.observation);
-                if (mix == 0) {
-                    EXPECT_EQ(node.evaluation_value, value);
-                } else {
-                    const double rollout = (node.evaluation_value - (1 - mix) * value) / mix;
-                    EXPECT_NEAR(rollout, std::round(rollout), 1e-6);
-                    EXPECT_TRUE(std::round(rollout) == 0 || std::round(rollout) == 1);
-                }
-            }
-        }
 }

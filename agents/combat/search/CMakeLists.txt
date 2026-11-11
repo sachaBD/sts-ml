@@ -10,3 +10,8 @@ add_executable(gumbel_test gumbel/gumbel_test.cpp)
 target_link_libraries(gumbel_test PRIVATE combat_search combat_scenarios GTest::gtest_main)
 target_compile_options(gumbel_test PRIVATE -Wall -Wextra -Wpedantic)
 gtest_discover_tests(gumbel_test PROPERTIES TIMEOUT 60)
+
+add_executable(rollout_blend_test rollout_blend/rollout_blend_test.cpp)
+target_link_libraries(rollout_blend_test PRIVATE combat_search combat_scenarios GTest::gtest_main)
+target_compile_options(rollout_blend_test PRIVATE -Wall -Wextra -Wpedantic)
+gtest_discover_tests(rollout_blend_test PROPERTIES TIMEOUT 60)
