@@ -13,6 +13,7 @@ using sts::search::Action;
 // A move is what it chooses, not where that sits: identical cards or potions are one move, whatever the order.
 std::vector<Action> legal_actions(const sts::BattleContext&);
 std::uint64_t action_key(const sts::BattleContext&, Action);
+// A state is what a player sees, whatever the order of the hand, discard and exhaust piles.
 std::uint64_t observation_key(const sts::BattleContext&);
 
 // Where a card selection picks from. Offers (Codex, Discovery, Wish) are not a pile and hold no cards.
