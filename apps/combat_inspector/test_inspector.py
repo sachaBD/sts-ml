@@ -53,7 +53,7 @@ def checkpoint(directory, encoding):
 
 @unittest.skipUnless(BINARY.exists(), 'combat_explain not built')
 class InspectorTests(unittest.TestCase):
-    def test_checkpoint_selects_the_encoder_and_cpu_artifact(self):
+    def test_checkpoint_determines_the_network(self):
         with tempfile.TemporaryDirectory() as tmp:
             directory = Path(tmp)
             for encoding in ('entity', 'inventory_v1'):
@@ -63,7 +63,7 @@ class InspectorTests(unittest.TestCase):
                     expected = 1 / (1 + math.exp(-getattr(LAYOUT, encoding).version))
                     self.assertAlmostEqual(result['decision']['value'], expected, places=6)
 
-    def test_replay_is_deterministic_and_advances_by_the_chosen_move(self):
+    def test_replay_is_deterministic(self):
         with tempfile.TemporaryDirectory() as tmp:
             directory = Path(tmp)
             checkpoint(directory, 'inventory_v1')
@@ -71,6 +71,13 @@ class InspectorTests(unittest.TestCase):
                            gumbel_scale=1, rollout_mix=0.5, executable=BINARY)
             first = decision(**request)
             self.assertEqual(first, decision(**request))
+
+    def test_chosen_move_advances_the_replay(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            directory = Path(tmp)
+            checkpoint(directory, 'inventory_v1')
+            request = dict(checkpoint=directory, start=jaw_worm(7), sims=8, executable=BINARY)
+            first = decision(**request)
             after = decision(**request, moves=[first['decision']['action']])
             self.assertGreater(after['steps'], first['steps'])
 
