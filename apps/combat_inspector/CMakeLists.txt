@@ -1,0 +1,5 @@
+if(TARGET infra_inference)
+    add_executable(combat_explain explain.cpp)
+    target_link_libraries(combat_explain PRIVATE player_explanation infra_inference)
+    target_compile_options(combat_explain PRIVATE -Wall -Wextra -Wpedantic)
+endif()

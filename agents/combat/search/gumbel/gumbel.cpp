@@ -237,6 +237,32 @@ struct Gumbel::Impl {
         return best;
     }
 
+    Tree tree() const {
+        if (root.keys.empty()) throw std::logic_error{"gumbel: snapshot requires an evaluated root"};
+        Tree out{{}, 0, gumbel};
+        std::unordered_map<const Node*, std::uint64_t> observations;
+        for (const auto& [key, node] : nodes) observations.emplace(node.get(), key);
+        out.root = observations.at(&root);
+        for (const auto& [key, node] : nodes) {
+            const auto& n = *node;
+            Tree::Node snapshot{key, n.value, n.visits ? q(n) : n.value, n.visits, {}};
+            if (!n.keys.empty()) {
+                const auto scores = sigma(n, s), policy = improved_policy(n, s);
+                for (std::size_t i = 0; i < n.keys.size(); ++i) {
+                    const int count = visits(n, i);
+                    Tree::Edge edge{n.keys[i], n.logits[i], n.prior[i], scores[i], policy[i],
+                                    count ? q(n, i) : 0, count, {}};
+                    for (const auto& [child, times] : n.reached[i])
+                        edge.children.push_back({observations.at(child), times});
+                    snapshot.edges.push_back(std::move(edge));
+                }
+            }
+            out.nodes.push_back(std::move(snapshot));
+        }
+        std::ranges::sort(out.nodes, {}, &Tree::Node::observation);
+        return out;
+    }
+
     Result result() const {
         int most = 0, sum = 0;
         double value_sum = 0;
@@ -258,5 +284,6 @@ std::optional<Query> Gumbel::pending() const {
 }
 
 void Gumbel::evaluated(const Evaluation& evaluation) { impl_->evaluated(evaluation); }
+Gumbel::Tree Gumbel::tree() const { return impl_->tree(); }
 Result Gumbel::result() const { return impl_->result(); }
 }  // namespace stsrl::search

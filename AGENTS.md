@@ -17,7 +17,8 @@ Produce the strongest completely autonomous agent to play Slay the Spire (sts). 
 
 - Organize code by purpose: `environments/combat` owns state/actions/transitions;
   `agents/combat` owns decision-making, model architecture, inference, and learning.
-  Apps orchestrate workflows. The one app is `apps/gumbel_nn_combat_expert_iteration`; delete code it doesn't need.
+  Apps orchestrate workflows: `apps/gumbel_nn_combat_expert_iteration` owns training;
+  `apps/combat_inspector` owns standalone decision inspection. Keep agent logic out of apps.
 - Tests live beside their owners. `make test` runs native and Python tests through CTest;
   do not recursively discover tests through recorded `runs/` outputs.
 - Keep model kinds, frozen architecture specs, checkpoint layouts, and native weight formats compatible

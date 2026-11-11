@@ -17,6 +17,27 @@ public:
         double value_scale = 0.1, maxvisit_init = 50;  // mctx qtransform_completed_by_mix_value
     };
 
+    // Read-only graph snapshot; observations identify shared nodes, including terminal states.
+    struct Tree {
+        struct Child { std::uint64_t observation; int visits; };
+        struct Edge {
+            std::uint64_t action;
+            double logit, prior, sigma, improved, value;
+            int visits;
+            std::vector<Child> children;
+        };
+        struct Node {
+            std::uint64_t observation;
+            double value, mean_value;
+            int visits;
+            std::vector<Edge> edges;
+        };
+        std::vector<Node> nodes;  // sorted by observation, not traversal order
+        std::uint64_t root;
+        std::vector<double> gumbel;  // root edge order
+    };
+    Tree tree() const;  // after the root has been evaluated
+
     Gumbel(const sts::BattleContext& observed, const Settings&, std::uint64_t seed);
     ~Gumbel() override;
     std::optional<Query> pending() const override;

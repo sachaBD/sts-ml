@@ -171,3 +171,36 @@ TEST(Gumbel, EntropicSelfLoopUsesTheNetworkValueAndReportsAnError) {
     EXPECT_NE(errors.find("path_action_keys=["), std::string::npos);
     EXPECT_NE(errors.find("BattleContext:"), std::string::npos);
 }
+
+
+TEST(GumbelTree, SnapshotAgreesWithTheSearchAndDoesNotChangeIt) {
+    for (const auto seed : {1u, 2u, 3u}) {
+        const auto state = stsrl::scenarios::jaw_worm(seed);
+        Gumbel inspected{state, settings(1), seed}, control{state, settings(1), seed};
+        auto answer = noisy();
+        while (const auto query = inspected.pending()) {
+            inspected.evaluated(answer(*query));
+            const auto snapshot = inspected.tree();
+            EXPECT_FALSE(snapshot.nodes.empty());
+        }
+        const auto expected = run(control, noisy());
+        const auto result = inspected.result();
+        EXPECT_EQ(result.action, expected.action);
+        EXPECT_EQ(result.policy, expected.policy);
+        EXPECT_EQ(result.value, expected.value);
+        const auto tree = inspected.tree();
+        const auto root = std::ranges::find(tree.nodes, tree.root, &Gumbel::Tree::Node::observation);
+        ASSERT_NE(root, tree.nodes.end());
+        ASSERT_EQ(root->edges.size(), result.policy.size());
+        for (std::size_t i = 0; i < result.policy.size(); ++i)
+            EXPECT_FLOAT_EQ(root->edges[i].improved, result.policy[i]);
+        for (const auto& node : tree.nodes) for (const auto& edge : node.edges) {
+            int count = 0;
+            for (const auto& child : edge.children) {
+                EXPECT_NE(std::ranges::find(tree.nodes, child.observation, &Gumbel::Tree::Node::observation), tree.nodes.end());
+                count += child.visits;
+            }
+            EXPECT_EQ(count, edge.visits);
+        }
+    }
+}
