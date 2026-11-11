@@ -29,7 +29,7 @@ private:
     std::vector<Vitals> turn_starts_;
 };
 
-// The network's answers by exact request, so a repeated request needs no network call.
+// Predictions keyed by the exact request that produced them.
 class Answers {
 public:
     const infra::Prediction* find(const infra::Tokens&) const;
@@ -40,7 +40,7 @@ private:
 };
 
 // One decision: a search whose queries the network answers. pending() is the network request, if any.
-// Requests the previous decision already sent are answered from its answers, which the next search often repeats.
+// A request found in `previous` is answered from it instead.
 class Decision {
 public:
     Decision(std::unique_ptr<search::CombatSearch>, const nn::NetworkEvaluator&, Answers previous = {});
