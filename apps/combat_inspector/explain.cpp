@@ -54,7 +54,15 @@ Json graph_json(const search::Gumbel::Graph& graph, const search::Result& result
                          {"evaluation_value", node.evaluation_value}, {"mean_value", node.mean_value},
                          {"visits", node.visits}, {"edges", edges}});
     }
-    return {{"root", std::to_string(graph.root)}, {"root_noise", graph.root_noise}, {"nodes", nodes}};
+    Json backups = Json::array();
+    for (const auto& backup : graph.backups) {
+        Json path = Json::array();
+        for (const auto& step : backup.path)
+            path.push_back({std::to_string(step.observation), std::to_string(step.action), std::to_string(step.reached)});
+        backups.push_back({{"path", path}, {"end", std::to_string(backup.end)}, {"value", backup.value}});
+    }
+    return {{"root", std::to_string(graph.root)}, {"root_noise", graph.root_noise}, {"nodes", nodes},
+            {"backups", backups}};
 }
 }  // namespace
 
@@ -72,6 +80,7 @@ int main() try {
     config.validate();
     const auto fight = replay(request.at("start"), request.at("moves"));
     Json response{{"steps", fight.steps()}, {"over", fight.over()}};
+    if (fight.over()) response["won"] = fight.state().outcome == sts::Outcome::PLAYER_VICTORY;
     if (!fight.over()) {
         const auto network = nn::load_network(request.at("checkpoint").get<std::string>(), nn::Backends::cpu);
         const nn::NetworkEvaluator evaluator{network.encoding};

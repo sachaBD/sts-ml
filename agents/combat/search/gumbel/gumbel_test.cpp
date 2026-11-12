@@ -5,9 +5,11 @@
 #include <gtest/gtest.h>
 #include <algorithm>
 #include <cmath>
+#include <map>
 #include <numeric>
 #include <random>
 #include <set>
+#include <tuple>
 
 using namespace stsrl::search;
 using stsrl::combat::legal_actions;
@@ -224,4 +226,28 @@ TEST_F(GumbelInspection, InspectionPreservesTheDecision) {
     EXPECT_EQ(search.result().action, result.action);
     EXPECT_EQ(search.result().policy, result.policy);
     EXPECT_EQ(search.result().value, result.value);
+}
+
+TEST_F(GumbelInspection, ReplayingBackupsRebuildsTheGraph) {
+    std::map<std::uint64_t, std::pair<double, int>> nodes;  // value sum, visits
+    std::map<std::tuple<std::uint64_t, std::uint64_t, std::uint64_t>, int> reached;
+    for (const auto& backup : graph.backups) {
+        bool end_on_path = false;
+        for (const auto& step : backup.path) {
+            ++reached[{step.observation, step.action, step.reached}];
+            auto& [sum, visits] = nodes[step.observation];
+            sum += backup.value; ++visits;
+            end_on_path |= step.observation == backup.end;
+        }
+        if (!end_on_path) { auto& [sum, visits] = nodes[backup.end]; sum += backup.value; ++visits; }
+    }
+    ASSERT_EQ(nodes.size(), graph.nodes.size());
+    for (const auto& node : graph.nodes) {
+        const auto& [sum, visits] = nodes.at(node.observation);
+        EXPECT_EQ(visits, node.visits);
+        EXPECT_DOUBLE_EQ(sum / visits, node.mean_value);
+        for (const auto& edge : node.edges)
+            for (const auto& child : edge.children)
+                EXPECT_EQ((reached[{node.observation, edge.action, child.observation}]), child.visits);
+    }
 }
