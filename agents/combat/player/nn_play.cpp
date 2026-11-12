@@ -8,6 +8,7 @@
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
+#include <fstream>
 #include <iostream>
 #include <nlohmann/json.hpp>
 #include <string>
@@ -19,12 +20,13 @@ int main(int argc, char** argv) try {
     CLI::App app{"Plays the fight starts on stdin with search and the network. Appends each fight's samples to SAMPLES "
                  "and prints one result line to stdout. PLAY is its settings file (play_config.hpp). MODELS is an exported "
                  "model directory (network.hpp). Each input goes to the smallest GPU deployment that fits it, else the CPU.", "nn_play"};
-    std::filesystem::path play, models, samples, telemetry_path;
+    std::filesystem::path play, models, samples, telemetry_path, traces_path;
     bool check = false;
     app.add_option("PLAY", play, "settings file")->required();
     app.add_option("MODELS", models, "exported model directory");
     app.add_option("SAMPLES", samples, "sample file to append to");
     app.add_option("--telemetry", telemetry_path, "actor, queue and lane counters as JSON lines, about once a second");
+    app.add_option("--traces", traces_path, "appends one line per fight of its decisions' search traces (trace.hpp)");
     app.add_flag("--check", check, "validate PLAY and exit");
     CLI11_PARSE(app, argc, argv);
     auto [search, workers] = stsrl::player::read_play_config(play);
@@ -43,8 +45,13 @@ int main(int argc, char** argv) try {
     for (std::string line; std::getline(std::cin, line);)
         if (!line.empty()) fights.push_back(Json::parse(line));
     const auto count = fights.size();
-    stsrl::player::Episodes episodes{std::move(fights), search.factory(), stsrl::nn::NetworkEvaluator{network.encoding},
-                                     samples, std::cout};
+    std::ofstream traces;
+    if (!traces_path.empty()) {
+        traces.open(traces_path, std::ios::app);
+        if (!traces) throw std::runtime_error{"cannot write traces " + traces_path.string()};
+    }
+    stsrl::player::Episodes episodes{std::move(fights), search, stsrl::nn::NetworkEvaluator{network.encoding},
+                                     samples, std::cout, traces_path.empty() ? nullptr : &traces};
 
     const auto play_begin = Clock::now();
     const double play_wall_start = std::chrono::duration<double>(std::chrono::system_clock::now().time_since_epoch()).count();

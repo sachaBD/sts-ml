@@ -11,15 +11,13 @@ using namespace stsrl::nn;
 using stsrl::combat::legal_actions;
 
 namespace {
-stsrl::search::SearchFactory search() {
-    return stsrl::search::SearchConfig{.sims = 8, .particles = 2, .gumbel_scale = 1, .rollout_mix = 0.5}.factory();
-}
+const stsrl::search::SearchConfig search{.sims = 8, .particles = 2, .gumbel_scale = 1, .rollout_mix = 0.5};
 
 // As nn_play decides.
 stsrl::search::Result decide(const Fight& fight) {
     const stsrl::nn::NetworkEvaluator network{Encoding::entity};
     auto random = fight.decision_random();
-    Decision decision{search()(fight.state(), random), network};
+    Decision decision{search.create(fight.state(), random).search, network};
     while (const auto query = decision.pending()) decision.evaluated(fake_network(*query));
     return decision.result();
 }
