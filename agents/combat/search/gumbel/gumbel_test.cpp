@@ -72,7 +72,6 @@ TEST(Gumbel, NeverAsksAboutTheSameStateTwice) {
     });
 }
 
-// A wave is one Sequential Halving pass: the network answers its considered actions together.
 TEST(Gumbel, AWaveAsksAtMostOnceForEachConsideredAction) {
     const auto s = settings(1);
     Gumbel search{stsrl::scenarios::jaw_worm(7), s, 1};

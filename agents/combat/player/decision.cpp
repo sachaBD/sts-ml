@@ -66,9 +66,9 @@ void Decision::evaluated(std::span<const infra::Prediction> predictions) {
 void Decision::answer(std::span<const infra::Prediction> predictions) {
     std::vector<search::Evaluation> evaluations;
     auto network = predictions.begin();
-    for (const auto* known : known_) evaluations.push_back(nn::NetworkEvaluator::answer(known ? *known : *network++));
+    for (const auto* known : from_previous_) evaluations.push_back(nn::NetworkEvaluator::answer(known ? *known : *network++));
     requests_.clear();
-    known_.clear();
+    from_previous_.clear();
     search_->evaluated(evaluations);
 }
 
@@ -78,7 +78,7 @@ void Decision::next_requests() {
             auto request = network_.request(query);
             const auto* known = previous_.find(request);
             if (known) answers_.add(request, *known); else requests_.push_back(std::move(request));
-            known_.push_back(known);
+            from_previous_.push_back(known);
         }
         if (!requests_.empty()) return;
         answer({});

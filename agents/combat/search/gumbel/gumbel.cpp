@@ -132,11 +132,10 @@ struct Gumbel::Impl {
     std::vector<int> schedule;
     int simulation = 0;
 
-    // The wave: every simulation of one Sequential Halving pass, descended from the same statistics.
-    // Nothing is backed up until the whole wave is answered, so answers cannot change which leaves it asks for.
+    // One Sequential Halving pass, backed up only once fully answered, so answers cannot steer it.
     std::vector<Leaf> leaves;
-    std::vector<Query> queries;  // views of leaves
-    std::vector<std::pair<Path, Node*>> backups;  // in issue order
+    std::vector<Query> queries;
+    std::vector<std::pair<Path, Node*>> backups;
 
     Impl(const sts::BattleContext& observed, const Settings& settings, std::uint64_t seed)
         : s{settings}, fight_seed{observed.seed}, rng{seed}, chance{observed, settings.particles}, actions{combat::legal_actions(observed)},
@@ -162,14 +161,12 @@ struct Gumbel::Impl {
         for (const auto& leaf : leaves) queries.push_back({leaf.state, leaf.actions});
     }
 
-    // The schedule repeats a visit count once per action in the pass.
     std::size_t pass_width() const {
         const auto first = schedule.begin() + simulation;
         return std::find_if(first, schedule.end(), [&](int v) { return v != *first; }) - first;
     }
 
-    // Descends until a finished fight or a node already on the path (backed up with the wave), or a node
-    // without an evaluation (left for the evaluator, once however many simulations reach it).
+    // Descends until a finished fight, a cycle or an unevaluated node.
     void simulate(std::size_t root_edge) {
         auto state = chance.start(rng);
         Path path;

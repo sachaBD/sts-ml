@@ -29,7 +29,7 @@ struct Request {
     int actor;
     std::size_t slot;
     std::uint64_t generation;
-    std::size_t index;  // in the slot's requests
+    std::size_t index;
     Input input;
     const std::string* label;  // owned by the slot, unchanged until the reply
     Clock::time_point enqueued;
@@ -41,8 +41,7 @@ struct Reply {
     Prediction prediction;
 };
 
-// One per Actor: the only state the Actor shares with the InferenceServer. It holds only replies to requests
-// the Actor has outstanding, so it needs no back-pressure.
+// One per Actor: the only state the Actor shares with the InferenceServer.
 struct Mailbox {
     std::mutex mutex;
     std::condition_variable replied;
@@ -143,8 +142,8 @@ class Actor {
         Phase phase = Phase::empty;
         std::uint64_t generation = 0;  // bumped on EVERY advance, so a stale reply can never match
         Clock::time_point submitted;
-        std::vector<std::vector<std::uint16_t>> packed;  // per request
-        std::vector<std::optional<Prediction>> answers;  // per request; the episode sees them all at once
+        std::vector<std::vector<std::uint16_t>> packed;
+        std::vector<std::optional<Prediction>> answers;
         std::size_t outstanding = 0;
         std::string label;
     };

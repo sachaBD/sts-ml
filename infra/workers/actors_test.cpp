@@ -167,7 +167,7 @@ TEST(Actors, LanesEvaluateConcurrentlyUpToTheirCount) {
     }
 }
 
-TEST(Actors, AnEpisodeGetsItsWholeWaveInRequestOrder) {
+TEST(Actors, EachAnswerReachesItsOwnRequestWhateverOrderItArrivesIn) {
     constexpr int wave = 4;
     Log log;
     FakeBackend backend{[](std::span<const Input> inputs) {

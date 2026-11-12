@@ -46,7 +46,7 @@ class Decision {
 public:
     Decision(std::unique_ptr<search::CombatSearch>, const nn::NetworkEvaluator&, Answers previous = {});
     std::span<const infra::Tokens> pending() const { return requests_; }
-    void evaluated(std::span<const infra::Prediction>);  // one per pending request, in order
+    void evaluated(std::span<const infra::Prediction>);
     search::Result result() const { return search_->result(); }
     Answers answers() && { return std::move(answers_); }  // every answer this decision used
 
@@ -57,6 +57,6 @@ private:
     const nn::NetworkEvaluator& network_;
     Answers previous_, answers_;
     std::vector<infra::Tokens> requests_;
-    std::vector<const infra::Prediction*> known_;  // per search query: its answer in previous_, or null for the next request
+    std::vector<const infra::Prediction*> from_previous_;  // per query; null asks the network
 };
 }  // namespace stsrl::player
