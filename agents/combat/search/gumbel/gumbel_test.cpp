@@ -72,9 +72,8 @@ TEST(Gumbel, NeverAsksAboutTheSameStateTwice) {
     });
 }
 
-TEST(Gumbel, AWaveAsksAtMostOnceForEachConsideredAction) {
-    const auto s = settings(1);
-    Gumbel search{stsrl::scenarios::jaw_worm(7), s, 1};
+namespace {
+std::vector<std::size_t> wave_sizes(Gumbel& search) {
     auto answer = noisy();
     std::vector<std::size_t> waves;
     for (auto queries = search.pending(); !queries.empty(); queries = search.pending()) {
@@ -83,9 +82,27 @@ TEST(Gumbel, AWaveAsksAtMostOnceForEachConsideredAction) {
         for (const auto& q : queries) evaluations.push_back(answer(q));
         search.evaluated(evaluations);
     }
+    return waves;
+}
+}  // namespace
+
+TEST(Gumbel, EveryRoundFillsWavesOfUpToConsideredActions) {
+    auto s = settings(1);
+    s.simulations = 256;
+    Gumbel search{stsrl::scenarios::jaw_worm(7), s, 1};
+    const auto waves = wave_sizes(search);
     EXPECT_EQ(waves.front(), 1u) << "the root comes first, alone";
     EXPECT_LE(std::ranges::max(waves), std::size_t(s.considered_actions));
-    EXPECT_GT(std::ranges::max(waves), 1u) << "simulations of one pass wait for the network together";
+    EXPECT_LE(waves.size(), 1 + 2 * std::size_t(s.simulations / s.considered_actions)) << "late rounds wait as often as early ones";
+}
+
+TEST(Gumbel, SimulationsSharingAWaveSpreadOut) {
+    auto root = stsrl::scenarios::jaw_worm(7);
+    root.player.energy = 0;  // one move, so every simulation of a wave takes it
+    auto s = settings();
+    s.particles = 1;
+    Gumbel search{root, s, 1};
+    EXPECT_GT(std::ranges::max(wave_sizes(search)), 1u);
 }
 
 TEST(Gumbel, ResultIsAProbabilityOverTheLegalMoves) {

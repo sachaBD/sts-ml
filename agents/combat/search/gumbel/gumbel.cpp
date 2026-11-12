@@ -4,6 +4,7 @@
 #include <cmath>
 #include <functional>
 #include <iostream>
+#include <numeric>
 #include <random>
 #include <stdexcept>
 #include <syncstream>
@@ -19,6 +20,7 @@ struct Node {
     std::vector<std::uint64_t> keys;  // edges, by action key
     std::vector<double> logits, prior;
     std::vector<std::vector<std::pair<Node*, int>>> reached;  // per edge: each node it led to, and how often
+    std::vector<int> waiting;  // per edge: simulations of the current wave, not yet backed up
 };
 
 double q(const Node& n) { return n.value_sum / n.visits; }
@@ -155,10 +157,19 @@ struct Gumbel::Impl {
         do {
             for (const auto& [path, end] : backups) backup(path, *end);
             backups.clear();
-            if (simulation < int(schedule.size()))
-                for (const auto edge : ranked(schedule[simulation], pass_width())) simulate(edge);
+            if (simulation < int(schedule.size())) next_wave();
         } while (leaves.empty() && !backups.empty());
         for (const auto& leaf : leaves) queries.push_back({leaf.state, leaf.actions});
+    }
+
+    // Passes of one round, up to the first round's width, so late rounds with few actions still fill a wave.
+    void next_wave() {
+        const auto width = pass_width();
+        const auto edges = ranked(schedule[simulation], width);
+        for (std::size_t size = 0; size + width <= std::size_t(s.considered_actions); size += width) {
+            if (simulation == int(schedule.size()) || pass_width() != width) return;
+            for (const auto edge : edges) simulate(edge);
+        }
     }
 
     std::size_t pass_width() const {
@@ -181,6 +192,7 @@ struct Gumbel::Impl {
             const bool cycle = next.get() == node ||
                 std::ranges::any_of(path, [&](const Step& step) { return step.node == next.get(); });
             path.push_back({node, edge, next.get()});
+            ++node->waiting[edge];
             if (cycle) {
                 std::osyncstream error{std::cerr};
                 error << "ERROR gumbel: cycle truncated; fight_seed=" << fight_seed
@@ -210,6 +222,7 @@ struct Gumbel::Impl {
     static void backup(const Path& path, Node& end) {
         const double value = end.value;
         for (const auto& [node, edge, reached] : path) {
+            --node->waiting[edge];
             auto& counts = node->reached[edge];
             const auto found = std::ranges::find(counts, reached, &std::pair<Node*, int>::first);
             if (found == counts.end()) counts.emplace_back(reached, 1); else ++found->second;
@@ -228,6 +241,7 @@ struct Gumbel::Impl {
         n.prior = softmax(n.logits);
         for (const auto a : leaf.actions) n.keys.push_back(combat::action_key(leaf.state, a));
         n.reached.resize(n.keys.size());
+        n.waiting.resize(n.keys.size());
     }
 
     // Root: the best `count` by gumbel + logits + sigma among actions with exactly `considered` visits.
@@ -241,13 +255,14 @@ struct Gumbel::Impl {
         return edges;
     }
 
-    // Interior: argmax of improved policy - visits / (1 + total).
+    // Interior: argmax of improved policy - visits / (1 + total), counting the wave's simulations as visits
+    // so that simulations sharing a wave spread out.
     std::size_t interior_choice(const Node& n) const {
         const auto pi = improved_policy(n, s);
-        const int sum = total(n);
+        const int sum = total(n) + std::accumulate(n.waiting.begin(), n.waiting.end(), 0);
         std::size_t best = 0; double best_score = -INFINITY;
         for (std::size_t i = 0; i < pi.size(); ++i) {
-            const double score = pi[i] - double(visits(n, i)) / (1 + sum);
+            const double score = pi[i] - double(visits(n, i) + n.waiting[i]) / (1 + sum);
             if (score > best_score) best = i, best_score = score;
         }
         return best;
