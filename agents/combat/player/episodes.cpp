@@ -45,18 +45,18 @@ struct Episodes::Game {
         : record(std::move(r)),
           fight{combat::start_battle(record.at("start")), record.at("start").at("seed").get<std::uint64_t>()} {}
 
-    // Play on until the search needs the network (its query) or the game is over (nullptr).
-    const infra::Tokens* advance(const search::SearchFactory& search, const nn::NetworkEvaluator& network) {
+    // Play on until the search needs the network (its requests) or the game is over (none).
+    std::span<const infra::Tokens> advance(const search::SearchFactory& search, const nn::NetworkEvaluator& network) {
         for (;;) {
             if (decision) {
-                if (const auto query = decision->pending()) return query;
+                if (const auto requests = decision->pending(); !requests.empty()) return requests;
                 auto r = decision->result();
                 decisions.push_back({network.request({fight.state(), r.actions}), std::move(r.policy), vitals(fight.state())});
                 answers = std::move(*decision).answers();
                 decision.reset();
                 fight.play(r.action);
             }
-            if (fight.over()) return nullptr;
+            if (fight.over()) return {};
             auto random = fight.decision_random();
             decision.emplace(search(fight.state(), random), network, std::move(answers));
         }
@@ -67,8 +67,8 @@ struct Episodes::Game {
 class Episodes::Episode final : public infra::Episode {
 public:
     Episode(Episodes& episodes, const Json& record) : episodes_{episodes}, game_{record} {}
-    const infra::Tokens* advance() override { return game_.advance(episodes_.search_, episodes_.network_); }
-    void evaluated(const infra::Prediction& prediction) override { game_.decision->evaluated(prediction); }
+    std::span<const infra::Tokens> advance() override { return game_.advance(episodes_.search_, episodes_.network_); }
+    void evaluated(std::span<const infra::Prediction> predictions) override { game_.decision->evaluated(predictions); }
     void finish() override { episodes_.finish(game_); }
     std::string label() const override { return game_.record.at("fight_id").get<std::string>(); }
 

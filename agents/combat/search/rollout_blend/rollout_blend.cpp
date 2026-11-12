@@ -14,18 +14,21 @@ public:
         if (!(mix >= 0 && mix <= 1)) throw std::invalid_argument{"rollout blend: mix must be in [0, 1]"};
         rollout_.rolloutMode = 2;
     }
-    std::optional<Query> pending() const override { return inner_->pending(); }
+    std::span<const Query> pending() const override { return inner_->pending(); }
     Result result() const override { return inner_->result(); }
 
-    void evaluated(const Evaluation& evaluation) override {
-        auto state = inner_->pending()->state;
-        rollout_.randGen.seed(rng_());
-        sts::search::BattleScumSearcher2::Node scratch;
-        for (int i = 0; i < max_rollout_actions && state.outcome == sts::Outcome::UNDECIDED; ++i)
-            rollout_.rolloutAction(scratch, state).execute(state);
-        const bool won = state.outcome == sts::Outcome::PLAYER_VICTORY;
-        auto blended = evaluation;
-        blended.value = WinProbability((1 - mix_) * evaluation.value + mix_ * won);
+    void evaluated(std::span<const Evaluation> evaluations) override {
+        const auto queries = inner_->pending();
+        std::vector<Evaluation> blended{evaluations.begin(), evaluations.end()};
+        for (std::size_t q = 0; q < blended.size(); ++q) {
+            auto state = queries[q].state;
+            rollout_.randGen.seed(rng_());
+            sts::search::BattleScumSearcher2::Node scratch;
+            for (int i = 0; i < max_rollout_actions && state.outcome == sts::Outcome::UNDECIDED; ++i)
+                rollout_.rolloutAction(scratch, state).execute(state);
+            const bool won = state.outcome == sts::Outcome::PLAYER_VICTORY;
+            blended[q].value = WinProbability((1 - mix_) * blended[q].value + mix_ * won);
+        }
         inner_->evaluated(blended);
     }
 

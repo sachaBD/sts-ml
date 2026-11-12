@@ -42,8 +42,8 @@ public:
 
     Gumbel(const sts::BattleContext& observed, const Settings&, std::uint64_t seed);
     ~Gumbel() override;
-    std::optional<Query> pending() const override;
-    void evaluated(const Evaluation&) override;
+    std::span<const Query> pending() const override;
+    void evaluated(std::span<const Evaluation>) override;
     Result result() const override;
 
 private:

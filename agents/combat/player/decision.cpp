@@ -1,6 +1,7 @@
 #include "agents/combat/player/decision.hpp"
 #include "environments/combat/public.hpp"
 #include <functional>
+#include <stdexcept>
 #include <string_view>
 
 namespace stsrl::player {
@@ -52,22 +53,35 @@ void Answers::add(const infra::Tokens& request, const infra::Prediction& answer)
 
 Decision::Decision(std::unique_ptr<search::CombatSearch> search, const nn::NetworkEvaluator& network, Answers previous)
     : search_{std::move(search)}, network_{network}, previous_{std::move(previous)} {
-    next_request();
+    next_requests();
 }
 
-void Decision::evaluated(const infra::Prediction& prediction) {
-    answers_.add(request_, prediction);
-    search_->evaluated(nn::NetworkEvaluator::answer(prediction));
-    next_request();
+void Decision::evaluated(std::span<const infra::Prediction> predictions) {
+    if (predictions.size() != requests_.size()) throw std::invalid_argument{"decision: one prediction per request"};
+    for (std::size_t i = 0; i < requests_.size(); ++i) answers_.add(requests_[i], predictions[i]);
+    answer(predictions);
+    next_requests();
 }
 
-void Decision::next_request() {
-    while (const auto query = search_->pending()) {
-        request_ = network_.request(*query);
-        const auto* known = previous_.find(request_);
-        if (!known) return;
-        answers_.add(request_, *known);
-        search_->evaluated(nn::NetworkEvaluator::answer(*known));
+void Decision::answer(std::span<const infra::Prediction> predictions) {
+    std::vector<search::Evaluation> evaluations;
+    auto network = predictions.begin();
+    for (const auto* known : from_previous_) evaluations.push_back(nn::NetworkEvaluator::answer(known ? *known : *network++));
+    requests_.clear();
+    from_previous_.clear();
+    search_->evaluated(evaluations);
+}
+
+void Decision::next_requests() {
+    for (auto queries = search_->pending(); !queries.empty(); queries = search_->pending()) {
+        for (const auto& query : queries) {
+            auto request = network_.request(query);
+            const auto* known = previous_.find(request);
+            if (known) answers_.add(request, *known); else requests_.push_back(std::move(request));
+            from_previous_.push_back(known);
+        }
+        if (!requests_.empty()) return;
+        answer({});
     }
 }
 }  // namespace stsrl::player

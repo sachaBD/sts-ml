@@ -78,9 +78,10 @@ int main() try {
         auto random = fight.decision_random();
         auto search = config.create(fight.state(), random);
         player::Decision decision{std::move(search.search), evaluator};
-        while (const auto tokens = decision.pending()) {
-            const infra::Input input{tokens, {}};
-            decision.evaluated(network.backends.front()->evaluate({&input, 1}).front());
+        for (auto requests = decision.pending(); !requests.empty(); requests = decision.pending()) {
+            std::vector<infra::Input> inputs;
+            for (const auto& tokens : requests) inputs.push_back({&tokens, {}});
+            decision.evaluated(network.backends.front()->evaluate(inputs));
         }
         const auto result = decision.result();
         response["decision"] = {{"action", result.action.bits}, {"value", result.value}};

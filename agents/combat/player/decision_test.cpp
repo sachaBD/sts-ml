@@ -21,9 +21,13 @@ stsrl::search::Result decide(const Fight& fight, Answers& answers, std::vector<s
     const stsrl::nn::NetworkEvaluator network{Encoding::entity};
     auto random = fight.decision_random();
     Decision decision{search()(fight.state(), random), network, std::move(answers)};
-    while (const auto query = decision.pending()) {
-        sent.push_back(query->data);
-        decision.evaluated(fake_network(*query));
+    for (auto requests = decision.pending(); !requests.empty(); requests = decision.pending()) {
+        std::vector<stsrl::infra::Prediction> predictions;
+        for (const auto& request : requests) {
+            sent.push_back(request.data);
+            predictions.push_back(fake_network(request));
+        }
+        decision.evaluated(predictions);
     }
     answers = std::move(decision).answers();
     return decision.result();

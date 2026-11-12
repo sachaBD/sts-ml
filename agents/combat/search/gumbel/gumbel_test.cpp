@@ -57,7 +57,7 @@ TEST(Gumbel, NetworkCallsStayWithinTheSimulationBudget) {
     auto answer = noisy();
     run(search, [&](const Query& q) { ++queries; return answer(q); });
     EXPECT_LE(queries, s.simulations + 1);
-    EXPECT_FALSE(search.pending());
+    EXPECT_TRUE(search.pending().empty());
 }
 
 TEST(Gumbel, NeverAsksAboutTheSameStateTwice) {
@@ -70,6 +70,22 @@ TEST(Gumbel, NeverAsksAboutTheSameStateTwice) {
         EXPECT_TRUE(asked.insert(stsrl::combat::observation_key(q.state)).second);
         return answer(q);
     });
+}
+
+TEST(Gumbel, AWaveAsksAtMostOnceForEachConsideredAction) {
+    const auto s = settings(1);
+    Gumbel search{stsrl::scenarios::jaw_worm(7), s, 1};
+    auto answer = noisy();
+    std::vector<std::size_t> waves;
+    for (auto queries = search.pending(); !queries.empty(); queries = search.pending()) {
+        waves.push_back(queries.size());
+        std::vector<Evaluation> evaluations;
+        for (const auto& q : queries) evaluations.push_back(answer(q));
+        search.evaluated(evaluations);
+    }
+    EXPECT_EQ(waves.front(), 1u) << "the root comes first, alone";
+    EXPECT_LE(std::ranges::max(waves), std::size_t(s.considered_actions));
+    EXPECT_GT(std::ranges::max(waves), 1u) << "simulations of one pass wait for the network together";
 }
 
 TEST(Gumbel, ResultIsAProbabilityOverTheLegalMoves) {
@@ -154,16 +170,17 @@ TEST(Gumbel, EntropicSelfLoopUsesTheNetworkValueAndReportsAnError) {
     s.considered_actions = 1;
     s.simulations = 8;
     Gumbel search{state, s, 1};
-    const auto query = search.pending().value();
+    ASSERT_EQ(search.pending().size(), 1u);
+    const auto query = search.pending().front();
     auto answer = flat(query);
     answer.value = 0.37f;
     for (std::size_t i = 0; i < query.actions.size(); ++i)
         if (query.actions[i] == brew) answer.logits[i] = 5.f;
 
     testing::internal::CaptureStderr();
-    search.evaluated(answer);
+    search.evaluated({&answer, 1});
     const auto errors = testing::internal::GetCapturedStderr();
-    ASSERT_FALSE(search.pending());
+    ASSERT_TRUE(search.pending().empty());
     const auto result = search.result();
     EXPECT_FLOAT_EQ(result.value, answer.value);
     EXPECT_EQ(result.action, brew);
