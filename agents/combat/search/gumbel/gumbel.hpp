@@ -34,9 +34,16 @@ public:
             int visits;  // includes the initial evaluation for nonterminal nodes
             std::vector<Edge> edges;
         };
+        struct Step { std::uint64_t observation, action, reached; };
+        struct Backup {
+            std::vector<Step> path;  // root first; empty for the root's own evaluation
+            std::uint64_t end;
+            double value;
+        };
         std::uint64_t root;
         std::vector<Node> nodes;  // sorted by observation; children may have multiple parents
         std::vector<double> root_noise;  // root edge order
+        std::vector<Backup> backups;  // in search order; replaying them rebuilds every visit and value
     };
     Graph graph() const;  // completed searches only; does not mutate the search
 

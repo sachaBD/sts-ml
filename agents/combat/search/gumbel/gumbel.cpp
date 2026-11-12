@@ -133,6 +133,7 @@ struct Gumbel::Impl {
     sts::BattleContext leaf_state;
     std::vector<Action> leaf_actions;
     std::vector<Step> path;
+    std::vector<std::pair<std::vector<Step>, Node*>> backups;  // each backup's path and end, in order
 
     Impl(const sts::BattleContext& observed, const Settings& settings, std::uint64_t seed)
         : s{settings}, fight_seed{observed.seed}, rng{seed}, chance{observed, settings.particles}, actions{combat::legal_actions(observed)},
@@ -194,6 +195,7 @@ struct Gumbel::Impl {
     // The one place values change: `end`'s value is counted at every node on the path, and each edge
     // counts the node it reached.
     void backup(Node& end) {
+        backups.emplace_back(path, &end);
         const double value = end.value;
         for (const auto& [node, edge, reached] : path) {
             auto& counts = node->reached[edge];
@@ -241,7 +243,7 @@ struct Gumbel::Impl {
         if (leaf) throw std::logic_error{"gumbel: graph requires a completed search"};
         std::unordered_map<const Node*, std::uint64_t> observations;
         for (const auto& [key, node] : nodes) observations.emplace(node.get(), key);
-        Graph out{observations.at(&root), {}, gumbel};
+        Graph out{observations.at(&root), {}, gumbel, {}};
         for (const auto& [key, node] : nodes) {
             const auto& n = *node;
             Graph::Node snapshot{key, n.keys.empty(), n.value, q(n), n.visits, {}};
@@ -260,6 +262,12 @@ struct Gumbel::Impl {
             out.nodes.push_back(std::move(snapshot));
         }
         std::ranges::sort(out.nodes, {}, &Graph::Node::observation);
+        for (const auto& [steps, end] : backups) {
+            Graph::Backup backup{{}, observations.at(end), end->value};
+            for (const auto& [node, edge, reached] : steps)
+                backup.path.push_back({observations.at(node), node->keys[edge], observations.at(reached)});
+            out.backups.push_back(std::move(backup));
+        }
         return out;
     }
 
