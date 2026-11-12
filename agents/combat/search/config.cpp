@@ -23,11 +23,4 @@ GumbelSearch SearchConfig::create(const sts::BattleContext& state, std::mt19937_
     if (rollout_mix > 0) search = with_rollouts(std::move(search), state, rollout_mix, rollout_seed);
     return {std::move(search), inspection};
 }
-
-SearchFactory SearchConfig::factory() const {
-    validate();
-    return [config = *this](const sts::BattleContext& state, std::mt19937_64& random) {
-        return config.create(state, random).search;
-    };
-}
 }  // namespace stsrl::search

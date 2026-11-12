@@ -4,8 +4,8 @@ The agent that plays fights: `nn_play` (`nn_play.cpp`), launched by `play.py`. `
 options. Its settings are each stage's `play.toml`, written by `play.py`; `play_config.hpp` owns them. It knows two
 interfaces:
 
-- `search::SearchFactory` (`search/search.hpp`): a fresh search per decision. `search::SearchConfig`
-  (`search/config.hpp`) decides which search runs; the player never names it.
+- `search::SearchConfig` (`search/config.hpp`): a fresh search per decision, with its Gumbel inspection view for
+  search traces (`trace.hpp`, written with `nn_play --traces`).
 - `nn::NetworkEvaluator` (`nn/evaluator.hpp`): a search query becomes network tokens; a prediction becomes an
   evaluation.
 

@@ -1,6 +1,7 @@
 #include "agents/combat/player/episodes.hpp"
 #include "agents/combat/player/decision.hpp"
 #include "agents/combat/player/targets.hpp"
+#include "agents/combat/player/trace.hpp"
 #include "environments/combat/fight_start.hpp"
 #include <chrono>
 #include <optional>
@@ -37,6 +38,8 @@ struct Episodes::Game {
     Json record;  // its fights-file line
     Fight fight;
     std::optional<Decision> decision;
+    const search::Gumbel* gumbel = nullptr;  // the decision's search, for its trace
+    Json traces = Json::array();
     std::vector<Sample> decisions;  // state, improved policy and vitals per searched move
     Clock::time_point begin = Clock::now();
 
@@ -45,18 +48,21 @@ struct Episodes::Game {
           fight{combat::start_battle(record.at("start")), record.at("start").at("seed").get<std::uint64_t>()} {}
 
     // Play on until the search needs the network (its query) or the game is over (nullptr).
-    const infra::Tokens* advance(const search::SearchFactory& search, const nn::NetworkEvaluator& network) {
+    const infra::Tokens* advance(const search::SearchConfig& config, const nn::NetworkEvaluator& network, bool trace) {
         for (;;) {
             if (decision) {
                 if (const auto query = decision->pending()) return query;
                 auto r = decision->result();
+                if (trace) traces.push_back({{"step", fight.steps()}, {"search", player::trace(gumbel->graph(), r, fight.state())}});
                 decisions.push_back({network.request({fight.state(), r.actions}), std::move(r.policy), vitals(fight.state())});
                 decision.reset();
                 fight.play(r.action);
             }
             if (fight.over()) return nullptr;
             auto random = fight.decision_random();
-            decision.emplace(search(fight.state(), random), network);
+            auto created = config.create(fight.state(), random);
+            gumbel = &created.gumbel;
+            decision.emplace(std::move(created.search), network);
         }
     }
 };
@@ -65,7 +71,7 @@ struct Episodes::Game {
 class Episodes::Episode final : public infra::Episode {
 public:
     Episode(Episodes& episodes, const Json& record) : episodes_{episodes}, game_{record} {}
-    const infra::Tokens* advance() override { return game_.advance(episodes_.search_, episodes_.network_); }
+    const infra::Tokens* advance() override { return game_.advance(episodes_.search_, episodes_.network_, episodes_.traces_); }
     void evaluated(const infra::Prediction& prediction) override { game_.decision->evaluated(prediction); }
     void finish() override { episodes_.finish(game_); }
     std::string label() const override { return game_.record.at("fight_id").get<std::string>(); }
@@ -75,11 +81,12 @@ private:
     Game game_;
 };
 
-Episodes::Episodes(std::vector<Json> fights, search::SearchFactory search, nn::NetworkEvaluator network,
-                   const std::filesystem::path& samples, std::ostream& results)
+Episodes::Episodes(std::vector<Json> fights, search::SearchConfig search, nn::NetworkEvaluator network,
+                   const std::filesystem::path& samples, std::ostream& results, std::ostream* traces)
     : fights_(std::move(fights)), search_{std::move(search)}, network_{network},  // fights_{...} would nest them in one json array
       samples_{samples, std::ios::binary | std::ios::app | std::ios::ate}, sample_file_{samples.filename().string()},
-      results_{results} {
+      results_{results}, traces_{traces} {
+    search_.validate();
     if (!samples_) throw std::runtime_error{"cannot write samples " + samples.string()};
 }
 
@@ -91,6 +98,7 @@ std::unique_ptr<infra::Episode> Episodes::next() {
 void Episodes::finish(const Game& g) {
     const auto& state = g.fight.state();
     const double seconds = std::chrono::duration<double>(Clock::now() - g.begin).count();
+    const auto traces = traces_ ? Json{{"fight_id", g.record.at("fight_id")}, {"decisions", g.traces}}.dump() : std::string{};
     std::lock_guard lock{output_};
     const auto begin = static_cast<std::streamoff>(samples_.tellp());
     if (begin < 0) throw std::runtime_error{"failed to locate game samples"};
@@ -104,6 +112,7 @@ void Episodes::finish(const Game& g) {
                      {"turns", state.turn}, {"steps", g.fight.steps()}, {"capped", state.outcome == sts::Outcome::UNDECIDED},
                      {"finished_unix", finished}, {"sample_format", sample_format},
                      {"sample_range", {{"file", sample_file_}, {"begin", begin}, {"end", end}}}}.dump() << std::endl;
+    if (traces_ && !(*traces_ << traces << '\n')) throw std::runtime_error{"failed to write game traces"};
     if (!samples_ || !results_) throw std::runtime_error{"failed to write game samples/results"};
     ++completed_;
     decisions_ += g.decisions.size();

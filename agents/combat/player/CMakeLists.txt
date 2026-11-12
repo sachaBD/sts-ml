@@ -4,9 +4,14 @@ target_link_libraries(player_decision PUBLIC nn_tokens combat_search)
 target_compile_options(player_decision PRIVATE -Wall -Wextra -Wpedantic)
 
 # Fights as infra episodes, recording each finished one.
-add_library(player_episodes STATIC episodes.cpp)
+add_library(player_episodes STATIC episodes.cpp trace.cpp)
 target_link_libraries(player_episodes PUBLIC player_decision infra_actors)
 target_compile_options(player_episodes PRIVATE -Wall -Wextra -Wpedantic)
+
+add_executable(player_trace_test trace_test.cpp)
+target_link_libraries(player_trace_test PRIVATE player_episodes combat_scenarios GTest::gtest_main)
+target_compile_options(player_trace_test PRIVATE -Wall -Wextra -Wpedantic)
+gtest_discover_tests(player_trace_test PROPERTIES TIMEOUT 10)
 
 # nn_play's settings file.
 add_library(player_config STATIC play_config.cpp)
