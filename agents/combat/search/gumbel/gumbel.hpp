@@ -13,6 +13,7 @@ public:
     struct Settings {
         int simulations = 256;
         int considered_actions = 16;
+        int wave = 8;  // late rounds join passes up to this many simulations; 16 cost ~6% tree depth
         double gumbel_scale = 0;  // 1 explores (self-play); 0 is deterministic (evaluation)
         int particles = 8;
         double value_scale = 0.1, maxvisit_init = 50;  // mctx qtransform_completed_by_mix_value

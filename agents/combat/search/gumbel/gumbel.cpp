@@ -162,11 +162,11 @@ struct Gumbel::Impl {
         for (const auto& leaf : leaves) queries.push_back({leaf.state, leaf.actions});
     }
 
-    // Passes of one round, up to the first round's width, so late rounds with few actions still fill a wave.
+    // Passes of one round, so late rounds with few actions still fill a wave.
     void next_wave() {
         const auto width = pass_width();
         const auto edges = ranked(schedule[simulation], width);
-        for (std::size_t size = 0; size + width <= std::size_t(s.considered_actions); size += width) {
+        for (std::size_t size = 0; size + width <= std::max<std::size_t>(width, s.wave); size += width) {
             if (simulation == int(schedule.size()) || pass_width() != width) return;
             for (const auto edge : edges) simulate(edge);
         }

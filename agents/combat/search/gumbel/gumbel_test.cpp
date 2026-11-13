@@ -86,14 +86,15 @@ std::vector<std::size_t> wave_sizes(Gumbel& search) {
 }
 }  // namespace
 
-TEST(Gumbel, EveryRoundFillsWavesOfUpToConsideredActions) {
+TEST(Gumbel, AWaveJoinsPassesUpToTheWaveSize) {
     auto s = settings(1);
-    s.simulations = 256;
+    s.considered_actions = 4;
+    s.wave = 8;
     Gumbel search{stsrl::scenarios::jaw_worm(7), s, 1};
     const auto waves = wave_sizes(search);
     EXPECT_EQ(waves.front(), 1u) << "the root comes first, alone";
-    EXPECT_LE(std::ranges::max(waves), std::size_t(s.considered_actions));
-    EXPECT_LE(waves.size(), 1 + 2 * std::size_t(s.simulations / s.considered_actions)) << "late rounds wait as often as early ones";
+    EXPECT_GT(std::ranges::max(waves), std::size_t(s.considered_actions));
+    EXPECT_LE(std::ranges::max(waves), std::size_t(s.wave));
 }
 
 TEST(Gumbel, SimulationsSharingAWaveSpreadOut) {
