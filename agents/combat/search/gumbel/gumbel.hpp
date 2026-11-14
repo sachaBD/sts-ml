@@ -19,6 +19,9 @@ public:
         double value_scale = 0.1, maxvisit_init = 50;  // mctx qtransform_completed_by_mix_value
     };
 
+    // Unvisited edges are unknown; a chance report cannot be downgraded by another particle.
+    enum class TransitionKind { unknown, deterministic, chance };
+
     struct Graph {
         struct Child { std::uint64_t observation; int visits; };
         struct Edge {
@@ -27,6 +30,7 @@ public:
             std::optional<double> q;  // traversal-weighted mean of child means; absent when unvisited
             int visits;
             std::vector<Child> children;
+            TransitionKind transition = TransitionKind::unknown;
         };
         struct Node {
             std::uint64_t observation;

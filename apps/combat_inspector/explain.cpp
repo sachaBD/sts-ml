@@ -30,6 +30,16 @@ player::Fight replay(const Json& start, const Json& moves) {
     return fight;
 }
 
+const char* transition_name(search::Gumbel::TransitionKind kind) {
+    using enum search::Gumbel::TransitionKind;
+    switch (kind) {
+    case unknown: return "unknown";
+    case deterministic: return "deterministic";
+    case chance: return "chance";
+    }
+    throw std::logic_error{"invalid transition kind"};
+}
+
 Json graph_json(const search::Gumbel::Graph& graph, const search::Result& result, const sts::BattleContext& state) {
     Json nodes = Json::array();
     for (const auto& node : graph.nodes) {
@@ -41,7 +51,8 @@ Json graph_json(const search::Gumbel::Graph& graph, const search::Result& result
                 children.push_back({{"observation", std::to_string(child.observation)}, {"visits", child.visits}});
             Json value{{"action", std::to_string(edge.action)}, {"logit", edge.logit}, {"prior", edge.prior},
                        {"sigma", edge.sigma}, {"improved_policy", edge.improved_policy},
-                       {"q", edge.q ? Json(*edge.q) : Json()}, {"visits", edge.visits}, {"children", children}};
+                       {"q", edge.q ? Json(*edge.q) : Json()}, {"visits", edge.visits}, {"children", children},
+                       {"transition", transition_name(edge.transition)}};
             if (node.observation == graph.root) {
                 const auto action = result.actions.at(i);
                 std::ostringstream description;

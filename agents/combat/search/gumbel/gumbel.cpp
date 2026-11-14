@@ -21,6 +21,7 @@ struct Node {
     std::vector<double> logits, prior;
     std::vector<std::vector<std::pair<Node*, int>>> reached;  // per edge: each node it led to, and how often
     std::vector<int> waiting;  // per edge: simulations of the current wave, not yet backed up
+    std::vector<Gumbel::TransitionKind> transitions;  // chance is sticky across particles and paths
 };
 
 double q(const Node& n) { return n.value_sum / n.visits; }
@@ -111,9 +112,9 @@ std::vector<int> halving_schedule(int m, int simulations) {
 }
 
 // Edges are public keys because card slots can differ between worlds.
-void play(sts::BattleContext& state, std::uint64_t key) {
+sts::search::TransitionEffects play(sts::BattleContext& state, std::uint64_t key) {
     for (const auto a : combat::legal_actions(state))
-        if (combat::action_key(state, a) == key) { a.execute(state); return; }
+        if (combat::action_key(state, a) == key) return a.execute(state);
     throw std::runtime_error{"gumbel: action missing in a particle"};
 }
 }  // namespace
@@ -185,7 +186,10 @@ struct Gumbel::Impl {
         ++simulation;
         for (;;) {
             const auto edge = node == &root ? root_edge : interior_choice(*node);
-            play(state, node->keys[edge]);
+            const auto effects = play(state, node->keys[edge]);
+            auto& transition = node->transitions[edge];
+            if (transition != TransitionKind::chance)
+                transition = effects.isChance() ? TransitionKind::chance : TransitionKind::deterministic;
             auto& next = nodes[Chance::node_key(state)];
             const bool created = !next;
             if (created) next = std::make_unique<Node>();
@@ -242,6 +246,7 @@ struct Gumbel::Impl {
         for (const auto a : leaf.actions) n.keys.push_back(combat::action_key(leaf.state, a));
         n.reached.resize(n.keys.size());
         n.waiting.resize(n.keys.size());
+        n.transitions.resize(n.keys.size(), TransitionKind::unknown);
     }
 
     // Root: the best `count` by gumbel + logits + sigma among actions with exactly `considered` visits.
@@ -282,7 +287,7 @@ struct Gumbel::Impl {
                 for (std::size_t i = 0; i < n.keys.size(); ++i) {
                     const int count = visits(n, i);
                     Graph::Edge edge{n.keys[i], n.logits[i], n.prior[i], scores[i], policy[i],
-                                     count ? std::optional{q(n, i)} : std::nullopt, count, {}};
+                                     count ? std::optional{q(n, i)} : std::nullopt, count, {}, n.transitions[i]};
                     for (const auto& [child, times] : n.reached[i])
                         edge.children.push_back({observations.at(child), times});
                     snapshot.edges.push_back(std::move(edge));
