@@ -312,46 +312,74 @@ TEST(Gumbel, ClassifiesTheExecutionRatherThanTheCard) {
     }
 }
 
-TEST(Gumbel, ChanceReportsSurviveLaterDeterministicExecutionsAcrossParticles) {
-    auto state = stsrl::scenarios::jaw_worm(7);
-    state.cards = sts::CardManager{};
-    state.cards.createTempCardInHand(sts::CardInstance{sts::CardId::STRIKE_RED});
-    state.monsters.arr[0].curHp = 1;
-    auto s = settings();
-    s.particles = 2;
-    s.considered_actions = 1;
-    const auto worlds = stsrl::combat::particles(state, s.particles);
-    ASSERT_NE(worlds.front().seed, worlds.back().seed);
-    const auto random_world = worlds.front().seed;
-    bool deterministic_last = false;
-    for (std::uint64_t seed = 1; seed <= 8; ++seed) {
-        std::vector<bool> reports;
-        auto observed = state;
-        // A particle-sensitive queued effect, invisible in the public observation even when it rolls.
-        observed.addToBot({[&reports, random_world](sts::BattleContext& world) {
-            const bool chance = world.seed == random_world;
-            if (chance) world.miscRng.nextLong();
-            reports.push_back(chance);
-        }});
-        Gumbel search{observed, s, seed};
+namespace {
+class GumbelTerminalTransition : public testing::Test {
+protected:
+    sts::BattleContext state = stsrl::scenarios::jaw_worm(7);
+
+    void SetUp() override {
+        state.cards = sts::CardManager{};
+        state.cards.createTempCardInHand(sts::CardInstance{sts::CardId::STRIKE_RED});
+        state.monsters.arr[0].curHp = 1;
+    }
+
+    Gumbel::Graph search() {
+        auto s = settings();
+        s.simulations = 2;
+        s.particles = 2;
+        s.considered_actions = 1;
+        Gumbel search{state, s, 1};
         run(search, [](const Query& query) {
             auto evaluation = flat(query);
             for (std::size_t i = 0; i < query.actions.size(); ++i)
                 if (query.actions[i].getActionType() == sts::search::ActionType::CARD) evaluation.logits[i] = 5;
             return evaluation;
         });
-        ASSERT_EQ(reports.size(), std::size_t(s.simulations));
-        ASSERT_NE(std::ranges::find(reports, true), reports.end());
-        ASSERT_NE(std::ranges::find(reports, false), reports.end());
-        deterministic_last |= !reports.back();
-        const auto graph = search.graph();
-        const auto root = std::ranges::find(graph.nodes, graph.root, &Gumbel::Graph::Node::observation);
-        ASSERT_NE(root, graph.nodes.end());
-        for (const auto& edge : root->edges)
-            if (edge.visits) {
-                EXPECT_EQ(edge.transition, Gumbel::TransitionKind::chance);
-                EXPECT_EQ(edge.children.size(), 1u) << "matching outcomes do not establish determinism";
-            }
+        return search.graph();
     }
-    EXPECT_TRUE(deterministic_last) << "exercise a deterministic report after the last chance report";
+};
+}  // namespace
+
+TEST_F(GumbelTerminalTransition, ChanceCannotBeDowngraded) {
+    int executions = 0;
+    bool last_chance = false;
+    // Inject chance followed only by deterministic reports, independent of particle sampling order.
+    state.addToBot({[&](sts::BattleContext& world) {
+        last_chance = executions++ == 0;
+        if (last_chance) world.miscRng.nextLong();
+    }});
+    const auto graph = search();
+    ASSERT_GT(executions, 1);
+    ASSERT_FALSE(last_chance);
+    const auto root = std::ranges::find(graph.nodes, graph.root, &Gumbel::Graph::Node::observation);
+    ASSERT_NE(root, graph.nodes.end());
+    const auto edge = std::ranges::find_if(root->edges, [](const auto& e) { return e.visits > 0; });
+    ASSERT_NE(edge, root->edges.end());
+    EXPECT_EQ(edge->transition, Gumbel::TransitionKind::chance);
+}
+
+TEST_F(GumbelTerminalTransition, MatchingOutcomesDoNotImplyDeterminism) {
+    state.addToBot({[](sts::BattleContext& world) { world.miscRng.nextLong(); }});
+    const auto graph = search();
+    const auto root = std::ranges::find(graph.nodes, graph.root, &Gumbel::Graph::Node::observation);
+    ASSERT_NE(root, graph.nodes.end());
+    const auto edge = std::ranges::find_if(root->edges, [](const auto& e) { return e.visits > 0; });
+    ASSERT_NE(edge, root->edges.end());
+    ASSERT_GT(edge->visits, 1);
+    ASSERT_EQ(edge->children.size(), 1u);
+    EXPECT_EQ(edge->transition, Gumbel::TransitionKind::chance);
+}
+
+TEST_F(GumbelTerminalTransition, TerminalTransitionsAreClassified) {
+    const auto graph = search();
+    const auto root = std::ranges::find(graph.nodes, graph.root, &Gumbel::Graph::Node::observation);
+    ASSERT_NE(root, graph.nodes.end());
+    const auto edge = std::ranges::find_if(root->edges, [](const auto& e) { return e.visits > 0; });
+    ASSERT_NE(edge, root->edges.end());
+    ASSERT_EQ(edge->children.size(), 1u);
+    const auto reached = std::ranges::find(graph.nodes, edge->children.front().observation,
+                                          &Gumbel::Graph::Node::observation);
+    ASSERT_NE(reached, graph.nodes.end());
+    ASSERT_TRUE(reached->terminal);
+    EXPECT_EQ(edge->transition, Gumbel::TransitionKind::deterministic);
 }
