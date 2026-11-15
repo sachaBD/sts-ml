@@ -9,24 +9,22 @@
 #include <stdexcept>
 #include <syncstream>
 #include <unordered_map>
-#include <unordered_set>
 
 namespace stsrl::search {
 namespace {
+// Values live on nodes; an edge's value is derived from the nodes it led to.
 struct Node {
     struct Outcome {
         Node* node;
         int visits;
-        bool bootstrap;  // cuts a cyclic value dependency at the successor's network estimate
+        bool bootstrap;  // closes a cycle, so counts the successor's network estimate
     };
     double value = 0;  // the network's estimate, or a finished fight's outcome
-    double backed_value = 0;
-    bool dirty = true;
-    double value_sum = 0;  // diagnostic: leaf evaluations over every simulation through this node
-    int visits = 0;
+    double backed_value = 0;  // the best visited action, or `value` before any visit
+    int visits = 0;  // simulations through this node, by any path
     std::vector<std::uint64_t> keys;  // edges, by action key
     std::vector<double> logits, prior;
-    std::vector<std::vector<Outcome>> reached;  // per edge: sampled outcomes, not player choices
+    std::vector<std::vector<Outcome>> reached;  // per edge: each node it led to
     std::vector<int> waiting;  // per edge: simulations of the current wave, not yet backed up
     std::vector<Gumbel::TransitionKind> transitions;  // chance is sticky across particles and paths
 };
@@ -38,44 +36,17 @@ int visits(const Node& n, std::size_t edge) {
 }
 
 double q(const Node& n, std::size_t edge) {
-    const auto value = [](const Node::Outcome& child) {
-        return child.bootstrap ? child.node->value : child.node->backed_value;
-    };
-    if (n.transitions[edge] == Gumbel::TransitionKind::deterministic) {
-        if (n.reached[edge].size() != 1) throw std::logic_error{"gumbel: deterministic action has multiple outcomes"};
-        return value(n.reached[edge].front());
-    }
     double sum = 0;
-    for (const auto& child : n.reached[edge]) sum += child.visits * value(child);
+    for (const auto& [child, times, bootstrap] : n.reached[edge])
+        sum += times * (bootstrap ? child->value : child->backed_value);
     return sum / visits(n, edge);
 }
 
-bool depends_on(const Node& from, const Node* target) {
-    std::vector<const Node*> pending{&from};
-    std::unordered_set<const Node*> seen;
-    while (!pending.empty()) {
-        const auto* node = pending.back();
-        pending.pop_back();
-        if (node == target) return true;
-        if (!seen.insert(node).second) continue;
-        for (const auto& outcomes : node->reached)
-            for (const auto& child : outcomes)
-                if (!child.bootstrap) pending.push_back(child.node);
-    }
-    return false;
-}
-
-// Outcome links that would close a cycle bootstrap instead, so cached values form a DAG.
-void refresh(Node& n) {
-    if (!n.dirty) return;
+void revalue(Node& n) {
     double best = -INFINITY;
-    for (std::size_t edge = 0; edge < n.keys.size(); ++edge) {
-        for (const auto& child : n.reached[edge])
-            if (!child.bootstrap) refresh(*child.node);
+    for (std::size_t edge = 0; edge < n.keys.size(); ++edge)
         if (visits(n, edge)) best = std::max(best, q(n, edge));
-    }
     n.backed_value = best == -INFINITY ? n.value : best;
-    n.dirty = false;
 }
 
 int total(const Node& n) {
@@ -198,9 +169,6 @@ struct Gumbel::Impl {
         do {
             for (const auto& [path, end] : backups) backup(path, *end);
             backups.clear();
-            // Shared states can change the value of ancestors outside the latest simulation paths.
-            for (const auto& [key, node] : nodes) node->dirty = true;
-            for (const auto& [key, node] : nodes) refresh(*node);
             if (simulation < int(schedule.size())) next_wave();
         } while (leaves.empty() && !backups.empty());
         for (const auto& leaf : leaves) queries.push_back({leaf.state, leaf.actions});
@@ -251,7 +219,7 @@ struct Gumbel::Impl {
                 return;
             }
             if (state.outcome != sts::Outcome::UNDECIDED) {
-                next->value = state.outcome == sts::Outcome::PLAYER_VICTORY;
+                next->value = next->backed_value = state.outcome == sts::Outcome::PLAYER_VICTORY;
                 backups.emplace_back(std::move(path), next.get());
                 return;
             }
@@ -264,27 +232,32 @@ struct Gumbel::Impl {
         }
     }
 
-    // The one place values change: `end`'s value is counted at every node on the path, and each edge
-    // counts the node it reached.
+    // The one place values change: each edge counts the node it reached, then the path's nodes are
+    // revalued from `end` upward. Nodes off the path keep their values until a simulation passes through.
     static void backup(const Path& path, Node& end) {
-        const double value = end.value;
-        for (const auto& [node, edge, reached] : path) {
+        const bool cycle = std::ranges::any_of(path, [&](const Step& step) { return step.node == &end; });
+        for (const auto& step : path) {
+            const auto& [node, edge, reached] = step;
+            const bool closes = cycle && &step == &path.back();
             --node->waiting[edge];
-            auto& counts = node->reached[edge];
-            const auto found = std::ranges::find(counts, reached, &Node::Outcome::node);
-            if (found == counts.end()) counts.push_back({reached, 1, depends_on(*reached, node)});
-            else ++found->visits;
-            node->value_sum += value; ++node->visits;
+            auto& outcomes = node->reached[edge];
+            const auto found = std::ranges::find(outcomes, reached, &Node::Outcome::node);
+            if (found == outcomes.end()) {
+                outcomes.push_back({reached, 1, closes});
+            } else {
+                ++found->visits;
+                found->bootstrap |= closes;
+            }
+            ++node->visits;
         }
-        // A cycle's endpoint was already counted as a source on this path.
-        if (std::ranges::none_of(path, [&](const Step& step) { return step.node == &end; })) {
-            end.value_sum += value; ++end.visits;
-        }
+        // A cycle's endpoint was already counted on this path.
+        if (!cycle) ++end.visits;
+        for (auto step = path.rbegin(); step != path.rend(); ++step) revalue(*step->node);
     }
 
     static void expand(const Leaf& leaf, const Evaluation& e) {
         auto& n = *leaf.node;
-        n.value = e.value;
+        n.value = n.backed_value = e.value;
         n.logits.assign(e.logits.begin(), e.logits.end());
         n.prior = softmax(n.logits);
         for (const auto a : leaf.actions) n.keys.push_back(combat::action_key(leaf.state, a));
@@ -324,7 +297,7 @@ struct Gumbel::Impl {
         Graph out{observations.at(&root), {}, gumbel};
         for (const auto& [key, node] : nodes) {
             const auto& n = *node;
-            Graph::Node snapshot{key, n.keys.empty(), n.value, n.value_sum / n.visits, n.visits, {}, n.backed_value};
+            Graph::Node snapshot{key, n.keys.empty(), n.value, n.backed_value, n.visits, {}};
             // Every nonterminal node has been evaluated when the search is complete.
             if (!snapshot.terminal) {
                 const auto scores = sigma(n, s), policy = improved_policy(n, s);

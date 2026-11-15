@@ -63,8 +63,8 @@ Json graph_json(const search::Gumbel::Graph& graph, const search::Result& result
             edges.push_back(std::move(value));
         }
         nodes.push_back({{"observation", std::to_string(node.observation)}, {"terminal", node.terminal},
-                         {"evaluation_value", node.evaluation_value}, {"mean_value", node.mean_value},
-                         {"visits", node.visits}, {"edges", edges}, {"backed_value", node.backed_value}});
+                         {"evaluation_value", node.evaluation_value}, {"backed_value", node.backed_value},
+                         {"visits", node.visits}, {"edges", edges}});
     }
     return {{"root", std::to_string(graph.root)}, {"root_noise", graph.root_noise}, {"nodes", nodes}};
 }

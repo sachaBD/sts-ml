@@ -241,6 +241,37 @@ TEST(Gumbel, EntropicSelfLoopUsesTheNetworkValueAndReportsAnError) {
 }
 
 
+TEST(Gumbel, ACycleCountsTheNetworkValueNotItsOwnBackup) {
+    auto state = stsrl::scenarios::jaw_worm(13);
+    state.potionCapacity = state.potionCount = 2;
+    state.potions[0] = sts::Potion::ENTROPIC_BREW;
+    state.potions[1] = sts::Potion::COLORLESS_POTION;
+    const Action brew{sts::search::ActionType::POTION, 0};
+    const auto root_key = stsrl::combat::observation_key(state);
+    auto s = settings();
+    s.particles = 1;
+    s.considered_actions = 2;
+    s.simulations = 8;
+    Gumbel search{state, s, 1};
+    testing::internal::CaptureStderr();
+    run(search, [&](const Query& q) {
+        auto e = flat(q);
+        const bool root = stsrl::combat::observation_key(q.state) == root_key;
+        e.value = root ? 0.37f : 0.9f;
+        for (std::size_t i = 0; i < q.actions.size(); ++i)
+            if (root && q.actions[i] == brew) e.logits[i] = 5.f;
+        return e;
+    });
+    testing::internal::GetCapturedStderr();
+    const auto graph = search.graph();
+    const auto root = std::ranges::find(graph.nodes, graph.root, &Gumbel::Graph::Node::observation);
+    ASSERT_GT(root->backed_value, root->evaluation_value) << "another action must lift the root";
+    const auto edge = std::ranges::find(root->edges, stsrl::combat::action_key(state, brew), &Gumbel::Graph::Edge::action);
+    ASSERT_EQ(edge->children.size(), 1u);
+    ASSERT_EQ(edge->children.front().observation, graph.root);
+    EXPECT_FLOAT_EQ(*edge->q, 0.37f);
+}
+
 namespace {
 class GumbelInspection : public testing::Test {
 protected:
@@ -307,35 +338,27 @@ double outcome_value(const Gumbel::Graph& graph, const Gumbel::Graph::Child& chi
 }
 }  // namespace
 
-TEST_F(GumbelInspection, NodeValueIsItsBestVisitedAction) {
-    for (const auto& node : graph.nodes) {
-        double best = -INFINITY;
-        for (const auto& edge : node.edges)
-            if (edge.q) best = std::max(best, *edge.q);
-        EXPECT_DOUBLE_EQ(node.backed_value, best == -INFINITY ? node.evaluation_value : best);
-    }
+TEST_F(GumbelInspection, RootValueIsItsBestVisitedAction) {
+    const auto root = std::ranges::find(graph.nodes, graph.root, &Gumbel::Graph::Node::observation);
+    ASSERT_NE(root, graph.nodes.end());
+    double best = -INFINITY;
+    for (const auto& edge : root->edges)
+        if (edge.q) best = std::max(best, *edge.q);
+    EXPECT_EQ(root->backed_value, best);
+    EXPECT_FLOAT_EQ(result.value, best);
 }
 
-TEST_F(GumbelInspection, ChanceActionsAverageTheirSampledOutcomes) {
+TEST_F(GumbelInspection, ActionsAverageTheirOutcomes) {
     int mixed = 0;
     for (const auto& node : graph.nodes)
         for (const auto& edge : node.edges) {
-            if (edge.transition != Gumbel::TransitionKind::chance) continue;
+            if (!edge.visits) continue;
             double sum = 0;
             for (const auto& child : edge.children) sum += child.visits * outcome_value(graph, child);
-            EXPECT_NEAR(*edge.q, sum / edge.visits, 1e-12);
+            EXPECT_DOUBLE_EQ(*edge.q, sum / edge.visits);
             mixed += edge.children.size() > 1;
         }
-    EXPECT_GT(mixed, 0) << "some chance action must reach several outcomes";
-}
-
-TEST_F(GumbelInspection, DeterministicActionsTakeTheirOutcomeValue) {
-    for (const auto& node : graph.nodes)
-        for (const auto& edge : node.edges) {
-            if (edge.transition != Gumbel::TransitionKind::deterministic) continue;
-            ASSERT_EQ(edge.children.size(), 1u);
-            EXPECT_EQ(*edge.q, outcome_value(graph, edge.children.front()));
-        }
+    EXPECT_GT(mixed, 0) << "some action must reach several outcomes";
 }
 
 TEST(Gumbel, ZeroSimulationsLeavesEveryTransitionUnknown) {

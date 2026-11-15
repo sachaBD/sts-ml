@@ -26,12 +26,12 @@ public:
         struct Child {
             std::uint64_t observation;
             int visits;
-            bool bootstrap = false;  // cycle cut: use evaluation_value rather than backed_value
+            bool bootstrap = false;  // closes a cycle, so counts the successor's evaluation_value
         };
         struct Edge {
             std::uint64_t action;
             double logit, prior, sigma, improved_policy;
-            std::optional<double> q;  // successor value, or sampled-outcome mean for chance; absent when unvisited
+            std::optional<double> q;  // visit-weighted mean of the outcomes' values; absent when unvisited
             int visits;
             std::vector<Child> children;
             TransitionKind transition = TransitionKind::unknown;
@@ -39,10 +39,10 @@ public:
         struct Node {
             std::uint64_t observation;
             bool terminal;
-            double evaluation_value, mean_value;
+            double evaluation_value;
+            double backed_value;  // best visited action's q, or evaluation_value before any visit
             int visits;  // includes the initial evaluation for nonterminal nodes
             std::vector<Edge> edges;
-            double backed_value;  // max visited action value, or evaluation_value before any action is visited
         };
         std::uint64_t root;
         std::vector<Node> nodes;  // sorted by observation; children may have multiple parents
