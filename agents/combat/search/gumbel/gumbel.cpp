@@ -6,6 +6,7 @@
 #include <iostream>
 #include <numeric>
 #include <random>
+#include <span>
 #include <stdexcept>
 #include <syncstream>
 #include <unordered_map>
@@ -35,18 +36,30 @@ int visits(const Node& n, std::size_t edge) {
     return count;
 }
 
+double link_value(const Node::Outcome& outcome) {
+    return outcome.bootstrap ? outcome.node->value : outcome.node->backed_value;
+}
+
+// The expectation over sampled outcomes.
 double q(const Node& n, std::size_t edge) {
     double sum = 0;
-    for (const auto& [child, times, bootstrap] : n.reached[edge])
-        sum += times * (bootstrap ? child->value : child->backed_value);
+    for (const auto& outcome : n.reached[edge]) sum += outcome.visits * link_value(outcome);
     return sum / visits(n, edge);
 }
 
+struct ActionValue { int visits; double q; };
+
+// A choice node's value from its network estimate and its visited actions.
+double backup_value(double network, std::span<const ActionValue> visited) {
+    if (visited.empty()) return network;
+    return std::ranges::max(visited, {}, &ActionValue::q).q;
+}
+
 void revalue(Node& n) {
-    double best = -INFINITY;
+    std::vector<ActionValue> visited;
     for (std::size_t edge = 0; edge < n.keys.size(); ++edge)
-        if (visits(n, edge)) best = std::max(best, q(n, edge));
-    n.backed_value = best == -INFINITY ? n.value : best;
+        if (const int count = visits(n, edge)) visited.push_back({count, q(n, edge)});
+    n.backed_value = backup_value(n.value, visited);
 }
 
 int total(const Node& n) {
@@ -131,7 +144,7 @@ sts::search::TransitionEffects play(sts::BattleContext& state, std::uint64_t key
 }  // namespace
 
 struct Gumbel::Impl {
-    struct Step { Node* node; std::size_t edge; Node* reached; };
+    struct Step { Node* node; std::size_t edge; Node* reached; bool closes_cycle; };
     using Path = std::vector<Step>;
     struct Leaf { Node* node; sts::BattleContext state; std::vector<Action> actions; };
 
@@ -206,7 +219,7 @@ struct Gumbel::Impl {
             if (created) next = std::make_unique<Node>();
             const bool cycle = next.get() == node ||
                 std::ranges::any_of(path, [&](const Step& step) { return step.node == next.get(); });
-            path.push_back({node, edge, next.get()});
+            path.push_back({node, edge, next.get(), cycle});
             ++node->waiting[edge];
             if (cycle) {
                 std::osyncstream error{std::cerr};
@@ -219,7 +232,8 @@ struct Gumbel::Impl {
                 return;
             }
             if (state.outcome != sts::Outcome::UNDECIDED) {
-                next->value = next->backed_value = state.outcome == sts::Outcome::PLAYER_VICTORY;
+                next->value = state.outcome == sts::Outcome::PLAYER_VICTORY;
+                revalue(*next);
                 backups.emplace_back(std::move(path), next.get());
                 return;
             }
@@ -235,10 +249,7 @@ struct Gumbel::Impl {
     // The one place values change: each edge counts the node it reached, then the path's nodes are
     // revalued from `end` upward. Nodes off the path keep their values until a simulation passes through.
     static void backup(const Path& path, Node& end) {
-        const bool cycle = std::ranges::any_of(path, [&](const Step& step) { return step.node == &end; });
-        for (const auto& step : path) {
-            const auto& [node, edge, reached] = step;
-            const bool closes = cycle && &step == &path.back();
+        for (const auto& [node, edge, reached, closes] : path) {
             --node->waiting[edge];
             auto& outcomes = node->reached[edge];
             const auto found = std::ranges::find(outcomes, reached, &Node::Outcome::node);
@@ -251,13 +262,14 @@ struct Gumbel::Impl {
             ++node->visits;
         }
         // A cycle's endpoint was already counted on this path.
-        if (!cycle) ++end.visits;
+        if (path.empty() || !path.back().closes_cycle) ++end.visits;
         for (auto step = path.rbegin(); step != path.rend(); ++step) revalue(*step->node);
     }
 
     static void expand(const Leaf& leaf, const Evaluation& e) {
         auto& n = *leaf.node;
-        n.value = n.backed_value = e.value;
+        n.value = e.value;
+        revalue(n);
         n.logits.assign(e.logits.begin(), e.logits.end());
         n.prior = softmax(n.logits);
         for (const auto a : leaf.actions) n.keys.push_back(combat::action_key(leaf.state, a));
