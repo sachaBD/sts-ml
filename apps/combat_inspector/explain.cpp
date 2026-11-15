@@ -48,7 +48,8 @@ Json graph_json(const search::Gumbel::Graph& graph, const search::Result& result
             const auto& edge = node.edges[i];
             Json children = Json::array();
             for (const auto& child : edge.children)
-                children.push_back({{"observation", std::to_string(child.observation)}, {"visits", child.visits}});
+                children.push_back({{"observation", std::to_string(child.observation)}, {"visits", child.visits},
+                                    {"bootstrap", child.bootstrap}});
             Json value{{"action", std::to_string(edge.action)}, {"logit", edge.logit}, {"prior", edge.prior},
                        {"sigma", edge.sigma}, {"improved_policy", edge.improved_policy},
                        {"q", edge.q ? Json(*edge.q) : Json()}, {"visits", edge.visits}, {"children", children},
@@ -63,7 +64,7 @@ Json graph_json(const search::Gumbel::Graph& graph, const search::Result& result
         }
         nodes.push_back({{"observation", std::to_string(node.observation)}, {"terminal", node.terminal},
                          {"evaluation_value", node.evaluation_value}, {"mean_value", node.mean_value},
-                         {"visits", node.visits}, {"edges", edges}});
+                         {"visits", node.visits}, {"edges", edges}, {"backed_value", node.backed_value}});
     }
     return {{"root", std::to_string(graph.root)}, {"root_noise", graph.root_noise}, {"nodes", nodes}};
 }

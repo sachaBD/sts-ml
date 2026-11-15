@@ -19,6 +19,12 @@ bool wins_now(const sts::BattleContext& state, Action action) {
     return next.outcome == sts::Outcome::PLAYER_VICTORY;
 }
 
+bool loses_now(const sts::BattleContext& state, Action action) {
+    auto next = state;
+    action.execute(next);
+    return next.outcome == sts::Outcome::PLAYER_LOSS;
+}
+
 Evaluation flat(const Query& q) { return {0.5f, std::vector<float>(q.actions.size(), 0.f)}; }
 
 // Arbitrary but repeatable answers, so results are not trivially uniform.
@@ -134,10 +140,12 @@ TEST(Gumbel, FlatValuesFollowThePrior) {
 TEST(Gumbel, WinningMoveBeatsAWrongPrior) {
     auto root = stsrl::scenarios::jaw_worm(7);
     root.monsters.arr[0].curHp = 1;
+    root.player.curHp = 1;
     const auto actions = legal_actions(root);
     const auto loser = std::ranges::find_if(actions, [&](Action a) { return a.getActionType() == sts::search::ActionType::END_TURN; });
     ASSERT_TRUE(std::ranges::any_of(actions, [&](Action a) { return wins_now(root, a); }));
     ASSERT_NE(loser, actions.end());
+    ASSERT_TRUE(loses_now(root, *loser));
 
     Gumbel search{root, settings(), 1};
     const auto r = run(search, [&](const Query& q) {
@@ -146,6 +154,25 @@ TEST(Gumbel, WinningMoveBeatsAWrongPrior) {
         return e;
     });
     EXPECT_TRUE(wins_now(root, r.action));
+}
+
+TEST(Gumbel, ValueIsTheBestPlayerChoiceNotTheVisitAverage) {
+    auto root = stsrl::scenarios::jaw_worm(7);
+    root.monsters.arr[0].curHp = 1;
+    root.player.curHp = 1;
+    const auto actions = legal_actions(root);
+    const auto loser = std::ranges::find_if(actions, [&](Action a) { return a.getActionType() == sts::search::ActionType::END_TURN; });
+    ASSERT_TRUE(loses_now(root, *loser));
+    Gumbel search{root, settings(), 1};
+    const auto r = run(search, [&](const Query& q) {
+        auto e = flat(q);
+        for (std::size_t i = 0; i < q.actions.size(); ++i) e.logits[i] = q.actions[i] == *loser ? 3.f : 0.f;
+        return e;
+    });
+    const auto graph = search.graph();
+    const auto node = std::ranges::find(graph.nodes, graph.root, &Gumbel::Graph::Node::observation);
+    ASSERT_GT(node->edges[std::size_t(loser - actions.begin())].visits, 0) << "the losing move must be explored";
+    EXPECT_EQ(r.value, 1.f);
 }
 
 TEST(Gumbel, ZeroSimulationsPlaysTheNetworkAlone) {
@@ -271,6 +298,44 @@ TEST_F(GumbelInspection, OnlyExecutedEdgesHaveAKnownTransition) {
     for (const auto& node : graph.nodes)
         for (const auto& edge : node.edges)
             EXPECT_EQ(edge.transition == Gumbel::TransitionKind::unknown, edge.visits == 0);
+}
+
+namespace {
+double outcome_value(const Gumbel::Graph& graph, const Gumbel::Graph::Child& child) {
+    const auto node = std::ranges::find(graph.nodes, child.observation, &Gumbel::Graph::Node::observation);
+    return child.bootstrap ? node->evaluation_value : node->backed_value;
+}
+}  // namespace
+
+TEST_F(GumbelInspection, NodeValueIsItsBestVisitedAction) {
+    for (const auto& node : graph.nodes) {
+        double best = -INFINITY;
+        for (const auto& edge : node.edges)
+            if (edge.q) best = std::max(best, *edge.q);
+        EXPECT_DOUBLE_EQ(node.backed_value, best == -INFINITY ? node.evaluation_value : best);
+    }
+}
+
+TEST_F(GumbelInspection, ChanceActionsAverageTheirSampledOutcomes) {
+    int mixed = 0;
+    for (const auto& node : graph.nodes)
+        for (const auto& edge : node.edges) {
+            if (edge.transition != Gumbel::TransitionKind::chance) continue;
+            double sum = 0;
+            for (const auto& child : edge.children) sum += child.visits * outcome_value(graph, child);
+            EXPECT_NEAR(*edge.q, sum / edge.visits, 1e-12);
+            mixed += edge.children.size() > 1;
+        }
+    EXPECT_GT(mixed, 0) << "some chance action must reach several outcomes";
+}
+
+TEST_F(GumbelInspection, DeterministicActionsTakeTheirOutcomeValue) {
+    for (const auto& node : graph.nodes)
+        for (const auto& edge : node.edges) {
+            if (edge.transition != Gumbel::TransitionKind::deterministic) continue;
+            ASSERT_EQ(edge.children.size(), 1u);
+            EXPECT_EQ(*edge.q, outcome_value(graph, edge.children.front()));
+        }
 }
 
 TEST(Gumbel, ZeroSimulationsLeavesEveryTransitionUnknown) {
