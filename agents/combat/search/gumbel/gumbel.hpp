@@ -23,11 +23,15 @@ public:
     enum class TransitionKind { unknown, deterministic, chance };
 
     struct Graph {
-        struct Child { std::uint64_t observation; int visits; };
+        struct Child {
+            std::uint64_t observation;
+            int visits;
+            bool bootstrap = false;  // closes a cycle, so counts the successor's evaluation_value
+        };
         struct Edge {
             std::uint64_t action;
             double logit, prior, sigma, improved_policy;
-            std::optional<double> q;  // traversal-weighted mean of child means; absent when unvisited
+            std::optional<double> q;  // visit-weighted mean of the outcomes' values; absent when unvisited
             int visits;
             std::vector<Child> children;
             TransitionKind transition = TransitionKind::unknown;
@@ -35,8 +39,8 @@ public:
         struct Node {
             std::uint64_t observation;
             bool terminal;
-            double evaluation_value, mean_value;
-            int visits;  // includes the initial evaluation for nonterminal nodes
+            double evaluation_value;
+            double backed_value;  // the search's value of this node
             std::vector<Edge> edges;
         };
         std::uint64_t root;

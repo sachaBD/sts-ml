@@ -6,36 +6,85 @@
 #include <iostream>
 #include <numeric>
 #include <random>
+#include <span>
 #include <stdexcept>
 #include <syncstream>
 #include <unordered_map>
+#include <unordered_set>
 
 namespace stsrl::search {
 namespace {
-// Values live only on nodes; an edge only counts where it led. Every other value is derived from these.
+// Values live on nodes; an edge's value is derived from the nodes it led to.
 struct Node {
+    struct Outcome {
+        Node* node;
+        int visits;
+        bool bootstrap;  // closes a cycle, so counts the successor's network estimate
+    };
     double value = 0;  // the network's estimate, or a finished fight's outcome
-    double value_sum = 0;  // over every simulation through this node, by any path
-    int visits = 0;
+    double backed_value = 0;  // Backup's value of this node
+    std::vector<Node*> parents;  // sources of non-bootstrap outcomes, which read backed_value
     std::vector<std::uint64_t> keys;  // edges, by action key
     std::vector<double> logits, prior;
-    std::vector<std::vector<std::pair<Node*, int>>> reached;  // per edge: each node it led to, and how often
+    std::vector<std::vector<Outcome>> reached;  // per edge: each node it led to
     std::vector<int> waiting;  // per edge: simulations of the current wave, not yet backed up
     std::vector<Gumbel::TransitionKind> transitions;  // chance is sticky across particles and paths
 };
 
-double q(const Node& n) { return n.value_sum / n.visits; }
-
 int visits(const Node& n, std::size_t edge) {
     int count = 0;
-    for (const auto& [child, times] : n.reached[edge]) count += times;
+    for (const auto& child : n.reached[edge]) count += child.visits;
     return count;
 }
 
+double link_value(const Node::Outcome& outcome) {
+    return outcome.bootstrap ? outcome.node->value : outcome.node->backed_value;
+}
+
+// The expectation over sampled outcomes.
 double q(const Node& n, std::size_t edge) {
     double sum = 0;
-    for (const auto& [child, times] : n.reached[edge]) sum += times * q(*child);
+    for (const auto& outcome : n.reached[edge]) sum += outcome.visits * link_value(outcome);
     return sum / visits(n, edge);
+}
+
+struct ActionValue { int visits; double q; };
+
+// Values a choice node as its best visited action, or its network estimate before any visit.
+struct HardMax {
+    static double value(double network, std::span<const ActionValue> visited) {
+        if (visited.empty()) return network;
+        return std::ranges::max(visited, {}, &ActionValue::q).q;
+    }
+};
+
+using Backup = HardMax;  // the backup rule the search uses
+
+// Returns whether the value changed.
+bool revalue(Node& n) {
+    std::vector<ActionValue> visited;
+    for (std::size_t edge = 0; edge < n.keys.size(); ++edge)
+        if (const int count = visits(n, edge)) visited.push_back({count, q(n, edge)});
+    const double value = Backup::value(n.value, visited);
+    const bool changed = value != n.backed_value;
+    n.backed_value = value;
+    return changed;
+}
+
+// Whether `to` is reachable from `from` along non-bootstrap outcomes.
+bool reaches(const Node& from, const Node* to) {
+    std::vector<const Node*> pending{&from};
+    std::unordered_set<const Node*> seen;
+    while (!pending.empty()) {
+        const auto* node = pending.back();
+        pending.pop_back();
+        if (node == to) return true;
+        if (!seen.insert(node).second) continue;
+        for (const auto& outcomes : node->reached)
+            for (const auto& outcome : outcomes)
+                if (!outcome.bootstrap) pending.push_back(outcome.node);
+    }
+    return false;
 }
 
 int total(const Node& n) {
@@ -138,12 +187,12 @@ struct Gumbel::Impl {
     // One Sequential Halving pass, backed up only once fully answered, so answers cannot steer it.
     std::vector<Leaf> leaves;
     std::vector<Query> queries;
-    std::vector<std::pair<Path, Node*>> backups;
+    std::vector<Path> backups;
 
     Impl(const sts::BattleContext& observed, const Settings& settings, std::uint64_t seed)
         : s{settings}, fight_seed{observed.seed}, rng{seed}, chance{observed, settings.particles}, actions{combat::legal_actions(observed)},
           root{*(nodes[Chance::node_key(observed)] = std::make_unique<Node>())},
-          leaves{{&root, observed, actions}}, queries{{leaves[0].state, leaves[0].actions}}, backups{{{}, &root}} {}
+          leaves{{&root, observed, actions}}, queries{{leaves[0].state, leaves[0].actions}} {}
 
     void evaluated(std::span<const Evaluation> e) {
         if (leaves.empty() || e.size() != leaves.size()) throw std::invalid_argument{"gumbel: one evaluation per pending query"};
@@ -156,7 +205,7 @@ struct Gumbel::Impl {
         leaves.clear();
         queries.clear();
         do {
-            for (const auto& [path, end] : backups) backup(path, *end);
+            for (const auto& path : backups) backup(path);
             backups.clear();
             if (simulation < int(schedule.size())) next_wave();
         } while (leaves.empty() && !backups.empty());
@@ -204,43 +253,53 @@ struct Gumbel::Impl {
                       << " bootstrap=" << next->value << " path_action_keys=[";
                 for (const auto& step : path) error << step.node->keys[step.edge] << ',';
                 error << "]\n" << state;
-                backups.emplace_back(std::move(path), next.get());
+                backups.push_back(std::move(path));
                 return;
             }
             if (state.outcome != sts::Outcome::UNDECIDED) {
                 next->value = state.outcome == sts::Outcome::PLAYER_VICTORY;
-                backups.emplace_back(std::move(path), next.get());
+                revalue(*next);
+                backups.push_back(std::move(path));
                 return;
             }
             if (created) leaves.push_back({next.get(), state, combat::legal_actions(state)});
             if (std::ranges::find(leaves, next.get(), &Leaf::node) != leaves.end()) {
-                backups.emplace_back(std::move(path), next.get());
+                backups.push_back(std::move(path));
                 return;
             }
             node = next.get();
         }
     }
 
-    // The one place values change: `end`'s value is counted at every node on the path, and each edge
-    // counts the node it reached.
-    static void backup(const Path& path, Node& end) {
-        const double value = end.value;
+    // Each edge counts the node it reached. A new outcome bootstraps if it closes a cycle, so the rest stay
+    // acyclic and every changed value can be pushed to its parents until none changes.
+    static void backup(const Path& path) {
+        std::vector<Node*> stale;
         for (const auto& [node, edge, reached] : path) {
             --node->waiting[edge];
-            auto& counts = node->reached[edge];
-            const auto found = std::ranges::find(counts, reached, &std::pair<Node*, int>::first);
-            if (found == counts.end()) counts.emplace_back(reached, 1); else ++found->second;
-            node->value_sum += value; ++node->visits;
+            auto& outcomes = node->reached[edge];
+            const auto found = std::ranges::find(outcomes, reached, &Node::Outcome::node);
+            if (found != outcomes.end()) {
+                ++found->visits;
+            } else if (reaches(*reached, node)) {
+                outcomes.push_back({reached, 1, true});
+            } else {
+                outcomes.push_back({reached, 1, false});
+                reached->parents.push_back(node);
+            }
+            stale.push_back(node);
         }
-        // A cycle's endpoint was already counted as a source on this path.
-        if (std::ranges::none_of(path, [&](const Step& step) { return step.node == &end; })) {
-            end.value_sum += value; ++end.visits;
+        while (!stale.empty()) {
+            auto& node = *stale.back();
+            stale.pop_back();
+            if (revalue(node)) stale.insert(stale.end(), node.parents.begin(), node.parents.end());
         }
     }
 
     static void expand(const Leaf& leaf, const Evaluation& e) {
         auto& n = *leaf.node;
         n.value = e.value;
+        revalue(n);
         n.logits.assign(e.logits.begin(), e.logits.end());
         n.prior = softmax(n.logits);
         for (const auto a : leaf.actions) n.keys.push_back(combat::action_key(leaf.state, a));
@@ -280,7 +339,7 @@ struct Gumbel::Impl {
         Graph out{observations.at(&root), {}, gumbel};
         for (const auto& [key, node] : nodes) {
             const auto& n = *node;
-            Graph::Node snapshot{key, n.keys.empty(), n.value, q(n), n.visits, {}};
+            Graph::Node snapshot{key, n.keys.empty(), n.value, n.backed_value, {}};
             // Every nonterminal node has been evaluated when the search is complete.
             if (!snapshot.terminal) {
                 const auto scores = sigma(n, s), policy = improved_policy(n, s);
@@ -288,8 +347,8 @@ struct Gumbel::Impl {
                     const int count = visits(n, i);
                     Graph::Edge edge{n.keys[i], n.logits[i], n.prior[i], scores[i], policy[i],
                                      count ? std::optional{q(n, i)} : std::nullopt, count, {}, n.transitions[i]};
-                    for (const auto& [child, times] : n.reached[i])
-                        edge.children.push_back({observations.at(child), times});
+                    for (const auto& child : n.reached[i])
+                        edge.children.push_back({observations.at(child.node), child.visits, child.bootstrap});
                     snapshot.edges.push_back(std::move(edge));
                 }
             }
@@ -300,11 +359,9 @@ struct Gumbel::Impl {
     }
 
     Result result() const {
-        int most = 0, sum = 0;
-        double value_sum = 0;
-        for (std::size_t i = 0; i < root.keys.size(); ++i)
-            if (const int v = visits(root, i)) { most = std::max(most, v); sum += v; value_sum += v * q(root, i); }
-        Result r{actions[ranked(most, 1).front()], actions, {}, float(sum ? value_sum / sum : root.value)};
+        int most = 0;
+        for (std::size_t i = 0; i < root.keys.size(); ++i) most = std::max(most, visits(root, i));
+        Result r{actions[ranked(most, 1).front()], actions, {}, float(root.backed_value)};
         for (double p : improved_policy(root, s)) r.policy.push_back(float(p));
         return r;
     }
