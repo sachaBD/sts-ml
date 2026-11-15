@@ -10,6 +10,7 @@
 #include <stdexcept>
 #include <syncstream>
 #include <unordered_map>
+#include <unordered_set>
 
 namespace stsrl::search {
 namespace {
@@ -21,8 +22,8 @@ struct Node {
         bool bootstrap;  // closes a cycle, so counts the successor's network estimate
     };
     double value = 0;  // the network's estimate, or a finished fight's outcome
-    double backed_value = 0;  // the best visited action, or `value` before any visit
-    int visits = 0;  // simulations through this node, by any path
+    double backed_value = 0;  // Backup's value of this node
+    std::vector<Node*> parents;  // sources of non-bootstrap outcomes, which read backed_value
     std::vector<std::uint64_t> keys;  // edges, by action key
     std::vector<double> logits, prior;
     std::vector<std::vector<Outcome>> reached;  // per edge: each node it led to
@@ -49,17 +50,41 @@ double q(const Node& n, std::size_t edge) {
 
 struct ActionValue { int visits; double q; };
 
-// A choice node's value from its network estimate and its visited actions.
-double backup_value(double network, std::span<const ActionValue> visited) {
-    if (visited.empty()) return network;
-    return std::ranges::max(visited, {}, &ActionValue::q).q;
-}
+// Values a choice node as its best visited action, or its network estimate before any visit.
+struct HardMax {
+    static double value(double network, std::span<const ActionValue> visited) {
+        if (visited.empty()) return network;
+        return std::ranges::max(visited, {}, &ActionValue::q).q;
+    }
+};
 
-void revalue(Node& n) {
+using Backup = HardMax;  // the backup rule the search uses
+
+// Returns whether the value changed.
+bool revalue(Node& n) {
     std::vector<ActionValue> visited;
     for (std::size_t edge = 0; edge < n.keys.size(); ++edge)
         if (const int count = visits(n, edge)) visited.push_back({count, q(n, edge)});
-    n.backed_value = backup_value(n.value, visited);
+    const double value = Backup::value(n.value, visited);
+    const bool changed = value != n.backed_value;
+    n.backed_value = value;
+    return changed;
+}
+
+// Whether `to` is reachable from `from` along non-bootstrap outcomes.
+bool reaches(const Node& from, const Node* to) {
+    std::vector<const Node*> pending{&from};
+    std::unordered_set<const Node*> seen;
+    while (!pending.empty()) {
+        const auto* node = pending.back();
+        pending.pop_back();
+        if (node == to) return true;
+        if (!seen.insert(node).second) continue;
+        for (const auto& outcomes : node->reached)
+            for (const auto& outcome : outcomes)
+                if (!outcome.bootstrap) pending.push_back(outcome.node);
+    }
+    return false;
 }
 
 int total(const Node& n) {
@@ -144,7 +169,7 @@ sts::search::TransitionEffects play(sts::BattleContext& state, std::uint64_t key
 }  // namespace
 
 struct Gumbel::Impl {
-    struct Step { Node* node; std::size_t edge; Node* reached; bool closes_cycle; };
+    struct Step { Node* node; std::size_t edge; Node* reached; };
     using Path = std::vector<Step>;
     struct Leaf { Node* node; sts::BattleContext state; std::vector<Action> actions; };
 
@@ -162,12 +187,12 @@ struct Gumbel::Impl {
     // One Sequential Halving pass, backed up only once fully answered, so answers cannot steer it.
     std::vector<Leaf> leaves;
     std::vector<Query> queries;
-    std::vector<std::pair<Path, Node*>> backups;
+    std::vector<Path> backups;
 
     Impl(const sts::BattleContext& observed, const Settings& settings, std::uint64_t seed)
         : s{settings}, fight_seed{observed.seed}, rng{seed}, chance{observed, settings.particles}, actions{combat::legal_actions(observed)},
           root{*(nodes[Chance::node_key(observed)] = std::make_unique<Node>())},
-          leaves{{&root, observed, actions}}, queries{{leaves[0].state, leaves[0].actions}}, backups{{{}, &root}} {}
+          leaves{{&root, observed, actions}}, queries{{leaves[0].state, leaves[0].actions}} {}
 
     void evaluated(std::span<const Evaluation> e) {
         if (leaves.empty() || e.size() != leaves.size()) throw std::invalid_argument{"gumbel: one evaluation per pending query"};
@@ -180,7 +205,7 @@ struct Gumbel::Impl {
         leaves.clear();
         queries.clear();
         do {
-            for (const auto& [path, end] : backups) backup(path, *end);
+            for (const auto& path : backups) backup(path);
             backups.clear();
             if (simulation < int(schedule.size())) next_wave();
         } while (leaves.empty() && !backups.empty());
@@ -219,7 +244,7 @@ struct Gumbel::Impl {
             if (created) next = std::make_unique<Node>();
             const bool cycle = next.get() == node ||
                 std::ranges::any_of(path, [&](const Step& step) { return step.node == next.get(); });
-            path.push_back({node, edge, next.get(), cycle});
+            path.push_back({node, edge, next.get()});
             ++node->waiting[edge];
             if (cycle) {
                 std::osyncstream error{std::cerr};
@@ -228,42 +253,47 @@ struct Gumbel::Impl {
                       << " bootstrap=" << next->value << " path_action_keys=[";
                 for (const auto& step : path) error << step.node->keys[step.edge] << ',';
                 error << "]\n" << state;
-                backups.emplace_back(std::move(path), next.get());
+                backups.push_back(std::move(path));
                 return;
             }
             if (state.outcome != sts::Outcome::UNDECIDED) {
                 next->value = state.outcome == sts::Outcome::PLAYER_VICTORY;
                 revalue(*next);
-                backups.emplace_back(std::move(path), next.get());
+                backups.push_back(std::move(path));
                 return;
             }
             if (created) leaves.push_back({next.get(), state, combat::legal_actions(state)});
             if (std::ranges::find(leaves, next.get(), &Leaf::node) != leaves.end()) {
-                backups.emplace_back(std::move(path), next.get());
+                backups.push_back(std::move(path));
                 return;
             }
             node = next.get();
         }
     }
 
-    // The one place values change: each edge counts the node it reached, then the path's nodes are
-    // revalued from `end` upward. Nodes off the path keep their values until a simulation passes through.
-    static void backup(const Path& path, Node& end) {
-        for (const auto& [node, edge, reached, closes] : path) {
+    // Each edge counts the node it reached. A new outcome bootstraps if it closes a cycle, so the rest stay
+    // acyclic and every changed value can be pushed to its parents until none changes.
+    static void backup(const Path& path) {
+        std::vector<Node*> stale;
+        for (const auto& [node, edge, reached] : path) {
             --node->waiting[edge];
             auto& outcomes = node->reached[edge];
             const auto found = std::ranges::find(outcomes, reached, &Node::Outcome::node);
-            if (found == outcomes.end()) {
-                outcomes.push_back({reached, 1, closes});
-            } else {
+            if (found != outcomes.end()) {
                 ++found->visits;
-                found->bootstrap |= closes;
+            } else if (reaches(*reached, node)) {
+                outcomes.push_back({reached, 1, true});
+            } else {
+                outcomes.push_back({reached, 1, false});
+                reached->parents.push_back(node);
             }
-            ++node->visits;
+            stale.push_back(node);
         }
-        // A cycle's endpoint was already counted on this path.
-        if (path.empty() || !path.back().closes_cycle) ++end.visits;
-        for (auto step = path.rbegin(); step != path.rend(); ++step) revalue(*step->node);
+        while (!stale.empty()) {
+            auto& node = *stale.back();
+            stale.pop_back();
+            if (revalue(node)) stale.insert(stale.end(), node.parents.begin(), node.parents.end());
+        }
     }
 
     static void expand(const Leaf& leaf, const Evaluation& e) {
@@ -309,7 +339,7 @@ struct Gumbel::Impl {
         Graph out{observations.at(&root), {}, gumbel};
         for (const auto& [key, node] : nodes) {
             const auto& n = *node;
-            Graph::Node snapshot{key, n.keys.empty(), n.value, n.backed_value, n.visits, {}};
+            Graph::Node snapshot{key, n.keys.empty(), n.value, n.backed_value, {}};
             // Every nonterminal node has been evaluated when the search is complete.
             if (!snapshot.terminal) {
                 const auto scores = sigma(n, s), policy = improved_policy(n, s);

@@ -64,7 +64,7 @@ Json graph_json(const search::Gumbel::Graph& graph, const search::Result& result
         }
         nodes.push_back({{"observation", std::to_string(node.observation)}, {"terminal", node.terminal},
                          {"evaluation_value", node.evaluation_value}, {"backed_value", node.backed_value},
-                         {"visits", node.visits}, {"edges", edges}});
+                         {"edges", edges}});
     }
     return {{"root", std::to_string(graph.root)}, {"root_noise", graph.root_noise}, {"nodes", nodes}};
 }

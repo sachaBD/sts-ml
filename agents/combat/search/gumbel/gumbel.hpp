@@ -40,8 +40,7 @@ public:
             std::uint64_t observation;
             bool terminal;
             double evaluation_value;
-            double backed_value;  // best visited action's q, or evaluation_value before any visit
-            int visits;  // includes the initial evaluation for nonterminal nodes
+            double backed_value;  // the search's value of this node
             std::vector<Edge> edges;
         };
         std::uint64_t root;

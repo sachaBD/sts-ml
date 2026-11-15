@@ -156,25 +156,6 @@ TEST(Gumbel, WinningMoveBeatsAWrongPrior) {
     EXPECT_TRUE(wins_now(root, r.action));
 }
 
-TEST(Gumbel, ValueIsTheBestPlayerChoiceNotTheVisitAverage) {
-    auto root = stsrl::scenarios::jaw_worm(7);
-    root.monsters.arr[0].curHp = 1;
-    root.player.curHp = 1;
-    const auto actions = legal_actions(root);
-    const auto loser = std::ranges::find_if(actions, [&](Action a) { return a.getActionType() == sts::search::ActionType::END_TURN; });
-    ASSERT_TRUE(loses_now(root, *loser));
-    Gumbel search{root, settings(), 1};
-    const auto r = run(search, [&](const Query& q) {
-        auto e = flat(q);
-        for (std::size_t i = 0; i < q.actions.size(); ++i) e.logits[i] = q.actions[i] == *loser ? 3.f : 0.f;
-        return e;
-    });
-    const auto graph = search.graph();
-    const auto node = std::ranges::find(graph.nodes, graph.root, &Gumbel::Graph::Node::observation);
-    ASSERT_GT(node->edges[std::size_t(loser - actions.begin())].visits, 0) << "the losing move must be explored";
-    EXPECT_EQ(r.value, 1.f);
-}
-
 TEST(Gumbel, ZeroSimulationsPlaysTheNetworkAlone) {
     const auto root = stsrl::scenarios::jaw_worm(7);
     auto s = settings();
@@ -204,12 +185,21 @@ TEST(Gumbel, ASingleLegalMoveGetsProbabilityOne) {
     EXPECT_EQ(r.policy, std::vector<float>{1.f});
 }
 
-TEST(Gumbel, EntropicSelfLoopUsesTheNetworkValueAndReportsAnError) {
+namespace {
+const Action brew{sts::search::ActionType::POTION, 0};
+
+// With no free potion slot, drinking Entropic Brew returns to the same observation.
+sts::BattleContext brew_loop() {
     auto state = stsrl::scenarios::jaw_worm(13);
     state.potionCapacity = state.potionCount = 2;
     state.potions[0] = sts::Potion::ENTROPIC_BREW;
     state.potions[1] = sts::Potion::COLORLESS_POTION;
-    const Action brew{sts::search::ActionType::POTION, 0};
+    return state;
+}
+}  // namespace
+
+TEST(Gumbel, EntropicSelfLoopUsesTheNetworkValueAndReportsAnError) {
+    const auto state = brew_loop();
     auto s = settings();
     s.particles = 1;
     s.considered_actions = 1;
@@ -238,38 +228,6 @@ TEST(Gumbel, EntropicSelfLoopUsesTheNetworkValueAndReportsAnError) {
     const auto edge = std::ranges::find(root->edges, stsrl::combat::action_key(state, brew), &Gumbel::Graph::Edge::action);
     ASSERT_NE(edge, root->edges.end());
     EXPECT_EQ(edge->transition, Gumbel::TransitionKind::chance);
-}
-
-
-TEST(Gumbel, ACycleCountsTheNetworkValueNotItsOwnBackup) {
-    auto state = stsrl::scenarios::jaw_worm(13);
-    state.potionCapacity = state.potionCount = 2;
-    state.potions[0] = sts::Potion::ENTROPIC_BREW;
-    state.potions[1] = sts::Potion::COLORLESS_POTION;
-    const Action brew{sts::search::ActionType::POTION, 0};
-    const auto root_key = stsrl::combat::observation_key(state);
-    auto s = settings();
-    s.particles = 1;
-    s.considered_actions = 2;
-    s.simulations = 8;
-    Gumbel search{state, s, 1};
-    testing::internal::CaptureStderr();
-    run(search, [&](const Query& q) {
-        auto e = flat(q);
-        const bool root = stsrl::combat::observation_key(q.state) == root_key;
-        e.value = root ? 0.37f : 0.9f;
-        for (std::size_t i = 0; i < q.actions.size(); ++i)
-            if (root && q.actions[i] == brew) e.logits[i] = 5.f;
-        return e;
-    });
-    testing::internal::GetCapturedStderr();
-    const auto graph = search.graph();
-    const auto root = std::ranges::find(graph.nodes, graph.root, &Gumbel::Graph::Node::observation);
-    ASSERT_GT(root->backed_value, root->evaluation_value) << "another action must lift the root";
-    const auto edge = std::ranges::find(root->edges, stsrl::combat::action_key(state, brew), &Gumbel::Graph::Edge::action);
-    ASSERT_EQ(edge->children.size(), 1u);
-    ASSERT_EQ(edge->children.front().observation, graph.root);
-    EXPECT_FLOAT_EQ(*edge->q, 0.37f);
 }
 
 namespace {
@@ -331,34 +289,81 @@ TEST_F(GumbelInspection, OnlyExecutedEdgesHaveAKnownTransition) {
             EXPECT_EQ(edge.transition == Gumbel::TransitionKind::unknown, edge.visits == 0);
 }
 
+// The value rules, checked on every node, action and link of a search that meets a cycle and chance.
 namespace {
-double outcome_value(const Gumbel::Graph& graph, const Gumbel::Graph::Child& child) {
-    const auto node = std::ranges::find(graph.nodes, child.observation, &Gumbel::Graph::Node::observation);
-    return child.bootstrap ? node->evaluation_value : node->backed_value;
-}
+class GumbelValues : public testing::Test {
+protected:
+    Result result;
+    Gumbel::Graph graph;
+
+    void SetUp() override {
+        Gumbel search{brew_loop(), settings(1), 1};
+        testing::internal::CaptureStderr();
+        result = run(search, noisy());
+        testing::internal::GetCapturedStderr();
+        graph = search.graph();
+    }
+
+    const Gumbel::Graph::Node& node(std::uint64_t observation) const {
+        return *std::ranges::find(graph.nodes, observation, &Gumbel::Graph::Node::observation);
+    }
+
+    double link_value(const Gumbel::Graph::Child& link) const {
+        return link.bootstrap ? node(link.observation).evaluation_value : node(link.observation).backed_value;
+    }
+
+    bool reaches(std::uint64_t from, std::uint64_t to) const {
+        std::vector<std::uint64_t> pending{from};
+        std::set<std::uint64_t> seen;
+        while (!pending.empty()) {
+            const auto at = pending.back();
+            pending.pop_back();
+            if (at == to) return true;
+            if (!seen.insert(at).second) continue;
+            for (const auto& edge : node(at).edges)
+                for (const auto& link : edge.children)
+                    if (!link.bootstrap) pending.push_back(link.observation);
+        }
+        return false;
+    }
+};
 }  // namespace
 
-TEST_F(GumbelInspection, RootValueIsItsBestVisitedAction) {
-    const auto root = std::ranges::find(graph.nodes, graph.root, &Gumbel::Graph::Node::observation);
-    ASSERT_NE(root, graph.nodes.end());
-    double best = -INFINITY;
-    for (const auto& edge : root->edges)
-        if (edge.q) best = std::max(best, *edge.q);
-    EXPECT_EQ(root->backed_value, best);
-    EXPECT_FLOAT_EQ(result.value, best);
+TEST_F(GumbelValues, NodesTakeTheBestOfTheirVisitedActions) {
+    for (const auto& n : graph.nodes) {
+        double best = -INFINITY;
+        for (const auto& edge : n.edges)
+            if (edge.q) best = std::max(best, *edge.q);
+        EXPECT_EQ(n.backed_value, best == -INFINITY ? n.evaluation_value : best);
+    }
 }
 
-TEST_F(GumbelInspection, ActionsAverageTheirOutcomes) {
+TEST_F(GumbelValues, ActionsAverageTheirLinks) {
     int mixed = 0;
-    for (const auto& node : graph.nodes)
-        for (const auto& edge : node.edges) {
+    for (const auto& n : graph.nodes)
+        for (const auto& edge : n.edges) {
             if (!edge.visits) continue;
             double sum = 0;
-            for (const auto& child : edge.children) sum += child.visits * outcome_value(graph, child);
+            for (const auto& link : edge.children) sum += link.visits * link_value(link);
             EXPECT_DOUBLE_EQ(*edge.q, sum / edge.visits);
             mixed += edge.children.size() > 1;
         }
     EXPECT_GT(mixed, 0) << "some action must reach several outcomes";
+}
+
+TEST_F(GumbelValues, LinksBootstrapExactlyWhenTheyCloseACycle) {
+    int bootstraps = 0;
+    for (const auto& n : graph.nodes)
+        for (const auto& edge : n.edges)
+            for (const auto& link : edge.children) {
+                EXPECT_EQ(link.bootstrap, reaches(link.observation, n.observation));
+                bootstraps += link.bootstrap;
+            }
+    EXPECT_GT(bootstraps, 0) << "the search must meet a cycle";
+}
+
+TEST_F(GumbelValues, TheDecisionValueIsTheRootValue) {
+    EXPECT_FLOAT_EQ(result.value, node(graph.root).backed_value);
 }
 
 TEST(Gumbel, ZeroSimulationsLeavesEveryTransitionUnknown) {
