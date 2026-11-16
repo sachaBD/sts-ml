@@ -17,6 +17,10 @@ public:
         double gumbel_scale = 0;  // 1 explores (self-play); 0 is deterministic (evaluation)
         int particles = 8;
         double value_scale = 0.1, maxvisit_init = 50;  // mctx qtransform_completed_by_mix_value
+        // Above 0: rounds cost about one pass each, and after each wave the search stops if the improved
+        // policy moved by less than this per simulation since the last wave (total variation, at today's σ
+        // scale). `simulations` is then a cap. 0 runs every simulation.
+        double min_gain = 0;
     };
 
     // Unvisited edges are unknown; a chance report cannot be downgraded by another particle.
