@@ -39,6 +39,7 @@ struct Episodes::Game {
     std::optional<Decision> decision;
     Answers answers;  // the last decision's, for the next
     std::vector<Sample> decisions;  // state, improved policy and vitals per searched move
+    std::size_t network_requests = 0;  // answered by the network, not reused from the previous decision
     Clock::time_point begin = Clock::now();
 
     explicit Game(Json r)
@@ -68,7 +69,10 @@ class Episodes::Episode final : public infra::Episode {
 public:
     Episode(Episodes& episodes, const Json& record) : episodes_{episodes}, game_{record} {}
     std::span<const infra::Tokens> advance() override { return game_.advance(episodes_.search_, episodes_.network_); }
-    void evaluated(std::span<const infra::Prediction> predictions) override { game_.decision->evaluated(predictions); }
+    void evaluated(std::span<const infra::Prediction> predictions) override {
+        game_.network_requests += predictions.size();
+        game_.decision->evaluated(predictions);
+    }
     void finish() override { episodes_.finish(game_); }
     std::string label() const override { return game_.record.at("fight_id").get<std::string>(); }
 
@@ -102,7 +106,8 @@ void Episodes::finish(const Game& g) {
     if (!samples_ || end < begin) throw std::runtime_error{"failed to write game samples"};
     const double finished = std::chrono::duration<double>(std::chrono::system_clock::now().time_since_epoch()).count();
     results_ << Json{{"fight_id", g.record.at("fight_id")}, {"won", state.outcome == sts::Outcome::PLAYER_VICTORY},
-                     {"hp", state.player.curHp}, {"decisions", g.decisions.size()}, {"seconds", seconds},
+                     {"hp", state.player.curHp}, {"decisions", g.decisions.size()},
+                     {"network_requests", g.network_requests}, {"seconds", seconds},
                      {"turns", state.turn}, {"steps", g.fight.steps()}, {"capped", state.outcome == sts::Outcome::UNDECIDED},
                      {"finished_unix", finished}, {"sample_format", sample_format},
                      {"sample_range", {{"file", sample_file_}, {"begin", begin}, {"end", end}}}}.dump() << std::endl;

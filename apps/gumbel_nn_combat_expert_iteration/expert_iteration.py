@@ -33,7 +33,7 @@ HELDOUT_ROWS = 50_000
 
 def collection_stats(results):
     finished = sorted(r['finished_unix'] for r in results)
-    return dict(capped=sum(r['capped'] for r in results),
+    return dict(capped=sum(r['capped'] for r in results), network_requests=sum(r['network_requests'] for r in results),
                 tail95_seconds=finished[-1] - finished[int(.95 * (len(finished) - 1))] if finished else None)
 
 
