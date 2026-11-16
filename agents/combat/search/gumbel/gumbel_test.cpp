@@ -175,6 +175,33 @@ TEST(Gumbel, ZeroSimulationsPlaysTheNetworkAlone) {
     EXPECT_EQ(r.value, network->value);
 }
 
+namespace {
+std::vector<int> root_visits(const Gumbel& search) {
+    const auto graph = search.graph();
+    const auto root = std::ranges::find(graph.nodes, graph.root, &Gumbel::Graph::Node::observation);
+    std::vector<int> visits;
+    for (const auto& edge : root->edges) visits.push_back(edge.visits);
+    return visits;
+}
+}  // namespace
+
+TEST(Gumbel, APolicyThatDoesNotMoveStopsAfterOneRound) {
+    auto s = settings();
+    s.min_gain = 1e-9;
+    Gumbel search{stsrl::scenarios::jaw_worm(7), s, 1};
+    run(search, flat);  // equal values: Q never moves the policy
+    for (const int visits : root_visits(search)) EXPECT_LE(visits, 1);
+}
+
+TEST(Gumbel, APolicyThatKeepsMovingKeepsSearching) {
+    auto s = settings(1);
+    s.min_gain = 1e-9;
+    Gumbel search{stsrl::scenarios::jaw_worm(7), s, 1};
+    run(search, noisy());
+    const auto visits = root_visits(search);
+    EXPECT_EQ(std::accumulate(visits.begin(), visits.end(), 0), s.simulations);
+}
+
 TEST(Gumbel, ASingleLegalMoveGetsProbabilityOne) {
     auto root = stsrl::scenarios::jaw_worm(7);
     root.player.energy = 0;

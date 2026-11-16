@@ -12,6 +12,7 @@ struct SearchConfig {
     int sims, particles;
     double gumbel_scale;  // 1 explores (self-play); 0 is deterministic (evaluation)
     double rollout_mix;   // above 0, each leaf value is blended with a guided rollout's outcome
+    double min_gain = 0;  // Gumbel::Settings::min_gain; optional
 
     void validate() const;  // throws on settings out of range
     GumbelSearch create(const sts::BattleContext&, std::mt19937_64&) const;  // validates first

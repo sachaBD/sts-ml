@@ -11,6 +11,7 @@
 #include <syncstream>
 #include <unordered_map>
 #include <unordered_set>
+#include <utility>
 
 namespace stsrl::search {
 namespace {
@@ -118,32 +119,45 @@ std::vector<double> softmax(std::vector<double> x) {
 }
 
 // mctx qtransform_completed_by_mix_value: completed Q (unvisited = mixed value), shifted to zero, scaled (no min-max rescale).
-std::vector<double> sigma(const Node& n, const Gumbel::Settings& s) {
+std::vector<double> completed_q(const Node& n) {
     double prior_visited = 0, weighted = 0;
-    int most = 0;
     for (std::size_t i = 0; i < n.keys.size(); ++i)
-        if (const int v = visits(n, i)) {
-            prior_visited += n.prior[i]; weighted += n.prior[i] * q(n, i);
-            most = std::max(most, v);
-        }
+        if (visits(n, i)) { prior_visited += n.prior[i]; weighted += n.prior[i] * q(n, i); }
     const int sum = total(n);
     const double mixed = prior_visited > 0 ? (n.value + sum * weighted / prior_visited) / (sum + 1) : n.value;
     std::vector<double> completed(n.keys.size());
     for (std::size_t i = 0; i < completed.size(); ++i) completed[i] = visits(n, i) ? q(n, i) : mixed;
-    const double low = *std::min_element(completed.begin(), completed.end());
-    for (auto& v : completed) v = (s.maxvisit_init + most) * s.value_scale * (v - low);
     return completed;
 }
 
-std::vector<double> improved_policy(const Node& n, const Gumbel::Settings& s) {
-    auto z = sigma(n, s);
+double sigma_scale(const Node& n, const Gumbel::Settings& s) {
+    int most = 0;
+    for (std::size_t i = 0; i < n.keys.size(); ++i) most = std::max(most, visits(n, i));
+    return (s.maxvisit_init + most) * s.value_scale;
+}
+
+std::vector<double> sigma(std::vector<double> completed, double scale) {
+    const double low = *std::min_element(completed.begin(), completed.end());
+    for (auto& v : completed) v = scale * (v - low);
+    return completed;
+}
+
+std::vector<double> sigma(const Node& n, const Gumbel::Settings& s) { return sigma(completed_q(n), sigma_scale(n, s)); }
+
+std::vector<double> improved_policy(const Node& n, std::vector<double> completed, double scale) {
+    auto z = sigma(std::move(completed), scale);
     for (std::size_t i = 0; i < z.size(); ++i) z[i] += n.logits[i];
     return softmax(z);
 }
 
+std::vector<double> improved_policy(const Node& n, const Gumbel::Settings& s) {
+    return improved_policy(n, completed_q(n), sigma_scale(n, s));
+}
+
 // mctx seq_halving.get_sequence_of_considered_visits, stopping before a partial pass so every round
-// visits its considered actions equally.
-std::vector<int> halving_schedule(int m, int simulations) {
+// visits its considered actions equally. Anytime: every round costs about m simulations, so stopping after
+// any of them leaves a complete smaller search.
+std::vector<int> halving_schedule(int m, int simulations, bool anytime) {
     if (simulations <= 0) return {};
     m = std::min(m, std::max(1, simulations / 2));
     std::vector<int> out;
@@ -151,7 +165,7 @@ std::vector<int> halving_schedule(int m, int simulations) {
     const int log2m = int(std::ceil(std::log2(double(m))));
     std::vector<int> visits(m, 0);
     for (int considered = m; int(out.size()) + considered <= simulations; considered = std::max(2, considered / 2)) {
-        const int extra = std::max(1, int(double(simulations) / (log2m * considered)));
+        const int extra = std::max(1, anytime ? m / considered : int(double(simulations) / (log2m * considered)));
         for (int r = 0; r < extra && int(out.size()) + considered <= simulations; ++r) {
             for (int i = 0; i < considered; ++i) out.push_back(visits[i]);
             for (int i = 0; i < considered; ++i) ++visits[i];
@@ -183,6 +197,8 @@ struct Gumbel::Impl {
     std::vector<double> gumbel;
     std::vector<int> schedule;
     int simulation = 0;
+    int checked = 0;  // simulations at the last stopping check
+    std::vector<double> checked_q;  // the root's completed Q then
 
     // One Sequential Halving pass, backed up only once fully answered, so answers cannot steer it.
     std::vector<Leaf> leaves;
@@ -200,16 +216,31 @@ struct Gumbel::Impl {
         if (leaves.front().node == &root) {
             std::extreme_value_distribution<double> g;
             for (std::size_t i = 0; i < actions.size(); ++i) gumbel.push_back(s.gumbel_scale * g(rng));
-            schedule = halving_schedule(std::min<int>(s.considered_actions, int(actions.size())), s.simulations);
+            schedule = halving_schedule(std::min<int>(s.considered_actions, int(actions.size())), s.simulations,
+                                        s.min_gain > 0);
+            checked_q = completed_q(root);
         }
         leaves.clear();
         queries.clear();
         do {
             for (const auto& path : backups) backup(path);
             backups.clear();
+            if (s.min_gain > 0 && simulation > checked && settled()) schedule.resize(simulation);
             if (simulation < int(schedule.size())) next_wave();
         } while (leaves.empty() && !backups.empty());
         for (const auto& leaf : leaves) queries.push_back({leaf.state, leaf.actions});
+    }
+
+    // Whether the improved policy moved by less than min_gain per simulation since the last check. Both
+    // policies take today's σ scale, so only changes in Q count, not the scale's growth with visits.
+    bool settled() {
+        const double scale = sigma_scale(root, s);
+        auto now = completed_q(root);
+        const auto before = improved_policy(root, std::exchange(checked_q, now), scale);
+        const auto after = improved_policy(root, std::move(now), scale);
+        double moved = 0;
+        for (std::size_t i = 0; i < before.size(); ++i) moved += std::abs(after[i] - before[i]) / 2;
+        return moved < s.min_gain * (simulation - std::exchange(checked, simulation));
     }
 
     // Passes of one round, so late rounds with few actions still fill a wave.
