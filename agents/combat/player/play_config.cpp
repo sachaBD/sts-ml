@@ -6,7 +6,7 @@
 
 namespace stsrl::player {
 namespace {
-// One table's settings: every key is required, and a key never read is a mistake.
+// One table's settings: a key never read is a mistake.
 class Table {
 public:
     Table(const toml::table& parent, std::string name) : name_{std::move(name)} {
@@ -29,6 +29,8 @@ public:
         return *value;
     }
 
+    template <class T> T get_or(const std::string& key, T absent) { return (*table_)[key] ? get<T>(key) : absent; }
+
     void done() const {
         for (const auto& [key, _] : *table_)
             if (!read_.contains(std::string{key.str()}))
@@ -48,6 +50,7 @@ PlayConfig parse(const toml::table& root) {
     c.search.particles = search.get<int>("particles");
     c.search.gumbel_scale = search.get<double>("gumbel_scale");
     c.search.rollout_mix = search.get<double>("rollout_mix");
+    c.search.extend_to = search.get_or<int>("extend_to", 0);
     search.done();
     Table workers{root, "workers"};
     c.workers.actors = workers.get<int>("actors");
