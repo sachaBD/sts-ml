@@ -180,6 +180,12 @@ class ExpertIterationInvariants(unittest.TestCase):
         self.assertEqual(mixes, sorted(mixes, reverse=True))
         self.assertTrue(mixes[0] > 0 and mixes[-1] == 0)
 
+    def test_bootstrap_plays_a_fixed_search_then_the_configured_one(self):
+        config = CONFIG.replace('sims = 4', 'sims = 4\nextend_to = 8\nbootstrap_iterations = 1\nbootstrap_sims = 2')
+        self.run_loop(config=config)
+        searches = [p['search'] for p in self.self_play()]
+        self.assertEqual([(s['sims'], s.get('extend_to')) for s in searches], [(2, None), (4, 8)])
+
     def test_sets_keep_their_search_schedule_and_results_separate(self):
         (self.out / 'inputs/evaluation/retention.jsonl').write_bytes(
             (self.out / 'inputs/evaluation/validation.jsonl').read_bytes())

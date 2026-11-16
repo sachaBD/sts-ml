@@ -2,7 +2,8 @@
 
 Settings have no defaults, except optional features. [search], each evaluation set's search and [workers] are
 nn_play's settings, passed through as written and checked by nn_play (prepare.py); this file knows only
-[search].rollout_mix_decay, which self-play's rollout_mix follows. A count of 0 means unlimited or off (iterations,
+[search].rollout_mix_decay, which self-play's rollout_mix follows, and [search].bootstrap_iterations and
+bootstrap_sims, a fixed search for self-play's first iterations. A count of 0 means unlimited or off (iterations,
 max_train_rows, evaluation every); evaluation sims 0 plays the network alone.
 [starts] draws self-play's fights from its deck pool and varies them. Each evaluation set owns its search and schedule; final_fights are
 copied with the run, never played. Fights files and baselines are built offline by tools/make_fights.py.
@@ -54,18 +55,28 @@ class Run:
     min_free_gib: float = resumable(default=0)
 
 
+SELF_PLAY_ONLY = ('rollout_mix_decay', 'bootstrap_iterations', 'bootstrap_sims')
+
+
 def self_play_search(search, it):
     """nn_play's search for self-play iteration `it`: rollout_mix falls linearly to 0 at iteration
-    [search].rollout_mix_decay; 0 or absent keeps it constant."""
-    settings = {k: v for k, v in search.items() if k != 'rollout_mix_decay'}
+    [search].rollout_mix_decay; 0 or absent keeps it constant. Through iteration [search].bootstrap_iterations,
+    a fixed search of bootstrap_sims, unextended."""
+    settings = {k: v for k, v in search.items() if k not in SELF_PLAY_ONLY}
     if decay := search.get('rollout_mix_decay', 0):
         settings['rollout_mix'] = search['rollout_mix'] * max(0.0, 1 - it / decay)
+    if it <= search.get('bootstrap_iterations', 0):
+        settings['sims'] = search['bootstrap_sims']
+        settings.pop('extend_to', None)
     return settings
 
 
 def nn_play_settings(config):
-    """Each nn_play settings table the run plays with, by name. rollout_mix only falls, so self-play's is iteration 0's."""
+    """Each nn_play settings table the run plays with, by name. rollout_mix only falls, so self-play's is iteration 0's;
+    after a bootstrap, the first iteration past it."""
+    after = config.search.get('bootstrap_iterations', 0) + 1
     return {'search': dict(search=self_play_search(config.search, 0), workers=config.workers),
+            'search after bootstrap': dict(search=self_play_search(config.search, after), workers=config.workers),
             **{f'evaluation set {s.name}': dict(search=s.search, workers=config.workers) for s in config.evaluation.sets}}
 
 
@@ -204,6 +215,9 @@ def validate(c):
     decay = s.get('rollout_mix_decay', 0)
     need(type(decay) is int and decay >= 0, 'search: rollout_mix_decay a nonnegative int')
     need(not decay or type(s.get('rollout_mix')) in (int, float), 'search: rollout_mix_decay needs a numeric rollout_mix')
+    boot = s.get('bootstrap_iterations', 0)
+    need(type(boot) is int and boot >= 0, 'search: bootstrap_iterations a nonnegative int')
+    need(('bootstrap_sims' in s) == (boot > 0), 'search: bootstrap_sims exactly when bootstrap_iterations is positive')
     need(t.steps > 0 and t.batch > 0 and t.lr > 0 and t.replay_window > 0 and t.max_train_rows >= 0
          and t.value_batch >= 0,
          'training: positive steps, batch, lr, replay_window; nonnegative max_train_rows, value_batch')
