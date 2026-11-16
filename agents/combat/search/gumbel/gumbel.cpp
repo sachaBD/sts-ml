@@ -11,6 +11,7 @@
 #include <syncstream>
 #include <unordered_map>
 #include <unordered_set>
+#include <utility>
 
 namespace stsrl::search {
 namespace {
@@ -183,6 +184,7 @@ struct Gumbel::Impl {
     std::vector<double> gumbel;
     std::vector<int> schedule;
     int simulation = 0;
+    std::optional<std::size_t> spent_choice;  // the choice when the schedule was last spent
 
     // One Sequential Halving pass, backed up only once fully answered, so answers cannot steer it.
     std::vector<Leaf> leaves;
@@ -207,9 +209,22 @@ struct Gumbel::Impl {
         do {
             for (const auto& path : backups) backup(path);
             backups.clear();
+            if (simulation == int(schedule.size())) extend();
             if (simulation < int(schedule.size())) next_wave();
         } while (leaves.empty() && !backups.empty());
         for (const auto& leaf : leaves) queries.push_back({leaf.state, leaf.actions});
+    }
+
+    // Doubles a spent schedule with passes over the leading pair, unless the choice repeated or the cap is reached.
+    void extend() {
+        const int spent = int(schedule.size());
+        const bool ends_on_a_pair = spent >= 2 && schedule[spent - 1] == schedule[spent - 2];
+        if (!ends_on_a_pair || spent >= s.extend_to) return;
+        const auto now = choice();
+        if (std::exchange(spent_choice, now) == now) return;
+        // The final rounds leave the leading pair with equal visits, one more than the last pass asked for.
+        for (int pass = 0, visited = schedule.back() + 1; 2 * (pass + 1) <= std::min(spent, s.extend_to - spent); ++pass)
+            schedule.insert(schedule.end(), 2, visited + pass);
     }
 
     // Passes of one round, so late rounds with few actions still fill a wave.
@@ -358,10 +373,15 @@ struct Gumbel::Impl {
         return out;
     }
 
-    Result result() const {
+    // The best-ranked root action among the most visited.
+    std::size_t choice() const {
         int most = 0;
         for (std::size_t i = 0; i < root.keys.size(); ++i) most = std::max(most, visits(root, i));
-        Result r{actions[ranked(most, 1).front()], actions, {}, float(root.backed_value)};
+        return ranked(most, 1).front();
+    }
+
+    Result result() const {
+        Result r{actions[choice()], actions, {}, float(root.backed_value)};
         for (double p : improved_policy(root, s)) r.policy.push_back(float(p));
         return r;
     }

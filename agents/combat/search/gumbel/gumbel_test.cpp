@@ -175,6 +175,43 @@ TEST(Gumbel, ZeroSimulationsPlaysTheNetworkAlone) {
     EXPECT_EQ(r.value, network->value);
 }
 
+namespace {
+std::vector<int> root_visits(const Gumbel& search) {
+    const auto graph = search.graph();
+    const auto root = std::ranges::find(graph.nodes, graph.root, &Gumbel::Graph::Node::observation);
+    std::vector<int> visits;
+    for (const auto& edge : root->edges) visits.push_back(edge.visits);
+    return visits;
+}
+}  // namespace
+
+TEST(Gumbel, ExtendingVisitsOnlyTheLeadingPairAndStopsOnceTheChoiceHolds) {
+    auto s = settings();
+    s.simulations = 32;
+    Gumbel plain{stsrl::scenarios::jaw_worm(7), s, 1};
+    run(plain, flat);
+    s.extend_to = 256;
+    Gumbel extended{stsrl::scenarios::jaw_worm(7), s, 1};
+    run(extended, flat);  // equal values: the choice holds after one doubling
+
+    const auto before = root_visits(plain), after = root_visits(extended);
+    int changed = 0;
+    for (std::size_t i = 0; i < before.size(); ++i) changed += before[i] != after[i];
+    EXPECT_EQ(changed, 2);
+    const auto total = [](const std::vector<int>& v) { return std::accumulate(v.begin(), v.end(), 0); };
+    EXPECT_EQ(total(after), 2 * total(before));
+}
+
+TEST(Gumbel, ExtendingStaysWithinItsCap) {
+    auto s = settings(1);
+    s.simulations = 16;
+    s.extend_to = 40;
+    Gumbel search{stsrl::scenarios::jaw_worm(7), s, 1};
+    run(search, noisy());
+    const auto visits = root_visits(search);
+    EXPECT_LE(std::accumulate(visits.begin(), visits.end(), 0), s.extend_to);
+}
+
 TEST(Gumbel, ASingleLegalMoveGetsProbabilityOne) {
     auto root = stsrl::scenarios::jaw_worm(7);
     root.player.energy = 0;
