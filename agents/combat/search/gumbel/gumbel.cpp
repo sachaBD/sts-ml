@@ -41,7 +41,7 @@ double link_value(const Node::Outcome& outcome) {
     return outcome.bootstrap ? outcome.node->value : outcome.node->backed_value;
 }
 
-// The expectation over sampled outcomes.
+// The expectation over sampled outcomes; a deterministic action has exactly one.
 double q(const Node& n, std::size_t edge) {
     double sum = 0;
     for (const auto& outcome : n.reached[edge]) sum += outcome.visits * link_value(outcome);

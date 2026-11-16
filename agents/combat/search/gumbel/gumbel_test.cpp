@@ -366,6 +366,17 @@ TEST_F(GumbelValues, TheDecisionValueIsTheRootValue) {
     EXPECT_FLOAT_EQ(result.value, node(graph.root).backed_value);
 }
 
+TEST_F(GumbelValues, DeterministicActionsHaveOneOutcome) {
+    int revisited = 0;
+    for (const auto& n : graph.nodes)
+        for (const auto& edge : n.edges) {
+            if (edge.transition != Gumbel::TransitionKind::deterministic) continue;
+            EXPECT_EQ(edge.children.size(), 1u);
+            revisited += edge.visits > 1;
+        }
+    EXPECT_GT(revisited, 0) << "some deterministic action must be taken in several simulations";
+}
+
 TEST(Gumbel, ZeroSimulationsLeavesEveryTransitionUnknown) {
     auto s = settings();
     s.simulations = 0;
