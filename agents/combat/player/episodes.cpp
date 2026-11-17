@@ -46,7 +46,8 @@ struct Episodes::Game {
           fight{combat::start_battle(record.at("start")), record.at("start").at("seed").get<std::uint64_t>()} {}
 
     // Play on until the search needs the network (its requests) or the game is over (none).
-    std::span<const infra::Tokens> advance(const search::SearchFactory& search, const nn::NetworkEvaluator& network) {
+    std::span<const infra::Tokens> advance(const search::SearchFactory& search, const BudgetRule& budget,
+                                           const nn::NetworkEvaluator& network) {
         for (;;) {
             if (decision) {
                 if (const auto requests = decision->pending(); !requests.empty()) return requests;
@@ -58,7 +59,8 @@ struct Episodes::Game {
             }
             if (fight.over()) return {};
             auto random = fight.decision_random();
-            decision.emplace(search(fight.state(), random), network, std::move(answers));
+            const auto [simulations] = budget({fight.after_chance()}, random);
+            decision.emplace(search(fight.state(), simulations, random), network, std::move(answers));
         }
     }
 };
@@ -67,7 +69,9 @@ struct Episodes::Game {
 class Episodes::Episode final : public infra::Episode {
 public:
     Episode(Episodes& episodes, const Json& record) : episodes_{episodes}, game_{record} {}
-    std::span<const infra::Tokens> advance() override { return game_.advance(episodes_.search_, episodes_.network_); }
+    std::span<const infra::Tokens> advance() override {
+        return game_.advance(episodes_.search_, episodes_.budget_, episodes_.network_);
+    }
     void evaluated(std::span<const infra::Prediction> predictions) override { game_.decision->evaluated(predictions); }
     void finish() override { episodes_.finish(game_); }
     std::string label() const override { return game_.record.at("fight_id").get<std::string>(); }
@@ -77,9 +81,9 @@ private:
     Game game_;
 };
 
-Episodes::Episodes(std::vector<Json> fights, search::SearchFactory search, nn::NetworkEvaluator network,
+Episodes::Episodes(std::vector<Json> fights, search::SearchFactory search, BudgetRule budget, nn::NetworkEvaluator network,
                    const std::filesystem::path& samples, std::ostream& results)
-    : fights_(std::move(fights)), search_{std::move(search)}, network_{network},  // fights_{...} would nest them in one json array
+    : fights_(std::move(fights)), search_{std::move(search)}, budget_{budget}, network_{network},  // fights_{...} would nest them in one json array
       samples_{samples, std::ios::binary | std::ios::app | std::ios::ate}, sample_file_{samples.filename().string()},
       results_{results} {
     if (!samples_) throw std::runtime_error{"cannot write samples " + samples.string()};

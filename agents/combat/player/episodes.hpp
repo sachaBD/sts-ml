@@ -1,5 +1,6 @@
 #pragma once
 #include "agents/combat/nn/evaluator.hpp"
+#include "agents/combat/player/budget.hpp"
 #include "agents/combat/search/search.hpp"
 #include "infra/workers/actors.hpp"
 #include <atomic>
@@ -16,7 +17,7 @@ namespace stsrl::player {
 // line, under one lock, so a result's sample range is exactly its fight's samples.
 class Episodes {
 public:
-    Episodes(std::vector<nlohmann::json> fights, search::SearchFactory, nn::NetworkEvaluator,
+    Episodes(std::vector<nlohmann::json> fights, search::SearchFactory, BudgetRule, nn::NetworkEvaluator,
              const std::filesystem::path& samples, std::ostream& results);
     std::unique_ptr<infra::Episode> next();  // thread-safe; nullptr once every fight has started
     std::size_t completed() const { return completed_; }
@@ -29,6 +30,7 @@ private:
 
     const std::vector<nlohmann::json> fights_;
     const search::SearchFactory search_;
+    const BudgetRule budget_;
     const nn::NetworkEvaluator network_;
     std::atomic<std::size_t> next_{0}, completed_{0}, decisions_{0};
     std::mutex output_;

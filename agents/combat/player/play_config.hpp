@@ -1,5 +1,6 @@
 #pragma once
 // nn_play's settings: PLAY.toml, which play.py writes for every play stage. Its tables and keys are the fields below.
+#include "agents/combat/player/budget.hpp"
 #include "agents/combat/search/config.hpp"
 #include "infra/workers/actors.hpp"
 #include <filesystem>
@@ -8,6 +9,7 @@
 namespace stsrl::player {
 struct PlayConfig {
     search::SearchConfig search;  // [search]
+    BudgetRule budget;            // every decision searches [search].sims
     infra::ActorConfig workers;   // [workers]
 };
 

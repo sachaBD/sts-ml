@@ -17,6 +17,7 @@ public:
     const sts::BattleContext& state() const { return state_; }
     int steps() const { return steps_; }  // forced moves included
     const std::vector<Vitals>& turn_starts() const { return turn_starts_; }
+    bool after_chance() const { return after_chance_; }  // whether a chance transition came since the last decision
     bool over() const;
     void play(search::Action);  // then every forced move
     // Depends on the fight and step alone, so a decision replays from its state without the ones before it.
@@ -27,6 +28,7 @@ private:
     sts::BattleContext state_;
     std::uint64_t seed_;
     int steps_ = 0;
+    bool after_chance_ = true;  // the fight begins by drawing a hand
     std::vector<Vitals> turn_starts_;
 };
 

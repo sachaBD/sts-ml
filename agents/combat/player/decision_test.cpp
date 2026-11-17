@@ -12,15 +12,13 @@ using namespace stsrl::nn;
 using stsrl::combat::legal_actions;
 
 namespace {
-stsrl::search::SearchFactory search() {
-    return stsrl::search::SearchConfig{.sims = 8, .particles = 2, .gumbel_scale = 1, .rollout_mix = 0.5}.factory();
-}
+const stsrl::search::SearchConfig config{.sims = 8, .particles = 2, .gumbel_scale = 1, .rollout_mix = 0.5};
 
 // As nn_play decides, given the previous decision's answers; collects what reaches the network.
 stsrl::search::Result decide(const Fight& fight, Answers& answers, std::vector<std::vector<float>>& sent) {
     const stsrl::nn::NetworkEvaluator network{Encoding::entity};
     auto random = fight.decision_random();
-    Decision decision{search()(fight.state(), random), network, std::move(answers)};
+    Decision decision{config.factory()(fight.state(), config.sims, random), network, std::move(answers)};
     for (auto requests = decision.pending(); !requests.empty(); requests = decision.pending()) {
         std::vector<stsrl::infra::Prediction> predictions;
         for (const auto& request : requests) {
@@ -53,6 +51,21 @@ TEST(Fight, AutoPlaysForcedMovesAndStopsOnlyAtARealChoice) {
             if (fight.over()) break;
             const auto actions = legal_actions(fight.state());
             fight.play(actions[random() % actions.size()]);
+        }
+    }
+}
+
+TEST(Fight, TheDecisionAfterEndTurnFollowsChance) {
+    for (const auto seed : seeds) {
+        Fight fight{stsrl::scenarios::jaw_worm(seed), seed};
+        EXPECT_TRUE(fight.after_chance()) << "the opening hand is drawn";
+        std::mt19937_64 random{seed};
+        while (!fight.over()) {
+            const auto actions = legal_actions(fight.state());
+            const auto action = actions[random() % actions.size()];
+            fight.play(action);
+            if (action.getActionType() == sts::search::ActionType::END_TURN && !fight.over())
+                EXPECT_TRUE(fight.after_chance()) << "seed " << seed;
         }
     }
 }

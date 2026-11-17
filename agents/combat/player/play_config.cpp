@@ -59,6 +59,7 @@ PlayConfig parse(const toml::table& root) {
     for (const auto& [key, _] : root)
         if (key != "search" && key != "workers") throw std::invalid_argument{"unknown [" + std::string{key.str()} + "]"};
     c.search.validate();
+    c.budget = {.full = c.search.sims, .cheap = c.search.sims, .full_share = 1};
     c.workers.validate();
     return c;
 }
