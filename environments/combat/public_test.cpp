@@ -85,3 +85,20 @@ TEST(ObservationKey, IgnoresTheOrderOfHandDiscardAndExhaust) {
     EXPECT_EQ(observation_key(state), observation_key(with_piles({{DEFEND_RED}, {STRIKE_RED}, {BASH}})));
     EXPECT_NE(observation_key(state), observation_key(with_piles({{DEFEND_RED}, {STRIKE_RED}, {BASH, true}})));
 }
+
+TEST(Particles, AMoveThatDrawsNothingKeepsTheSameWorlds) {
+    auto state = stsrl::scenarios::jaw_worm(7);
+    state.cards = {};
+    state.cards.createTempCardInHand({DEFEND_RED});
+    for (const auto id : {STRIKE_RED, BASH, ANGER})
+        state.cards.createTempCardInDrawPile(0, {id});
+
+    const auto before = particles(state, 1, 42);
+    const Action defend{Type::CARD, 0};
+    ASSERT_TRUE(defend.isValidAction(state));
+    defend.execute(state);
+    const auto after = particles(state, 1, 42);
+
+    EXPECT_TRUE(std::ranges::equal(before.front().cards.drawPile, after.front().cards.drawPile,
+                                  {}, &sts::CardInstance::uniqueId, &sts::CardInstance::uniqueId));
+}

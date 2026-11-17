@@ -23,5 +23,4 @@ std::span<const sts::CardInstance> cards_in(const sts::BattleContext&, Pile);
 
 // Worlds consistent with what `observed` shows, drawn deterministically from `stream`.
 std::vector<sts::BattleContext> particles(const sts::BattleContext& observed, int count, std::uint64_t stream);
-std::vector<sts::BattleContext> particles(const sts::BattleContext& observed, int count);  // stream: the observation
 }  // namespace stsrl::combat

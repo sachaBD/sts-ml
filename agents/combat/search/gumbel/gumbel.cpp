@@ -93,21 +93,17 @@ int total(const Node& n) {
     return count;
 }
 
-// How the search meets hidden information and chance: where a simulation starts, and which node a state is.
-// Particles: every simulation plays out in one sampled world, and nodes are told apart by what the player
-// can see, so all worlds and all move orders share one graph.
 class Particles {
 public:
-    Particles(const sts::BattleContext& observed, int count) : worlds_{combat::particles(observed, count)} {}
+    Particles(const sts::BattleContext& observed, int count, std::uint64_t stream)
+        : worlds_{combat::particles(observed, count, stream)} {}
     sts::BattleContext start(std::mt19937_64& rng) const {
         return worlds_[std::uniform_int_distribution<std::size_t>{0, worlds_.size() - 1}(rng)];
     }
-    static std::uint64_t node_key(const sts::BattleContext& state) { return combat::observation_key(state); }
 
 private:
     std::vector<sts::BattleContext> worlds_;
 };
-using Chance = Particles;
 
 std::vector<double> softmax(std::vector<double> x) {
     const double top = *std::max_element(x.begin(), x.end());
@@ -176,9 +172,9 @@ struct Gumbel::Impl {
     Settings s;
     std::uint64_t fight_seed;
     std::mt19937_64 rng;
-    Chance chance;
+    Particles particles;
     std::vector<Action> actions;
-    std::unordered_map<std::uint64_t, std::unique_ptr<Node>> nodes;  // by Chance::node_key
+    std::unordered_map<std::uint64_t, std::unique_ptr<Node>> nodes;  // by public observation
     Node& root;
     std::vector<double> gumbel;
     std::vector<int> schedule;
@@ -190,8 +186,11 @@ struct Gumbel::Impl {
     std::vector<Path> backups;
 
     Impl(const sts::BattleContext& observed, const Settings& settings, std::uint64_t seed)
-        : s{settings}, fight_seed{observed.seed}, rng{seed}, chance{observed, settings.particles}, actions{combat::legal_actions(observed)},
-          root{*(nodes[Chance::node_key(observed)] = std::make_unique<Node>())},
+        : s{settings}, fight_seed{observed.seed}, rng{seed},
+          // Keep sampling stable within a turn to improve answer reuse.
+          particles{observed, settings.particles, observed.seed ^ (std::uint64_t(observed.turn) << 32)},
+          actions{combat::legal_actions(observed)},
+          root{*(nodes[combat::observation_key(observed)] = std::make_unique<Node>())},
           leaves{{&root, observed, actions}}, queries{{leaves[0].state, leaves[0].actions}} {}
 
     void evaluated(std::span<const Evaluation> e) {
@@ -229,7 +228,7 @@ struct Gumbel::Impl {
 
     // Descends until a finished fight, a cycle or an unevaluated node.
     void simulate(std::size_t root_edge) {
-        auto state = chance.start(rng);
+        auto state = particles.start(rng);
         Path path;
         Node* node = &root;
         ++simulation;
@@ -239,7 +238,7 @@ struct Gumbel::Impl {
             auto& transition = node->transitions[edge];
             if (transition != TransitionKind::chance)
                 transition = effects.isChance() ? TransitionKind::chance : TransitionKind::deterministic;
-            auto& next = nodes[Chance::node_key(state)];
+            auto& next = nodes[combat::observation_key(state)];
             const bool created = !next;
             if (created) next = std::make_unique<Node>();
             const bool cycle = next.get() == node ||
@@ -249,7 +248,7 @@ struct Gumbel::Impl {
             if (cycle) {
                 std::osyncstream error{std::cerr};
                 error << "ERROR gumbel: cycle truncated; fight_seed=" << fight_seed
-                      << " simulation=" << simulation << " observation=" << Chance::node_key(state)
+                      << " simulation=" << simulation << " observation=" << combat::observation_key(state)
                       << " bootstrap=" << next->value << " path_action_keys=[";
                 for (const auto& step : path) error << step.node->keys[step.edge] << ',';
                 error << "]\n" << state;
