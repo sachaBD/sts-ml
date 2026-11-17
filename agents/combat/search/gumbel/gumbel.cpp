@@ -131,11 +131,29 @@ std::vector<double> sigma(const Node& n, const Gumbel::Settings& s) {
     return completed;
 }
 
-std::vector<double> improved_policy(const Node& n, const Gumbel::Settings& s) {
-    auto z = sigma(n, s);
-    for (std::size_t i = 0; i < z.size(); ++i) z[i] += n.logits[i];
-    return softmax(z);
-}
+// Which action a simulation takes at an interior node, and the policy target a node reports.
+struct ImprovedPolicy {
+    static std::vector<double> policy(const Node& n, const Gumbel::Settings& s) {
+        auto z = sigma(n, s);
+        for (std::size_t i = 0; i < z.size(); ++i) z[i] += n.logits[i];
+        return softmax(z);
+    }
+
+    // Argmax of policy - visits / (1 + total), counting the wave's simulations as visits so that simulations
+    // sharing a wave spread out.
+    static std::size_t choose(const Node& n, const Gumbel::Settings& s) {
+        const auto pi = policy(n, s);
+        const int sum = total(n) + std::accumulate(n.waiting.begin(), n.waiting.end(), 0);
+        std::size_t best = 0; double best_score = -INFINITY;
+        for (std::size_t i = 0; i < pi.size(); ++i) {
+            const double score = pi[i] - double(visits(n, i) + n.waiting[i]) / (1 + sum);
+            if (score > best_score) best = i, best_score = score;
+        }
+        return best;
+    }
+};
+
+using Selection = ImprovedPolicy;  // the selection rule the search uses
 
 // mctx seq_halving.get_sequence_of_considered_visits, stopping before a partial pass so every round
 // visits its considered actions equally.
@@ -233,7 +251,7 @@ struct Gumbel::Impl {
         Node* node = &root;
         ++simulation;
         for (;;) {
-            const auto edge = node == &root ? root_edge : interior_choice(*node);
+            const auto edge = node == &root ? root_edge : Selection::choose(*node, s);
             const auto effects = play(state, node->keys[edge]);
             auto& transition = node->transitions[edge];
             if (transition != TransitionKind::chance)
@@ -318,19 +336,6 @@ struct Gumbel::Impl {
         return edges;
     }
 
-    // Interior: argmax of improved policy - visits / (1 + total), counting the wave's simulations as visits
-    // so that simulations sharing a wave spread out.
-    std::size_t interior_choice(const Node& n) const {
-        const auto pi = improved_policy(n, s);
-        const int sum = total(n) + std::accumulate(n.waiting.begin(), n.waiting.end(), 0);
-        std::size_t best = 0; double best_score = -INFINITY;
-        for (std::size_t i = 0; i < pi.size(); ++i) {
-            const double score = pi[i] - double(visits(n, i) + n.waiting[i]) / (1 + sum);
-            if (score > best_score) best = i, best_score = score;
-        }
-        return best;
-    }
-
     Graph graph() const {
         if (!leaves.empty()) throw std::logic_error{"gumbel: graph requires a completed search"};
         std::unordered_map<const Node*, std::uint64_t> observations;
@@ -341,7 +346,7 @@ struct Gumbel::Impl {
             Graph::Node snapshot{key, n.keys.empty(), n.value, n.backed_value, {}};
             // Every nonterminal node has been evaluated when the search is complete.
             if (!snapshot.terminal) {
-                const auto scores = sigma(n, s), policy = improved_policy(n, s);
+                const auto scores = sigma(n, s), policy = Selection::policy(n, s);
                 for (std::size_t i = 0; i < n.keys.size(); ++i) {
                     const int count = visits(n, i);
                     Graph::Edge edge{n.keys[i], n.logits[i], n.prior[i], scores[i], policy[i],
@@ -361,7 +366,7 @@ struct Gumbel::Impl {
         int most = 0;
         for (std::size_t i = 0; i < root.keys.size(); ++i) most = std::max(most, visits(root, i));
         Result r{actions[ranked(most, 1).front()], actions, {}, float(root.backed_value)};
-        for (double p : improved_policy(root, s)) r.policy.push_back(float(p));
+        for (double p : Selection::policy(root, s)) r.policy.push_back(float(p));
         return r;
     }
 };
