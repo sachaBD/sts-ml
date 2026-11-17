@@ -132,8 +132,4 @@ std::vector<sts::BattleContext> particles(const sts::BattleContext& observed, in
     for (int i = 0; i < count; ++i) states.push_back(particle(observed, next_seed(stream)));
     return states;
 }
-
-std::vector<sts::BattleContext> particles(const sts::BattleContext& observed, int count) {
-    return particles(observed, count, observation_key(observed));
-}
 }  // namespace stsrl::combat

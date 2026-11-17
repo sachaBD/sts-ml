@@ -85,3 +85,21 @@ TEST(ObservationKey, IgnoresTheOrderOfHandDiscardAndExhaust) {
     EXPECT_EQ(observation_key(state), observation_key(with_piles({{DEFEND_RED}, {STRIKE_RED}, {BASH}})));
     EXPECT_NE(observation_key(state), observation_key(with_piles({{DEFEND_RED}, {STRIKE_RED}, {BASH, true}})));
 }
+
+// Search keeps one stream per turn, so this is what lets the decisions of a turn share their worlds.
+TEST(Particles, AMoveThatDrawsNothingKeepsTheSameWorlds) {
+    const auto same_order = [](const auto& a, const auto& b) {
+        return std::equal(a.begin(), a.end(), b.begin(), b.end(),
+                          [](const auto& x, const auto& y) { return x.uniqueId == y.uniqueId; });
+    };
+    for (const std::uint64_t seed : {1, 2, 3}) {
+        auto state = stsrl::scenarios::jaw_worm(seed);
+        const auto before = particles(state, 4, seed);
+        const auto draw_pile = state.cards.drawPile.size();
+        static_cast<void>(Action{Type::CARD, 0, 0}.execute(state));
+        ASSERT_EQ(state.cards.drawPile.size(), draw_pile) << "seed " << seed;
+        const auto after = particles(state, 4, seed);
+        for (std::size_t i = 0; i < before.size(); ++i)
+            EXPECT_TRUE(same_order(before[i].cards.drawPile, after[i].cards.drawPile)) << "seed " << seed << " world " << i;
+    }
+}

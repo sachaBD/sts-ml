@@ -96,9 +96,12 @@ int total(const Node& n) {
 // How the search meets hidden information and chance: where a simulation starts, and which node a state is.
 // Particles: every simulation plays out in one sampled world, and nodes are told apart by what the player
 // can see, so all worlds and all move orders share one graph.
+// One stream per turn: until a draw reveals something, the decisions of a turn sample the same worlds, so a
+// decision repeats the previous one's requests past End Turn and they are answered from it.
 class Particles {
 public:
-    Particles(const sts::BattleContext& observed, int count) : worlds_{combat::particles(observed, count)} {}
+    Particles(const sts::BattleContext& observed, int count)
+        : worlds_{combat::particles(observed, count, observed.seed ^ std::uint64_t(observed.turn) << 32)} {}
     sts::BattleContext start(std::mt19937_64& rng) const {
         return worlds_[std::uniform_int_distribution<std::size_t>{0, worlds_.size() - 1}(rng)];
     }
