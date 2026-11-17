@@ -47,7 +47,7 @@ struct Episodes::Game {
 
     // Play on until the search needs the network (its requests) or the game is over (none).
     std::span<const infra::Tokens> advance(const search::SearchFactory& search, const BudgetRule& budget,
-                                           const nn::NetworkEvaluator& network) {
+                                          const nn::NetworkEvaluator& network) {
         for (;;) {
             if (decision) {
                 if (const auto requests = decision->pending(); !requests.empty()) return requests;
@@ -86,6 +86,7 @@ Episodes::Episodes(std::vector<Json> fights, search::SearchFactory search, Budge
     : fights_(std::move(fights)), search_{std::move(search)}, budget_{budget}, network_{network},  // fights_{...} would nest them in one json array
       samples_{samples, std::ios::binary | std::ios::app | std::ios::ate}, sample_file_{samples.filename().string()},
       results_{results} {
+    budget_.validate();
     if (!samples_) throw std::runtime_error{"cannot write samples " + samples.string()};
 }
 
