@@ -191,6 +191,7 @@ const Action brew{sts::search::ActionType::POTION, 0};
 // With no free potion slot, drinking Entropic Brew returns to the same observation.
 sts::BattleContext brew_loop() {
     auto state = stsrl::scenarios::jaw_worm(13);
+    state.seed = 52;  // a fight whose sampled worlds brew Entropic Brew again
     state.potionCapacity = state.potionCount = 2;
     state.potions[0] = sts::Potion::ENTROPIC_BREW;
     state.potions[1] = sts::Potion::COLORLESS_POTION;
