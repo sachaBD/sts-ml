@@ -22,7 +22,5 @@ Pile selection_pile(const sts::BattleContext&);
 std::span<const sts::CardInstance> cards_in(const sts::BattleContext&, Pile);
 
 // Worlds consistent with what `observed` shows, drawn deterministically from `stream`.
-// Hidden state comes only from the stream and the draw pile's contents, so a move that leaves the draw pile
-// unchanged keeps the same worlds.
 std::vector<sts::BattleContext> particles(const sts::BattleContext& observed, int count, std::uint64_t stream);
 }  // namespace stsrl::combat
