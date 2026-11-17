@@ -40,8 +40,10 @@ public:
     virtual Result result() const = 0;
 };
 
-// A fresh search for one decision. It draws all its randomness from `random`, so the caller decides reproducibility.
-using SearchFactory = std::function<std::unique_ptr<CombatSearch>(const sts::BattleContext&, std::mt19937_64& random)>;
+// A fresh search for one decision with the given simulation budget. It draws all its randomness from `random`, so
+// the caller decides reproducibility.
+using SearchFactory =
+    std::function<std::unique_ptr<CombatSearch>(const sts::BattleContext&, int simulations, std::mt19937_64& random)>;
 
 template<class F>
 concept Evaluator = std::is_invocable_r_v<Evaluation, F&, const Query&>;

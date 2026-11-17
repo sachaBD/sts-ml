@@ -88,7 +88,7 @@ int main() try {
         const auto network = nn::load_network(request.at("checkpoint").get<std::string>(), nn::Backends::cpu);
         const nn::NetworkEvaluator evaluator{network.encoding};
         auto random = fight.decision_random();
-        auto search = config.create(fight.state(), random);
+        auto search = config.create(fight.state(), config.sims, random);
         player::Decision decision{std::move(search.search), evaluator};
         for (auto requests = decision.pending(); !requests.empty(); requests = decision.pending()) {
             std::vector<infra::Input> inputs;

@@ -15,7 +15,7 @@ bool Fight::over() const {
 }
 
 void Fight::play(search::Action action) {
-    action.execute(state_);
+    after_chance_ = action.execute(state_).isChance();
     ++steps_;
     observe(turn_starts_, state_);
     play_forced();
@@ -25,7 +25,7 @@ void Fight::play_forced() {
     while (!over()) {
         const auto actions = combat::legal_actions(state_);
         if (actions.size() != 1) return;
-        actions[0].execute(state_);
+        after_chance_ |= actions[0].execute(state_).isChance();
         ++steps_;
         observe(turn_starts_, state_);
     }
