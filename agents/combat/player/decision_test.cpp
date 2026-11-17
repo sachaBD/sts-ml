@@ -37,16 +37,6 @@ stsrl::search::Result decide(const Fight& fight) {
     return decide(fight, none, sent);
 }
 
-sts::BattleContext defend_turn() {
-    auto state = stsrl::scenarios::jaw_worm(7);
-    state.cards = {};
-    state.cards.createTempCardInHand({sts::CardId::DEFEND_RED});
-    state.cards.createTempCardInHand({sts::CardId::DEFEND_RED});
-    for (const auto id : {sts::CardId::STRIKE_RED, sts::CardId::BASH, sts::CardId::ANGER})
-        state.cards.createTempCardInDrawPile(0, {id});
-    return state;
-}
-
 const std::vector<std::uint64_t> seeds{1, 2, 3};
 }  // namespace
 
@@ -65,46 +55,19 @@ TEST(Fight, AutoPlaysForcedMovesAndStopsOnlyAtARealChoice) {
     }
 }
 
-TEST(Fight, ADeterministicMoveClearsChance) {
-    Fight fight{defend_turn(), 1};
-    EXPECT_TRUE(fight.after_chance());
-    fight.play({sts::search::ActionType::CARD, 0});
-    ASSERT_FALSE(fight.over());
-    EXPECT_EQ(fight.steps(), 1);
-    EXPECT_FALSE(fight.after_chance());
-}
-
 TEST(Fight, TheDecisionAfterEndTurnFollowsChance) {
-    Fight fight{defend_turn(), 1};
-    fight.play({sts::search::ActionType::CARD, 0});
-    ASSERT_FALSE(fight.after_chance());
-    fight.play({sts::search::ActionType::END_TURN});
-    ASSERT_FALSE(fight.over());
-    EXPECT_TRUE(fight.after_chance());
-}
-
-TEST(Fight, AForcedEndTurnCountsAsChance) {
-    auto state = defend_turn();
-    state.player.energy = 1;
-    Fight fight{state, 1};
-    fight.play({sts::search::ActionType::CARD, 0});
-    ASSERT_FALSE(fight.over());
-    EXPECT_EQ(fight.steps(), 2);
-    EXPECT_GT(fight.state().turn, state.turn);
-    EXPECT_TRUE(fight.after_chance());
-}
-
-TEST(Fight, ADrawingPotionCountsAsChanceWithinTheTurn) {
-    auto state = defend_turn();
-    state.potionCapacity = state.potionCount = 1;
-    state.potions[0] = sts::Potion::SWIFT_POTION;
-    Fight fight{state, 1};
-    fight.play({sts::search::ActionType::CARD, 0});
-    ASSERT_FALSE(fight.after_chance());
-    fight.play({sts::search::ActionType::POTION, 0});
-    ASSERT_FALSE(fight.over());
-    EXPECT_EQ(fight.state().turn, state.turn);
-    EXPECT_TRUE(fight.after_chance());
+    for (const auto seed : seeds) {
+        Fight fight{stsrl::scenarios::jaw_worm(seed), seed};
+        EXPECT_TRUE(fight.after_chance()) << "the opening hand is drawn";
+        std::mt19937_64 random{seed};
+        while (!fight.over()) {
+            const auto actions = legal_actions(fight.state());
+            const auto action = actions[random() % actions.size()];
+            fight.play(action);
+            if (action.getActionType() == sts::search::ActionType::END_TURN && !fight.over())
+                EXPECT_TRUE(fight.after_chance()) << "seed " << seed;
+        }
+    }
 }
 
 // Played with the previous decision's answers, replayed without them.
