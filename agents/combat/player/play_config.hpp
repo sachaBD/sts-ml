@@ -9,7 +9,9 @@
 namespace stsrl::player {
 struct PlayConfig {
     search::SearchConfig search;  // [search]
-    BudgetRule budget;            // every decision searches [search].sims
+    // Full searches use [search].sims. Optional [search].cheap_sims and full_share (both or neither) make the
+    // other decisions cheap; without them every search is full.
+    BudgetRule budget;
     infra::ActorConfig workers;   // [workers]
 };
 

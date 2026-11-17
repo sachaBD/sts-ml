@@ -3,8 +3,10 @@
 #include <random>
 
 namespace stsrl::player {
+// A full search explores and is a training target; a cheap one only moves the fight on, so it plays greedily.
 struct Budget {
     int simulations;
+    bool full;
 };
 
 // What the driver knows before it searches a decision.

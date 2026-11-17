@@ -100,7 +100,8 @@ class ExpertIterationInvariants(unittest.TestCase):
         (directory / 'network.toml').touch()
 
     def play(self, binary, models, fights, directory, settings, *, progress):
-        results = [dict(fight_id=f['fight_id'], won=i % 2 == 0, capped=False, finished_unix=1.0)
+        results = [dict(fight_id=f['fight_id'], won=i % 2 == 0, capped=False, finished_unix=1.0,
+                        searches=4, full_searches=2, network_requests=30, reused_requests=10)
                    for i, f in enumerate(fights)]
         self.plays.append(dict(models=models, directory=directory, search=settings['search'], fights=fights,
                                results=results))

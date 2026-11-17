@@ -8,7 +8,7 @@ void PlayoutCap::validate() const {
 }
 
 Budget PlayoutCap::operator()(const Moment& moment, std::mt19937_64& random) const {
-    if (moment.after_chance || std::bernoulli_distribution{full_share}(random)) return {full};
-    return {cheap};
+    if (moment.after_chance || std::bernoulli_distribution{full_share}(random)) return {full, true};
+    return {cheap, false};
 }
 }  // namespace stsrl::player

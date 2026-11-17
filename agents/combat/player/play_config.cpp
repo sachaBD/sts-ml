@@ -29,6 +29,8 @@ public:
         return *value;
     }
 
+    bool has(const std::string& key) const { return bool((*table_)[key]); }
+
     void done() const {
         for (const auto& [key, _] : *table_)
             if (!read_.contains(std::string{key.str()}))
@@ -48,6 +50,10 @@ PlayConfig parse(const toml::table& root) {
     c.search.particles = search.get<int>("particles");
     c.search.gumbel_scale = search.get<double>("gumbel_scale");
     c.search.rollout_mix = search.get<double>("rollout_mix");
+    c.budget = {.full = c.search.sims, .cheap = c.search.sims, .full_share = 1};
+    if (search.has("cheap_sims") || search.has("full_share"))
+        c.budget = {.full = c.search.sims, .cheap = search.get<int>("cheap_sims"),
+                    .full_share = search.get<double>("full_share")};
     search.done();
     Table workers{root, "workers"};
     c.workers.actors = workers.get<int>("actors");
@@ -59,7 +65,7 @@ PlayConfig parse(const toml::table& root) {
     for (const auto& [key, _] : root)
         if (key != "search" && key != "workers") throw std::invalid_argument{"unknown [" + std::string{key.str()} + "]"};
     c.search.validate();
-    c.budget = {.full = c.search.sims, .cheap = c.search.sims, .full_share = 1};
+    c.budget.validate();
     c.workers.validate();
     return c;
 }

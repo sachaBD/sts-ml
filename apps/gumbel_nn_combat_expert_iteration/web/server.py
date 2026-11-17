@@ -14,7 +14,7 @@ from infra.workers.telemetry import actors, evaluated_per_second, lanes, queues
 from agents.combat.nn.training.telemetry import training
 
 from ..dashboard import running, snapshot
-from ..reporting import baselines, by_deck, deck_of, jsonl, outcomes, paired, pool, rate, unpaired
+from ..reporting import baselines, by_deck, deck_of, jsonl, outcomes, paired, pool, rate, search_use, unpaired
 
 PAGE = Path(__file__).with_name('ui') / 'web.html'
 TELEMETRY_PANEL = PAGE.with_name('telemetry.js')
@@ -114,7 +114,7 @@ def api(out, reference=None):
         gpu = directory / 'gpu.csv'
         b.update(loss=loss.get(b['it']), play=r.get('play_seconds'), fit=r.get('train_seconds'),
                  gps=r['games'] / r['play_seconds'] if r else None, gpu=gpu_summary(gpu) if gpu.exists() else {},
-                 nn=finished_evaluated_per_second(str(directory / 'telemetry.jsonl')))
+                 nn=finished_evaluated_per_second(str(directory / 'telemetry.jsonl')), search=search_use(r))
     decks = sorted({d for b in train + test for d in b['rates'] if d != 'all'})
 
     trend = []
