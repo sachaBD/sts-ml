@@ -94,6 +94,14 @@ std::vector<Action> legal_actions(const sts::BattleContext& state) {
     return actions;
 }
 
+void play_forced(sts::BattleContext& state) {
+    while (state.outcome == sts::Outcome::UNDECIDED) {
+        const auto actions = legal_actions(state);
+        if (actions.size() != 1) return;
+        actions[0].execute(state);
+    }
+}
+
 std::uint64_t action_key(const sts::BattleContext& state, Action action) {
     const auto choice = chosen(state, action);
     auto key = fold(0, choice.empty() ? action.bits : action.bits & ~0xFFFFu);  // positions: the low 16 bits

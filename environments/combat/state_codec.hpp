@@ -1,6 +1,7 @@
 #pragma once
-// A fight state as a couple of hundred bytes that decode on their own. Queued actions are code (std::function),
-// not data, so a state holding any cannot be packed.
+// A fight state as bytes that decode on their own: the simulator's walk of its fields (sts::forEachField), each a
+// varint. Mostly small, repeated values, so it compresses well. Queued actions are code (std::function), not data,
+// so a state holding any cannot be packed.
 #include "combat/BattleContext.h"
 #include <span>
 #include <string>

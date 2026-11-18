@@ -8,40 +8,24 @@
 
 namespace stsrl::combat {
 namespace {
-// File: magic, version, dictionary size (u32 little-endian) and dictionary, then records.
-// Record: its size as a varint, then a kind byte and its payload.
+// File: magic, version, dictionary size and dictionary, then records.
+// Record: its size, then a kind byte and its payload. Integers are little-endian, as the machine writes them.
 constexpr std::string_view magic = "STSSTATE";
-constexpr std::uint32_t version = 1;
+constexpr std::uint32_t version = 2;
 constexpr int level = 3;
 enum Kind : char { packed = 0, after_predecessor = 1 };
 
-void put_varint(std::string& out, std::uint64_t v) {
-    for (; v >= 0x80; v >>= 7) out.push_back(char(v | 0x80));
-    out.push_back(char(v));
-}
-std::uint64_t get_varint(const char*& p, const char* end) {
-    std::uint64_t v = 0;
-    for (int shift = 0; shift < 64; shift += 7) {
-        if (p == end) throw std::runtime_error{"state store: truncated record"};
-        const auto byte = static_cast<unsigned char>(*p++);
-        v |= std::uint64_t(byte & 0x7F) << shift;
-        if (!(byte & 0x80)) return v;
-    }
-    throw std::runtime_error{"state store: bad varint"};
+template <class T> void put(std::string& out, T value) { out.append(reinterpret_cast<const char*>(&value), sizeof value); }
+template <class T> T get(const char*& p, const char* end) {
+    if (std::size_t(end - p) < sizeof(T)) throw std::runtime_error{"state store: truncated"};
+    T value;
+    std::memcpy(&value, p, sizeof value);
+    p += sizeof value;
+    return value;
 }
 
 void check(std::size_t code, const char* what) {
     if (ZSTD_isError(code)) throw std::runtime_error{std::string{what} + ": " + ZSTD_getErrorName(code)};
-}
-
-// Plays on from a decision to the next state with a choice, as decisions are recorded.
-void play(sts::BattleContext& state, sts::search::Action action) {
-    action.execute(state);
-    while (state.outcome == sts::Outcome::UNDECIDED) {
-        const auto actions = legal_actions(state);
-        if (actions.size() != 1) return;
-        actions[0].execute(state);
-    }
 }
 }  // namespace
 
@@ -81,36 +65,36 @@ StateWriter::StateWriter(const std::filesystem::path& path, std::string_view dic
         if (!zstd_->dictionary) throw std::invalid_argument{"state store: bad dictionary"};
         check(ZSTD_CCtx_refCDict(zstd_->context, zstd_->dictionary), "zstd dictionary");
     }
-    const auto dictionary_size = static_cast<std::uint32_t>(dictionary.size());
-    out_.write(magic.data(), magic.size());
-    out_.write(reinterpret_cast<const char*>(&version), sizeof version);
-    out_.write(reinterpret_cast<const char*>(&dictionary_size), sizeof dictionary_size);
-    out_.write(dictionary.data(), std::streamsize(dictionary.size()));
+    std::string header{magic};
+    put(header, version);
+    put(header, static_cast<std::uint32_t>(dictionary.size()));
+    header += dictionary;
+    out_.write(header.data(), std::streamsize(header.size()));
 }
 
 StateWriter::~StateWriter() = default;
 
 std::uint64_t StateWriter::append(const sts::BattleContext& state, std::optional<Predecessor> predecessor) {
-    record_.clear();
+    record_.assign(sizeof(std::uint32_t), '\0');  // its size, filled in below
     if (packable(state)) {
         packed_.clear();
         pack(state, packed_);
-        std::string frame(ZSTD_compressBound(packed_.size()), '\0');
-        const auto size = ZSTD_compress2(zstd_->context, frame.data(), frame.size(), packed_.data(), packed_.size());
-        check(size, "zstd compress");
-        put_varint(record_, 1 + size);
         record_.push_back(Kind::packed);
-        record_.append(frame.data(), size);
+        const auto at = record_.size();
+        record_.resize(at + ZSTD_compressBound(packed_.size()));
+        const auto size = ZSTD_compress2(zstd_->context, record_.data() + at, record_.size() - at, packed_.data(),
+                                         packed_.size());
+        check(size, "zstd compress");
+        record_.resize(at + size);
     } else {
         if (!predecessor) throw std::invalid_argument{"state store: a state with queued actions needs its predecessor"};
         if (predecessor->record >= records_) throw std::invalid_argument{"state store: predecessor not yet stored"};
-        std::string payload;
-        put_varint(payload, predecessor->record);
-        put_varint(payload, predecessor->action.bits);
-        put_varint(record_, 1 + payload.size());
         record_.push_back(Kind::after_predecessor);
-        record_ += payload;
+        put(record_, predecessor->record);
+        put(record_, predecessor->action.bits);
     }
+    const auto size = static_cast<std::uint32_t>(record_.size() - sizeof(std::uint32_t));
+    std::memcpy(record_.data(), &size, sizeof size);
     out_.write(record_.data(), std::streamsize(record_.size()));
     if (!out_) throw std::runtime_error{"state store: write failed"};
     return records_++;
@@ -132,14 +116,12 @@ StateReader::StateReader(const std::filesystem::path& path) : zstd_{std::make_un
     bytes_.assign(std::istreambuf_iterator<char>{in}, {});
     const char* p = bytes_.data();
     const char* end = p + bytes_.size();
-    std::uint32_t file_version = 0, dictionary_size = 0;
-    const auto header = magic.size() + sizeof file_version + sizeof dictionary_size;
-    if (bytes_.size() < header || std::string_view{p, magic.size()} != magic)
+    if (bytes_.size() < magic.size() || std::string_view{p, magic.size()} != magic)
         throw std::runtime_error{"state store: not a state store: " + path.string()};
-    std::memcpy(&file_version, p + magic.size(), sizeof file_version);
-    std::memcpy(&dictionary_size, p + magic.size() + sizeof file_version, sizeof dictionary_size);
-    if (file_version != version) throw std::runtime_error{"state store: unsupported version " + std::to_string(file_version)};
-    p += header;
+    p += magic.size();
+    if (const auto found = get<std::uint32_t>(p, end); found != version)
+        throw std::runtime_error{"state store: unsupported version " + std::to_string(found)};
+    const auto dictionary_size = get<std::uint32_t>(p, end);
     if (std::size_t(end - p) < dictionary_size) throw std::runtime_error{"state store: truncated dictionary"};
     if (dictionary_size) {
         zstd_->dictionary = ZSTD_createDDict(p, dictionary_size);
@@ -147,9 +129,9 @@ StateReader::StateReader(const std::filesystem::path& path) : zstd_{std::make_un
     }
     p += dictionary_size;
     while (p != end) {
-        offsets_.push_back(std::uint64_t(p - bytes_.data()));
-        const auto size = get_varint(p, end);
-        if (std::uint64_t(end - p) < size || size == 0) throw std::runtime_error{"state store: truncated record"};
+        const auto size = get<std::uint32_t>(p, end);
+        if (size == 0 || std::size_t(end - p) < size) throw std::runtime_error{"state store: truncated record"};
+        records_.push_back({std::uint64_t(p - bytes_.data()), size});
         p += size;
     }
 }
@@ -158,16 +140,17 @@ StateReader::~StateReader() = default;
 
 sts::BattleContext StateReader::at(std::uint64_t record) const {
     if (record >= size()) throw std::out_of_range{"state store: no record " + std::to_string(record)};
-    const char* p = bytes_.data() + offsets_[record];
-    const auto length = get_varint(p, bytes_.data() + bytes_.size());
+    const auto [offset, length] = records_[record];
+    const char* p = bytes_.data() + offset;
     const char* end = p + length;
     const char kind = *p++;
     if (kind == Kind::after_predecessor) {
-        const auto previous = get_varint(p, end);
-        const sts::search::Action action{static_cast<std::uint32_t>(get_varint(p, end))};
+        const auto previous = get<std::uint64_t>(p, end);
+        const sts::search::Action action{get<std::uint32_t>(p, end)};
         if (previous >= record) throw std::runtime_error{"state store: predecessor after its record"};
         auto state = at(previous);
-        play(state, action);
+        action.execute(state);
+        play_forced(state);
         return state;
     }
     if (kind != Kind::packed) throw std::runtime_error{"state store: unknown record kind"};

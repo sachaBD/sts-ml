@@ -13,6 +13,8 @@ using sts::search::Action;
 // A move is what it chooses, not where that sits: identical cards or potions are one move, whatever the order.
 std::vector<Action> legal_actions(const sts::BattleContext&);
 std::uint64_t action_key(const sts::BattleContext&, Action);
+// Plays every move that is the only legal one, until a decision or the end of the fight.
+void play_forced(sts::BattleContext&);
 // A state is what a player sees, whatever the order of the hand, discard and exhaust piles.
 std::uint64_t observation_key(const sts::BattleContext&);
 

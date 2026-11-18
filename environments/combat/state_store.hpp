@@ -12,6 +12,7 @@
 #include <span>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 namespace stsrl::combat {
@@ -46,13 +47,13 @@ class StateReader {
 public:
     explicit StateReader(const std::filesystem::path&);  // throws on a truncated or foreign file
     ~StateReader();
-    std::uint64_t size() const { return offsets_.size(); }
+    std::uint64_t size() const { return records_.size(); }
     sts::BattleContext at(std::uint64_t record) const;  // safe to call from several threads
 
 private:
     struct Zstd;
     std::unique_ptr<Zstd> zstd_;
     std::string bytes_;
-    std::vector<std::uint64_t> offsets_;  // where each record (its size, then its bytes) begins in bytes_
+    std::vector<std::pair<std::uint64_t, std::uint32_t>> records_;  // each record's offset and size in bytes_
 };
 }  // namespace stsrl::combat

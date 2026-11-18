@@ -17,14 +17,6 @@ struct Decision {
     std::optional<Predecessor> from;
 };
 
-void play_forced(sts::BattleContext& state) {
-    while (state.outcome == sts::Outcome::UNDECIDED) {
-        const auto actions = legal_actions(state);
-        if (actions.size() != 1) return;
-        actions[0].execute(state);
-    }
-}
-
 // Random play through fights across the acts, with random decks, so that many kinds of state come up.
 const std::vector<Decision>& decisions() {
     static const auto all = [] {
