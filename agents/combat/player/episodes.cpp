@@ -2,6 +2,8 @@
 #include "agents/combat/player/decision.hpp"
 #include "agents/combat/player/targets.hpp"
 #include "environments/combat/fight_start.hpp"
+#include "environments/combat/state_codec.hpp"
+#include "agents/combat/nn/training/sample.hpp"
 #include <chrono>
 #include <optional>
 #include <span>
@@ -11,25 +13,18 @@ namespace stsrl::player {
 namespace {
 using Json = nlohmann::json;
 using Clock = std::chrono::steady_clock;
-// A sample record: token count, action count, token width, targets, tokens, policy.
 constexpr int sample_format = nn::layout::sample::format;
 
 struct Sample {
-    infra::Tokens tokens;
+    std::string state;
+    std::vector<search::Action> actions;
     std::vector<float> policy;
     Vitals vitals;
 };
 
 void write(std::ofstream& out, const Sample& sample, std::span<const Vitals> turn_starts, const sts::BattleContext& end) {
-    const auto& t = sample.tokens;
-    const auto target = targets(sample.vitals, turn_starts, end);
-    const auto width = std::int32_t(t.data.size() / t.count);
-    out.write(reinterpret_cast<const char*>(&t.count), 4);
-    out.write(reinterpret_cast<const char*>(&t.actions), 4);
-    out.write(reinterpret_cast<const char*>(&width), 4);
-    out.write(reinterpret_cast<const char*>(&target), sizeof target);
-    out.write(reinterpret_cast<const char*>(t.data.data()), std::streamsize(t.data.size() * 4));
-    out.write(reinterpret_cast<const char*>(sample.policy.data()), std::streamsize(sample.policy.size() * 4));
+    nn::training::write_sample(out, sample.state, sample.actions, sample.policy,
+                               targets(sample.vitals, turn_starts, end));
 }
 }  // namespace
 
@@ -53,9 +48,11 @@ struct Episodes::Game {
             if (decision) {
                 if (const auto requests = decision->pending(); !requests.empty()) return requests;
                 auto r = decision->result();
-                if (full)
-                    decisions.push_back({episodes.network_.request({fight.state(), r.actions}), std::move(r.policy),
-                                         vitals(fight.state())});
+                if (full) {
+                    Sample sample{{}, std::move(r.actions), std::move(r.policy), vitals(fight.state())};
+                    combat::pack(fight.state(), sample.state);
+                    decisions.push_back(std::move(sample));
+                }
                 ++searches;
                 full_searches += full;
                 network_requests += decision->sent();

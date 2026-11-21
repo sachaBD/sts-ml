@@ -9,7 +9,6 @@ namespace {
 // File: magic and version, then length-prefixed states.
 // All scalars use native representation, like the state codec.
 constexpr std::string_view magic = "STSSTATE";
-constexpr std::uint32_t version = 5;
 
 template <class T> void put(std::string& out, T value) { out.append(reinterpret_cast<const char*>(&value), sizeof value); }
 template <class T> T get(const char*& p, const char* end) {
@@ -25,7 +24,7 @@ template <class T> T get(const char*& p, const char* end) {
 StateWriter::StateWriter(const std::filesystem::path& path) : out_{path, std::ios::binary | std::ios::trunc} {
     if (!out_) throw std::runtime_error{"state store: cannot write " + path.string()};
     std::string header{magic};
-    put(header, version);
+    put(header, state_codec_version);
     out_.write(header.data(), std::streamsize(header.size()));
     if (!out_) throw std::runtime_error{"state store: write failed"};
 }
@@ -54,7 +53,7 @@ StateReader::StateReader(const std::filesystem::path& path) {
     if (bytes_.size() < magic.size() || std::string_view{p, magic.size()} != magic)
         throw std::runtime_error{"state store: not a state store: " + path.string()};
     p += magic.size();
-    if (const auto found = get<std::uint32_t>(p, end); found != version)
+    if (const auto found = get<std::uint32_t>(p, end); found != state_codec_version)
         throw std::runtime_error{"state store: unsupported version " + std::to_string(found)};
     while (p != end) {
         const auto size = get<std::uint32_t>(p, end);

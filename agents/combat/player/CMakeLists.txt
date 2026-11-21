@@ -5,7 +5,7 @@ target_compile_options(player_decision PRIVATE -Wall -Wextra -Wpedantic)
 
 # Fights as infra episodes, recording each finished one.
 add_library(player_episodes STATIC episodes.cpp)
-target_link_libraries(player_episodes PUBLIC player_decision infra_actors)
+target_link_libraries(player_episodes PUBLIC player_decision infra_actors nn_replay)
 target_compile_options(player_episodes PRIVATE -Wall -Wextra -Wpedantic)
 
 # nn_play's settings file.

@@ -7,7 +7,7 @@ import unittest
 import numpy as np
 import torch
 
-from agents.combat.nn.training.replay import HEADER, SAMPLE_FORMAT, TARGETS, Replay, index
+from agents.combat.nn.training.replay import HEADER, TOKEN_FORMAT as SAMPLE_FORMAT, TARGETS, Replay, index
 
 
 WIDTH = 5  # replay knows no encoding: any token width is a valid record
