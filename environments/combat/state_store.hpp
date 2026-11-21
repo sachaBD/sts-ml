@@ -1,13 +1,10 @@
 #pragma once
-// Random-access combat states in an uncompressed, append-only file.
-// Trusted, same-build data only; simulator field changes require regenerating the store.
-// States with queued closures cannot be stored.
+// Only unmodified output from the same simulator build is supported. Pending action closures cannot be saved.
 #include "combat/BattleContext.h"
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
 #include <string>
-#include <utility>
 #include <vector>
 
 namespace stsrl::combat {
@@ -28,12 +25,16 @@ private:
 
 class StateReader {
 public:
-    explicit StateReader(const std::filesystem::path&);  // throws on a truncated or foreign file
+    explicit StateReader(const std::filesystem::path&);
     std::uint64_t size() const { return records_.size(); }
     sts::BattleContext at(std::uint64_t record) const;  // safe to call from several threads
 
 private:
+    struct Record {
+        std::uint64_t offset;
+        std::uint32_t size;
+    };
     std::string bytes_;
-    std::vector<std::pair<std::uint64_t, std::uint32_t>> records_;  // each record's offset and size in bytes_
+    std::vector<Record> records_;
 };
 }  // namespace stsrl::combat

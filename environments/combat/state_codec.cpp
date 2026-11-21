@@ -7,7 +7,7 @@
 namespace stsrl::combat {
 namespace {
 // RNGs are leaves in the simulator's walk; write their fields, not their padding.
-template <class State, class Scalar> void fields(State& state, Scalar scalar) {
+template <class State, class Scalar> void state_scalars(State& state, Scalar scalar) {
     sts::forEachField(state, [&](auto& leaf) {
         if constexpr (std::is_same_v<std::decay_t<decltype(leaf)>, sts::Random>) {
             scalar(leaf.seed0);
@@ -24,14 +24,14 @@ bool packable(const sts::BattleContext& state) { return state.actionQueue.size =
 
 void pack(const sts::BattleContext& state, std::string& out) {
     if (!packable(state)) throw std::invalid_argument{"pack: queued actions cannot be stored"};
-    fields(state, [&](const auto& scalar) {
+    state_scalars(state, [&](const auto& scalar) {
         out.append(reinterpret_cast<const char*>(&scalar), sizeof scalar);
     });
 }
 
 sts::BattleContext unpack(std::span<const char> bytes) {
     sts::BattleContext state;
-    fields(state, [&](auto& scalar) {
+    state_scalars(state, [&](auto& scalar) {
         if (bytes.size() < sizeof scalar) throw std::invalid_argument{"unpack: truncated state"};
         std::memcpy(&scalar, bytes.data(), sizeof scalar);
         bytes = bytes.subspan(sizeof scalar);

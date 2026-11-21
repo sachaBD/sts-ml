@@ -31,7 +31,7 @@ StateWriter::StateWriter(const std::filesystem::path& path) : out_{path, std::io
 }
 
 std::uint64_t StateWriter::append(const sts::BattleContext& state) {
-    record_.assign(sizeof(std::uint32_t), '\0');  // its size, filled in below
+    record_.assign(sizeof(std::uint32_t), '\0');
     pack(state, record_);
     const auto size = static_cast<std::uint32_t>(record_.size() - sizeof(std::uint32_t));
     std::memcpy(record_.data(), &size, sizeof size);

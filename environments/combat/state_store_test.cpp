@@ -5,10 +5,13 @@
 #include "game/GameContext.h"
 #include <gtest/gtest.h>
 #include <algorithm>
+#include <cstdlib>
 #include <filesystem>
 #include <future>
 #include <numeric>
 #include <random>
+#include <stdexcept>
+#include <unistd.h>
 
 namespace stsrl::combat {
 namespace {
@@ -16,19 +19,21 @@ namespace {
 const std::vector<sts::BattleContext>& states() {
     static const auto all = [] {
         using E = sts::MonsterEncounter;
+        constexpr auto character = sts::CharacterClass::IRONCLAD;
+        constexpr auto card_count = sts::CombatCardPool::getPoolSize(character);
         const std::pair<E, int> encounters[] = {
-            {E::JAW_WORM, 1},     {E::GREMLIN_NOB, 1}, {E::THREE_SENTRIES, 1},  {E::SLIME_BOSS, 1},
-            {E::GREMLIN_LEADER, 2}, {E::CHAMP, 2},     {E::AUTOMATON, 2},       {E::COLLECTOR, 2},
-            {E::REPTOMANCER, 3},  {E::AWAKENED_ONE, 3}, {E::TIME_EATER, 3},     {E::DONU_AND_DECA, 3}};
+            {E::JAW_WORM, 1},       {E::GREMLIN_NOB, 1},  {E::THREE_SENTRIES, 1}, {E::SLIME_BOSS, 1},
+            {E::GREMLIN_LEADER, 2}, {E::CHAMP, 2},        {E::AUTOMATON, 2},      {E::COLLECTOR, 2},
+            {E::REPTOMANCER, 3},    {E::AWAKENED_ONE, 3}, {E::TIME_EATER, 3},     {E::DONU_AND_DECA, 3}};
         std::mt19937_64 random{2024};
         std::vector<sts::BattleContext> out;
         for (int fight = 0; fight < 150; ++fight) {
             const auto [encounter, act] = encounters[fight % std::size(encounters)];
-            sts::GameContext game{sts::CharacterClass::IRONCLAD, random(), 20};
+            sts::GameContext game{character, random(), 20};
             game.act = act;
             game.floorNum = act * 17 - 8;
             for (int i = 0; i < 15; ++i) {
-                sts::Card card{sts::CombatCardPool::getCardAt(sts::CharacterClass::IRONCLAD, int(random() % 70))};
+                sts::Card card{sts::CombatCardPool::getCardAt(character, int(random() % card_count))};
                 card.upgraded = random() % 2;
                 game.deck.obtainRaw(card);
             }
@@ -52,10 +57,13 @@ std::string packed(const sts::BattleContext& state) {
     return out;
 }
 
-// Two states are alike when everything a player sees and every move's outcome agree, to the end of the fight.
+// Check behavior independently of the codec's own representation.
 void expect_plays_alike(sts::BattleContext a, sts::BattleContext b, std::uint64_t seed) {
     std::mt19937_64 random{seed};
     while (a.outcome == sts::Outcome::UNDECIDED && a.turn < 40) {
+        ASSERT_EQ(a.outcome, b.outcome);
+        ASSERT_EQ(a.turn, b.turn);
+        ASSERT_EQ(a.actionQueue.size, b.actionQueue.size);
         ASSERT_EQ(observation_key(a), observation_key(b));
         if (packable(a)) {
             ASSERT_EQ(packed(a), packed(b));
@@ -67,6 +75,7 @@ void expect_plays_alike(sts::BattleContext a, sts::BattleContext b, std::uint64_
         actions[i].execute(a);
         others[i].execute(b);
     }
+    EXPECT_EQ(a.turn, b.turn);
     EXPECT_EQ(a.outcome, b.outcome);
     EXPECT_EQ(a.player.curHp, b.player.curHp);
 }
@@ -98,25 +107,35 @@ TEST(StateCodec, RejectsTruncatedAndTrailingBytes) {
     EXPECT_THROW(unpack(bytes + '\0'), std::invalid_argument);
 }
 
-std::filesystem::path store_path(const char* name) { return std::filesystem::path{testing::TempDir()} / name; }
+struct StoreFile {
+    std::filesystem::path path;
 
-void write_all(const std::filesystem::path& path) {
-    StateWriter writer{path};
-    for (const auto& state : states()) {
-        if (!packable(state)) continue;
-        const auto next = writer.size();
-        EXPECT_EQ(writer.append(state), next);
+    StoreFile() {
+        auto name = (std::filesystem::temp_directory_path() / "combat-state-XXXXXX").string();
+        const int fd = mkstemp(name.data());
+        if (fd < 0) throw std::runtime_error{"cannot create test store"};
+        close(fd);
+        path = name;
     }
-    writer.flush();
-}
+    ~StoreFile() {
+        std::error_code ignored;
+        std::filesystem::remove(path, ignored);
+    }
+};
 
 TEST(StateStore, ReadsEveryRecordInAnyOrderFromSeveralThreads) {
-    std::vector<sts::BattleContext> all;
-    std::ranges::copy_if(states(), std::back_inserter(all), packable);
-    const auto path = store_path("states.bin");
-    write_all(path);
-
-    const StateReader reader{path};
+    const StoreFile file;
+    std::vector<const sts::BattleContext*> all;
+    {
+        StateWriter writer{file.path};
+        for (const auto& state : states()) {
+            if (!packable(state)) continue;
+            EXPECT_EQ(writer.append(state), all.size());
+            all.push_back(&state);
+        }
+        writer.flush();
+    }
+    const StateReader reader{file.path};
     ASSERT_EQ(reader.size(), all.size());
     std::vector<std::size_t> order(all.size());
     std::iota(order.begin(), order.end(), 0);
@@ -126,7 +145,7 @@ TEST(StateStore, ReadsEveryRecordInAnyOrderFromSeveralThreads) {
         readers.push_back(std::async(std::launch::async, [&, lane] {
             for (std::size_t j = lane; j < order.size(); j += 4) {
                 const auto i = order[j];
-                ASSERT_EQ(packed(reader.at(i)), packed(all[i])) << "record " << i;
+                ASSERT_EQ(packed(reader.at(i)), packed(*all[i])) << "record " << i;
             }
         }));
     }
@@ -134,13 +153,13 @@ TEST(StateStore, ReadsEveryRecordInAnyOrderFromSeveralThreads) {
 }
 
 TEST(StateStore, FlushMakesAppendedRecordsReadable) {
-    const auto path = store_path("flushed.bin");
-    StateWriter writer{path};
+    const StoreFile file;
+    StateWriter writer{file.path};
     writer.flush();
-    EXPECT_EQ(StateReader{path}.size(), 0);
+    EXPECT_EQ(StateReader{file.path}.size(), 0);
     EXPECT_EQ(writer.append(states().front()), 0);
     writer.flush();
-    const StateReader reader{path};
+    const StateReader reader{file.path};
     EXPECT_EQ(reader.size(), writer.size());
     EXPECT_EQ(packed(reader.at(0)), packed(states().front()));
     EXPECT_THROW(reader.at(reader.size()), std::out_of_range);
@@ -150,25 +169,26 @@ TEST(StateStore, RejectedAppendLeavesTheStoreUsable) {
     const auto& all = states();
     const auto queued = std::ranges::find_if(all, [](const auto& state) { return !packable(state); });
     ASSERT_NE(queued, all.end());
-    StateWriter writer{store_path("queued.bin")};
+    const StoreFile file;
+    StateWriter writer{file.path};
     EXPECT_THROW(writer.append(*queued), std::invalid_argument);
     EXPECT_EQ(writer.size(), 0);
     const auto& state = states().front();
     EXPECT_EQ(writer.append(state), 0);
     writer.flush();
-    const StateReader reader{store_path("queued.bin")};
+    const StateReader reader{file.path};
     ASSERT_EQ(reader.size(), 1);
     EXPECT_EQ(packed(reader.at(0)), packed(state));
 }
 
 TEST(StateStore, TruncatedFileIsRejected) {
-    const auto path = store_path("truncated.bin");
+    const StoreFile file;
     {
-        StateWriter writer{path};
+        StateWriter writer{file.path};
         writer.append(states().front());
     }
-    std::filesystem::resize_file(path, std::filesystem::file_size(path) - 1);
-    EXPECT_THROW(StateReader{path}, std::runtime_error);
+    std::filesystem::resize_file(file.path, std::filesystem::file_size(file.path) - 1);
+    EXPECT_THROW(StateReader{file.path}, std::runtime_error);
 }
 }  // namespace
 }  // namespace stsrl::combat
