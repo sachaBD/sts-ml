@@ -88,6 +88,17 @@ def score(results, baselines):
                 families=len(grouped), macro_win_rate=macro, family_95=cluster_ci)
 
 
+def search_use(row):
+    """An iteration's search economy from its log row: the share of evaluations reused from the previous decision,
+    the share of searches that were full, and network requests per game. None for rows logged before nn_play counted them."""
+    if 'reused_requests' not in row:
+        return None
+    queries = row['network_requests'] + row['reused_requests']
+    return dict(reuse=row['reused_requests'] / queries if queries else None,
+                full=row['full_searches'] / row['searches'] if row['searches'] else None,
+                requests_per_game=row['network_requests'] / row['games'] if row['games'] else None)
+
+
 def baselines(out):
     path = out / 'inputs/baselines.json'
     return json.loads(path.read_text()) if path.exists() else {}

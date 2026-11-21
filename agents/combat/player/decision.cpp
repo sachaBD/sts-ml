@@ -58,6 +58,7 @@ Decision::Decision(std::unique_ptr<search::CombatSearch> search, const nn::Netwo
 
 void Decision::evaluated(std::span<const infra::Prediction> predictions) {
     if (predictions.size() != requests_.size()) throw std::invalid_argument{"decision: one prediction per request"};
+    sent_ += predictions.size();
     for (std::size_t i = 0; i < requests_.size(); ++i) answers_.add(requests_[i], predictions[i]);
     answer(predictions);
     next_requests();
@@ -77,7 +78,12 @@ void Decision::next_requests() {
         for (const auto& query : queries) {
             auto request = network_.request(query);
             const auto* known = previous_.find(request);
-            if (known) answers_.add(request, *known); else requests_.push_back(std::move(request));
+            if (known) {
+                answers_.add(request, *known);
+                ++reused_;
+            } else {
+                requests_.push_back(std::move(request));
+            }
             from_previous_.push_back(known);
         }
         if (!requests_.empty()) return;

@@ -14,8 +14,13 @@ using stsrl::combat::legal_actions;
 namespace {
 const stsrl::search::SearchConfig config{.sims = 8, .particles = 2, .gumbel_scale = 1, .rollout_mix = 0.5};
 
+struct Counts {
+    std::size_t sent = 0, reused = 0;
+};
+
 // As nn_play decides, given the previous decision's answers; collects what reaches the network.
-stsrl::search::Result decide(const Fight& fight, Answers& answers, std::vector<std::vector<float>>& sent) {
+stsrl::search::Result decide(const Fight& fight, Answers& answers, std::vector<std::vector<float>>& sent,
+                             Counts* counts = nullptr) {
     const stsrl::nn::NetworkEvaluator network{Encoding::entity};
     auto random = fight.decision_random();
     Decision decision{config.factory()(fight.state(), config.sims, random), network, std::move(answers)};
@@ -27,6 +32,7 @@ stsrl::search::Result decide(const Fight& fight, Answers& answers, std::vector<s
         }
         decision.evaluated(predictions);
     }
+    if (counts) *counts = {decision.sent(), decision.reused()};
     answers = std::move(decision).answers();
     return decision.result();
 }
@@ -102,9 +108,12 @@ TEST(Decision, NeverResendsARequestThePreviousDecisionSent) {
         std::vector<std::vector<float>> previous;
         while (!fight.over()) {
             std::vector<std::vector<float>> sent, fresh;
-            const auto r = decide(fight, answers, sent);
+            Counts counts;
+            const auto r = decide(fight, answers, sent, &counts);
             Answers none;
             decide(fight, none, fresh);
+            EXPECT_EQ(counts.sent, sent.size()) << "seed " << seed;
+            EXPECT_EQ(counts.sent + counts.reused, fresh.size()) << "seed " << seed;
             for (const auto& request : sent) EXPECT_EQ(std::ranges::count(previous, request), 0) << "seed " << seed;
             reused += int(fresh.size() - sent.size());
             previous = std::move(sent);
