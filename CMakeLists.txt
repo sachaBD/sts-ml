@@ -24,7 +24,8 @@ set(STS_LIGHTSPEED_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../lightspeed" CACHE PATH "s
 add_subdirectory("${STS_LIGHTSPEED_DIR}" "${CMAKE_CURRENT_BINARY_DIR}/sts_lightspeed")
 
 # The rules of a fight as a player sees them, and building a fight from its saved start.
-add_library(combat_environment STATIC environments/combat/public.cpp environments/combat/fight_start.cpp)
+add_library(combat_environment STATIC environments/combat/public.cpp environments/combat/fight_start.cpp
+    environments/combat/state_codec.cpp environments/combat/state_store.cpp)
 target_include_directories(combat_environment PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
 target_link_libraries(combat_environment PUBLIC sts_lightspeed)
 target_compile_options(combat_environment PRIVATE -Wall -Wextra -Wpedantic)
@@ -47,6 +48,11 @@ add_executable(combat_public_test environments/combat/public_test.cpp)
 target_link_libraries(combat_public_test PRIVATE combat_environment combat_scenarios GTest::gtest_main)
 target_compile_options(combat_public_test PRIVATE -Wall -Wextra -Wpedantic)
 gtest_discover_tests(combat_public_test PROPERTIES TIMEOUT 10)
+
+add_executable(combat_state_store_test environments/combat/state_store_test.cpp)
+target_link_libraries(combat_state_store_test PRIVATE combat_environment GTest::gtest_main)
+target_compile_options(combat_state_store_test PRIVATE -Wall -Wextra -Wpedantic)
+gtest_discover_tests(combat_state_store_test PROPERTIES TIMEOUT 30)
 
 # toml++ reads the TOML files the native code is given (nn_play's settings, the exported model directory), pinned.
 FetchContent_Declare(tomlplusplus URL https://github.com/marzer/tomlplusplus/archive/refs/tags/v3.4.0.tar.gz
