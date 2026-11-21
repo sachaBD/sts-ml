@@ -6,6 +6,7 @@
 #include <gtest/gtest.h>
 #include <algorithm>
 #include <filesystem>
+#include <future>
 #include <numeric>
 #include <random>
 
@@ -100,53 +101,70 @@ TEST(StateCodec, QueuedActionsCannotBePacked) {
     EXPECT_THROW(pack(queued->state, out), std::invalid_argument);
 }
 
-TEST(StateCodec, EveryTruncationIsRejected) {
+TEST(StateCodec, RejectsTruncatedAndTrailingBytes) {
     const auto bytes = packed(decisions().front().state);
     for (std::size_t n = 0; n < bytes.size(); ++n)
         EXPECT_THROW(unpack({bytes.data(), n}), std::invalid_argument) << n << " of " << bytes.size() << " bytes";
+    EXPECT_THROW(unpack(bytes + '\0'), std::invalid_argument);
 }
 
 std::filesystem::path store_path(const char* name) { return std::filesystem::path{testing::TempDir()} / name; }
 
-void write_all(const std::filesystem::path& path, std::string_view dictionary) {
-    StateWriter writer{path, dictionary};
-    for (const auto& d : decisions()) writer.append(d.state, d.from);
+void write_all(const std::filesystem::path& path) {
+    StateWriter writer{path};
+    for (const auto& d : decisions()) {
+        const auto next = writer.size();
+        EXPECT_EQ(writer.append(d.state, d.from), next);
+    }
     writer.flush();
 }
 
-class StateStoreDictionary : public testing::TestWithParam<bool> {};
-
-TEST_P(StateStoreDictionary, ReadsEveryRecordInAnyOrder) {
+TEST(StateStore, ReadsEveryRecordInAnyOrderFromSeveralThreads) {
     const auto& all = decisions();
     const auto path = store_path("states.bin");
-    const std::span half{all.data(), all.size() / 2};
-    std::vector<sts::BattleContext> training;
-    for (const auto& d : half) training.push_back(d.state);
-    write_all(path, GetParam() ? train_dictionary(training, 16 * 1024) : std::string{});
+    write_all(path);
 
     const StateReader reader{path};
     ASSERT_EQ(reader.size(), all.size());
     std::vector<std::size_t> order(all.size());
     std::iota(order.begin(), order.end(), 0);
     std::ranges::shuffle(order, std::mt19937_64{7});
-    for (const auto i : order) {
-        const auto& original = all[i].state;
-        const auto read = reader.at(i);
-        if (packable(original)) {
-            ASSERT_EQ(packed(read), packed(original)) << "record " << i;
-        } else {
-            expect_plays_alike(original, read, i);
-        }
+    std::vector<std::future<void>> readers;
+    for (std::size_t lane = 0; lane < 4; ++lane) {
+        readers.push_back(std::async(std::launch::async, [&, lane] {
+            for (std::size_t j = lane; j < order.size(); j += 4) {
+                const auto i = order[j];
+                const auto& original = all[i].state;
+                const auto read = reader.at(i);
+                if (packable(original)) {
+                    ASSERT_EQ(packed(read), packed(original)) << "record " << i;
+                } else {
+                    expect_plays_alike(original, read, i);
+                }
+            }
+        }));
     }
+    for (auto& task : readers) task.get();
 }
 
-INSTANTIATE_TEST_SUITE_P(WithAndWithout, StateStoreDictionary, testing::Bool());
+TEST(StateStore, FlushMakesAppendedRecordsReadable) {
+    const auto path = store_path("flushed.bin");
+    StateWriter writer{path};
+    writer.flush();
+    EXPECT_EQ(StateReader{path}.size(), 0);
+    EXPECT_EQ(writer.append(decisions().front().state), 0);
+    writer.flush();
+    const StateReader reader{path};
+    EXPECT_EQ(reader.size(), writer.size());
+    EXPECT_EQ(packed(reader.at(0)), packed(decisions().front().state));
+    EXPECT_THROW(reader.at(reader.size()), std::out_of_range);
+}
 
 TEST(StateStore, QueuedStateNeedsItsPredecessor) {
     const auto& all = decisions();
     const auto queued = std::ranges::find_if(all, [](const auto& d) { return !packable(d.state) && d.from; });
     ASSERT_NE(queued, all.end());
-    StateWriter writer{store_path("queued.bin"), {}};
+    StateWriter writer{store_path("queued.bin")};
     EXPECT_THROW(writer.append(queued->state), std::invalid_argument);
     EXPECT_THROW(writer.append(queued->state, queued->from), std::invalid_argument);  // predecessor not stored yet
 }
@@ -154,7 +172,7 @@ TEST(StateStore, QueuedStateNeedsItsPredecessor) {
 TEST(StateStore, TruncatedFileIsRejected) {
     const auto path = store_path("truncated.bin");
     {
-        StateWriter writer{path, {}};
+        StateWriter writer{path};
         writer.append(decisions().front().state);
     }
     std::filesystem::resize_file(path, std::filesystem::file_size(path) - 1);
