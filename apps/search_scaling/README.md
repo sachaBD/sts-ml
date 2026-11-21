@@ -67,6 +67,47 @@ Regret is in win points; SE ≈ 0.0019 at 64–256 sims and 0.0005–0.0012 at 1
 
 **Decision: run E1 on all 2000 positions.** Paired SEs come out ≈ 0.0002 for ≤ 256-sim cells and ≈ 0.0005 for 1024-sim cells, which resolves effects ≥ 0.0015 at high sims. If E1 needs finer resolution there, extend the reference set (46 min per 2000 positions).
 
+## E1: grid (`grid.py`, `regret.py`, `e1_summary.py`)
+
+2000 positions; sims {16 … 1024} × worlds {1 … 64}, one draw (1); 25 min. Regret in win points per decision (SE ≈ 0.0003–0.0007).
+
+| sims \ worlds | 1 | 2 | 4 | 8 | 16 | 32 | 64 | requests |
+|---|---|---|---|---|---|---|---|---|
+| 0 (network) | 0.0084 | | | | | | | 1 |
+| 16 | 0.0064 | 0.0065 | 0.0062 | 0.0061 | 0.0066 | 0.0063 | 0.0065 | 13 |
+| 64 | 0.0059 | 0.0051 | 0.0053 | 0.0053 | 0.0050 | 0.0053 | 0.0052 | 55 |
+| 256 | 0.0057 | 0.0047 | 0.0048 | **0.0047** | 0.0040 | 0.0041 | 0.0041 | 225 |
+| 512 | 0.0064 | 0.0055 | 0.0049 | 0.0035 | 0.0034 | 0.0033 | 0.0032 | 445 |
+| 1024 | 0.0064 | 0.0053 | 0.0050 | 0.0031 | 0.0029 | 0.0028 | 0.0027 | 870 |
+
+Paired against 256 × 8 (negative = better):
+
+| Cell | Δ regret | z |
+|---|---|---|
+| 0 sims | +0.0037 | +4.4 |
+| 256 × 1 | +0.0010 | +1.8 |
+| 256 × 16 | −0.0007 | −1.6 |
+| 512 × 8 | −0.0012 | −3.2 |
+| 512 × 16 | −0.0013 | −3.1 |
+| 1024 × 8 | −0.0016 | −3.4 |
+| 1024 × 16 | −0.0018 | −4.0 |
+| 1024 × 64 | −0.0020 | −4.5 |
+
+Regret by stakes (gap between the reference's best two moves):
+
+| Cell | gap < 0.01 (80%) | 0.01–0.05 (14%) | ≥ 0.05 (7%) |
+|---|---|---|---|
+| 0 sims | 0.0042 | 0.0165 | 0.0421 |
+| 256 × 8 | 0.0018 | 0.0112 | 0.0261 |
+| 1024 × 1 | 0.0024 | 0.0156 | 0.0359 |
+| 1024 × 16 | 0.0014 | 0.0084 | **0.0093** |
+
+**Findings**
+1. **Depth pays only with breadth.** With ≥ 8 worlds, regret falls steadily with sims. With 1–4 worlds it stops falling past 256 sims, and with 1 world it rises again: deep search overfits the futures it sampled.
+2. **Breadth is nearly free.** Requests grow ~1% from 8 to 64 worlds. At 256 sims, 8 → 16 worlds is −0.0007 (z −1.6, not significant).
+3. **The gain is in high-stakes decisions.** 1024 × 16 cuts regret on the 7% of positions with gap ≥ 0.05 from 0.026 to 0.009; on near-ties it barely moves.
+4. **Scale:** a fight has ~50 decisions with 2+ actions. Summing regret predicts 64 → 256 sims (×8) is worth ~2.7 win points per fight. Training's validation measured 1.5 (`…-256s-warm`: validation_64 77.2% vs validation 78.7%), so summed regret overstates by about 2×. On that calibration, 1024 × 16 vs 256 × 8 predicts about **+4 win points**.
+5. **Caveat:** cells nearer the reference's configuration (2048 × 64) share its network and its search, so part of their advantage may be shared bias. E2 decides.
+
 ## Plan
-- **E1 grid**: 2000 positions; sims {16, 32, …, 1024} × worlds {1, 2, …, 64}, ~25 min. Output: regret vs network requests, split by stakes.
-- **E2 confirm**: paired win-rate games for 2–3 frontier settings vs 256 × 8, on validation.
+- **E2 confirm**: paired win-rate games on validation (2000 fights, same seeds per arm) for 256 × 8 (baseline), 256 × 16, 512 × 16 and 1024 × 16. Success: a lower bound > 0 on the paired difference vs baseline.
