@@ -63,11 +63,8 @@ void expect_plays_alike(sts::BattleContext a, sts::BattleContext b, std::uint64_
     while (a.outcome == sts::Outcome::UNDECIDED && a.turn < 40) {
         ASSERT_EQ(a.outcome, b.outcome);
         ASSERT_EQ(a.turn, b.turn);
-        ASSERT_EQ(a.actionQueue.size, b.actionQueue.size);
         ASSERT_EQ(observation_key(a), observation_key(b));
-        if (packable(a)) {
-            ASSERT_EQ(packed(a), packed(b));
-        }
+        ASSERT_EQ(packed(a), packed(b));
         const auto actions = legal_actions(a), others = legal_actions(b);
         ASSERT_EQ(actions.size(), others.size());
         for (std::size_t i = 0; i < actions.size(); ++i) ASSERT_EQ(action_key(a, actions[i]), action_key(b, others[i]));
@@ -83,21 +80,12 @@ void expect_plays_alike(sts::BattleContext a, sts::BattleContext b, std::uint64_
 TEST(StateCodec, UnpackedStatePlaysOnLikeTheOriginal) {
     int checked = 0;
     for (const auto& state : states()) {
-        if (!packable(state)) continue;
         const auto bytes = packed(state);
         const auto copy = unpack(bytes);
         ASSERT_EQ(packed(copy), bytes);
         expect_plays_alike(state, copy, checked++);
     }
     EXPECT_GT(checked, 1000);
-}
-
-TEST(StateCodec, QueuedActionsCannotBePacked) {
-    const auto queued = std::ranges::find_if(states(), [](const auto& state) { return !packable(state); });
-    ASSERT_NE(queued, states().end());
-    EXPECT_FALSE(packable(*queued));
-    std::string out;
-    EXPECT_THROW(pack(*queued, out), std::invalid_argument);
 }
 
 TEST(StateCodec, RejectsTruncatedAndTrailingBytes) {
@@ -129,7 +117,6 @@ TEST(StateStore, ReadsEveryRecordInAnyOrderFromSeveralThreads) {
     {
         StateWriter writer{file.path};
         for (const auto& state : states()) {
-            if (!packable(state)) continue;
             EXPECT_EQ(writer.append(state), all.size());
             all.push_back(&state);
         }
@@ -165,20 +152,27 @@ TEST(StateStore, FlushMakesAppendedRecordsReadable) {
     EXPECT_THROW(reader.at(reader.size()), std::out_of_range);
 }
 
-TEST(StateStore, RejectedAppendLeavesTheStoreUsable) {
-    const auto& all = states();
-    const auto queued = std::ranges::find_if(all, [](const auto& state) { return !packable(state); });
-    ASSERT_NE(queued, all.end());
+TEST(StateStore, RestoredNestedChoicesResumeIdentically) {
+    sts::GameContext game{sts::CharacterClass::IRONCLAD, 17, 20};
+    sts::BattleContext state;
+    state.init(game, sts::MonsterEncounter::JAW_WORM);
+    state.cards = sts::CardManager{};
+    state.cards.createTempCardInHand(sts::CardInstance{sts::CardId::HAVOC});
+    state.cards.createTempCardInDrawPile(0, sts::CardInstance{sts::CardId::HEADBUTT});
+    state.cards.createTempCardInDiscard(sts::CardInstance{sts::CardId::DEFEND_RED});
+    state.cards.createTempCardInDiscard(sts::CardInstance{sts::CardId::BASH});
+    sts::search::Action{sts::search::ActionType::CARD, 0, 0}.execute(state);
+    ASSERT_EQ(state.inputState, sts::InputState::CARD_SELECT);
+    ASSERT_GT(state.resolution.size(), 1);
+
     const StoreFile file;
     StateWriter writer{file.path};
-    EXPECT_THROW(writer.append(*queued), std::invalid_argument);
-    EXPECT_EQ(writer.size(), 0);
-    const auto& state = states().front();
-    EXPECT_EQ(writer.append(state), 0);
+    writer.append(state);
     writer.flush();
     const StateReader reader{file.path};
-    ASSERT_EQ(reader.size(), 1);
-    EXPECT_EQ(packed(reader.at(0)), packed(state));
+    const auto restored = reader.at(0);
+    ASSERT_EQ(packed(restored), packed(state));
+    expect_plays_alike(state, restored, 1);
 }
 
 TEST(StateStore, TruncatedFileIsRejected) {

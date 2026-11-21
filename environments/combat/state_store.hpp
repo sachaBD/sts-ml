@@ -1,5 +1,5 @@
 #pragma once
-// Only unmodified output from the same simulator build is supported. Pending action closures cannot be saved.
+// Only unmodified output from the same simulator build is supported.
 #include "combat/BattleContext.h"
 #include <cstdint>
 #include <filesystem>
@@ -12,7 +12,7 @@ class StateWriter {
 public:
     // Creates (or truncates) the file. Single writer; flush before opening a reader.
     explicit StateWriter(const std::filesystem::path&);
-    // Returns the record's index. Throws if the state has queued closures.
+    // Returns the record's index.
     std::uint64_t append(const sts::BattleContext&);
     std::uint64_t size() const { return records_; }
     void flush();
