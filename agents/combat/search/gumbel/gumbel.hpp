@@ -17,6 +17,7 @@ public:
         double gumbel_scale = 0;  // 1 explores (self-play); 0 is deterministic (evaluation)
         int particles = 8;
         double value_scale = 0.1, maxvisit_init = 50;  // mctx qtransform_completed_by_mix_value
+        std::uint64_t world_draw = 0;  // which particle worlds are sampled; a turn's searches share a draw
     };
 
     // Unvisited edges are unknown; a chance report cannot be downgraded by another particle.

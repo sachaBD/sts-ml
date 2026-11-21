@@ -206,7 +206,8 @@ struct Gumbel::Impl {
     Impl(const sts::BattleContext& observed, const Settings& settings, std::uint64_t seed)
         : s{settings}, fight_seed{observed.seed}, rng{seed},
           // Keep sampling stable within a turn to improve answer reuse.
-          particles{observed, settings.particles, observed.seed ^ (std::uint64_t(observed.turn) << 32)},
+          particles{observed, settings.particles,
+                    observed.seed ^ (std::uint64_t(observed.turn) << 32) ^ (settings.world_draw * 0x9E3779B97F4A7C15ull)},
           actions{combat::legal_actions(observed)},
           root{*(nodes[combat::observation_key(observed)] = std::make_unique<Node>())},
           leaves{{&root, observed, actions}}, queries{{leaves[0].state, leaves[0].actions}} {}
