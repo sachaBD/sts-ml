@@ -106,8 +106,8 @@ Regret by stakes (gap between the reference's best two moves):
 1. **Depth pays only with breadth.** With ≥ 8 worlds, regret falls steadily with sims. With 1–4 worlds it stops falling past 256 sims, and with 1 world it rises again: deep search overfits the futures it sampled.
 2. **Breadth is nearly free.** Requests grow ~1% from 8 to 64 worlds. At 256 sims, 8 → 16 worlds is −0.0007 (z −1.6, not significant).
 3. **The gain is in high-stakes decisions.** 1024 × 16 cuts regret on the 7% of positions with gap ≥ 0.05 from 0.026 to 0.009; on near-ties it barely moves.
-4. **Scale:** a fight has ~50 decisions with 2+ actions. Summing regret predicts 64 → 256 sims (×8) is worth ~2.7 win points per fight. Training's validation measured 1.5 (`…-256s-warm`: validation_64 77.2% vs validation 78.7%), so summed regret overstates by about 2×. On that calibration, 1024 × 16 vs 256 × 8 predicts about **+4 win points**.
+4. **Scale:** a fight has ~50 decisions with 2+ actions. Summing regret predicts 64 × 8 → 256 × 8 is worth +2.7 win points per fight. Training's validation for this same checkpoint measured **+2.85** (iter030: 1551 → 1608 of 2000), so summed regret is roughly calibrated here (an older checkpoint measured +1.5). On that calibration, 1024 × 16 vs 256 × 8 predicts up to **+9 win points**, and 512 × 16 +6.
 5. **Caveat:** cells nearer the reference's configuration (2048 × 64) share its network and its search, so part of their advantage may be shared bias. E2 decides.
 
 ## Plan
-- **E2 confirm**: paired win-rate games on validation (2000 fights, same seeds per arm) for 256 × 8 (baseline), 256 × 16, 512 × 16 and 1024 × 16. Success: a lower bound > 0 on the paired difference vs baseline.
+- **E2 confirm**: paired win-rate games on validation (2000 fights, same seeds per arm) for 256 × 8 (baseline), 256 × 16, 512 × 16 and 1024 × 16. Success: a lower bound > 0 on the paired difference vs baseline. Cost from training's timing (633 s per 2000 fights at 256 sims): ~85 min for the four arms.
