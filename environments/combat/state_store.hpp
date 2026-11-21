@@ -1,30 +1,22 @@
 #pragma once
 // Random-access combat states in an uncompressed, append-only file.
 // Trusted, same-build data only; simulator field changes require regenerating the store.
-// A state that cannot be packed (queued actions) is stored as the decision before it and the move played there.
+// States with queued closures cannot be stored.
 #include "combat/BattleContext.h"
-#include "sim/search/Action.h"
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
-#include <optional>
 #include <string>
 #include <utility>
 #include <vector>
 
 namespace stsrl::combat {
-// The previous decision's record and the move played there; with forced moves after it, it reaches the state.
-struct Predecessor {
-    std::uint64_t record;
-    sts::search::Action action;
-};
-
 class StateWriter {
 public:
     // Creates (or truncates) the file. Single writer; flush before opening a reader.
     explicit StateWriter(const std::filesystem::path&);
-    // Returns the record's index. A state that is not packable needs its predecessor.
-    std::uint64_t append(const sts::BattleContext&, std::optional<Predecessor> = std::nullopt);
+    // Returns the record's index. Throws if the state has queued closures.
+    std::uint64_t append(const sts::BattleContext&);
     std::uint64_t size() const { return records_; }
     void flush();
 

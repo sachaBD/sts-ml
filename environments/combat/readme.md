@@ -6,8 +6,8 @@ The rules of a fight, independent of any agent. The simulator itself is `../ligh
   visible situation", and sampled worlds for what is hidden (draw order, future rolls), so a search cannot cheat.
 - `fight_start.hpp`: build a fight from its saved start (JSON). `starts.py` makes and varies those starts.
 - `state_codec.hpp`: a fight state as native scalar bytes, from the simulator's walk of its fields.
-  `state_store.hpp`: an uncompressed, append-only file of states for random access, including queued-action
-  states reconstructed from their predecessor and move. Trusted, same-build data only; not wired into training yet.
+  `state_store.hpp`: an uncompressed, append-only file of states for random access. Queued closures are rejected.
+  Trusted, same-build data only; not wired into training yet.
 - `scenarios/`: fixed fights for tests.
 
 Turning a fight into network inputs is the network's job: `agents/combat/nn/features.hpp`.

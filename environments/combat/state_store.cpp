@@ -1,5 +1,4 @@
 #include "environments/combat/state_store.hpp"
-#include "environments/combat/public.hpp"
 #include "environments/combat/state_codec.hpp"
 #include <cstring>
 #include <stdexcept>
@@ -7,11 +6,10 @@
 
 namespace stsrl::combat {
 namespace {
-// File: magic and version, then length-prefixed records (kind byte and payload).
+// File: magic and version, then length-prefixed states.
 // All scalars use native representation, like the state codec.
 constexpr std::string_view magic = "STSSTATE";
-constexpr std::uint32_t version = 3;
-enum Kind : char { packed = 0, after_predecessor = 1 };
+constexpr std::uint32_t version = 4;
 
 template <class T> void put(std::string& out, T value) { out.append(reinterpret_cast<const char*>(&value), sizeof value); }
 template <class T> T get(const char*& p, const char* end) {
@@ -32,18 +30,9 @@ StateWriter::StateWriter(const std::filesystem::path& path) : out_{path, std::io
     if (!out_) throw std::runtime_error{"state store: write failed"};
 }
 
-std::uint64_t StateWriter::append(const sts::BattleContext& state, std::optional<Predecessor> predecessor) {
+std::uint64_t StateWriter::append(const sts::BattleContext& state) {
     record_.assign(sizeof(std::uint32_t), '\0');  // its size, filled in below
-    if (packable(state)) {
-        record_.push_back(Kind::packed);
-        pack(state, record_);
-    } else {
-        if (!predecessor) throw std::invalid_argument{"state store: a state with queued actions needs its predecessor"};
-        if (predecessor->record >= records_) throw std::invalid_argument{"state store: predecessor not yet stored"};
-        record_.push_back(Kind::after_predecessor);
-        put(record_, predecessor->record);
-        put(record_, predecessor->action.bits);
-    }
+    pack(state, record_);
     const auto size = static_cast<std::uint32_t>(record_.size() - sizeof(std::uint32_t));
     std::memcpy(record_.data(), &size, sizeof size);
     out_.write(record_.data(), std::streamsize(record_.size()));
@@ -78,19 +67,6 @@ StateReader::StateReader(const std::filesystem::path& path) {
 sts::BattleContext StateReader::at(std::uint64_t record) const {
     if (record >= size()) throw std::out_of_range{"state store: no record " + std::to_string(record)};
     const auto [offset, length] = records_[record];
-    const char* p = bytes_.data() + offset;
-    const char* end = p + length;
-    const char kind = *p++;
-    if (kind == Kind::after_predecessor) {
-        const auto previous = get<std::uint64_t>(p, end);
-        const sts::search::Action action{get<std::uint32_t>(p, end)};
-        if (previous >= record) throw std::runtime_error{"state store: predecessor after its record"};
-        auto state = at(previous);
-        action.execute(state);
-        play_forced(state);
-        return state;
-    }
-    if (kind != Kind::packed) throw std::runtime_error{"state store: unknown record kind"};
-    return unpack({p, std::size_t(end - p)});
+    return unpack({bytes_.data() + offset, length});
 }
 }  // namespace stsrl::combat
