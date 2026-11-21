@@ -254,8 +254,7 @@ struct Gumbel::Impl {
             const auto edge = node == &root ? root_edge : Selection::choose(*node, s);
             const auto effects = play(state, node->keys[edge]);
             auto& transition = node->transitions[edge];
-            if (transition != TransitionKind::chance)
-                transition = effects.isChance() ? TransitionKind::chance : TransitionKind::deterministic;
+            transition = classify_transition(transition, effects.isChance());
             auto& next = nodes[combat::observation_key(state)];
             const bool created = !next;
             if (created) next = std::make_unique<Node>();

@@ -21,6 +21,9 @@ public:
 
     // Unvisited edges are unknown; a chance report cannot be downgraded by another particle.
     enum class TransitionKind { unknown, deterministic, chance };
+    static TransitionKind classify_transition(TransitionKind previous, bool chance) {
+        return chance || previous == TransitionKind::chance ? TransitionKind::chance : TransitionKind::deterministic;
+    }
 
     struct Graph {
         struct Child {

@@ -9,7 +9,7 @@ namespace {
 // File: magic and version, then length-prefixed states.
 // All scalars use native representation, like the state codec.
 constexpr std::string_view magic = "STSSTATE";
-constexpr std::uint32_t version = 4;
+constexpr std::uint32_t version = 5;
 
 template <class T> void put(std::string& out, T value) { out.append(reinterpret_cast<const char*>(&value), sizeof value); }
 template <class T> T get(const char*& p, const char* end) {

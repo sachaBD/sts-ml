@@ -20,10 +20,7 @@ template <class State, class Scalar> void state_scalars(State& state, Scalar sca
 }
 }  // namespace
 
-bool packable(const sts::BattleContext& state) { return state.actionQueue.size == 0; }
-
 void pack(const sts::BattleContext& state, std::string& out) {
-    if (!packable(state)) throw std::invalid_argument{"pack: queued actions cannot be stored"};
     state_scalars(state, [&](const auto& scalar) {
         out.append(reinterpret_cast<const char*>(&scalar), sizeof scalar);
     });
