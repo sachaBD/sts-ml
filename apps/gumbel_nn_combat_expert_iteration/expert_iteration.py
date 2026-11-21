@@ -29,12 +29,15 @@ from .sampling import sampling_weights
 # Rows of an iteration's own samples scored before training on them: a few seconds, and enough to compare
 # with the training loss.
 HELDOUT_ROWS = 50_000
+# Per-fight search counts nn_play reports; reused requests were answered from the previous decision's evaluations.
+SEARCH_COUNTS = ('searches', 'full_searches', 'network_requests', 'reused_requests')
 
 
 def collection_stats(results):
     finished = sorted(r['finished_unix'] for r in results)
     return dict(capped=sum(r['capped'] for r in results),
-                tail95_seconds=finished[-1] - finished[int(.95 * (len(finished) - 1))] if finished else None)
+                tail95_seconds=finished[-1] - finished[int(.95 * (len(finished) - 1))] if finished else None,
+                **{k: sum(r[k] for r in results) for k in SEARCH_COUNTS})
 
 
 def tally(counts, results):

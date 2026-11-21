@@ -43,8 +43,10 @@ int main(int argc, char** argv) try {
     for (std::string line; std::getline(std::cin, line);)
         if (!line.empty()) fights.push_back(Json::parse(line));
     const auto count = fights.size();
-    stsrl::player::Episodes episodes{std::move(fights), search.factory(), budget, stsrl::nn::NetworkEvaluator{network.encoding},
-                                     samples, std::cout};
+    auto greedy = search;  // cheap searches only move the fight on, so they exploit
+    greedy.gumbel_scale = 0;
+    stsrl::player::Episodes episodes{std::move(fights), search.factory(), greedy.factory(), budget,
+                                     stsrl::nn::NetworkEvaluator{network.encoding}, samples, std::cout};
 
     const auto play_begin = Clock::now();
     const double play_wall_start = std::chrono::duration<double>(std::chrono::system_clock::now().time_since_epoch()).count();

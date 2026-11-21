@@ -14,14 +14,14 @@
 
 namespace stsrl::player {
 // Fights as infra episodes. Each finished fight appends its samples to the sample file and writes one result
-// line, under one lock, so a result's sample range is exactly its fight's samples.
+// line, under one lock, so a result's sample range is exactly its fight's samples. Only full searches are samples.
 class Episodes {
 public:
-    Episodes(std::vector<nlohmann::json> fights, search::SearchFactory, BudgetRule, nn::NetworkEvaluator,
-             const std::filesystem::path& samples, std::ostream& results);
+    Episodes(std::vector<nlohmann::json> fights, search::SearchFactory full_search, search::SearchFactory cheap_search,
+             BudgetRule, nn::NetworkEvaluator, const std::filesystem::path& samples, std::ostream& results);
     std::unique_ptr<infra::Episode> next();  // thread-safe; nullptr once every fight has started
     std::size_t completed() const { return completed_; }
-    std::size_t decisions() const { return decisions_; }
+    std::size_t decisions() const { return decisions_; }  // searched, full or cheap
 
 private:
     struct Game;
@@ -29,7 +29,7 @@ private:
     void finish(const Game&);
 
     const std::vector<nlohmann::json> fights_;
-    const search::SearchFactory search_;
+    const search::SearchFactory full_search_, cheap_search_;
     const BudgetRule budget_;
     const nn::NetworkEvaluator network_;
     std::atomic<std::size_t> next_{0}, completed_{0}, decisions_{0};

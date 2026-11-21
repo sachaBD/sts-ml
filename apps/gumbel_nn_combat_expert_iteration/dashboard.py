@@ -7,7 +7,7 @@ import shutil
 import time
 import tomllib
 
-from .reporting import baselines, deck_of, jsonl, outcomes, score
+from .reporting import baselines, deck_of, jsonl, outcomes, score, search_use
 
 
 def running(training):
@@ -99,8 +99,11 @@ def main():
     evaluation = config['evaluation']
     eval_summary = (f'{len(evaluation["sets"])} evaluation sets' if 'sets' in evaluation
                     else f'{evaluation["sims"]} evaluation sims')
+    search = config['search']
+    sims = (f'{search["sims"]}/{search["cheap_sims"]} self-play sims (full share {search["full_share"]})'
+            if 'cheap_sims' in search else f'{search["sims"]} self-play sims')
     print(f'{decks} decks; '
-          f'{config["search"]["sims"]} self-play sims; {eval_summary}; '
+          f'{sims}; {eval_summary}; '
           f'NN {model["dim"]}x{model["layers"]}; {training["steps"]} train steps x {training["batch"]} rows')
     if status:
         progress = f'{status["done"]}/{status["total"]}' if 'total' in status else status.get('detail', '')
@@ -108,10 +111,13 @@ def main():
               f'{status["stage"]} / {status["phase"]} {progress} (updated {data["progress_age_seconds"]:.0f}s ago)')
     if data['state'] == 'stopping': print('Finishing current update and scheduled evaluation before stopping.')
     print(f'Last completed: {data["last_completed_iteration"]}; disk free: {data["disk_free_bytes"] / 1024**3:.1f} GiB')
-    print('\niter  collection wins  selected rows   play s  train/export s')
+    print('\niter  collection wins  selected rows   play s  train/export s  reuse  full  NN req/game')
     for row in data['updates']:
+        use = search_use(row)
+        economy = (f'  {100 * use["reuse"]:4.0f}% {100 * use["full"]:4.0f}% {use["requests_per_game"]:12,.0f}'
+                   if use else '')
         print(f'{row["iteration"]:4}  {row["wins"]:5}/{row["games"]:<5}  {row["states"]:11,} '
-              f'{row["play_seconds"]:8} {row["train_seconds"]:15}')
+              f'{row["play_seconds"]:8} {row["train_seconds"]:15}{economy}')
     print(f'\nValidation wall share: {100 * data["validation_wall_fraction"]:.1f}% (includes initial baseline)')
     print('Evaluation: family-clustered approximate 95% bounds; per-deck Wilson bounds. One training run, unadjusted.')
     print('MCTS20k/PUCT are historical matched-start references; policy names and simulator rules differ.')

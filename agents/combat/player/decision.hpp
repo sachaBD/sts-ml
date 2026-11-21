@@ -51,6 +51,8 @@ public:
     void evaluated(std::span<const infra::Prediction>);
     search::Result result() const { return search_->result(); }
     Answers answers() && { return std::move(answers_); }  // every answer this decision used
+    std::size_t sent() const { return sent_; }      // queries the network answered
+    std::size_t reused() const { return reused_; }  // queries answered from `previous` instead
 
 private:
     void next_requests();
@@ -60,5 +62,6 @@ private:
     Answers previous_, answers_;
     std::vector<infra::Tokens> requests_;
     std::vector<const infra::Prediction*> from_previous_;  // per query; null asks the network
+    std::size_t sent_ = 0, reused_ = 0;
 };
 }  // namespace stsrl::player

@@ -149,6 +149,7 @@
     <div class="card"><div class="label">Time per iteration</div><div id="time" class="plot"></div></div>
     <div class="card"><div class="label">GPU per iteration</div><div id="gpuPlot" class="plot"></div></div>
     <div class="card"><div class="label">NN evaluations / s per iteration</div><div id="nnPlot" class="plot"></div></div>
+    <div class="card"><div class="label">Search per iteration</div><div id="searchPlot" class="plot"></div></div>
   </div>
     </div>
   </section>
@@ -338,6 +339,11 @@ function charts() {
        yaxis2: { ...SMALL.yaxis2, ticksuffix: ' G', range: [0, data.system.vram_total || null] } }, CONFIG);
   Plotly.react('nnPlot', [line(rolling(b => b.nn), 'NN evals/s', '#ff9f5a', { hovertemplate: '%{y:,.0f}', showlegend: false })],
                { ...SMALL, yaxis: { ...SMALL.yaxis, tickformat: '~s' } }, CONFIG);
+  Plotly.react('searchPlot', [
+    line(rolling(b => b.search?.reuse != null ? 100 * b.search.reuse : null), 'reused %', '#5fd39a', { hovertemplate: '%{y:.0f}%' }),
+    line(rolling(b => b.search?.full != null ? 100 * b.search.full : null), 'full search %', '#6ea8fe', { hovertemplate: '%{y:.0f}%' }),
+    line(rolling(b => b.search?.requests_per_game), 'NN req/game', '#ff9f5a', { yaxis: 'y2', hovertemplate: '%{y:,.0f}' }),
+  ], { ...SMALL, yaxis: { ...SMALL.yaxis, range: [0, 100], ticksuffix: '%' }, yaxis2: { ...SMALL.yaxis2, tickformat: '~s' } }, CONFIG);
 }
 
 $('iterationSmooth').value = iterationSmooth; $('iterationSmoothVal').textContent = iterationSmooth;
