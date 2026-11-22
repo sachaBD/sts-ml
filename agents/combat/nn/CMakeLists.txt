@@ -13,6 +13,18 @@ target_include_directories(nn_tokens PUBLIC "${NN_GENERATED}")
 target_link_libraries(nn_tokens PUBLIC combat_environment combat_search)
 target_compile_options(nn_tokens PRIVATE -Wall -Wextra -Wpedantic)
 
+# Python training consumes the same native encoders as inference.
+set_target_properties(combat_environment combat_search nn_tokens PROPERTIES POSITION_INDEPENDENT_CODE ON)
+set(Python3_EXECUTABLE "${STSRL_PYTHON}")
+find_package(Python3 REQUIRED COMPONENTS Interpreter Development.Module)
+Python3_add_library(_encoding_bridge MODULE WITH_SOABI encoding_bridge.cpp)
+target_link_libraries(_encoding_bridge PRIVATE nn_tokens)
+target_compile_options(_encoding_bridge PRIVATE -Wall -Wextra -Wpedantic)
+
+add_executable(encoding_bridge_fixture encoding_bridge_fixture.cpp)
+target_link_libraries(encoding_bridge_fixture PRIVATE nn_tokens combat_scenarios)
+target_compile_options(encoding_bridge_fixture PRIVATE -Wall -Wextra -Wpedantic)
+
 add_executable(nn_features_test features_test.cpp)
 target_link_libraries(nn_features_test PRIVATE nn_tokens combat_scenarios GTest::gtest_main)
 target_compile_options(nn_features_test PRIVATE -Wall -Wextra -Wpedantic)
