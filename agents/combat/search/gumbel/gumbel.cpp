@@ -263,11 +263,7 @@ struct Gumbel::Impl {
             path.push_back({node, edge, next.get()});
             ++node->waiting[edge];
             if (cycle) {
-#ifdef __EMSCRIPTEN__
-                auto& error = std::cerr;  // the browser worker is single-threaded; libc++ has no syncstream
-#else
                 std::osyncstream error{std::cerr};
-#endif
                 error << "ERROR gumbel: cycle truncated; fight_seed=" << fight_seed
                       << " simulation=" << simulation << " observation=" << combat::observation_key(state)
                       << " bootstrap=" << next->value << " path_action_keys=[";

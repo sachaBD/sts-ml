@@ -38,7 +38,8 @@ target_include_directories(gumbel PRIVATE "${ROOT}" "${CMAKE_CURRENT_BINARY_DIR}
 target_link_libraries(gumbel PRIVATE sts_lightspeed)
 # Keep exception handling and libc++ transitive-include workarounds local to this build.
 target_compile_options(sts_lightspeed PRIVATE -fexceptions -include algorithm)
-target_compile_options(gumbel PRIVATE -fexceptions)
+# Emscripten's libc++ still gates std::osyncstream behind this flag.
+target_compile_options(gumbel PRIVATE -fexceptions -fexperimental-library)
 target_link_options(gumbel PRIVATE -fexceptions --no-entry
     "-sMODULARIZE=1" "-sEXPORT_NAME=createGumbel" "-sENVIRONMENT=worker"
     "-sEXPORTED_FUNCTIONS=['_explain_json']" "-sEXPORTED_RUNTIME_METHODS=['ccall']"
