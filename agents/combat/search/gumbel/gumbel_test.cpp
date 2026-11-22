@@ -608,3 +608,66 @@ TEST(GumbelWorldTracking, RecordsPerWorldVisitsSummingToLinkVisits) {
         return std::ranges::any_of(c.worlds, [](const auto& w) { return w.world == 5 && w.visits == 1; });
     }));
 }
+
+TEST(GumbelSieve, SkipsDecidedRootsWithoutSimulating) {
+    for (float extreme : {0.0001f, 0.9999f}) {
+        auto s = settings();
+        s.simulations = 256;
+        s.sieve_gain = 0.06;
+        Gumbel search{stsrl::scenarios::jaw_worm(7), s, 1};
+        int queries = 0;
+        const auto r = run(search, [&](const Query& q) {
+            ++queries;
+            auto e = flat(q);
+            e.value = extreme;
+            e.logits.back() = 3.f;
+            return e;
+        });
+        EXPECT_EQ(queries, 1);
+        EXPECT_EQ(r.action, r.actions.back());
+    }
+}
+
+TEST(GumbelSieve, StopsEarlyWhenPriorHoldsUpAndEscalatesWhenOverturned) {
+    auto s = settings();
+    s.simulations = 256;
+    s.sieve_gain = 0.06;
+    auto root_visits = [](const Gumbel& search) {
+        int sum = 0;
+        for (const auto& edge : root_node(search.graph()).edges) sum += edge.visits;
+        return sum;
+    };
+
+    Gumbel quiet{stsrl::scenarios::jaw_worm(7), s, 1};
+    run(quiet, flat);
+    EXPECT_GT(root_visits(quiet), 0);
+    EXPECT_LE(root_visits(quiet), 16);
+
+    auto lethal = stsrl::scenarios::jaw_worm(7);
+    lethal.monsters.arr[0].curHp = 1;
+    lethal.player.curHp = 1;
+    const auto actions = legal_actions(lethal);
+    const auto loser = std::ranges::find_if(actions, [](Action a) { return a.getActionType() == sts::search::ActionType::END_TURN; });
+    ASSERT_NE(loser, actions.end());
+    Gumbel urgent{lethal, s, 1};
+    const auto r = run(urgent, [&](const Query& q) {
+        auto e = flat(q);
+        for (std::size_t i = 0; i < q.actions.size(); ++i) e.logits[i] = q.actions[i] == *loser ? 8.f : 0.f;
+        return e;
+    });
+    EXPECT_GT(root_visits(urgent), 16);
+    EXPECT_TRUE(wins_now(lethal, r.action));
+}
+
+TEST(GumbelSieve, RespectsBudgetCapAndProducesValidPolicy) {
+    auto s = settings(1);
+    s.simulations = 256;
+    s.sieve_gain = 0.02;
+    Gumbel search{stsrl::scenarios::jaw_worm(7), s, 1};
+    int queries = 0;
+    auto answer = noisy();
+    const auto r = run(search, [&](const Query& q) { ++queries; return answer(q); });
+    EXPECT_LE(queries, s.simulations + 1);
+    EXPECT_NEAR(std::accumulate(r.policy.begin(), r.policy.end(), 0.0), 1.0, 1e-5);
+    EXPECT_NE(std::ranges::find(r.actions, r.action), r.actions.end());
+}

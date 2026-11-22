@@ -50,6 +50,7 @@ PlayConfig parse(const toml::table& root) {
     c.search.particles = search.get<int>("particles");
     c.search.gumbel_scale = search.get<double>("gumbel_scale");
     c.search.rollout_mix = search.get<double>("rollout_mix");
+    if (search.has("sieve_gain")) c.search.sieve_gain = search.get<double>("sieve_gain");
     c.budget = {.full = c.search.sims, .cheap = c.search.sims, .full_share = 1};
     if (search.has("cheap_sims") || search.has("full_share"))
         c.budget = {.full = c.search.sims, .cheap = search.get<int>("cheap_sims"),

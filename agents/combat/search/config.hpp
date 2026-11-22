@@ -15,6 +15,7 @@ struct SearchConfig {
     int considered_actions = Gumbel::Settings{}.considered_actions;  // root sequential-halving candidates
     std::uint64_t world_draw = Gumbel::Settings{}.world_draw;
     bool record_worlds = Gumbel::Settings{}.record_worlds;  // per-link world visits for inspection only
+    double sieve_gain = Gumbel::Settings{}.sieve_gain;
 
     void validate() const;  // throws on settings out of range
     GumbelSearch create(const sts::BattleContext&, int simulations, std::mt19937_64&) const;  // validates first
