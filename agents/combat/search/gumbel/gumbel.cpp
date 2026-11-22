@@ -207,6 +207,7 @@ struct Gumbel::Impl {
     std::vector<int> schedule;
     std::vector<int> stage_visits;  // root edge visits in the current sieve stage (= visits when sieving is off)
     int stage_budget = 0;
+    bool escalated = false;  // a sieve stage past the first has been scheduled
     int simulation = 0;
 
     // One Sequential Halving pass, backed up only once fully answered, so answers cannot steer it.
@@ -236,15 +237,16 @@ struct Gumbel::Impl {
         return stage_visits.empty() ? 0 : *std::ranges::max_element(stage_visits);
     }
 
-    double root_vos() const {
-        const auto prior = std::size_t(std::ranges::max_element(root.logits) - root.logits.begin());
+    // How far the best other visited move's Q beats `reference` (an unvisited reference counts as the lowest Q).
+    double contest_gain(std::size_t reference) const {
         double best = -INFINITY, low = INFINITY;
         for (std::size_t i = 0; i < root.keys.size(); ++i)
             if (visits(root, i) > 0) {
-                best = std::max(best, q(root, i));
+                if (i != reference) best = std::max(best, q(root, i));
                 low = std::min(low, q(root, i));
             }
-        return best == -INFINITY ? 0 : std::max(0.0, best - (visits(root, prior) > 0 ? q(root, prior) : low));
+        if (best == -INFINITY) return 0;
+        return std::max(0.0, best - (visits(root, reference) > 0 ? q(root, reference) : low));
     }
 
     void maybe_escalate() {
@@ -253,7 +255,11 @@ struct Gumbel::Impl {
         if (visits(root, chosen) > 0 && q(root, chosen) >= 1.0 - 1e-9) return;
         const int next_budget = int(std::min<std::int64_t>(s.simulations, std::int64_t(stage_budget) * 4));
         const int delta = next_budget - simulation;
-        if (delta <= 0 || root_vos() < s.sieve_gain * double(delta) / 1000.0) return;
+        // The first stage is weighed against the prior's move; later stages against the current choice.
+        const auto prior = std::size_t(std::ranges::max_element(root.logits) - root.logits.begin());
+        const auto reference = escalated ? chosen : prior;
+        if (delta <= 0 || contest_gain(reference) < s.sieve_gain * double(delta) / 1000.0) return;
+        escalated = true;
         stage_budget = next_budget;
         std::ranges::fill(stage_visits, 0);
         const auto more = halving_schedule(std::min<int>(s.considered_actions, int(actions.size())), delta);

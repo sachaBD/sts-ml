@@ -19,7 +19,7 @@ public:
         double value_scale = 0.1, maxvisit_init = 50;  // mctx qtransform_completed_by_mix_value
         std::uint64_t world_draw = 0;  // which particle worlds are sampled; a turn's searches share a draw
         bool record_worlds = false;  // record per-world visit counts on each graph link (off in self-play)
-        double sieve_gain = 0;  // above 0: 4x stages from 16 sims up to simulations, continuing iff VoS >= sieve_gain * delta / 1000
+        double sieve_gain = 0;  // above 0: 4x stages from 16 sims up to simulations; see HYPERPARAMETERS.md
     };
 
     // Unvisited edges are unknown; a chance report cannot be downgraded by another particle.

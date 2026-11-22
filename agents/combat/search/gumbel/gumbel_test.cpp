@@ -659,6 +659,28 @@ TEST(GumbelSieve, StopsEarlyWhenPriorHoldsUpAndEscalatesWhenOverturned) {
     EXPECT_TRUE(wins_now(lethal, r.action));
 }
 
+TEST(GumbelSieve, StopsOnceItsOwnChoiceLeadsEveryAlternative) {
+    // The prior prefers ending the turn while the value rewards damage, so the first stage overturns it and
+    // the second confirms an attack that no other move beats.
+    auto s = settings();
+    s.simulations = 256;
+    s.sieve_gain = 0.06;
+    const auto start = stsrl::scenarios::jaw_worm(7);
+    const int hp = start.monsters.arr[0].curHp;
+    Gumbel search{start, s, 1};
+    const auto r = run(search, [&](const Query& q) {
+        Evaluation e{float(std::clamp(0.5 + 0.04 * (hp - q.state.monsters.arr[0].curHp), 0.0, 0.99)), {}};
+        for (const auto a : q.actions)
+            e.logits.push_back(a.getActionType() == sts::search::ActionType::END_TURN ? 1.f : 0.f);
+        return e;
+    });
+    int visits = 0;
+    for (const auto& edge : root_node(search.graph()).edges) visits += edge.visits;
+    EXPECT_GT(visits, 16);
+    EXPECT_LE(visits, 64);
+    EXPECT_NE(r.action.getActionType(), sts::search::ActionType::END_TURN);
+}
+
 TEST(GumbelSieve, RespectsBudgetCapAndProducesValidPolicy) {
     auto s = settings(1);
     s.simulations = 256;

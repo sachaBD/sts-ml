@@ -74,6 +74,6 @@ Not normalizing does not repair information leakage, strategy fusion, or overfit
 | `particles` | 8 | Size of the sampled hidden-world pool reused by search. More simulations on the same pool do not create new independent worlds. |
 | `considered_actions` | 16 | Root sequential-halving candidate-count setting, capped by legal action count. |
 | `gumbel_scale` | 0 | Root perturbation strength; 1 is the conventional exploration setting, 0 removes that perturbation. Particle sampling can still make search stochastic. |
-| `sieve_gain` | 0 | Optional progressive sieving (`0` = off). Above `0`, skips decided roots (`min(V_root, 1 - V_root) < 5e-4`) and grows one search in `4×` stages from `16` up to `simulations`, continuing only while `max Q - Q(prior) >= sieve_gain * delta_sims / 1000`. |
+| `sieve_gain` | 0 | Optional progressive sieving (`0` = off). Above `0`, skips decided roots (`min(V_root, 1 - V_root) < 5e-4`) and grows one search in `4×` stages from `16` up to `simulations`, continuing only while the best other visited move's `Q` beats the reference move's by `sieve_gain * delta_sims / 1000`. The reference is the prior's move at the first checkpoint and the search's current choice at later ones. |
 
 Source: `gumbel.hpp`, `gumbel.cpp`, and the guided-rollout leaf evaluator in `../rollout_blend/`. Mctx reference: https://github.com/google-deepmind/mctx/blob/main/mctx/_src/qtransforms.py
