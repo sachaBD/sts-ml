@@ -20,7 +20,7 @@ GumbelSearch SearchConfig::create(const sts::BattleContext& state, int simulatio
     settings.considered_actions = considered_actions;
     settings.world_draw = world_draw;
     auto gumbel = std::make_unique<Gumbel>(state, settings, random());
-    const auto& inspection = *gumbel;
+    auto& inspection = *gumbel;
     std::unique_ptr<CombatSearch> search = std::move(gumbel);
     const auto rollout_seed = random();
     if (rollout_mix > 0) search = with_rollouts(std::move(search), state, rollout_mix, rollout_seed);

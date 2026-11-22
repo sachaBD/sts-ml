@@ -53,6 +53,10 @@ public:
     };
     Graph graph() const;  // completed searches only; does not mutate the search
 
+    struct Pick { std::vector<std::size_t> path; int world; bool descend = true; };
+    void simulate(std::span<const Pick>);  // requires pending().empty(); `world` indexes the draw's stream
+    sts::BattleContext state(std::span<const std::size_t> path, int world) const;
+
     Gumbel(const sts::BattleContext& observed, const Settings&, std::uint64_t seed);
     ~Gumbel() override;
     std::span<const Query> pending() const override;
