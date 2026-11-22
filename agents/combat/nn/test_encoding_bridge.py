@@ -19,13 +19,14 @@ class EncodingBridgeTests(unittest.TestCase):
             buffers.append(raw[at:at + size])
             at += size
         state, order, *references = buffers
+        order = struct.unpack('<' + 'I' * (len(order) // 4), order)
         for encoding, expected in zip(('entity', 'inventory_v1'), references):
             with self.subTest(encoding=encoding):
                 self.assertEqual(encode([state, state], [order, order], encoding), [expected, expected])
 
     def test_invalid_input_raises_without_poisoning_subsequent_calls(self):
         for states, orders, encoding in (([], [], 'unknown'), ([b''], [], 'entity'),
-                                        ([b''], [b'\0'], 'entity'), ([b''], [bytes(4)], 'entity')):
+                                        ([b''], [[]], 'entity'), ([b''], [[0]], 'entity')):
             with self.assertRaises(ValueError):
                 encode(states, orders, encoding)
             self.assertEqual(encode([], [], 'entity'), [])
