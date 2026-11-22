@@ -74,14 +74,16 @@ Json graph_json(const search::Gumbel::Graph& graph, const search::Result& result
     return {{"root", std::to_string(graph.root)}, {"root_noise", graph.root_noise}, {"nodes", nodes}};
 }
 search::SearchConfig search_config(const Json& settings) {
-    for (const auto* name : {"sims", "particles"}) {
+    for (const auto* name : {"sims", "particles", "considered_actions"}) {
         const auto& value = settings.at(name);
         if (!value.is_number_integer() || value < std::numeric_limits<int>::min() ||
             value > std::numeric_limits<int>::max())
             throw std::invalid_argument{std::string{"search."} + name + " must fit an integer"};
     }
-    const search::SearchConfig config{settings.at("sims"), settings.at("particles"),
-                                      settings.at("gumbel_scale"), settings.at("rollout_mix")};
+    if (!settings.at("world_draw").is_number_unsigned()) throw std::invalid_argument{"search.world_draw must be unsigned"};
+    const search::SearchConfig config{settings.at("sims"), settings.at("particles"), settings.at("gumbel_scale"),
+                                      settings.at("rollout_mix"), settings.at("considered_actions"),
+                                      settings.at("world_draw").get<std::uint64_t>()};
     config.validate();
     return config;
 }
