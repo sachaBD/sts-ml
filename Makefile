@@ -26,3 +26,11 @@ clean-data: ## Preview Gumbel run cleanup: RUN=path; ARGS="--apply --drop-replay
 	@test -n "$(RUN)" || { echo 'Usage: make clean-data RUN=path [ARGS="--apply --drop-replay"]'; exit 2; }
 	@.venv/bin/python -m apps.gumbel_nn_combat_expert_iteration.tools.cleanup "$(RUN)" $(ARGS)
 
+# Browser WASM backend for combat inspection. Activate Emscripten before building.
+LIGHTSPEED ?= $(abspath ../lightspeed)
+.PHONY: pages-wasm
+pages-wasm: ## Compile current simulator, encodings and inspection Session to browser WASM
+	@cmake_bin=$$(command -v cmake); \
+	emcmake "$$cmake_bin" -S apps/combat_inspector/wasm -B build/gumbel-wasm -DCMAKE_BUILD_TYPE=Release -DSTS_LIGHTSPEED_DIR="$(LIGHTSPEED)" && \
+	"$$cmake_bin" --build build/gumbel-wasm --parallel 4
+
