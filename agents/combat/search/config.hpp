@@ -5,7 +5,7 @@
 namespace stsrl::search {
 struct GumbelSearch {
     std::unique_ptr<CombatSearch> search;
-    const Gumbel& gumbel;  // inspection view; owned by search, even when wrapped for rollouts
+    Gumbel& gumbel;  // inspection and steering handle; owned by search, even when wrapped for rollouts
 };
 
 struct SearchConfig {

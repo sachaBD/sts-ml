@@ -491,3 +491,83 @@ TEST_F(GumbelTerminalTransition, TerminalTransitionsAreClassified) {
     ASSERT_TRUE(reached->terminal);
     EXPECT_EQ(edge->transition, Gumbel::TransitionKind::deterministic);
 }
+
+// Steering: the caller picks each simulation's path and world.
+namespace {
+Gumbel steered(const sts::BattleContext& state) {
+    auto s = settings();
+    s.simulations = 0;
+    return Gumbel{state, s, 1};
+}
+
+void answer_pending(Gumbel& search) {
+    std::vector<Evaluation> evaluations;
+    auto answer = noisy();
+    for (auto queries = search.pending(); !queries.empty(); queries = search.pending()) {
+        evaluations.clear();
+        for (const auto& q : queries) evaluations.push_back(answer(q));
+        search.evaluated(evaluations);
+    }
+}
+
+const Gumbel::Graph::Node& root_node(const Gumbel::Graph& graph) {
+    return *std::ranges::find(graph.nodes, graph.root, &Gumbel::Graph::Node::observation);
+}
+
+std::set<std::uint64_t> steered_worlds(int world) {
+    auto search = steered(stsrl::scenarios::jaw_worm(7));
+    answer_pending(search);
+    std::set<std::uint64_t> seeds;
+    const std::vector<Gumbel::Pick> picks{{{0}, world}};
+    search.simulate(picks);
+    for (const auto& q : search.pending()) seeds.insert(q.state.seed);
+    return seeds;
+}
+}  // namespace
+
+TEST(GumbelSteering, VisitsOnlyTheChosenMove) {
+    auto search = steered(stsrl::scenarios::jaw_worm(7));
+    answer_pending(search);
+    const std::vector<Gumbel::Pick> picks{{{1}, 5, false}};
+    search.simulate(picks);
+    answer_pending(search);
+    const auto graph = search.graph();
+    const auto& root = root_node(graph);
+    for (std::size_t i = 0; i < root.edges.size(); ++i) EXPECT_EQ(root.edges[i].visits, i == 1);
+    const auto reached = search.state(std::vector<std::size_t>{1}, 5);
+    EXPECT_EQ(stsrl::combat::observation_key(reached), root.edges[1].children.front().observation);
+}
+
+TEST(GumbelSteering, WorldsContinueTheScheduledStream) {
+    const auto scheduled = worlds(0);  // the scheduled search samples worlds 0-3
+    for (const int world : {0, 3}) EXPECT_TRUE(std::ranges::includes(scheduled, steered_worlds(world)));
+    EXPECT_FALSE(std::ranges::includes(scheduled, steered_worlds(4)));
+}
+
+TEST(GumbelSteering, SteersOnTopOfAScheduledSearch) {
+    auto s = settings();
+    s.simulations = 8;
+    s.particles = 2;
+    Gumbel search{stsrl::scenarios::jaw_worm(7), s, 1};
+    answer_pending(search);
+    const int before = root_node(search.graph()).edges[0].visits;
+    const std::vector<Gumbel::Pick> picks{{{0}, 5, false}};
+    search.simulate(picks);
+    answer_pending(search);
+    EXPECT_EQ(root_node(search.graph()).edges[0].visits, before + 1);
+}
+
+TEST(GumbelSteering, InvalidSteerLeavesSearchUsable) {
+    auto search = steered(stsrl::scenarios::jaw_worm(7));
+    answer_pending(search);
+    const std::vector<Gumbel::Pick> valid{{{0}, 0, false}};
+    search.simulate(valid);
+    answer_pending(search);
+    const std::vector<Gumbel::Pick> bad{{{0}, 0, false}, {{0, 999}, 0, false}};
+    EXPECT_THROW(search.simulate(bad), std::invalid_argument);
+    EXPECT_TRUE(search.pending().empty());
+    EXPECT_EQ(root_node(search.graph()).edges[0].visits, 1);
+    search.simulate(valid);
+    answer_pending(search);
+    EXPECT_EQ(root_node(search.graph()).edges[0].visits, 2);
+}
