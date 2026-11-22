@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Gumbel tree viewer</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<main>
+<header><a href="../">STS reports</a><h1>Gumbel tree viewer</h1>
+<p>Play a fight and inspect the agent’s current search graph. Inference and simulation run entirely in your browser.</p>
+<p id="checkpoint"></p></header>
+<section class="controls">
+<label>Fight <select id="fight"></select></label>
+<label>Simulations <input id="sims" type="number" min="0" max="512" value="64"></label>
+<label>Particles <input id="particles" type="number" min="1" max="64" value="8"></label>
+<label>Gumbel noise <input id="gumbel_scale" type="number" min="0" max="10" step="0.1" value="0"></label>
+<label>Rollout mix <input id="rollout_mix" type="number" min="0" max="1" step="0.1" value="0"></label>
+<button id="search">Search</button><button id="auto">Play fight</button>
+</section>
+<p id="status" role="status">Loading checkpoint…</p>
+<nav class="controls" aria-label="Fight playback"><button id="prev">← Previous</button><button id="next">Agent move →</button>
+<button id="restart">Restart</button><span id="position"></span></nav>
+<div id="timeline" class="timeline"></div>
+<section id="board" class="board" aria-label="Current fight"></section>
+<section id="graph" hidden>
+<h2>Search graph <small id="graphSize"></small></h2>
+<p class="hint">Browse successor links below. Shared states appear once; cycle links are marked “bootstrap”.
+Values are the search’s evaluation and backed values—not reconstructed win counts or halving rounds.</p>
+<nav class="controls" aria-label="Graph navigation"><button id="root">Root</button><button id="back">Back</button><span id="node"></span></nav>
+<div id="nodeBoard" class="board"></div>
+<div class="scroll"><table><thead><tr><th>Move</th><th>Prior</th><th>Noise</th><th>σ</th><th>π′</th><th>N</th><th>Q</th><th>Successors (visits)</th><th></th></tr></thead><tbody id="edges"></tbody></table></div>
+</section>
+</main>
+<script type="module" src="app.js"></script>
+</body>
+</html>
