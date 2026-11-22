@@ -140,10 +140,12 @@ class ExpertIteration:
         samples = [s for k in window for s in sorted(self.control.iteration(k).glob('samples-*.bin'))]
         # The network has never trained on the samples it just played: their loss is a held-out loss.
         self.control.status(stage=stage, phase='score')
-        with Replay(sorted(self.control.iteration(it).glob('samples-*.bin')), balanced=t.balanced_replay) as fresh:
+        with Replay(sorted(self.control.iteration(it).glob('samples-*.bin')), max_rows=t.max_train_rows,
+                    balanced=t.balanced_replay, encoding=self.learner.net.encoding) as fresh:
             heldout = self.learner.score(fresh, HELDOUT_ROWS, t.batch)
         self.control.status(stage=stage, phase='load', files=len(samples))
-        with Replay(samples, max_rows=t.max_train_rows, balanced=t.balanced_replay) as replay:
+        with Replay(samples, max_rows=t.max_train_rows, balanced=t.balanced_replay,
+                    encoding=self.learner.net.encoding) as replay:
             if not set(replay.groups) <= {d['fight_id'] for d in self.pool}:
                 raise ValueError('replay contains a deck outside the training decks')
             directory = self.control.iteration(it)
