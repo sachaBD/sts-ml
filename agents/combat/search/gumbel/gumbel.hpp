@@ -18,6 +18,7 @@ public:
         int particles = 8;
         double value_scale = 0.1, maxvisit_init = 50;  // mctx qtransform_completed_by_mix_value
         std::uint64_t world_draw = 0;  // which particle worlds are sampled; a turn's searches share a draw
+        bool record_worlds = false;  // record per-world visit counts on each graph link (off in self-play)
     };
 
     // Unvisited edges are unknown; a chance report cannot be downgraded by another particle.
@@ -27,10 +28,12 @@ public:
     }
 
     struct Graph {
+        struct WorldVisits { int world, visits; };
         struct Child {
             std::uint64_t observation;
             int visits;
             bool bootstrap = false;  // closes a cycle, so counts the successor's evaluation_value
+            std::vector<WorldVisits> worlds;  // populated only when Settings::record_worlds is true
         };
         struct Edge {
             std::uint64_t action;
@@ -52,6 +55,10 @@ public:
         std::vector<double> root_noise;  // root edge order
     };
     Graph graph() const;  // completed searches only; does not mutate the search
+
+    struct Pick { std::vector<std::size_t> path; int world; bool descend = true; };
+    void simulate(std::span<const Pick>);  // requires pending().empty(); `world` indexes the draw's stream
+    sts::BattleContext state(std::span<const std::size_t> path, int world) const;
 
     Gumbel(const sts::BattleContext& observed, const Settings&, std::uint64_t seed);
     ~Gumbel() override;

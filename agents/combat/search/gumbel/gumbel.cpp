@@ -20,6 +20,7 @@ struct Node {
         Node* node;
         int visits;
         bool bootstrap;  // closes a cycle, so counts the successor's network estimate
+        std::vector<Gumbel::Graph::WorldVisits> worlds;  // populated only when Settings::record_worlds is true
     };
     double value = 0;  // the network's estimate, or a finished fight's outcome
     double backed_value = 0;  // Backup's value of this node
@@ -95,13 +96,21 @@ int total(const Node& n) {
 
 class Particles {
 public:
-    Particles(const sts::BattleContext& observed, int count, std::uint64_t stream)
-        : worlds_{combat::particles(observed, count, stream)} {}
-    sts::BattleContext start(std::mt19937_64& rng) const {
-        return worlds_[std::uniform_int_distribution<std::size_t>{0, worlds_.size() - 1}(rng)];
+    Particles(const sts::BattleContext& observed, int sampled, std::uint64_t stream)
+        : observed_{observed}, stream_{stream}, sampled_{sampled}, worlds_{combat::particles(observed, sampled, stream)} {}
+    int sample(std::mt19937_64& rng) const {
+        return int(std::uniform_int_distribution<std::size_t>{0, std::size_t(sampled_) - 1}(rng));
+    }
+    const sts::BattleContext& operator[](int world) {
+        if (world >= int(worlds_.size()))
+            worlds_ = combat::particles(observed_, std::max(world + 1, 2 * int(worlds_.size())), stream_);
+        return worlds_[world];
     }
 
 private:
+    sts::BattleContext observed_;
+    std::uint64_t stream_;
+    int sampled_;
     std::vector<sts::BattleContext> worlds_;
 };
 
@@ -184,7 +193,7 @@ sts::search::TransitionEffects play(sts::BattleContext& state, std::uint64_t key
 
 struct Gumbel::Impl {
     struct Step { Node* node; std::size_t edge; Node* reached; };
-    using Path = std::vector<Step>;
+    struct Path { int world; std::vector<Step> steps; };
     struct Leaf { Node* node; sts::BattleContext state; std::vector<Action> actions; };
 
     Settings s;
@@ -223,10 +232,36 @@ struct Gumbel::Impl {
         leaves.clear();
         queries.clear();
         do {
-            for (const auto& path : backups) backup(path);
+            for (const auto& path : backups) backup(path, s.record_worlds);
             backups.clear();
             if (simulation < int(schedule.size())) next_wave();
         } while (leaves.empty() && !backups.empty());
+        for (const auto& leaf : leaves) queries.push_back({leaf.state, leaf.actions});
+    }
+
+    void validate_pick(const Pick& pick) {
+        if (pick.path.empty() || pick.path[0] >= actions.size() || pick.world < 0)
+            throw std::invalid_argument{"gumbel: no such move or world"};
+        auto state = particles[pick.world];
+        const Node* node = &root;
+        for (const auto edge : pick.path) {
+            if (edge >= node->keys.size()) throw std::invalid_argument{"gumbel: the path leaves the tree"};
+            play(state, node->keys[edge]);
+            if (state.outcome != sts::Outcome::UNDECIDED) return;
+            const auto found = nodes.find(combat::observation_key(state));
+            if (found == nodes.end()) return;
+            node = found->second.get();
+        }
+    }
+
+    void steer(std::span<const Pick> picks) {
+        if (!leaves.empty()) throw std::logic_error{"gumbel: steering requires every pending query answered"};
+        for (const auto& pick : picks) validate_pick(pick);
+        for (const auto& pick : picks) simulate(pick.path, pick.world, pick.descend);
+        if (leaves.empty()) {
+            for (const auto& path : backups) backup(path, s.record_worlds);
+            backups.clear();
+        }
         for (const auto& leaf : leaves) queries.push_back({leaf.state, leaf.actions});
     }
 
@@ -236,7 +271,7 @@ struct Gumbel::Impl {
         const auto edges = ranked(schedule[simulation], width);
         for (std::size_t size = 0; size + width <= std::max<std::size_t>(width, s.wave); size += width) {
             if (simulation == int(schedule.size()) || pass_width() != width) return;
-            for (const auto edge : edges) simulate(edge);
+            for (const auto edge : edges) simulate({edge}, particles.sample(rng), true);
         }
     }
 
@@ -246,13 +281,18 @@ struct Gumbel::Impl {
     }
 
     // Descends until a finished fight, a cycle or an unevaluated node.
-    void simulate(std::size_t root_edge) {
-        auto state = particles.start(rng);
-        Path path;
+    void simulate(const std::vector<std::size_t>& steer, int world, bool descend) {
+        auto state = particles[world];
+        Path path{world, {}};
         Node* node = &root;
         ++simulation;
         for (;;) {
-            const auto edge = node == &root ? root_edge : Selection::choose(*node, s);
+            const auto depth = path.steps.size();
+            if (depth < steer.size() && steer[depth] >= node->keys.size()) {
+                for (const auto& step : path.steps) --step.node->waiting[step.edge];
+                throw std::invalid_argument{"gumbel: the path leaves the tree"};
+            }
+            const auto edge = depth < steer.size() ? steer[depth] : Selection::choose(*node, s);
             const auto effects = play(state, node->keys[edge]);
             auto& transition = node->transitions[edge];
             transition = classify_transition(transition, effects.isChance());
@@ -260,15 +300,15 @@ struct Gumbel::Impl {
             const bool created = !next;
             if (created) next = std::make_unique<Node>();
             const bool cycle = next.get() == node ||
-                std::ranges::any_of(path, [&](const Step& step) { return step.node == next.get(); });
-            path.push_back({node, edge, next.get()});
+                std::ranges::any_of(path.steps, [&](const Step& step) { return step.node == next.get(); });
+            path.steps.push_back({node, edge, next.get()});
             ++node->waiting[edge];
             if (cycle) {
                 std::osyncstream error{std::cerr};
                 error << "ERROR gumbel: cycle truncated; fight_seed=" << fight_seed
                       << " simulation=" << simulation << " observation=" << combat::observation_key(state)
                       << " bootstrap=" << next->value << " path_action_keys=[";
-                for (const auto& step : path) error << step.node->keys[step.edge] << ',';
+                for (const auto& step : path.steps) error << step.node->keys[step.edge] << ',';
                 error << "]\n" << state;
                 backups.push_back(std::move(path));
                 return;
@@ -280,7 +320,8 @@ struct Gumbel::Impl {
                 return;
             }
             if (created) leaves.push_back({next.get(), state, combat::legal_actions(state)});
-            if (std::ranges::find(leaves, next.get(), &Leaf::node) != leaves.end()) {
+            if (std::ranges::find(leaves, next.get(), &Leaf::node) != leaves.end() ||
+                (!descend && path.steps.size() == steer.size())) {
                 backups.push_back(std::move(path));
                 return;
             }
@@ -290,19 +331,24 @@ struct Gumbel::Impl {
 
     // Each edge counts the node it reached. A new outcome bootstraps if it closes a cycle, so the rest stay
     // acyclic and every changed value can be pushed to its parents until none changes.
-    static void backup(const Path& path) {
+    static void backup(const Path& path, bool record_worlds) {
         std::vector<Node*> stale;
-        for (const auto& [node, edge, reached] : path) {
+        for (const auto& [node, edge, reached] : path.steps) {
             --node->waiting[edge];
             auto& outcomes = node->reached[edge];
-            const auto found = std::ranges::find(outcomes, reached, &Node::Outcome::node);
+            auto found = std::ranges::find(outcomes, reached, &Node::Outcome::node);
             if (found != outcomes.end()) {
                 ++found->visits;
             } else if (reaches(*reached, node)) {
-                outcomes.push_back({reached, 1, true});
+                found = outcomes.insert(outcomes.end(), Node::Outcome{reached, 1, true, {}});
             } else {
-                outcomes.push_back({reached, 1, false});
+                found = outcomes.insert(outcomes.end(), Node::Outcome{reached, 1, false, {}});
                 reached->parents.push_back(node);
+            }
+            if (record_worlds) {
+                const auto w = std::ranges::find(found->worlds, path.world, &Graph::WorldVisits::world);
+                if (w != found->worlds.end()) ++w->visits;
+                else found->worlds.push_back({path.world, 1});
             }
             stale.push_back(node);
         }
@@ -352,7 +398,7 @@ struct Gumbel::Impl {
                     Graph::Edge edge{n.keys[i], n.logits[i], n.prior[i], scores[i], policy[i],
                                      count ? std::optional{q(n, i)} : std::nullopt, count, {}, n.transitions[i]};
                     for (const auto& child : n.reached[i])
-                        edge.children.push_back({observations.at(child.node), child.visits, child.bootstrap});
+                        edge.children.push_back({observations.at(child.node), child.visits, child.bootstrap, child.worlds});
                     snapshot.edges.push_back(std::move(edge));
                 }
             }
@@ -360,6 +406,20 @@ struct Gumbel::Impl {
         }
         std::ranges::sort(out.nodes, {}, &Graph::Node::observation);
         return out;
+    }
+
+    sts::BattleContext state_at(std::span<const std::size_t> steer, int world) {
+        if (world < 0) throw std::invalid_argument{"gumbel: negative world"};
+        auto state = particles[world];
+        const Node* node = &root;
+        for (const auto edge : steer) {
+            if (edge >= node->keys.size()) throw std::invalid_argument{"gumbel: the path leaves the tree"};
+            play(state, node->keys[edge]);
+            const auto found = nodes.find(combat::observation_key(state));
+            if (found == nodes.end()) throw std::invalid_argument{"gumbel: the path leaves the tree"};
+            node = found->second.get();
+        }
+        return state;
     }
 
     Result result() const {
@@ -378,5 +438,9 @@ Gumbel::~Gumbel() = default;
 std::span<const Query> Gumbel::pending() const { return impl_->queries; }
 void Gumbel::evaluated(std::span<const Evaluation> evaluations) { impl_->evaluated(evaluations); }
 Gumbel::Graph Gumbel::graph() const { return impl_->graph(); }
+void Gumbel::simulate(std::span<const Pick> picks) { impl_->steer(picks); }
+sts::BattleContext Gumbel::state(std::span<const std::size_t> path, int world) const {
+    return impl_->state_at(path, world);
+}
 Result Gumbel::result() const { return impl_->result(); }
 }  // namespace stsrl::search

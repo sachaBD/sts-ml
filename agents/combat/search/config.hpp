@@ -5,7 +5,7 @@
 namespace stsrl::search {
 struct GumbelSearch {
     std::unique_ptr<CombatSearch> search;
-    const Gumbel& gumbel;  // inspection view; owned by search, even when wrapped for rollouts
+    Gumbel& gumbel;  // inspection and steering handle; owned by search, even when wrapped for rollouts
 };
 
 struct SearchConfig {
@@ -14,6 +14,7 @@ struct SearchConfig {
     double rollout_mix;   // above 0, each leaf value is blended with a guided rollout's outcome
     int considered_actions = Gumbel::Settings{}.considered_actions;  // root sequential-halving candidates
     std::uint64_t world_draw = Gumbel::Settings{}.world_draw;
+    bool record_worlds = Gumbel::Settings{}.record_worlds;  // per-link world visits for inspection only
 
     void validate() const;  // throws on settings out of range
     GumbelSearch create(const sts::BattleContext&, int simulations, std::mt19937_64&) const;  // validates first
