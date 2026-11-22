@@ -1,5 +1,6 @@
 #include "environments/combat/public.hpp"
 #include "environments/combat/scenarios/jaw_worm.hpp"
+#include "environments/combat/view.hpp"
 #include <gtest/gtest.h>
 
 using namespace stsrl::combat;
@@ -101,4 +102,24 @@ TEST(Particles, AMoveThatDrawsNothingKeepsTheSameWorlds) {
 
     EXPECT_TRUE(std::ranges::equal(before.front().cards.drawPile, after.front().cards.drawPile,
                                   {}, &sts::CardInstance::uniqueId, &sts::CardInstance::uniqueId));
+}
+
+TEST(View, DrawPileIgnoresDrawOrder) {
+    auto a = stsrl::scenarios::jaw_worm(7);
+    a.cards.drawPile.clear();
+    for (const auto id : {STRIKE_RED, BASH, ANGER}) a.cards.createTempCardInDrawPile(0, {id});
+    auto b = a;
+    std::ranges::reverse(b.cards.drawPile);
+    EXPECT_EQ(view(a).at("draw"), view(b).at("draw"));
+}
+
+TEST(View, LegalMovesMatchSearchActions) {
+    const auto state = stsrl::scenarios::jaw_worm(7);
+    const auto legal = view(state).at("legal");
+    const auto actions = legal_actions(state);
+    ASSERT_EQ(legal.size(), actions.size());
+    for (std::size_t i = 0; i < actions.size(); ++i) {
+        EXPECT_EQ(legal[i].at("bits").get<std::uint32_t>(), actions[i].bits);
+        EXPECT_EQ(legal[i].at("action").get<std::string>(), std::to_string(action_key(state, actions[i])));
+    }
 }
