@@ -498,3 +498,70 @@ TEST_F(GumbelTerminalTransition, TerminalTransitionsAreClassified) {
     ASSERT_TRUE(reached->terminal);
     EXPECT_EQ(edge->transition, Gumbel::TransitionKind::deterministic);
 }
+
+// Steering: the caller picks each simulation's root move and world.
+namespace {
+Gumbel steered(const sts::BattleContext& state) {
+    auto s = settings();
+    s.simulations = 0;
+    return Gumbel{state, s, 1};
+}
+
+void answer_pending(Gumbel& search) {
+    std::vector<Evaluation> evaluations;
+    auto answer = noisy();
+    for (auto queries = search.pending(); !queries.empty(); queries = search.pending()) {
+        evaluations.clear();
+        for (const auto& q : queries) evaluations.push_back(answer(q));
+        search.evaluated(evaluations);
+    }
+}
+
+std::set<std::uint64_t> steered_worlds(int world) {
+    auto search = steered(stsrl::scenarios::jaw_worm(7));
+    answer_pending(search);
+    std::set<std::uint64_t> seeds;
+    const std::vector<Gumbel::Pick> picks{{0, world}};
+    search.simulate(picks);
+    for (const auto& q : search.pending()) seeds.insert(q.state.seed);
+    return seeds;
+}
+}  // namespace
+
+TEST(GumbelSteering, VisitsTheChosenMoveInTheChosenWorld) {
+    auto search = steered(stsrl::scenarios::jaw_worm(7));
+    answer_pending(search);
+    const std::vector<Gumbel::Pick> picks{{1, 5}};
+    search.simulate(picks);
+    answer_pending(search);
+    const auto root = search.root();
+    for (std::size_t i = 0; i < root.edges.size(); ++i) {
+        EXPECT_EQ(root.edges[i].visits, i == 1);
+        EXPECT_EQ(root.worlds[i].size(), i == 1);
+    }
+    EXPECT_EQ(root.worlds[1][0].world, 5);
+    EXPECT_EQ(root.worlds[1][0].visits, 1);
+}
+
+TEST(GumbelSteering, WorldsContinueTheScheduledStream) {
+    const auto scheduled = worlds(0);  // the scheduled search samples worlds 0-3
+    for (const int world : {0, 3}) EXPECT_TRUE(std::ranges::includes(scheduled, steered_worlds(world)));
+    EXPECT_FALSE(std::ranges::includes(scheduled, steered_worlds(4)));
+}
+
+TEST(GumbelSteering, OneWorldsValueIsTheSearchValue) {
+    auto search = steered(stsrl::scenarios::jaw_worm(7));
+    answer_pending(search);
+    const auto moves = search.root().edges.size();
+    for (int wave = 0; wave < 16; ++wave) {
+        std::vector<Gumbel::Pick> picks;
+        for (std::size_t edge = 0; edge < moves; ++edge) picks.push_back({edge, 0});
+        search.simulate(picks);
+        answer_pending(search);
+    }
+    const auto root = search.root();
+    for (std::size_t i = 0; i < moves; ++i) {
+        ASSERT_EQ(root.worlds[i].size(), 1u);
+        EXPECT_DOUBLE_EQ(root.worlds[i][0].q, *root.edges[i].q);
+    }
+}

@@ -50,6 +50,23 @@ public:
     };
     Graph graph() const;  // completed searches only; does not mutate the search
 
+    // The root alone, as graph() reports it, plus each move's worlds: how often each world's simulations took the
+    // move, and the world's own expectimax value of it (the best of the edges its simulations took, through the
+    // links they took). Requires every pending query answered.
+    struct WorldValue { int world, visits; double q; };
+    struct Root {
+        std::vector<Graph::Edge> edges;  // decision order
+        std::vector<std::vector<WorldValue>> worlds;  // per edge, by world
+        double value;  // the search's value of the root
+    };
+    Root root() const;
+
+    // Steering: one wave of simulations, each down a chosen root move (an index into the decision's actions) in a
+    // chosen world (an index into the draw's endless stream; the scheduled search samples the first `particles`).
+    // Requires every pending query answered; pending() then holds the wave's queries.
+    struct Pick { std::size_t edge; int world; };
+    void simulate(std::span<const Pick>);
+
     Gumbel(const sts::BattleContext& observed, const Settings&, std::uint64_t seed);
     ~Gumbel() override;
     std::span<const Query> pending() const override;

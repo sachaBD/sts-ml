@@ -5,6 +5,7 @@
 #include <functional>
 #include <iostream>
 #include <numeric>
+#include <optional>
 #include <random>
 #include <span>
 #include <stdexcept>
@@ -20,7 +21,9 @@ struct Node {
         Node* node;
         int visits;
         bool bootstrap;  // closes a cycle, so counts the successor's network estimate
+        std::vector<int> worlds;  // worlds whose simulations took this link
     };
+    std::uint64_t observation;
     double value = 0;  // the network's estimate, or a finished fight's outcome
     double backed_value = 0;  // Backup's value of this node
     std::vector<Node*> parents;  // sources of non-bootstrap outcomes, which read backed_value
@@ -93,15 +96,24 @@ int total(const Node& n) {
     return count;
 }
 
+// An endless indexed stream of worlds; scheduled simulations sample among the first `sampled`.
 class Particles {
 public:
-    Particles(const sts::BattleContext& observed, int count, std::uint64_t stream)
-        : worlds_{combat::particles(observed, count, stream)} {}
-    sts::BattleContext start(std::mt19937_64& rng) const {
-        return worlds_[std::uniform_int_distribution<std::size_t>{0, worlds_.size() - 1}(rng)];
+    Particles(const sts::BattleContext& observed, int sampled, std::uint64_t stream)
+        : observed_{observed}, stream_{stream}, sampled_{sampled}, worlds_{combat::particles(observed, sampled, stream)} {}
+    int sample(std::mt19937_64& rng) const {
+        return int(std::uniform_int_distribution<std::size_t>{0, std::size_t(sampled_) - 1}(rng));
+    }
+    const sts::BattleContext& operator[](int world) {
+        if (world >= int(worlds_.size()))
+            worlds_ = combat::particles(observed_, std::max(world + 1, 2 * int(worlds_.size())), stream_);
+        return worlds_[world];
     }
 
 private:
+    sts::BattleContext observed_;
+    std::uint64_t stream_;
+    int sampled_;
     std::vector<sts::BattleContext> worlds_;
 };
 
@@ -129,6 +141,23 @@ std::vector<double> sigma(const Node& n, const Gumbel::Settings& s) {
     const double low = *std::min_element(completed.begin(), completed.end());
     for (auto& v : completed) v = (s.maxvisit_init + most) * s.value_scale * (v - low);
     return completed;
+}
+
+// One world's own expectimax: the best of the edges its simulations took, each the mean of the links it took.
+double world_value(const Node& n, int world, std::unordered_map<const Node*, double>& memo) {
+    if (const auto found = memo.find(&n); found != memo.end()) return found->second;
+    std::optional<double> best;
+    for (const auto& outcomes : n.reached) {
+        double sum = 0;
+        int count = 0;
+        for (const auto& outcome : outcomes)
+            if (std::ranges::find(outcome.worlds, world) != outcome.worlds.end()) {
+                sum += outcome.bootstrap ? outcome.node->value : world_value(*outcome.node, world, memo);
+                ++count;
+            }
+        if (count) best = std::max(best.value_or(-INFINITY), sum / count);
+    }
+    return memo[&n] = best.value_or(n.value);
 }
 
 // Which action a simulation takes at an interior node, and the policy target a node reports.
@@ -184,7 +213,7 @@ sts::search::TransitionEffects play(sts::BattleContext& state, std::uint64_t key
 
 struct Gumbel::Impl {
     struct Step { Node* node; std::size_t edge; Node* reached; };
-    using Path = std::vector<Step>;
+    struct Path { int world; std::vector<Step> steps; };
     struct Leaf { Node* node; sts::BattleContext state; std::vector<Action> actions; };
 
     Settings s;
@@ -197,6 +226,7 @@ struct Gumbel::Impl {
     std::vector<double> gumbel;
     std::vector<int> schedule;
     int simulation = 0;
+    std::vector<std::vector<int>> root_world_visits;  // per root edge, per world
 
     // One Sequential Halving pass, backed up only once fully answered, so answers cannot steer it.
     std::vector<Leaf> leaves;
@@ -210,7 +240,10 @@ struct Gumbel::Impl {
                     observed.seed ^ (std::uint64_t(observed.turn) << 32) ^ (settings.world_draw * 0x9E3779B97F4A7C15ull)},
           actions{combat::legal_actions(observed)},
           root{*(nodes[combat::observation_key(observed)] = std::make_unique<Node>())},
-          leaves{{&root, observed, actions}}, queries{{leaves[0].state, leaves[0].actions}} {}
+          root_world_visits(actions.size()),
+          leaves{{&root, observed, actions}}, queries{{leaves[0].state, leaves[0].actions}} {
+        root.observation = combat::observation_key(observed);
+    }
 
     void evaluated(std::span<const Evaluation> e) {
         if (leaves.empty() || e.size() != leaves.size()) throw std::invalid_argument{"gumbel: one evaluation per pending query"};
@@ -223,11 +256,29 @@ struct Gumbel::Impl {
         leaves.clear();
         queries.clear();
         do {
-            for (const auto& path : backups) backup(path);
-            backups.clear();
+            flush();
             if (simulation < int(schedule.size())) next_wave();
         } while (leaves.empty() && !backups.empty());
         for (const auto& leaf : leaves) queries.push_back({leaf.state, leaf.actions});
+    }
+
+    void steer(std::span<const Pick> picks) {
+        if (!leaves.empty()) throw std::logic_error{"gumbel: steering requires every pending query answered"};
+        for (const auto& pick : picks)
+            if (pick.edge >= actions.size() || pick.world < 0) throw std::invalid_argument{"gumbel: no such move or world"};
+        for (const auto& pick : picks) simulate(pick.edge, pick.world);
+        if (leaves.empty()) flush();
+        for (const auto& leaf : leaves) queries.push_back({leaf.state, leaf.actions});
+    }
+
+    void flush() {
+        for (const auto& path : backups) {
+            backup(path);
+            auto& counts = root_world_visits[path.steps.front().edge];
+            if (path.world >= int(counts.size())) counts.resize(path.world + 1);
+            ++counts[path.world];
+        }
+        backups.clear();
     }
 
     // Passes of one round, so late rounds with few actions still fill a wave.
@@ -236,7 +287,7 @@ struct Gumbel::Impl {
         const auto edges = ranked(schedule[simulation], width);
         for (std::size_t size = 0; size + width <= std::max<std::size_t>(width, s.wave); size += width) {
             if (simulation == int(schedule.size()) || pass_width() != width) return;
-            for (const auto edge : edges) simulate(edge);
+            for (const auto edge : edges) simulate(edge, particles.sample(rng));
         }
     }
 
@@ -246,9 +297,9 @@ struct Gumbel::Impl {
     }
 
     // Descends until a finished fight, a cycle or an unevaluated node.
-    void simulate(std::size_t root_edge) {
-        auto state = particles.start(rng);
-        Path path;
+    void simulate(std::size_t root_edge, int world) {
+        auto state = particles[world];
+        Path path{world, {}};
         Node* node = &root;
         ++simulation;
         for (;;) {
@@ -257,19 +308,23 @@ struct Gumbel::Impl {
             auto& transition = node->transitions[edge];
             if (transition != TransitionKind::chance)
                 transition = effects.isChance() ? TransitionKind::chance : TransitionKind::deterministic;
-            auto& next = nodes[combat::observation_key(state)];
+            const auto observation = combat::observation_key(state);
+            auto& next = nodes[observation];
             const bool created = !next;
-            if (created) next = std::make_unique<Node>();
+            if (created) {
+                next = std::make_unique<Node>();
+                next->observation = observation;
+            }
             const bool cycle = next.get() == node ||
-                std::ranges::any_of(path, [&](const Step& step) { return step.node == next.get(); });
-            path.push_back({node, edge, next.get()});
+                std::ranges::any_of(path.steps, [&](const Step& step) { return step.node == next.get(); });
+            path.steps.push_back({node, edge, next.get()});
             ++node->waiting[edge];
             if (cycle) {
                 std::osyncstream error{std::cerr};
                 error << "ERROR gumbel: cycle truncated; fight_seed=" << fight_seed
-                      << " simulation=" << simulation << " observation=" << combat::observation_key(state)
+                      << " simulation=" << simulation << " observation=" << observation
                       << " bootstrap=" << next->value << " path_action_keys=[";
-                for (const auto& step : path) error << step.node->keys[step.edge] << ',';
+                for (const auto& step : path.steps) error << step.node->keys[step.edge] << ',';
                 error << "]\n" << state;
                 backups.push_back(std::move(path));
                 return;
@@ -293,18 +348,19 @@ struct Gumbel::Impl {
     // acyclic and every changed value can be pushed to its parents until none changes.
     static void backup(const Path& path) {
         std::vector<Node*> stale;
-        for (const auto& [node, edge, reached] : path) {
+        for (const auto& [node, edge, reached] : path.steps) {
             --node->waiting[edge];
             auto& outcomes = node->reached[edge];
-            const auto found = std::ranges::find(outcomes, reached, &Node::Outcome::node);
+            auto found = std::ranges::find(outcomes, reached, &Node::Outcome::node);
             if (found != outcomes.end()) {
                 ++found->visits;
             } else if (reaches(*reached, node)) {
-                outcomes.push_back({reached, 1, true});
+                found = outcomes.insert(outcomes.end(), Node::Outcome{reached, 1, true, {}});
             } else {
-                outcomes.push_back({reached, 1, false});
+                found = outcomes.insert(outcomes.end(), Node::Outcome{reached, 1, false, {}});
                 reached->parents.push_back(node);
             }
+            if (std::ranges::find(found->worlds, path.world) == found->worlds.end()) found->worlds.push_back(path.world);
             stale.push_back(node);
         }
         while (!stale.empty()) {
@@ -337,29 +393,50 @@ struct Gumbel::Impl {
         return edges;
     }
 
+    // Every nonterminal node has been evaluated when no query is pending.
+    std::vector<Graph::Edge> edges(const Node& n) const {
+        if (n.keys.empty()) return {};
+        const auto scores = sigma(n, s), policy = Selection::policy(n, s);
+        std::vector<Graph::Edge> out;
+        for (std::size_t i = 0; i < n.keys.size(); ++i) {
+            const int count = visits(n, i);
+            Graph::Edge edge{n.keys[i], n.logits[i], n.prior[i], scores[i], policy[i],
+                             count ? std::optional{q(n, i)} : std::nullopt, count, {}, n.transitions[i]};
+            for (const auto& child : n.reached[i])
+                edge.children.push_back({child.node->observation, child.visits, child.bootstrap});
+            out.push_back(std::move(edge));
+        }
+        return out;
+    }
+
     Graph graph() const {
         if (!leaves.empty()) throw std::logic_error{"gumbel: graph requires a completed search"};
-        std::unordered_map<const Node*, std::uint64_t> observations;
-        for (const auto& [key, node] : nodes) observations.emplace(node.get(), key);
-        Graph out{observations.at(&root), {}, gumbel};
-        for (const auto& [key, node] : nodes) {
-            const auto& n = *node;
-            Graph::Node snapshot{key, n.keys.empty(), n.value, n.backed_value, {}};
-            // Every nonterminal node has been evaluated when the search is complete.
-            if (!snapshot.terminal) {
-                const auto scores = sigma(n, s), policy = Selection::policy(n, s);
-                for (std::size_t i = 0; i < n.keys.size(); ++i) {
-                    const int count = visits(n, i);
-                    Graph::Edge edge{n.keys[i], n.logits[i], n.prior[i], scores[i], policy[i],
-                                     count ? std::optional{q(n, i)} : std::nullopt, count, {}, n.transitions[i]};
-                    for (const auto& child : n.reached[i])
-                        edge.children.push_back({observations.at(child.node), child.visits, child.bootstrap});
-                    snapshot.edges.push_back(std::move(edge));
-                }
-            }
-            out.nodes.push_back(std::move(snapshot));
-        }
+        Graph out{root.observation, {}, gumbel};
+        for (const auto& [key, node] : nodes)
+            out.nodes.push_back({key, node->keys.empty(), node->value, node->backed_value, edges(*node)});
         std::ranges::sort(out.nodes, {}, &Graph::Node::observation);
+        return out;
+    }
+
+    Root root_view() const {
+        if (!leaves.empty()) throw std::logic_error{"gumbel: root requires every pending query answered"};
+        Root out{edges(root), {}, root.backed_value};
+        for (std::size_t i = 0; i < root.keys.size(); ++i) {
+            auto& worlds = out.worlds.emplace_back();
+            const auto& counts = root_world_visits[i];
+            for (int w = 0; w < int(counts.size()); ++w) {
+                if (!counts[w]) continue;
+                std::unordered_map<const Node*, double> memo;
+                double sum = 0;
+                int links = 0;
+                for (const auto& outcome : root.reached[i])
+                    if (std::ranges::find(outcome.worlds, w) != outcome.worlds.end()) {
+                        sum += outcome.bootstrap ? outcome.node->value : world_value(*outcome.node, w, memo);
+                        ++links;
+                    }
+                worlds.push_back({w, counts[w], sum / links});
+            }
+        }
         return out;
     }
 
@@ -379,5 +456,7 @@ Gumbel::~Gumbel() = default;
 std::span<const Query> Gumbel::pending() const { return impl_->queries; }
 void Gumbel::evaluated(std::span<const Evaluation> evaluations) { impl_->evaluated(evaluations); }
 Gumbel::Graph Gumbel::graph() const { return impl_->graph(); }
+Gumbel::Root Gumbel::root() const { return impl_->root_view(); }
+void Gumbel::simulate(std::span<const Pick> picks) { impl_->steer(picks); }
 Result Gumbel::result() const { return impl_->result(); }
 }  // namespace stsrl::search
