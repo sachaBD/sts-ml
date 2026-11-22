@@ -25,3 +25,5 @@ See [`apps/gumbel_nn_combat_expert_iteration/README.md`](apps/gumbel_nn_combat_e
 - `environments/combat/`: the rules of a fight as a player sees them, and loading fight starts.
 - `infra/`: inference backends, worker plumbing and worker telemetry.
 - `runs/`: the run launcher. Results go in `runs/` (not committed).
+
+Browser-based search inspection and GitHub Pages publishing: [Combat inspector](apps/combat_inspector/README.md).

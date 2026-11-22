@@ -25,7 +25,7 @@ add_subdirectory("${STS_LIGHTSPEED_DIR}" "${CMAKE_CURRENT_BINARY_DIR}/sts_lights
 
 # The rules of a fight as a player sees them, and building a fight from its saved start.
 add_library(combat_environment STATIC environments/combat/public.cpp environments/combat/fight_start.cpp
-    environments/combat/state_codec.cpp environments/combat/state_store.cpp)
+    environments/combat/view.cpp environments/combat/state_codec.cpp environments/combat/state_store.cpp)
 target_include_directories(combat_environment PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
 target_link_libraries(combat_environment PUBLIC sts_lightspeed)
 target_compile_options(combat_environment PRIVATE -Wall -Wextra -Wpedantic)
