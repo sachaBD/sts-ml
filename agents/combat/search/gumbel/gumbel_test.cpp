@@ -571,3 +571,40 @@ TEST(GumbelSteering, InvalidSteerLeavesSearchUsable) {
     answer_pending(search);
     EXPECT_EQ(root_node(search.graph()).edges[0].visits, 2);
 }
+
+TEST(GumbelWorldTracking, OffByDefaultLeavesLinkWorldsEmpty) {
+    Gumbel search{stsrl::scenarios::jaw_worm(7), settings(), 1};
+    answer_pending(search);
+    for (const auto& node : search.graph().nodes)
+        for (const auto& edge : node.edges)
+            for (const auto& child : edge.children) EXPECT_TRUE(child.worlds.empty());
+}
+
+TEST(GumbelWorldTracking, RecordsPerWorldVisitsSummingToLinkVisits) {
+    auto s = settings();
+    s.simulations = 16;
+    s.particles = 3;
+    s.record_worlds = true;
+    Gumbel search{stsrl::scenarios::jaw_worm(7), s, 1};
+    answer_pending(search);
+    const std::vector<Gumbel::Pick> picks{{{0}, 5, false}};
+    search.simulate(picks);
+    answer_pending(search);
+    const auto graph = search.graph();
+    for (const auto& node : graph.nodes)
+        for (const auto& edge : node.edges)
+            for (const auto& child : edge.children) {
+                std::set<int> seen;
+                int sum = 0;
+                for (const auto& w : child.worlds) {
+                    EXPECT_TRUE(seen.insert(w.world).second);
+                    EXPECT_GT(w.visits, 0);
+                    sum += w.visits;
+                }
+                EXPECT_EQ(sum, child.visits);
+            }
+    const auto& root = root_node(graph);
+    EXPECT_TRUE(std::ranges::any_of(root.edges[0].children, [](const auto& c) {
+        return std::ranges::any_of(c.worlds, [](const auto& w) { return w.world == 5 && w.visits == 1; });
+    }));
+}

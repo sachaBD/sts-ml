@@ -19,6 +19,7 @@ GumbelSearch SearchConfig::create(const sts::BattleContext& state, int simulatio
     settings.gumbel_scale = gumbel_scale;
     settings.considered_actions = considered_actions;
     settings.world_draw = world_draw;
+    settings.record_worlds = record_worlds;
     auto gumbel = std::make_unique<Gumbel>(state, settings, random());
     auto& inspection = *gumbel;
     std::unique_ptr<CombatSearch> search = std::move(gumbel);
