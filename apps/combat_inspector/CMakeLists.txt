@@ -1,5 +1,5 @@
 if(TARGET infra_inference)
     add_executable(combat_explain explain.cpp)
-    target_link_libraries(combat_explain PRIVATE player_decision nn_network)
+    target_link_libraries(combat_explain PRIVATE player_decision nn_network infra_actors CLI11::CLI11)
     target_compile_options(combat_explain PRIVATE -Wall -Wextra -Wpedantic)
 endif()

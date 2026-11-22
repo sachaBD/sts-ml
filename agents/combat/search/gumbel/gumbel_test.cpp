@@ -46,6 +46,27 @@ Gumbel::Settings settings(double gumbel_scale = 0) {
 }
 }  // namespace
 
+// The worlds the search asks about: a sampled world carries its own seed.
+std::set<std::uint64_t> worlds(std::uint64_t world_draw) {
+    auto s = settings();
+    s.world_draw = world_draw;
+    Gumbel search{stsrl::scenarios::jaw_worm(7), s, 1};
+    std::set<std::uint64_t> seeds;
+    auto answer = noisy();
+    run(search, [&](const Query& q) {
+        seeds.insert(q.state.seed);
+        return answer(q);
+    });
+    return seeds;
+}
+
+TEST(Gumbel, TheWorldDrawChoosesTheSampledWorlds) {
+    EXPECT_EQ(worlds(0), worlds(0));
+    const auto other = worlds(1);
+    EXPECT_GT(other.size(), 1u);
+    for (const auto seed : worlds(0)) EXPECT_EQ(other.contains(seed), seed == stsrl::scenarios::jaw_worm(7).seed);
+}
+
 TEST(Gumbel, OnlyAsksAboutLiveStatesWithTheirLegalMoves) {
     Gumbel search{stsrl::scenarios::jaw_worm(7), settings(1), 1};
     auto answer = noisy();

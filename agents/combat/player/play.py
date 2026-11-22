@@ -52,6 +52,13 @@ def check(binary, settings):
         raise ValueError(checked.stderr.strip())
 
 
+def gpu_environment():
+    """os.environ with the dependency-managed TensorRT and CUDA libraries, not system-wide installs, on the loader path."""
+    packages = Path(sys.prefix) / f'lib/python{sys.version_info.major}.{sys.version_info.minor}/site-packages'
+    libs = [packages / 'tensorrt_libs', *sorted((packages / 'nvidia').glob('*/lib'))]
+    return dict(os.environ, LD_LIBRARY_PATH=':'.join(map(str, libs)) + ':' + os.environ.get('LD_LIBRARY_PATH', ''))
+
+
 def play(binary, models, fights, directory, settings, *, progress=lambda done, pid: None, sample_devices=True):
     """Plays `fights` with nn_play `binary`, the exported model directory `models` and `settings`; writes the
     settings (play.toml), samples, results and logs to `directory`. Results are journaled as fights finish;
@@ -65,10 +72,7 @@ def play(binary, models, fights, directory, settings, *, progress=lambda done, p
     (directory / 'play.toml').write_text(tomli_w.dumps(settings))
     command = [str(binary), str(directory / 'play.toml'), str(models), str(samples),
                '--telemetry', str(directory / 'telemetry.jsonl')]
-    # TensorRT and CUDA libraries come from the dependency-managed environment, not system-wide installs.
-    packages = Path(sys.prefix) / f'lib/python{sys.version_info.major}.{sys.version_info.minor}/site-packages'
-    libs = [packages / 'tensorrt_libs', *sorted((packages / 'nvidia').glob('*/lib'))]
-    env = dict(os.environ, LD_LIBRARY_PATH=':'.join(map(str, libs)) + ':' + os.environ.get('LD_LIBRARY_PATH', ''))
+    env = gpu_environment()
     results = []
     with DeviceSampler(directory / 'gpu.csv', enabled=sample_devices), starts.open() as source, \
             (directory / 'results.jsonl').open('w') as journal, (directory / 'worker.log').open('w') as errors:

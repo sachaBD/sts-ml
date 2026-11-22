@@ -5,9 +5,9 @@
 
 namespace stsrl::search {
 void SearchConfig::validate() const {
-    if (sims < 0 || particles < 1 || !std::isfinite(gumbel_scale) || gumbel_scale < 0 ||
+    if (sims < 0 || particles < 1 || considered_actions < 1 || !std::isfinite(gumbel_scale) || gumbel_scale < 0 ||
         !(rollout_mix >= 0 && rollout_mix <= 1))
-        throw std::invalid_argument{"search: nonnegative sims and gumbel scale, positive particles, rollout mix in [0, 1]"};
+        throw std::invalid_argument{"search: nonnegative sims and gumbel scale, positive particles and considered actions, rollout mix in [0, 1]"};
 }
 
 GumbelSearch SearchConfig::create(const sts::BattleContext& state, int simulations, std::mt19937_64& random) const {
@@ -17,6 +17,8 @@ GumbelSearch SearchConfig::create(const sts::BattleContext& state, int simulatio
     settings.simulations = simulations;
     settings.particles = particles;
     settings.gumbel_scale = gumbel_scale;
+    settings.considered_actions = considered_actions;
+    settings.world_draw = world_draw;
     auto gumbel = std::make_unique<Gumbel>(state, settings, random());
     const auto& inspection = *gumbel;
     std::unique_ptr<CombatSearch> search = std::move(gumbel);
