@@ -223,7 +223,8 @@ class Replay:
                 raise ValueError('unsupported state codec version')
             at = STATE_HEADER.size
             state_buffers.append(record[at:at + state_bytes])
-            action_orders.append(record[at + state_bytes:at + state_bytes + 4 * actions])
+            action_orders.append(np.frombuffer(record, dtype=np.uint32, count=actions,
+                                              offset=at + state_bytes).tolist())
         encoded = iter(encoding_bridge.encode(state_buffers, action_orders, self.encoding)) if states else iter(())
         records = []
         for row, record in zip(rows, raw):
