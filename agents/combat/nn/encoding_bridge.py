@@ -17,7 +17,7 @@ def _native():
 
 
 def encode(states, action_orders, encoding):
-    """Return float32 token buffers in the supplied uint32 action orders (same-build bytes only)."""
+    """Encode packed state bytes in the supplied integer action orders (same-build states only)."""
     return _native().encode(states, action_orders, encoding)
 
 

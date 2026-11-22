@@ -17,7 +17,10 @@ target_compile_options(nn_tokens PRIVATE -Wall -Wextra -Wpedantic)
 set_target_properties(combat_environment combat_search nn_tokens PROPERTIES POSITION_INDEPENDENT_CODE ON)
 set(Python3_EXECUTABLE "${STSRL_PYTHON}")
 find_package(Python3 REQUIRED COMPONENTS Interpreter Development.Module)
-Python3_add_library(_encoding_bridge MODULE WITH_SOABI encoding_bridge.cpp)
+execute_process(COMMAND "${STSRL_PYTHON}" -m pybind11 --cmakedir
+    OUTPUT_VARIABLE pybind11_DIR OUTPUT_STRIP_TRAILING_WHITESPACE COMMAND_ERROR_IS_FATAL ANY)
+find_package(pybind11 CONFIG REQUIRED)
+pybind11_add_module(_encoding_bridge encoding_bridge.cpp)
 target_link_libraries(_encoding_bridge PRIVATE nn_tokens)
 target_compile_options(_encoding_bridge PRIVATE -Wall -Wextra -Wpedantic)
 
