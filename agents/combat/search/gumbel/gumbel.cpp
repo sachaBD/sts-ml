@@ -205,6 +205,8 @@ struct Gumbel::Impl {
     Node& root;
     std::vector<double> gumbel;
     std::vector<int> schedule;
+    std::vector<int> stage_visits;  // root edge visits in the current sieve stage (= visits when sieving is off)
+    int stage_budget = 0;
     int simulation = 0;
 
     // One Sequential Halving pass, backed up only once fully answered, so answers cannot steer it.
@@ -219,7 +221,44 @@ struct Gumbel::Impl {
                     observed.seed ^ (std::uint64_t(observed.turn) << 32) ^ (settings.world_draw * 0x9E3779B97F4A7C15ull)},
           actions{combat::legal_actions(observed)},
           root{*(nodes[combat::observation_key(observed)] = std::make_unique<Node>())},
+          stage_visits(actions.size(), 0),
           leaves{{&root, observed, actions}}, queries{{leaves[0].state, leaves[0].actions}} {}
+
+    void flush() {
+        for (const auto& path : backups) {
+            backup(path, s.record_worlds);
+            ++stage_visits[path.steps.front().edge];
+        }
+        backups.clear();
+    }
+
+    int max_stage_visits() const {
+        return stage_visits.empty() ? 0 : *std::ranges::max_element(stage_visits);
+    }
+
+    double root_vos() const {
+        const auto prior = std::size_t(std::ranges::max_element(root.logits) - root.logits.begin());
+        double best = -INFINITY, low = INFINITY;
+        for (std::size_t i = 0; i < root.keys.size(); ++i)
+            if (visits(root, i) > 0) {
+                best = std::max(best, q(root, i));
+                low = std::min(low, q(root, i));
+            }
+        return best == -INFINITY ? 0 : std::max(0.0, best - (visits(root, prior) > 0 ? q(root, prior) : low));
+    }
+
+    void maybe_escalate() {
+        if (s.sieve_gain <= 0 || stage_budget >= s.simulations || schedule.empty()) return;
+        const auto chosen = ranked(max_stage_visits(), 1).front();
+        if (visits(root, chosen) > 0 && q(root, chosen) >= 1.0 - 1e-9) return;
+        const int next_budget = int(std::min<std::int64_t>(s.simulations, std::int64_t(stage_budget) * 4));
+        const int delta = next_budget - simulation;
+        if (delta <= 0 || root_vos() < s.sieve_gain * double(delta) / 1000.0) return;
+        stage_budget = next_budget;
+        std::ranges::fill(stage_visits, 0);
+        const auto more = halving_schedule(std::min<int>(s.considered_actions, int(actions.size())), delta);
+        schedule.insert(schedule.end(), more.begin(), more.end());
+    }
 
     void evaluated(std::span<const Evaluation> e) {
         if (leaves.empty() || e.size() != leaves.size()) throw std::invalid_argument{"gumbel: one evaluation per pending query"};
@@ -227,13 +266,15 @@ struct Gumbel::Impl {
         if (leaves.front().node == &root) {
             std::extreme_value_distribution<double> g;
             for (std::size_t i = 0; i < actions.size(); ++i) gumbel.push_back(s.gumbel_scale * g(rng));
-            schedule = halving_schedule(std::min<int>(s.considered_actions, int(actions.size())), s.simulations);
+            const bool skip = s.sieve_gain > 0 && (actions.size() <= 1 || std::min(root.value, 1.0 - root.value) < 5e-4);
+            stage_budget = s.sieve_gain > 0 && !skip ? std::min(s.simulations, 16) : s.simulations;
+            if (!skip) schedule = halving_schedule(std::min<int>(s.considered_actions, int(actions.size())), stage_budget);
         }
         leaves.clear();
         queries.clear();
         do {
-            for (const auto& path : backups) backup(path, s.record_worlds);
-            backups.clear();
+            flush();
+            if (simulation == int(schedule.size())) maybe_escalate();
             if (simulation < int(schedule.size())) next_wave();
         } while (leaves.empty() && !backups.empty());
         for (const auto& leaf : leaves) queries.push_back({leaf.state, leaf.actions});
@@ -258,10 +299,7 @@ struct Gumbel::Impl {
         if (!leaves.empty()) throw std::logic_error{"gumbel: steering requires every pending query answered"};
         for (const auto& pick : picks) validate_pick(pick);
         for (const auto& pick : picks) simulate(pick.path, pick.world, pick.descend);
-        if (leaves.empty()) {
-            for (const auto& path : backups) backup(path, s.record_worlds);
-            backups.clear();
-        }
+        if (leaves.empty()) flush();
         for (const auto& leaf : leaves) queries.push_back({leaf.state, leaf.actions});
     }
 
@@ -371,12 +409,12 @@ struct Gumbel::Impl {
         n.transitions.resize(n.keys.size(), TransitionKind::unknown);
     }
 
-    // Root: the best `count` by gumbel + logits + sigma among actions with exactly `considered` visits.
+    // Root: the best `count` by gumbel + logits + sigma among actions with exactly `considered` stage visits.
     std::vector<std::size_t> ranked(int considered, std::size_t count) const {
         const auto q = sigma(root, s);
         std::vector<std::size_t> edges;
         for (std::size_t i = 0; i < q.size(); ++i)
-            if (visits(root, i) == considered) edges.push_back(i);
+            if (stage_visits[i] == considered) edges.push_back(i);
         std::ranges::stable_sort(edges, std::greater{}, [&](std::size_t i) { return gumbel[i] + root.logits[i] + q[i]; });
         edges.resize(std::min(count, edges.size()));
         return edges;
@@ -423,9 +461,7 @@ struct Gumbel::Impl {
     }
 
     Result result() const {
-        int most = 0;
-        for (std::size_t i = 0; i < root.keys.size(); ++i) most = std::max(most, visits(root, i));
-        Result r{actions[ranked(most, 1).front()], actions, {}, float(root.backed_value)};
+        Result r{actions[ranked(max_stage_visits(), 1).front()], actions, {}, float(root.backed_value)};
         for (double p : Selection::policy(root, s)) r.policy.push_back(float(p));
         return r;
     }
