@@ -213,35 +213,35 @@ class Replay:
         rows = picked.tolist()
         requests = [row for row in rows if self.formats[row[0]] == TOKEN_FORMAT]
         legacy = iter(self.reader.read(requests)) if requests else iter(())
-        raw = [self._resident[file, offset] if self.formats[file] == SAMPLE_FORMAT else next(legacy)
-               for file, offset, _ in rows]
-        states = [record for row, record in zip(rows, raw) if self.formats[row[0]] == SAMPLE_FORMAT]
-        state_buffers, action_orders = [], []
-        for record in states:
-            version, state_bytes, actions, *_ = STATE_HEADER.unpack_from(record)
-            if version != encoding_bridge.state_codec_version():
-                raise ValueError('unsupported state codec version')
-            at = STATE_HEADER.size
-            state_buffers.append(record[at:at + state_bytes])
-            action_orders.append(np.frombuffer(record, dtype=np.uint32, count=actions,
-                                              offset=at + state_bytes).tolist())
-        encoded = iter(encoding_bridge.encode(state_buffers, action_orders, self.encoding)) if states else iter(())
-        records = []
-        for row, record in zip(rows, raw):
-            if self.formats[row[0]] == SAMPLE_FORMAT:
-                _version, state_bytes, actions, *targets = STATE_HEADER.unpack_from(record)
-                tokens = np.frombuffer(next(encoded), dtype=np.float32).reshape(-1, LAYOUT.width)
-                policy_at = STATE_HEADER.size + state_bytes + actions * 4
+        records, pending_states = [], []
+        for file, offset, _ in rows:
+            if self.formats[file] == SAMPLE_FORMAT:
+                raw = self._resident[file, offset]
+                version, state_bytes, actions, *targets = STATE_HEADER.unpack_from(raw)
+                if version != encoding_bridge.state_codec_version():
+                    raise ValueError('unsupported state codec version')
+                at = STATE_HEADER.size
+                order = np.frombuffer(raw, dtype=np.uint32, count=actions, offset=at + state_bytes).tolist()
+                pending_states.append((len(records), raw[at:at + state_bytes], order))
+                tokens = None
+                policy_at = at + state_bytes + actions * 4
             else:
-                count, actions, width, *targets = HEADER.unpack_from(record)
-                tokens = np.frombuffer(record, dtype=np.float32, count=count * width,
+                raw = next(legacy)
+                count, actions, width, *targets = HEADER.unpack_from(raw)
+                tokens = np.frombuffer(raw, dtype=np.float32, count=count * width,
                                        offset=HEADER.size).reshape(count, width)
                 policy_at = HEADER.size + count * width * 4
                 if self.encoding is not None and (width != LAYOUT.width or
                         tokens[0, LAYOUT.row.id2] != getattr(LAYOUT, self.encoding).version):
                     raise ValueError('legacy token replay does not match the requested encoding')
-            policy = np.frombuffer(record, dtype=np.float32, count=actions, offset=policy_at)
+            policy = np.frombuffer(raw, dtype=np.float32, count=actions, offset=policy_at)
             records.append((tokens, policy, targets))
+        if pending_states:
+            positions, states, action_orders = zip(*pending_states)
+            for position, encoded in zip(positions, encoding_bridge.encode(states, action_orders, self.encoding)):
+                _, policy, targets = records[position]
+                tokens = np.frombuffer(encoded, dtype=np.float32).reshape(-1, LAYOUT.width)
+                records[position] = (tokens, policy, targets)
         return records
 
     @staticmethod

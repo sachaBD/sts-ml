@@ -8,7 +8,7 @@ The network: two model types, each with its own input encoding, plus training.
 - `layout.toml`: every encoding's token layout and the sample record, the one source for both languages. C++ gets it as a header
   generated at build time; Python reads it (`layout.py`).
 - `entity/`: the entity model and its encoding.
-- `inventory/`: the inventory_v1 model and its encoding. It needs its own weights. State replay can train either encoding.
+- `inventory/`: the inventory_v1 model and its encoding. It needs its own weights and replay.
 - `pytorch_to_onnx.py`: writes the trained network as a model directory the player loads: the ONNX files
   and `network.toml`, which describes them (read by `network.cpp`).
 - `training/`: replay, losses, the learner, telemetry.
