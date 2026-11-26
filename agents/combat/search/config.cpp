@@ -1,17 +1,24 @@
 #include "agents/combat/search/config.hpp"
+#include "agents/combat/search/paired_turn/paired_turn.hpp"
 #include "agents/combat/search/rollout_blend/rollout_blend.hpp"
 #include <cmath>
 #include <stdexcept>
 
 namespace stsrl::search {
 void SearchConfig::validate() const {
-    if (sims < 0 || particles < 1 || considered_actions < 1 || !std::isfinite(gumbel_scale) || gumbel_scale < 0 ||
+    if (sims < 0 || particles < 1) throw std::invalid_argument{"search: nonnegative sims and positive particles required"};
+    if (algorithm == Algorithm::paired_turn &&
+        (gumbel_scale != 0 || rollout_mix != 0 || sieve_gain != 0 || record_worlds ||
+         considered_actions != Gumbel::Settings{}.considered_actions))
+        throw std::invalid_argument{"search: Gumbel settings do not apply to paired_turn"};
+    if (considered_actions < 1 || !std::isfinite(gumbel_scale) || gumbel_scale < 0 ||
         !(rollout_mix >= 0 && rollout_mix <= 1) || !std::isfinite(sieve_gain) || sieve_gain < 0)
-        throw std::invalid_argument{"search: nonnegative sims, gumbel scale and sieve gain, positive particles and considered actions, rollout mix in [0, 1]"};
+        throw std::invalid_argument{"search: nonnegative gumbel scale and sieve gain, positive considered actions, rollout mix in [0, 1]"};
 }
 
 GumbelSearch SearchConfig::create(const sts::BattleContext& state, int simulations, std::mt19937_64& random) const {
     validate();
+    if (algorithm != Algorithm::gumbel) throw std::invalid_argument{"search: inspection requires gumbel"};
     if (simulations < 0) throw std::invalid_argument{"search: nonnegative simulations"};
     Gumbel::Settings settings;
     settings.simulations = simulations;
@@ -31,6 +38,7 @@ GumbelSearch SearchConfig::create(const sts::BattleContext& state, int simulatio
 
 SearchFactory SearchConfig::factory() const {
     validate();
+    if (algorithm == Algorithm::paired_turn) return paired_turn(particles, world_draw);
     return [config = *this](const sts::BattleContext& state, int simulations, std::mt19937_64& random) {
         return config.create(state, simulations, random).search;
     };

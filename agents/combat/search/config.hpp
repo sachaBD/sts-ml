@@ -8,6 +8,8 @@ struct GumbelSearch {
     Gumbel& gumbel;  // inspection and steering handle; owned by search, even when wrapped for rollouts
 };
 
+enum class Algorithm { gumbel, paired_turn };
+
 struct SearchConfig {
     int sims, particles;  // sims: the full budget
     double gumbel_scale;  // 1 explores (self-play); 0 is deterministic (evaluation)
@@ -17,9 +19,11 @@ struct SearchConfig {
     bool record_worlds = Gumbel::Settings{}.record_worlds;  // per-link world visits for inspection only
     double sieve_gain = Gumbel::Settings{}.sieve_gain;
 
+    Algorithm algorithm = Algorithm::gumbel;
+
     void validate() const;  // throws on settings out of range
     GumbelSearch create(const sts::BattleContext&, int simulations, std::mt19937_64&) const;  // validates first
-    // Gumbel search; validates first.
+    // Configured search for play; validates first.
     SearchFactory factory() const;
 };
 }  // namespace stsrl::search
