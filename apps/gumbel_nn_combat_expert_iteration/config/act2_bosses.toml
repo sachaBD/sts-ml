@@ -1,9 +1,10 @@
 # inventory_v1 192x4 on all three act 2 bosses (Champ, Collector, Automaton; runs/benchmark/act2-bosses-v1),
-# warm from the best 192x4 Champ network. New runs need a new [run].id.
+# warm from the best 192x4 Champ network; Horizon search (lambda-priced adaptive stopping, no exploration noise) for
+# self-play and evaluation. New runs need a new [run].id.
 [run]
-id = "act2-bosses-v1-inventory48-192x4-cap256x32s20-warm-graph030"
+id = "act2-bosses-v1-inventory48-192x4-horizon256-warm-graph030"
 worker = "build/main/agents/combat/player/nn_play"
-seed_namespace = "act2-bosses-v1-inventory48-192x4-cap256x32s20"
+seed_namespace = "act2-bosses-v1-inventory48-192x4-horizon256"
 iterations = 0 # until stopped; finish the active update
 initial_checkpoint = "runs/networks/champ-192x4-graph-cyclefix-iter030.pt"
 recovery_retries = 2
@@ -20,11 +21,11 @@ potions = true
 excluded_potions = ["ELIXIR_POTION", "GAMBLERS_BREW"]
 
 [search]
-sims = 256
-cheap_sims = 32
-full_share = 0.2
-particles = 8
-gumbel_scale = 1.0
+algorithm = "horizon"
+sims = 256 # cap; lambda stops earlier
+lambda = 0.00006
+particles = 16
+gumbel_scale = 0.0 # unused by horizon
 rollout_mix = 0.0
 rollout_mix_decay = 0
 
@@ -80,10 +81,12 @@ fights = "runs/benchmark/act2-bosses-v1/validation_champ.jsonl"
 at = [0]
 every = 2
 [evaluation.sets.search]
+algorithm = "horizon"
 sims = 256
+lambda = 0.00006
+particles = 16
 gumbel_scale = 0.0
 rollout_mix = 0
-particles = 8
 
 [[evaluation.sets]]
 name = "validation_collector"
@@ -91,10 +94,12 @@ fights = "runs/benchmark/act2-bosses-v1/validation_collector.jsonl"
 at = [0]
 every = 2
 [evaluation.sets.search]
+algorithm = "horizon"
 sims = 256
+lambda = 0.00006
+particles = 16
 gumbel_scale = 0.0
 rollout_mix = 0
-particles = 8
 
 [[evaluation.sets]]
 name = "validation_automaton"
@@ -102,10 +107,12 @@ fights = "runs/benchmark/act2-bosses-v1/validation_automaton.jsonl"
 at = [0]
 every = 2
 [evaluation.sets.search]
+algorithm = "horizon"
 sims = 256
+lambda = 0.00006
+particles = 16
 gumbel_scale = 0.0
 rollout_mix = 0
-particles = 8
 
 [[evaluation.sets]]
 name = "legacy_core"
@@ -113,10 +120,12 @@ fights = "runs/benchmark/legacy-core50-extended10/legacy_core.jsonl"
 at = [0]
 every = 2
 [evaluation.sets.search]
+algorithm = "horizon"
 sims = 256
+lambda = 0.00006
+particles = 16
 gumbel_scale = 0.0
 rollout_mix = 0
-particles = 8
 
 [[evaluation.sets]]
 name = "legacy_extended"
@@ -124,7 +133,9 @@ fights = "runs/benchmark/legacy-core50-extended10/legacy_extended.jsonl"
 at = [0]
 every = 2
 [evaluation.sets.search]
+algorithm = "horizon"
 sims = 256
+lambda = 0.00006
+particles = 16
 gumbel_scale = 0.0
 rollout_mix = 0
-particles = 8
