@@ -1,0 +1,130 @@
+# inventory_v1 192x4 on all three act 2 bosses (Champ, Collector, Automaton; runs/benchmark/act2-bosses-v1),
+# warm from the best 192x4 Champ network. New runs need a new [run].id.
+[run]
+id = "act2-bosses-v1-inventory48-192x4-cap256x32s20-warm-graph030"
+worker = "build/main/agents/combat/player/nn_play"
+seed_namespace = "act2-bosses-v1-inventory48-192x4-cap256x32s20"
+iterations = 0 # until stopped; finish the active update
+initial_checkpoint = "runs/networks/champ-192x4-graph-cyclefix-iter030.pt"
+recovery_retries = 2
+min_free_gib = 10
+
+[starts]
+fights = "runs/benchmark/act2-bosses-v1/training.jsonl"
+per_iteration = 20000
+history_iterations = 15 # ~12 fights per deck in the window, as Champ's 10 x 10k over 7.9k decks
+win_rate_prior_strength = 1.0
+sampling_concentration = 0.5
+hp_jitter = 0.1
+potions = true
+excluded_potions = ["ELIXIR_POTION", "GAMBLERS_BREW"]
+
+[search]
+sims = 256
+cheap_sims = 32
+full_share = 0.2
+particles = 8
+gumbel_scale = 1.0
+rollout_mix = 0.0
+rollout_mix_decay = 0
+
+[training]
+steps = 1000 # with replay_window 5: Champ's 10k-fight replay size and per-state reuse
+batch = 2048
+value_batch = 128
+lr = 0.00015
+lr_half_life = 15
+lr_final = 0.0001
+replay_window = 5
+max_train_rows = 0
+balanced_replay = false
+prune_replay = true
+device = "cuda"
+
+[model]
+kind = "inventory_v1"
+value = "outcome"
+auxiliary = true
+dim = 192
+layers = 4
+heads = 6
+mixed_precision = true
+cpu_lanes = 2
+cpu_batch = 64
+
+[[model.deployments]]
+tokens = 48
+batches = [512, 256, 32]
+lanes = 2
+
+[[model.deployments]]
+tokens = 128
+batches = [128]
+lanes = 2
+
+[workers]
+actors = 9
+slots = 224
+gpu_wait_us = 100
+timeout_ms = 60000
+shutdown_timeout_ms = 5000
+
+[evaluation]
+baselines = "runs/benchmark/legacy-core50-extended10/baselines.json"
+final_fights = "runs/benchmark/act2-bosses-v1/final.jsonl"
+cohorts = "runs/benchmark/act2-bosses-v1/cohorts.json"
+
+[[evaluation.sets]]
+name = "validation_champ"
+fights = "runs/benchmark/act2-bosses-v1/validation_champ.jsonl"
+at = [0]
+every = 2
+[evaluation.sets.search]
+sims = 256
+gumbel_scale = 0.0
+rollout_mix = 0
+particles = 8
+
+[[evaluation.sets]]
+name = "validation_collector"
+fights = "runs/benchmark/act2-bosses-v1/validation_collector.jsonl"
+at = [0]
+every = 2
+[evaluation.sets.search]
+sims = 256
+gumbel_scale = 0.0
+rollout_mix = 0
+particles = 8
+
+[[evaluation.sets]]
+name = "validation_automaton"
+fights = "runs/benchmark/act2-bosses-v1/validation_automaton.jsonl"
+at = [0]
+every = 2
+[evaluation.sets.search]
+sims = 256
+gumbel_scale = 0.0
+rollout_mix = 0
+particles = 8
+
+[[evaluation.sets]]
+name = "legacy_core"
+fights = "runs/benchmark/legacy-core50-extended10/legacy_core.jsonl"
+at = [0]
+every = 2
+[evaluation.sets.search]
+sims = 256
+gumbel_scale = 0.0
+rollout_mix = 0
+particles = 8
+
+[[evaluation.sets]]
+name = "legacy_extended"
+fights = "runs/benchmark/legacy-core50-extended10/legacy_extended.jsonl"
+at = [0]
+every = 2
+[evaluation.sets.search]
+sims = 256
+gumbel_scale = 0.0
+rollout_mix = 0
+particles = 8
