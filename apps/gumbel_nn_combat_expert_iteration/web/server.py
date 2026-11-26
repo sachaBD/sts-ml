@@ -14,7 +14,8 @@ from infra.workers.telemetry import actors, evaluated_per_second, lanes, queues
 from agents.combat.nn.training.telemetry import training
 
 from ..dashboard import running, snapshot
-from ..reporting import baselines, by_deck, deck_of, jsonl, outcomes, paired, pool, rate, search_use, unpaired
+from ..reporting import (baselines, bosses, by_boss, by_deck, deck_of, jsonl, outcomes, paired, pool, rate, search_use,
+                         unpaired)
 
 PAGE = Path(__file__).with_name('ui') / 'web.html'
 TELEMETRY_PANEL = PAGE.with_name('telemetry.js')
@@ -24,6 +25,7 @@ LABELS = dict(mcts20k='MCTS20k', puct='PUCT')
 
 
 finished = lru_cache(maxsize=None)(outcomes)  # completed result files never change
+frozen_bosses = lru_cache(maxsize=None)(bosses)  # a run's inputs never change
 
 
 @lru_cache(maxsize=None)
@@ -95,9 +97,15 @@ def api(out, reference=None):
     progress = data['progress']
     its = sorted(r['iteration'] for r in history if r.get('iteration', 0) > 0 and 'games' in r)
     tests = sorted({r['test'] for r in history if 'test' in r and 'set' not in r})
-    train = [dict(it=i, rates=by_deck(finished(training / f'iter{i:03d}/results.jsonl'))) for i in its]
+    boss = frozen_bosses(out)
+    train = [dict(it=i, rates=by_boss(finished(training / f'iter{i:03d}/results.jsonl'), boss)) for i in its]
     test_results = {i: finished(training / f'test/iter{i:03d}/results.jsonl') for i in tests}
-    test = [dict(it=i, rates=by_deck(r)) for i, r in test_results.items()]
+    test = [dict(it=i, rates=by_boss(r, boss)) for i, r in test_results.items()]
+    sets = {}
+    for row in history:
+        if 'set' in row:
+            results = finished(training / f'test/iter{row["test"]:03d}/{row["set"]}/results.jsonl')
+            sets.setdefault(row['set'], []).append(dict(it=row['test'], rates=by_boss(results, boss)))
     loss = {}
     for row in history:
         if 'iteration' not in row:
@@ -115,7 +123,7 @@ def api(out, reference=None):
         b.update(loss=loss.get(b['it']), play=r.get('play_seconds'), fit=r.get('train_seconds'),
                  gps=r['games'] / r['play_seconds'] if r else None, gpu=gpu_summary(gpu) if gpu.exists() else {},
                  nn=finished_evaluated_per_second(str(directory / 'telemetry.jsonl')), search=search_use(r))
-    decks = sorted({d for b in train + test for d in b['rates'] if d != 'all'})
+    groups = sorted({d for b in train + test for d in b['rates'] if d != 'all'})
 
     trend = []
     recent, before = train[-WINDOW:], train[-2 * WINDOW:-WINDOW]
@@ -124,14 +132,14 @@ def api(out, reference=None):
     if new_eval is not None:
         a, b = test_results[new_eval], test_results[old_eval]
         for k in a.keys() & b.keys():
-            eval_groups.setdefault(deck_of(k), []).append(k)
+            eval_groups.setdefault(boss[deck_of(k)], []).append(k)
         eval_groups['all'] = [k for keys in eval_groups.values() for k in keys]
-    for deck in ['all'] + decks:
-        row = dict(deck=deck, train=pool(recent, deck) if recent else None)
+    for group in ['all'] + groups:
+        row = dict(group=group, train=pool(recent, group) if recent else None)
         if len(before) == WINDOW:
-            row['train_d'] = unpaired(row['train'], pool(before, deck))
+            row['train_d'] = unpaired(row['train'], pool(before, group))
         if new_eval is not None:
-            keys = eval_groups.get(deck, [])
+            keys = eval_groups.get(group, [])
             row['eval'] = rate(sum(a[k] for k in keys), len(keys))
             row['eval_d'] = paired(a, b, keys)
         trend.append(row)
@@ -145,7 +153,7 @@ def api(out, reference=None):
         directory = Path(progress['directory'])
         results = outcomes(directory / 'results.jsonl')
         live = dict(test='/test/' in str(directory), done=len(results), total=progress['total'],
-                    rates=by_deck(results))
+                    rates=by_boss(results, boss))
         starts = directory / 'starts.jsonl'
         elapsed = time.time() - (starts.stat().st_mtime if starts.exists() else progress['time'])
         speed['stage'] = len(results) / elapsed if elapsed > 0 else None
@@ -154,7 +162,7 @@ def api(out, reference=None):
         if speed['typical'] and not live['test']:
             speed['eta'] = max(0, progress['total'] / speed['typical'] - elapsed)
     return dict(state=data['state'], run=data['config']['run']['id'], progress=progress, live=live,
-                speed=speed, system=system(), train=train, test=test, decks=decks, trend=trend,
+                speed=speed, system=system(), train=train, test=test, sets=sets, bosses=groups, trend=trend,
                 compare=comparison(out, history, reference),
                 windows=dict(train=WINDOW, eval=[new_eval, old_eval]))
 

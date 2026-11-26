@@ -7,7 +7,7 @@ import shutil
 import time
 import tomllib
 
-from .reporting import baselines, deck_of, jsonl, outcomes, score, search_use
+from .reporting import baselines, bosses, by_boss, deck_of, jsonl, outcomes, score, search_use
 
 
 def running(training):
@@ -66,11 +66,18 @@ def snapshot(out):
         groups = {group: score({k: v for k, v in combined.items() if cohorts.get(deck_of(k)) == group}, references)
                   for group in sorted(set(cohorts.values())) if any(cohorts.get(deck_of(k)) == group for k in combined)}
         evaluations.append(dict(iteration=it, all=score(results, references), decks=decks, cohorts=groups))
+    boss = bosses(out)
+    self_play = (dict(iteration=latest, rates=by_boss(outcomes(training / f'iter{latest:03d}/results.jsonl'), boss))
+                 if latest else None)
+    named = {r['set']: r['test'] for r in rows if 'set' in r}  # each set's latest completed evaluation
+    sets = [dict(set=name, iteration=it, rates=by_boss(outcomes(training / f'test/iter{it:03d}/{name}/results.jsonl'), boss))
+            for name, it in named.items()]
     return dict(version=1, state=state, config=config, progress=progress, recovery=recovery,
                 progress_age_seconds=time.time() - progress['time'] if progress else None,
                 last_completed_iteration=latest,
                 checkpoint=str(checkpoint) if checkpoint and checkpoint.exists() else None,
                 updates=[r for r in completed if r['iteration'] > 0][-10:], evaluations=evaluations,
+                self_play=self_play, sets=sets,
                 validation_wall_fraction=sum(r['seconds'] for r in rows if 'test' in r) /
                     max(1, sum(r.get('play_seconds', 0) + r.get('train_seconds', 0) + r.get('seconds', 0) for r in rows)),
                 disk_free_bytes=shutil.disk_usage(out).free, logs=str(out.parent / 'logs'))
@@ -118,6 +125,19 @@ def main():
                    if use else '')
         print(f'{row["iteration"]:4}  {row["wins"]:5}/{row["games"]:<5}  {row["states"]:11,} '
               f'{row["play_seconds"]:8} {row["train_seconds"]:15}{economy}')
+    if data['self_play']:
+        rates = data['self_play']['rates']
+        print(f'\nSelf-play by boss, iteration {data["self_play"]["iteration"]} (share of fights):')
+        for name, s in rates.items():
+            print(f'  {name:12} {s["w"]:6,}/{s["n"]:<6,} {100 * s["p"]:5.1f}%  ({100 * s["n"] / rates["all"]["n"]:.0f}%)')
+    if data['sets']:
+        print('\nEvaluation sets, latest (95% Wilson):')
+        for row in data['sets']:
+            for name, s in row['rates'].items():
+                if name == 'all' and len(row['rates']) == 2:
+                    continue  # one boss: 'all' repeats it
+                print(f'  {row["set"]:24} iter{row["iteration"]:03d} {name:12} {s["w"]:5}/{s["n"]:<5} '
+                      f'{100 * s["p"]:5.1f}% [{100 * s["ci"][0]:.1f}, {100 * s["ci"][1]:.1f}]')
     print(f'\nValidation wall share: {100 * data["validation_wall_fraction"]:.1f}% (includes initial baseline)')
     print('Evaluation: family-clustered approximate 95% bounds; per-deck Wilson bounds. One training run, unadjusted.')
     print('MCTS20k/PUCT are historical matched-start references; policy names and simulator rules differ.')

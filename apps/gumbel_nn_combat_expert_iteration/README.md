@@ -116,6 +116,8 @@ telemetry”; failed requests clear prior readings. The API does not expose samp
 view cannot independently detect an old telemetry file. Busy time is not GPU compute utilisation.
 
 **Agent quality** remains a separate view using `/api`. No new production endpoint or sampler is added.
+It and `status` group results by boss: the encounter of each deck's start (`inputs/starts.json` and evaluation inputs),
+with each boss's share of self-play fights and every named evaluation set's latest result.
 The separate `--mock` preview uses `/api/mock`; only mock mode displays synthetic resource cards and
 the richer execution prototype. There is no `/api/health` endpoint.
 
