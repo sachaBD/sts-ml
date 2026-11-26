@@ -167,6 +167,12 @@
         Historical and current fight coverage, simulators, and training exposure differ.</p>
     </div>
     <div class="card"><div class="label">Win rate · 95% CI</div><div id="overall" style="height:300px"></div></div>
+    <div class="grid g2">
+      <div class="card"><div class="label">Self-play by boss</div><div class="table-wrap" id="bossTable"></div>
+        <p class="sub">Last iteration, and pooled over the smoothing window. Share: that boss's fraction of the fights.</p></div>
+      <div class="card"><div class="label">Evaluation sets</div><div class="table-wrap" id="setTable"></div>
+        <p class="sub">Latest and previous evaluation of each set (same fights). Hover for 95% Wilson intervals.</p></div>
+    </div>
   </section>
 </main>
 
@@ -200,6 +206,7 @@ function batchRate(d) {
 function update(d) {
   data = d;
   renderComparisons();
+  renderBosses();
   const p = d.progress || {}, batch = batchRate(d), evaluation = d.test[d.test.length - 1]?.rates.all;
   $('run').textContent = d.run;
   $('stateText').textContent = d.state;
@@ -207,7 +214,8 @@ function update(d) {
   $('stage').textContent = [...new Set([p.stage, p.phase].filter(Boolean))].join(' · ');
   if (batch?.n) T('live', batch.p);
   if (evaluation?.n) T('eval', evaluation.p);
-  const key = [activeView, d.train.length, d.test.length, smooth, iterationSmooth].join('|');
+  const key = [activeView, d.train.length, d.test.length, Object.values(d.sets).flat().length, smooth,
+               iterationSmooth].join('|');
   if (key !== chartKey) { chartKey = key; charts(); }
 }
 
@@ -245,6 +253,44 @@ function renderComparisons() {
   }
 }
 
+function cell(tag, text, title) {
+  const element = document.createElement(tag);
+  element.textContent = text;
+  if (title) element.title = title;
+  return element;
+}
+function rateCell(r) {
+  return cell('td', r?.n ? `${int(r.w)} / ${int(r.n)} (${pct(r.p)})` : '—',
+              r?.n ? `95% Wilson interval: ${pct(r.ci[0])}–${pct(r.ci[1])}` : null);
+}
+function table(root, headings, rows) {
+  const t = document.createElement('table'), head = document.createElement('tr');
+  for (const h of headings) head.append(cell('th', h));
+  t.append(head);
+  for (const [cls, cells] of rows) {
+    const tr = document.createElement('tr'); if (cls) tr.className = cls;
+    tr.append(...cells); t.append(tr);
+  }
+  root.replaceChildren(t);
+}
+function renderBosses() {
+  const last = data.train[data.train.length - 1];
+  if (!last) $('bossTable').textContent = 'No completed self-play iteration.';
+  else table($('bossTable'), ['Boss', 'Share', `Iter ${last.it}`, `Last ${smooth}`],
+    [...data.bosses, 'all'].map(b => {
+      const r = last.rates[b], p = pooled(b)[data.train.length - 1];
+      return [b === 'all' ? 'all' : '', [cell('td', b === 'all' ? 'All bosses' : b),
+        cell('td', r?.n ? pct(r.n / last.rates.all.n) : '—'), rateCell(r), rateCell(p)]];
+    }));
+  const names = Object.keys(data.sets);
+  if (!names.length) { $('setTable').textContent = 'No completed evaluation set.'; return; }
+  table($('setTable'), ['Set', 'Iter', 'Win rate', 'Previous'], names.map(name => {
+    const runs = data.sets[name], now = runs[runs.length - 1], before = runs[runs.length - 2];
+    return ['', [cell('td', name), cell('td', now.it), rateCell(now.rates.all),
+                 before ? rateCell(before.rates.all) : cell('td', '—')]];
+  }));
+}
+
 // Trailing windows: quality pools wins/games (Wilson CI); per-iteration metrics average.
 function wilson(w, n) {
   if (!n) return [null, null];
@@ -279,6 +325,7 @@ const SMALL = { ...LAYOUT, margin: { l: 40, r: 40, t: 4, b: 24 }, legend: { orie
                 xaxis: AXIS, yaxis: { ...AXIS, rangemode: 'tozero' },
                 yaxis2: { ...AXIS, overlaying: 'y', side: 'right', showgrid: false, rangemode: 'tozero' } };
 const CONFIG = { displayModeBar: false, responsive: true };
+const PALETTE = ['#5fd39a', '#c39bff', '#ff9f5a', '#4fd1d9', '#ef6b6b', '#f0b46a', '#e3d36a', '#9aa5b1'];
 const alpha = (hex, a) => hex + Math.round(a * 255).toString(16).padStart(2, '0');
 const HOVER = '%{y:.1%} (%{customdata[0]}/%{customdata[1]}, %{customdata[2]:.1%}–%{customdata[3]:.1%})<extra>';
 
@@ -293,9 +340,9 @@ function band(key, c, name) {
   ];
 }
 
-function evalPoints(key, c, name, bars) {
-  const s = data.test.map(r => r.rates[key]);
-  return { x: data.test.map(r => r.it), y: s.map(v => v && v.p), name, mode: 'markers', showlegend: bars,
+function evalPoints(key, c, name, bars, runs = data.test) {
+  const s = runs.map(r => r.rates[key]);
+  return { x: runs.map(r => r.it), y: s.map(v => v && v.p), name, mode: 'markers', showlegend: bars,
     marker: { color: bars ? c : 'rgba(0,0,0,0)', size: bars ? 7 : 6, line: { color: c, width: 1.5 } },
     error_y: bars ? { type: 'data', symmetric: false, color: c, thickness: 1, width: 3,
                       array: s.map(v => v && v.ci[1] - v.p), arrayminus: s.map(v => v && v.p - v.ci[0]) } : undefined,
@@ -308,8 +355,14 @@ function line(y, name, c, extra = {}) {
 
 function charts() {
   if (activeView === 'quality') {
-    Plotly.react('overall', [...band('all', '#6ea8fe', 'training'), evalPoints('all', '#f0b46a', 'evaluation', true)],
-                 LAYOUT, CONFIG);
+    const bosses = data.bosses.length > 1 ? data.bosses : [];
+    const sets = Object.entries(data.sets);
+    Plotly.react('overall', [
+      ...band('all', '#6ea8fe', 'training'),
+      ...bosses.flatMap((b, i) => band(b, PALETTE[i % PALETTE.length], `training ${b}`)),
+      ...(data.test.length ? [evalPoints('all', '#f0b46a', 'evaluation', true)] : []),
+      ...sets.map(([name, runs], i) => evalPoints('all', PALETTE[(bosses.length + i) % PALETTE.length], name, true, runs)),
+    ], LAYOUT, CONFIG);
     return;
   }
 
@@ -357,7 +410,7 @@ $('smooth').value = smooth; $('smoothVal').textContent = smooth;
 $('smooth').oninput = e => {
   smooth = +e.target.value; $('smoothVal').textContent = smooth;
   localStorage.setItem('smooth', smooth);
-  if (data) { chartKey = ''; charts(); }
+  if (data) { chartKey = ''; charts(); renderBosses(); }
 };
 
 // Share the same three-second half-life as the execution view.

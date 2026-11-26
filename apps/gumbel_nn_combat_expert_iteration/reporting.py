@@ -2,6 +2,8 @@
 import json
 import math
 
+from sts_lightspeed.enums import ENCOUNTERS
+
 from .files import read_jsonl
 
 Z = 1.96
@@ -38,6 +40,25 @@ def by_deck(results):
     for k, won in results.items():
         decks.setdefault(deck_of(k), []).append(won)
     out = {d: rate(sum(v), len(v)) for d, v in sorted(decks.items())}
+    out['all'] = rate(sum(results.values()), len(results))
+    return out
+
+
+def bosses(out):
+    """{deck: encounter name} for every deck in the run's frozen self-play pool and evaluation sets."""
+    starts = json.loads((out / 'inputs/starts.json').read_text())
+    encounters = {f['fight_id']: f['start']['encounter'] for f in starts}
+    for path in sorted((out / 'inputs/evaluation').glob('*.jsonl')):
+        encounters |= {deck_of(f['fight_id']): f['start']['encounter'] for f in read_jsonl(path)}
+    return {deck: ENCOUNTERS[e] for deck, e in encounters.items()}
+
+
+def by_boss(results, boss):
+    """Win rates by the encounter of each fight's deck (boss: {deck: encounter name}), plus 'all'."""
+    groups = {}
+    for k, won in results.items():
+        groups.setdefault(boss[deck_of(k)], []).append(won)
+    out = {b: rate(sum(v), len(v)) for b, v in sorted(groups.items())}
     out['all'] = rate(sum(results.values()), len(results))
     return out
 
