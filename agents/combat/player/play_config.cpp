@@ -44,13 +44,20 @@ private:
 };
 
 PlayConfig parse(const toml::table& root) {
-    PlayConfig c;
+    PlayConfig c{};
     Table search{root, "search"};
     c.search.sims = search.get<int>("sims");
     c.search.particles = search.get<int>("particles");
-    c.search.gumbel_scale = search.get<double>("gumbel_scale");
-    c.search.rollout_mix = search.get<double>("rollout_mix");
-    if (search.has("sieve_gain")) c.search.sieve_gain = search.get<double>("sieve_gain");
+    const auto algorithm = search.has("algorithm") ? search.get<std::string>("algorithm") : "gumbel";
+    if (algorithm == "gumbel") {
+        c.search.gumbel_scale = search.get<double>("gumbel_scale");
+        c.search.rollout_mix = search.get<double>("rollout_mix");
+        if (search.has("sieve_gain")) c.search.sieve_gain = search.get<double>("sieve_gain");
+    } else if (algorithm == "paired_turn") {
+        c.search.algorithm = stsrl::search::Algorithm::paired_turn;
+    } else {
+        throw std::invalid_argument{"unknown [search].algorithm " + algorithm};
+    }
     c.budget = {.full = c.search.sims, .cheap = c.search.sims, .full_share = 1};
     if (search.has("cheap_sims") || search.has("full_share"))
         c.budget = {.full = c.search.sims, .cheap = search.get<int>("cheap_sims"),

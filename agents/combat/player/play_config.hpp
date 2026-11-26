@@ -8,7 +8,8 @@
 
 namespace stsrl::player {
 struct PlayConfig {
-    search::SearchConfig search;  // [search]; optional sieve_gain (0 = off)
+    // [search].algorithm defaults to gumbel. paired_turn uses sims and particles, not the Gumbel settings.
+    search::SearchConfig search;
     // Full searches use [search].sims. Optional [search].cheap_sims and full_share (both or neither) make the
     // other decisions cheap; without them every search is full.
     BudgetRule budget;
