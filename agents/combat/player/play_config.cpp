@@ -51,6 +51,16 @@ PlayConfig parse(const toml::table& root) {
     c.search.gumbel_scale = search.get<double>("gumbel_scale");
     c.search.rollout_mix = search.get<double>("rollout_mix");
     if (search.has("sieve_gain")) c.search.sieve_gain = search.get<double>("sieve_gain");
+    if (search.has("algorithm")) c.search.algorithm = search.get<std::string>("algorithm");
+    if (search.has("init_contenders")) c.search.horizon.init_contenders = search.get<int>("init_contenders");
+    if (search.has("init_worlds")) c.search.horizon.init_worlds = search.get<int>("init_worlds");
+    if (search.has("wave_worlds")) c.search.horizon.wave_worlds = search.get<int>("wave_worlds");
+    if (search.has("max_plunge_choices")) c.search.horizon.max_plunge_choices = search.get<int>("max_plunge_choices");
+    if (search.has("horizon_turns")) c.search.horizon.horizon_turns = search.get<int>("horizon_turns");
+    if (search.has("c_puct")) c.search.horizon.c_puct = search.get<double>("c_puct");
+    if (search.has("readout_k0")) c.search.horizon.readout_k0 = search.get<double>("readout_k0");
+    if (search.has("prior_se")) c.search.horizon.prior_se = search.get<double>("prior_se");
+    if (search.has("lambda")) c.search.horizon.lambda = search.get<double>("lambda");
     c.budget = {.full = c.search.sims, .cheap = c.search.sims, .full_share = 1};
     if (search.has("cheap_sims") || search.has("full_share"))
         c.budget = {.full = c.search.sims, .cheap = search.get<int>("cheap_sims"),

@@ -1,6 +1,8 @@
 #pragma once
 // The one place that constructs the configured search, including rollout blending.
 #include "agents/combat/search/gumbel/gumbel.hpp"
+#include "agents/combat/search/horizon/horizon.hpp"
+#include <string>
 
 namespace stsrl::search {
 struct GumbelSearch {
@@ -16,10 +18,12 @@ struct SearchConfig {
     std::uint64_t world_draw = Gumbel::Settings{}.world_draw;
     bool record_worlds = Gumbel::Settings{}.record_worlds;  // per-link world visits for inspection only
     double sieve_gain = Gumbel::Settings{}.sieve_gain;
+    std::string algorithm = "gumbel";  // "gumbel" (default) or "horizon"
+    Horizon::Settings horizon{};
 
     void validate() const;  // throws on settings out of range
     GumbelSearch create(const sts::BattleContext&, int simulations, std::mt19937_64&) const;  // validates first
-    // Gumbel search; validates first.
+    // Configured search ("gumbel" or "horizon"); validates first.
     SearchFactory factory() const;
 };
 }  // namespace stsrl::search
