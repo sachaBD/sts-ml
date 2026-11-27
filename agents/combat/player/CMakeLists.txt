@@ -1,5 +1,5 @@
 # The agent: a search guided by the network, playing fights (nn_play).
-add_library(player_decision STATIC budget.cpp decision.cpp targets.cpp)
+add_library(player_decision STATIC budget.cpp decision.cpp probe_grader.cpp targets.cpp)
 target_link_libraries(player_decision PUBLIC nn_tokens combat_search)
 target_compile_options(player_decision PRIVATE -Wall -Wextra -Wpedantic)
 
@@ -13,7 +13,7 @@ add_library(player_config STATIC play_config.cpp)
 target_link_libraries(player_config PUBLIC combat_search infra_actors PRIVATE tomlplusplus::tomlplusplus)
 target_compile_options(player_config PRIVATE -Wall -Wextra -Wpedantic)
 
-foreach(test budget_test decision_test targets_test)
+foreach(test budget_test decision_test probe_grader_test targets_test)
     add_executable(player_${test} ${test}.cpp)
     target_link_libraries(player_${test} PRIVATE player_decision combat_scenarios GTest::gtest_main)
     target_compile_options(player_${test} PRIVATE -Wall -Wextra -Wpedantic)
