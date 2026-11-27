@@ -20,7 +20,7 @@ constexpr int thinking_rounds = nn::layout::sample::thinking_rounds;
 constexpr auto& thinking_budgets = nn::layout::sample::thinking_budgets;
 static_assert(std::size(thinking_budgets) == thinking_rounds);
 constexpr double probe_probability = 0.0625;
-constexpr search::Horizon::Settings probe_settings{.simulations = 256, .particles = 16, .lambda = 0.0};
+constexpr search::Horizon::Settings probe_settings{.simulations = 160, .particles = 16, .lambda = 0.0};
 constexpr GradeSettings grade_settings{.particles = 8, .horizon_turns = 1};
 using Gains = std::array<float, thinking_rounds>;
 
