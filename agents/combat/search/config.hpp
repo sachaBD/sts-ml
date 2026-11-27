@@ -18,12 +18,12 @@ struct SearchConfig {
     std::uint64_t world_draw = Gumbel::Settings{}.world_draw;
     bool record_worlds = Gumbel::Settings{}.record_worlds;  // per-link world visits for inspection only
     double sieve_gain = Gumbel::Settings{}.sieve_gain;
-    std::string algorithm = "gumbel";  // "gumbel" (default) or "horizon"
+    std::string algorithm = "gumbel";
     Horizon::Settings horizon{};
 
     void validate() const;  // throws on settings out of range
     GumbelSearch create(const sts::BattleContext&, int simulations, std::mt19937_64&) const;  // validates first
-    // Configured search ("gumbel" or "horizon"); validates first.
+    // Configured search; validates first.
     SearchFactory factory() const;
 };
 }  // namespace stsrl::search

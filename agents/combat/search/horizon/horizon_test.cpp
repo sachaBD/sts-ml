@@ -291,3 +291,20 @@ TEST(Horizon, ComputePriceCanStopSearchButCannotChangeEarlierCheckpoints) {
         EXPECT_EQ(a.selected_q, b.selected_q);
     }
 }
+
+TEST(Horizon, UnifiedPricesOpeningAndStillProbesWithBlindHead) {
+    const auto start = scenarios::jaw_worm(19);
+    for (const auto& [gain, price] : {std::pair{0.f, 0.}, {0.f, 0.01}, {0.5f, 0.01}}) {
+        Horizon::Settings settings{.simulations = 24, .lambda = price, .use_thinking = true};
+        Horizon search{start, settings, 42};
+        int calls = 0;
+        run(search, [&](const Query& q) {
+            ++calls;
+            auto answer = deterministic_eval(q);
+            answer.thinking.resize(4);
+            answer.thinking[1] = gain;
+            return answer;
+        });
+        EXPECT_EQ(calls == 1, price > 0 && gain == 0);
+    }
+}

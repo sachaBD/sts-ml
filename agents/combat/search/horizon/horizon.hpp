@@ -24,6 +24,7 @@ public:
         double prior_se = 0.05;      // Bernoulli-scaled gap uncertainty regularization at low sample counts
         double lambda = 6e-5;        // expected win-rate gain per NN eval required for another wave (0 = fixed cap)
         std::uint64_t world_draw = 0;
+        bool use_thinking = false;
     };
 
     using Wave = Checkpoint;

@@ -242,6 +242,9 @@ struct Horizon::Impl {
     int total_evals = 0;
     int sims_done = 0;
     int next_world_idx = 0;
+    // The second Horizon teacher target is signed gain over the prior at 24 non-root evals.
+    static constexpr int opening_budget = 24;
+    double opening_gain = 0;
 
     // Distinct-world links at root + world-difficulty-adjusted action means.
     struct WorldLink {
@@ -381,6 +384,11 @@ struct Horizon::Impl {
         total_evals += int(evals.size());
         for (std::size_t i = 0; i < evals.size(); ++i) {
             auto& n = *leaves[i].node;
+            if (&n == &root && s.use_thinking) {
+                if (evals[i].thinking.size() != 4 || !std::isfinite(evals[i].thinking[1]))
+                    throw std::invalid_argument{"unified: expected four Horizon thinking outputs with finite 24-eval gain"};
+                opening_gain = evals[i].thinking[1];
+            }
             n.evaluated = true;
             n.turn = leaves[i].state.turn;
             n.value = double(evals[i].value);
@@ -406,7 +414,9 @@ struct Horizon::Impl {
             if (phase == Phase::root) {
                 chosen_edge = std::size_t(root.greedy_edge);
                 emit_checkpoint();
-                if (root_actions.size() <= 1 || std::min(root.value, 1.0 - root.value) < 5e-4 || s.simulations <= 0) {
+                const bool skip_opening = s.use_thinking ? s.lambda > 0 && opening_gain <= s.lambda * opening_budget
+                                                         : std::min(root.value, 1.0 - root.value) < 5e-4;
+                if (root_actions.size() <= 1 || skip_opening || s.simulations <= 0) {
                     phase = Phase::done;
                     return;
                 }
@@ -698,7 +708,10 @@ struct Horizon::Impl {
 
         const double avg_rate = double(total_evals) / double(std::max(1, sims_done));
         const double cost_2 = std::max(1.0, 2.0 * double(w_r) * avg_rate);
-        if (s.lambda > 0.0 && best_voi <= s.lambda * cost_2) return false;
+        // A flat first comparison does not refute the forecast for a whole short search.
+        const bool finish_opening = s.use_thinking && total_evals - 1 < opening_budget
+                                 && best_edge() == std::size_t(root.greedy_edge);
+        if (!finish_opening && s.lambda > 0.0 && best_voi <= s.lambda * cost_2) return false;
 
         std::vector<std::size_t> wave_edges{leader, *best_c};
         launch_wave(wave_edges, w_r);

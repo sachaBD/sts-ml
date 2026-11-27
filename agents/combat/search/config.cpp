@@ -8,8 +8,10 @@ void SearchConfig::validate() const {
     if (sims < 0 || particles < 1 || considered_actions < 1 || !std::isfinite(gumbel_scale) || gumbel_scale < 0 ||
         !(rollout_mix >= 0 && rollout_mix <= 1) || !std::isfinite(sieve_gain) || sieve_gain < 0)
         throw std::invalid_argument{"search: nonnegative sims, gumbel scale and sieve gain, positive particles and considered actions, rollout mix in [0, 1]"};
-    if (algorithm != "gumbel" && algorithm != "horizon")
+    if (algorithm != "gumbel" && algorithm != "horizon" && algorithm != "unified")
         throw std::invalid_argument{"search: unknown algorithm " + algorithm};
+    if (algorithm == "unified" && (gumbel_scale != 0 || rollout_mix != 0))
+        throw std::invalid_argument{"unified: deterministic play only; set gumbel_scale and rollout_mix to zero"};
     if (horizon.init_contenders < 2 || horizon.init_worlds < 1 || horizon.wave_worlds < 1 ||
         horizon.max_plunge_choices < 1 || horizon.horizon_turns < 1 ||
         !std::isfinite(horizon.c_puct) || horizon.c_puct < 0 ||
@@ -40,10 +42,11 @@ GumbelSearch SearchConfig::create(const sts::BattleContext& state, int simulatio
 
 SearchFactory SearchConfig::factory() const {
     validate();
-    if (algorithm == "horizon") {
+    if (algorithm == "horizon" || algorithm == "unified") {
         return [config = *this](const sts::BattleContext& state, int simulations, std::mt19937_64& random)
             -> std::unique_ptr<CombatSearch> {
             auto hs = config.horizon;
+            hs.use_thinking = config.algorithm == "unified";
             hs.simulations = simulations;
             hs.particles = config.particles;
             hs.world_draw = config.world_draw;

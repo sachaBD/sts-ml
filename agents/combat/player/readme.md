@@ -12,6 +12,13 @@ interfaces:
 `Decision` joins one search to the network. `Episodes` (`episodes.hpp`) hands fights to infra as `infra::Episode`s, so infra
 batches the network calls of every fight in flight ([infra's contract](../../../infra/workers/readme.md)).
 
+For deterministic experimental play, `[search].algorithm = "unified"` uses the Horizon teacher's
+24-eval thinking output to price the opening comparison; `lambda` prices subsequent paired waves
+as well. Use a checkpoint trained on the Horizon `[8, 24, 64, 160]` targets (a four-output Gumbel
+checkpoint is **not** interchangeable), `gumbel_scale = 0`, and `rollout_mix = 0`. The `sims`
+setting remains a safety cap on simulations, not a count of NN requests. Compare costs with the
+fight result's `network_requests`, which excludes cache hits. This mode does not train a new head.
+
 ## Why a separate process
 
 Each play stage is a fresh `nn_play` process: it gets a fresh CUDA context, never shares the GPU with the
