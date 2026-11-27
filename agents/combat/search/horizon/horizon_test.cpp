@@ -235,3 +235,59 @@ TEST(Horizon, ProgressiveTwoTurnHorizonExecutesCleanly) {
     expect_valid_result(r);
     EXPECT_GT(seen.size(), 1u);
 }
+
+TEST(Horizon, CheckpointsCountOnlyAnsweredNonRootQueries) {
+    auto s = Horizon::Settings{};
+    s.simulations = 48;
+    s.lambda = 0;
+    int answered = 0;
+    std::optional<int> last_count;
+    Horizon search{scenarios::jaw_worm(53), s, 11, [&](const Horizon::Wave& wave) {
+        last_count = wave.evals;
+        EXPECT_GE(answered, 1);
+        EXPECT_EQ(wave.evals, answered - 1);
+    }};
+    run(search, [&](const Query& q) { ++answered; return deterministic_eval(q); });
+    EXPECT_GT(answered, 1) << "exercise non-root accounting";
+    EXPECT_EQ(last_count, answered - 1);
+}
+
+TEST(Horizon, LastCheckpointRecommendsTheReturnedMove) {
+    for (const int budget : {0, 48}) {
+        SCOPED_TRACE(budget);
+        auto s = Horizon::Settings{};
+        s.simulations = budget;
+        std::optional<Horizon::Wave> last;
+        Horizon search{scenarios::jaw_worm(53), s, 11, [&](const Horizon::Wave& wave) { last = wave; }};
+        const auto result = run(search, deterministic_eval);
+        ASSERT_TRUE(last);
+        EXPECT_EQ(last->selected, result.action);
+    }
+}
+
+TEST(Horizon, ComputePriceCanStopSearchButCannotChangeEarlierCheckpoints) {
+    const auto start = scenarios::jaw_worm(53);
+    auto s = Horizon::Settings{};
+    s.simulations = 160;
+    const auto trace = [&](double price) {
+        s.lambda = price;
+        std::vector<Horizon::Wave> checkpoints;
+        Horizon search{start, s, 11, [&](const Horizon::Wave& wave) { checkpoints.push_back(wave); }};
+        run(search, deterministic_eval);
+        return checkpoints;
+    };
+    const auto full = trace(0), priced = trace(1);
+    ASSERT_FALSE(priced.empty());
+    ASSERT_LT(priced.size(), full.size()) << "exercise early stopping";
+    for (std::size_t i = 0; i < priced.size(); ++i) {
+        SCOPED_TRACE(i);
+        const auto& a = priced[i];
+        const auto& b = full[i];
+        EXPECT_EQ(a.simulations, b.simulations);
+        EXPECT_EQ(a.evals, b.evals);
+        EXPECT_EQ(a.prior, b.prior);
+        EXPECT_EQ(a.selected, b.selected);
+        EXPECT_EQ(a.prior_q, b.prior_q);
+        EXPECT_EQ(a.selected_q, b.selected_q);
+    }
+}

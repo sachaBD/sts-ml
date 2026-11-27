@@ -96,5 +96,8 @@ class EntityModel(CombatModel):
         retained = torch.cat([hidden[:, :1], hidden[:, 1 + pooled_count:]], dim=1)
         scores = self.policy(retained).squeeze(-1).float()
         logits = torch.full_like(rows.kind, MASKED_LOGIT).scatter(1, index, scores)
-        return value, logits.masked_fill(~rows.is_kind(TokenKind.ACTION), MASKED_LOGIT), self.thinking(hidden[:, 0]).float()
+        legal = rows.is_kind(TokenKind.ACTION)
+        logits = logits.masked_fill(~legal, MASKED_LOGIT)
+        thinking = self.thinking(hidden[:, 0], win_probability(value, self.spec), logits, legal).float()
+        return value, logits, thinking
 

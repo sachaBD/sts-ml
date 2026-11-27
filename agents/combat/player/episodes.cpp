@@ -2,7 +2,7 @@
 #include "agents/combat/player/decision.hpp"
 #include "agents/combat/player/probe_grader.hpp"
 #include "agents/combat/player/targets.hpp"
-#include "agents/combat/search/gumbel/gumbel.hpp"
+#include "agents/combat/search/horizon/horizon.hpp"
 #include "environments/combat/fight_start.hpp"
 #include "environments/combat/state_codec.hpp"
 #include <chrono>
@@ -20,8 +20,7 @@ constexpr int thinking_rounds = nn::layout::sample::thinking_rounds;
 constexpr auto& thinking_budgets = nn::layout::sample::thinking_budgets;
 static_assert(std::size(thinking_budgets) == thinking_rounds);
 constexpr double probe_probability = 0.0625;
-constexpr search::Gumbel::Settings probe_settings{.simulations = 256, .considered_actions = 16, .particles = 16,
-                                                  .spend_even_budget = true, .wave_checkpoints = true};
+constexpr search::Horizon::Settings probe_settings{.simulations = 160, .particles = 16, .lambda = 0.0};
 constexpr GradeSettings grade_settings{.particles = 8, .horizon_turns = 1};
 using Gains = std::array<float, thinking_rounds>;
 
@@ -30,7 +29,7 @@ std::uint64_t probe_particle_stream(const sts::BattleContext& observed) {
            (probe_settings.world_draw * 0x9E3779B97F4A7C15ull);
 }
 
-Json checkpoint(int budget, const search::Gumbel::Round& r, std::optional<float> gain) {
+Json checkpoint(int budget, const search::Checkpoint& r, std::optional<float> gain) {
     return {{"budget", budget}, {"evals", r.evals}, {"simulations", r.simulations},
             {"prior", r.prior.bits}, {"selected", r.selected.bits},
             {"prior_q", r.prior_q ? Json(*r.prior_q) : Json(nullptr)},
@@ -66,8 +65,8 @@ struct Episodes::Game {
     std::optional<Decision> decision, probe;
     std::optional<ProbeGrader> grader;
     std::vector<infra::Tokens> grade_requests;
-    std::vector<search::Gumbel::Round> rounds;
-    std::vector<std::optional<search::Gumbel::Round>> resolved;
+    std::vector<search::Checkpoint> rounds;
+    std::vector<std::optional<search::Checkpoint>> resolved;
     Json traces = Json::array();
     Gains gains;
     std::array<int, thinking_rounds> coverage{};
@@ -171,8 +170,8 @@ struct Episodes::Game {
             gains.fill(std::numeric_limits<float>::quiet_NaN());
             rounds.clear();
             if (probed) {
-                probe.emplace(std::make_unique<search::Gumbel>(fight.state(), probe_settings, probe_random(),
-                    [this](const search::Gumbel::Round& round) { rounds.push_back(round); }), episodes.network_);
+                probe.emplace(std::make_unique<search::Horizon>(fight.state(), probe_settings, probe_random(),
+                    [this](const search::Checkpoint& wave) { rounds.push_back(wave); }), episodes.network_);
             }
             const auto budget = episodes.budget_({fight.after_chance()}, random);
             full = budget.full;
@@ -234,12 +233,13 @@ void Episodes::finish(const Game& g) {
     if (stage_ == Stage::self_play)
         record["thinking"] = {{"evals", g.probe_evals}, {"grade_evals", g.grade_evals},
             {"coverage", g.coverage}, {"probes", g.traces},
-            {"settings", {{"probability", probe_probability}, {"simulations", probe_settings.simulations},
-                {"particles", probe_settings.particles}, {"considered_actions", probe_settings.considered_actions},
-                {"wave", probe_settings.wave}, {"world_draw", probe_settings.world_draw},
-                {"gumbel_scale", probe_settings.gumbel_scale}, {"sieve_gain", probe_settings.sieve_gain},
-                {"value_scale", probe_settings.value_scale}, {"maxvisit_init", probe_settings.maxvisit_init},
-                {"spend_even_budget", probe_settings.spend_even_budget}, {"rollout_mix", 0},
+            {"settings", {{"teacher", "horizon"}, {"probability", probe_probability},
+                {"simulations", probe_settings.simulations}, {"particles", probe_settings.particles},
+                {"init_contenders", probe_settings.init_contenders}, {"init_worlds", probe_settings.init_worlds},
+                {"wave_worlds", probe_settings.wave_worlds}, {"max_plunge_choices", probe_settings.max_plunge_choices},
+                {"horizon_turns", probe_settings.horizon_turns}, {"c_puct", probe_settings.c_puct},
+                {"readout_k0", probe_settings.readout_k0}, {"prior_se", probe_settings.prior_se},
+                {"lambda", probe_settings.lambda}, {"world_draw", probe_settings.world_draw},
                 {"checkpoints", std::vector<int>(std::begin(thinking_budgets), std::end(thinking_budgets))},
                 {"grade_particles", grade_settings.particles},
                 {"grade_horizon_turns", grade_settings.horizon_turns},

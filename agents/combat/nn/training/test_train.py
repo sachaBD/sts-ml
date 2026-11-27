@@ -103,6 +103,27 @@ class TrainingTests(unittest.TestCase):
             self.assertEqual(gains.shape, (len(x), THINKING_ROUNDS))
             torch.testing.assert_close((value, policy), expected)
 
+    def test_thinking_head_handles_small_k_is_padding_invariant_and_uses_policy_value_summaries(self):
+        torch.manual_seed(0)
+        for kind in ('entity', 'inventory_v1'):
+            net = build_model(ModelSpec(kind, 8, 1, 1, 'win', False)).eval()
+            with torch.no_grad():
+                net.thinking.net[-1].weight.fill_(0.25)
+            for length in (2, 3, 5):  # K = 1, 2, 4 legal actions
+                x = net.example_tokens(2, length)
+                padded = torch.cat([x, torch.zeros(2, 3, x.shape[-1])], dim=1)
+                _, _, g = net.predict(x)
+                _, _, g_pad = net.predict(padded)
+                self.assertTrue(torch.isfinite(g).all())
+                torch.testing.assert_close(g, g_pad, rtol=1e-5, atol=1e-5)
+            # Same hidden state with different policy logits produces different thinking output.
+            hidden = torch.zeros(2, 8)
+            legal = torch.tensor([[False, True, True, True], [False, True, True, True]])
+            sharp = torch.tensor([[-1e9, 5., 0., 0.], [-1e9, 5., 0., 0.]])
+            flat_ = torch.tensor([[-1e9, 0., 0., 0.], [-1e9, 0., 0., 0.]])
+            v = torch.tensor([0.5, 0.5])
+            self.assertFalse(torch.allclose(net.thinking(hidden, v, sharp, legal), net.thinking(hidden, v, flat_, legal)))
+
 
 class OutcomeBinTests(unittest.TestCase):
     def test_outcome_bins_rank_every_loss_below_every_win(self):

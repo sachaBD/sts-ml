@@ -63,17 +63,7 @@ public:
     void simulate(std::span<const Pick>);  // requires pending().empty(); `world` indexes the draw's stream
     sts::BattleContext state(std::span<const std::size_t> path, int world) const;
 
-    struct Round {
-        int simulations;
-        Action prior, selected;
-        std::optional<double> prior_q, selected_q;
-        int evals = 0;  // cumulative non-root NN evaluations answered so far
-        std::optional<float> gain() const {
-            if (prior.bits == selected.bits) return 0.f;
-            if (prior_q && selected_q) return float(*selected_q - *prior_q);
-            return std::nullopt;
-        }
-    };
+    using Round = Checkpoint;
     using OnRound = std::function<void(const Round&)>;
     Gumbel(const sts::BattleContext& observed, const Settings&, std::uint64_t seed, OnRound = {});
     ~Gumbel() override;

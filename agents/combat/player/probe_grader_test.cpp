@@ -144,7 +144,7 @@ TEST(ProbeGrader, GradingStreamIsDisjointFromProbeAndPlayStreams) {
 TEST(ResolveCheckpoints, MapsEvalBudgetsCarriesForwardAndMasksAboveCap) {
     const auto a = legal_actions(stsrl::scenarios::jaw_worm(7));
     ASSERT_GE(a.size(), 3u);
-    using Round = Gumbel::Round;
+    using Round = Checkpoint;
     const std::array budgets{8, 24, 64, 160};
     // Wave 1 costs 12 (> 8), wave 2 costs 24, search finishes early at 40 (< 64 and < 160).
     const std::array trace{
