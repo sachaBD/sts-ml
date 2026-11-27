@@ -156,9 +156,9 @@ The reserved final fights (`[evaluation].final_fights`) are copied with the run 
 ### ThinkingHead supervision
 
 Self-play samples each player decision with probability 1/16, including cheap decisions.
-A sampled root gets one evaluation-mode Gumbel probe: 256 total simulations over 16
-worlds, on a separate RNG stream. The fight never plays the probe's recommendation.
-At root (`evals = 0`) and each completed search wave, the probe records its cumulative
+A sampled root gets one shared-particle `Horizon` probe (`lambda = 0.0`, 256 max
+simulations, 16 worlds) on a separate RNG stream. The fight never plays the probe's
+recommendation. At root (`evals = 0`) and each completed search wave, the probe records its cumulative
 non-root NN evaluations and the move it would commit if stopped there (breaking ties in
 legal action order, matching the argmax prior). The 4 `ThinkingHead` slots correspond to
 fixed search-eval budgets `[8, 24, 64, 160]`, each taking the commit at the last completed

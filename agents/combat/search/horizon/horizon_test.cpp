@@ -235,3 +235,42 @@ TEST(Horizon, ProgressiveTwoTurnHorizonExecutesCleanly) {
     expect_valid_result(r);
     EXPECT_GT(seen.size(), 1u);
 }
+
+TEST(Horizon, WaveCheckpointsTrackNonRootEvalsAndLambdaIsAnExactPrefix) {
+    const auto start = scenarios::jaw_worm(53);
+    Horizon::Settings full_s;
+    full_s.simulations = 48;
+    full_s.particles = 8;
+    full_s.lambda = 0.0;
+
+    std::vector<Horizon::Wave> full_trace;
+    int full_queries = 0;
+    Horizon full{start, full_s, 11, [&](const Horizon::Wave& w) {
+        if (!full_trace.empty()) {
+            EXPECT_GE(w.evals, full_trace.back().evals);
+        }
+        full_trace.push_back(w);
+    }};
+    const auto full_result = run(full, [&](const Query& q) { ++full_queries; return deterministic_eval(q); });
+    ASSERT_GT(full_trace.size(), 2u);
+    EXPECT_EQ(full_trace.front().simulations, 0);
+    EXPECT_EQ(full_trace.front().evals, 0);
+    EXPECT_EQ(full_trace.front().selected, full_trace.front().prior);
+    EXPECT_EQ(full_trace.back().evals, full_queries - 1);  // excludes root eval
+    EXPECT_EQ(full_trace.back().selected, full_result.action);
+
+    // Any positive lambda stops at an exact prefix of the lambda = 0 wave trace.
+    Horizon::Settings priced_s = full_s;
+    priced_s.lambda = 0.01;
+    std::vector<Horizon::Wave> priced_trace;
+    Horizon priced{start, priced_s, 11, [&](const Horizon::Wave& w) { priced_trace.push_back(w); }};
+    const auto priced_result = run(priced, deterministic_eval);
+    ASSERT_GE(priced_trace.size(), 2u);
+    ASSERT_LE(priced_trace.size(), full_trace.size());
+    EXPECT_EQ(priced_trace.back().selected, priced_result.action);
+    for (std::size_t i = 0; i < priced_trace.size(); ++i) {
+        EXPECT_EQ(priced_trace[i].simulations, full_trace[i].simulations);
+        EXPECT_EQ(priced_trace[i].evals, full_trace[i].evals);
+        EXPECT_EQ(priced_trace[i].selected, full_trace[i].selected);
+    }
+}

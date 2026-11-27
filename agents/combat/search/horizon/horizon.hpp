@@ -26,7 +26,9 @@ public:
         std::uint64_t world_draw = 0;
     };
 
-    Horizon(const sts::BattleContext& observed, const Settings&, std::uint64_t seed);
+    using Wave = Checkpoint;
+    using OnWave = std::function<void(const Wave&)>;
+    Horizon(const sts::BattleContext& observed, const Settings&, std::uint64_t seed, OnWave = {});
     ~Horizon() override;
     std::span<const Query> pending() const override;
     void evaluated(std::span<const Evaluation>) override;

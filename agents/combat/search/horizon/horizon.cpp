@@ -226,6 +226,7 @@ struct Horizon::Impl {
     enum class Phase { root, search, done };
 
     Settings s;
+    OnWave on_wave;
     Particles particles;
     int root_turn;
     std::uint64_t root_obs;
@@ -253,8 +254,9 @@ struct Horizon::Impl {
     std::vector<Lane> active_lanes;
     std::size_t chosen_edge = 0;
 
-    Impl(const sts::BattleContext& observed, const Settings& settings, std::uint64_t /*seed*/)
+    Impl(const sts::BattleContext& observed, const Settings& settings, std::uint64_t /*seed*/, OnWave callback)
         : s{settings},
+          on_wave{std::move(callback)},
           particles{observed, std::max(settings.particles, settings.init_worlds),
                     observed.seed ^ (std::uint64_t(observed.turn) << 32) ^ (settings.world_draw * 0x9E3779B97F4A7C15ull)},
           root_turn{observed.turn},
@@ -403,6 +405,7 @@ struct Horizon::Impl {
         for (;;) {
             if (phase == Phase::root) {
                 chosen_edge = std::size_t(root.greedy_edge);
+                emit_checkpoint();
                 if (root_actions.size() <= 1 || std::min(root.value, 1.0 - root.value) < 5e-4 || s.simulations <= 0) {
                     phase = Phase::done;
                     return;
@@ -423,6 +426,7 @@ struct Horizon::Impl {
             if (phase == Phase::search) {
                 if (step_lanes()) return;  // waiting for GPU batch
                 flush_wave();
+                emit_checkpoint();
                 if (!schedule_next_wave()) {
                     finalize();
                     return;
@@ -701,7 +705,7 @@ struct Horizon::Impl {
         return !active_lanes.empty();
     }
 
-    void finalize() {
+    std::size_t best_edge() const {
         std::size_t best = std::size_t(root.greedy_edge);
         double best_sc = -std::numeric_limits<double>::infinity();
         for (std::size_t e = 0; e < root.keys.size(); ++e) {
@@ -712,7 +716,22 @@ struct Horizon::Impl {
                 best = e;
             }
         }
-        chosen_edge = best;
+        return best;
+    }
+
+    void emit_checkpoint() const {
+        if (!on_wave) return;
+        const auto prior = std::size_t(root.greedy_edge);
+        const auto selected = sims_done ? best_edge() : prior;
+        const auto estimate = [&](std::size_t e) -> std::optional<double> {
+            return root_worlds[e].empty() ? std::nullopt : std::optional<double>{root_q(e)};
+        };
+        on_wave({sims_done, root_actions[prior], root_actions[selected],
+                 estimate(prior), estimate(selected), std::max(0, total_evals - 1)});
+    }
+
+    void finalize() {
+        chosen_edge = best_edge();
         phase = Phase::done;
     }
 
@@ -732,8 +751,8 @@ struct Horizon::Impl {
     }
 };
 
-Horizon::Horizon(const sts::BattleContext& observed, const Settings& settings, std::uint64_t seed)
-    : impl_{std::make_unique<Impl>(observed, settings, seed)} {}
+Horizon::Horizon(const sts::BattleContext& observed, const Settings& settings, std::uint64_t seed, OnWave on_wave)
+    : impl_{std::make_unique<Impl>(observed, settings, seed, std::move(on_wave))} {}
 Horizon::~Horizon() = default;
 
 std::span<const Query> Horizon::pending() const { return impl_->queries; }

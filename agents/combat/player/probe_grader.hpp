@@ -1,5 +1,4 @@
 #pragma once
-#include "agents/combat/search/gumbel/gumbel.hpp"
 #include "agents/combat/search/search.hpp"
 #include "combat/BattleContext.h"
 #include <cstdint>
@@ -12,8 +11,8 @@ namespace stsrl::player {
 // Maps wave-boundary probe checkpoints onto fixed cumulative search-eval budgets.
 // Each slot takes the last completed boundary with evals <= budget (carrying forward on early finish);
 // slots strictly above eval_cap (when randomly capped) are masked as nullopt.
-std::vector<std::optional<search::Gumbel::Round>> resolve_checkpoints(
-    std::span<const search::Gumbel::Round> trace,
+std::vector<std::optional<search::Checkpoint>> resolve_checkpoints(
+    std::span<const search::Checkpoint> trace,
     std::span<const int> budgets,
     std::optional<int> eval_cap = std::nullopt);
 
