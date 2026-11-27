@@ -226,7 +226,7 @@ class ExpertIterationInvariants(unittest.TestCase):
         (self.out / 'inputs/evaluation/retention.jsonl').write_bytes(
             (self.out / 'inputs/evaluation/validation.jsonl').read_bytes())
         config = CONFIG + EVALUATION.replace('name = "validation"', 'name = "retention"')
-        publish = expert_iteration.evaluation_batch.publish
+        publish = expert_iteration.publish_partition
 
         def interrupted(directory, *args, **kwargs):
             if directory.name == 'retention':
@@ -235,7 +235,7 @@ class ExpertIterationInvariants(unittest.TestCase):
                 raise RuntimeError('interrupted evaluation')
             return publish(directory, *args, **kwargs)
 
-        with patch.object(expert_iteration.evaluation_batch, 'publish', side_effect=interrupted), \
+        with patch.object(expert_iteration, 'publish_partition', side_effect=interrupted), \
                 self.assertRaisesRegex(RuntimeError, 'interrupted evaluation'):
             self.run_loop(config=config)
         control = self.run_loop(resume_from=0, config=config)
