@@ -16,9 +16,9 @@ AUXILIARY_WEIGHT = 0.25
 
 # losses() order. Policy batches train policy and the per-round heads, which differ for every state;
 # value batches train value and turns, which are shared by a whole combat. Win BCE is only measured.
-LOSSES = ('value', 'policy', 'win', 'round', 'turns')
-OBJECTIVE = torch.tensor([1., 1., 0., AUXILIARY_WEIGHT, AUXILIARY_WEIGHT])
-POLICY_SIDE = torch.tensor([0., 1., 0., 1., 0.])
+LOSSES = ('value', 'policy', 'win', 'round', 'turns', 'thinking')
+OBJECTIVE = torch.tensor([1., 1., 0., AUXILIARY_WEIGHT, AUXILIARY_WEIGHT, 1.])
+POLICY_SIDE = torch.tensor([0., 1., 0., 1., 0., 1.])
 VALUE_SIDE = 1 - POLICY_SIDE
 
 
@@ -38,39 +38,56 @@ def outcome_bin(targets):
     return torch.where(targets[:, WON] > 0, win, loss).long()
 
 
+def loss_counts(policy, y):
+    # Probe-only rows carry no policy mass and must not train the existing objectives.
+    rows = policy.sum(-1).gt(0).sum()
+    labels = y[:, len(TARGETS):].isfinite().sum()
+    return torch.stack((rows, rows, rows, rows, rows, labels))
+
+
 def losses(net, x, target, y, device):
-    """Mean LOSSES of one microbatch. Value is win BCE for spec.value == 'win', otherwise outcome-bin
-    cross-entropy; round (HP and enemy HP lost) and turns are MSE, zero without spec.auxiliary."""
+    """Per-objective means over supervised entries; no label contributes no gradient."""
     x, target, y = x.to(device), target.to(device), y.to(device)
     with torch.autocast(device, torch.bfloat16):
-        context, logits = net.heads(x.float())
+        context, logits, thinking = net.readouts(x.float())
     context = context.float()
+    base = target.sum(-1).gt(0)
+
+    def base_mean(values):
+        return values.masked_fill(~base, 0).sum() / base.sum().clamp_min(1)
+
     win = win_probability(context, net.spec).clamp(1e-6, 1 - 1e-6)
     won = y[:, WON]
-    win_loss = -(won * win.log() + (1 - won) * (1 - win).log()).mean()
+    win_loss = base_mean(-(won * win.log() + (1 - won) * (1 - win).log()))
     width = value_width(net.spec)
-    value_loss = win_loss if net.spec.value == 'win' else F.cross_entropy(context[:, :width], outcome_bin(y))
-    policy_loss = -(target * logits.float().log_softmax(-1)).sum(-1).mean()
+    value_loss = win_loss if net.spec.value == 'win' else base_mean(
+        F.cross_entropy(context[:, :width], outcome_bin(y), reduction='none'))
+    policy_loss = base_mean(-(target * logits.float().log_softmax(-1)).sum(-1))
     round_loss = turns_loss = torch.zeros((), device=device)
     if net.spec.auxiliary:
         predicted = context[:, width:]
         scale = torch.tensor([MAX_TURNS if name == 'turns_remaining' else 1. for name in AUXILIARY], device=device)
-        squared = dict(zip(AUXILIARY, (predicted - y[:, [TARGETS.index(name) for name in AUXILIARY]] / scale)
-                           .square().mean(0)))
-        round_loss, turns_loss = squared['hp_lost'] + squared['enemy_hp_lost'], squared['turns_remaining']
-    return torch.stack((value_loss, policy_loss, win_loss, round_loss, turns_loss))
+        squared = (predicted - y[:, [TARGETS.index(name) for name in AUXILIARY]] / scale).square()
+        round_loss, turns_loss = base_mean(squared[:, :2].sum(-1)), base_mean(squared[:, 2])
+    gains = y[:, len(TARGETS):]
+    mask = gains.isfinite()
+    error = (thinking[:, :gains.shape[1]].float() - gains.masked_fill(~mask, 0)).masked_fill(~mask, 0)
+    thinking_loss = error.square().sum() / mask.sum().clamp_min(1)
+    return torch.stack((value_loss, policy_loss, win_loss, round_loss, turns_loss, thinking_loss))
 
 
 @torch.no_grad()
 def score(net, replay, rows, batch, device='cuda'):
     """Mean LOSSES using replay's policy sampling distribution; changes nothing."""
     net.eval()
-    totals, count = torch.zeros(len(LOSSES), device=device), 0
+    totals = torch.zeros(len(LOSSES), device=device)
+    counts = torch.zeros_like(totals)
     for _ in range(-(-rows // batch)):
         for x, target, y in replay.batches(batch):
-            totals += len(y) * losses(net, x, target, y, device)
-            count += len(y)
-    return tuple((totals / count).tolist())
+            count = loss_counts(target, y).to(device)
+            totals += count * losses(net, x, target, y, device)
+            counts += count
+    return tuple((totals / counts.clamp_min(1)).tolist())
 
 
 def train(net, optimizer, tokens, policy, targets, steps, batch=512, device='cuda', log=print, *, value_batch=0,
@@ -97,10 +114,15 @@ def train(net, optimizer, tokens, policy, targets, steps, batch=512, device='cud
     if not value_batch:
         policy_side = torch.ones_like(policy_side)  # one shared batch trains and measures everything
 
-    def accumulate(x, target, y, side, weight):
-        measured = side * loss_fn(net, x, target, y, device)
-        ((objective * measured).sum() * weight).backward()
-        totals.add_(weight * measured.detach())
+    def accumulate(batches, side):
+        if not batches:
+            return
+        counts = torch.stack([loss_counts(target, y) for _, target, y in batches]).to(device)
+        weights = side * counts / counts.sum(0).clamp_min(1)
+        for (x, target, y), weight in zip(batches, weights):
+            measured = weight * loss_fn(net, x, target, y, device)
+            (objective * measured).sum().backward()
+            totals.add_(measured.detach())
 
     start, totals = time.monotonic(), torch.zeros(len(LOSSES), device=device)
     next_report = start + 1
@@ -115,10 +137,8 @@ def train(net, optimizer, tokens, policy, targets, steps, batch=512, device='cud
                 i = torch.randint(len(targets), (batch,), device=device)
                 batches, value_batches = [(tokens[i], policy[i], targets[i])], []
             optimizer.zero_grad(set_to_none=True)
-            for x, target, y in batches:
-                accumulate(x, target, y, policy_side, len(y) / batch)
-            for x, target, y in value_batches:
-                accumulate(x, target, y, value_side, len(y) / value_batch)
+            accumulate(batches, policy_side)
+            accumulate(value_batches, value_side)
             torch.nn.utils.clip_grad_norm_(net.parameters(), 1.0, error_if_nonfinite=True)
             optimizer.step()
             if on_counters and (step == steps or time.monotonic() >= next_report):

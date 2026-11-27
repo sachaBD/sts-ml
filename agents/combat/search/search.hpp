@@ -4,6 +4,7 @@
 #include "sim/search/Action.h"
 #include <functional>
 #include <memory>
+#include <optional>
 #include <random>
 #include <span>
 #include <type_traits>
@@ -29,6 +30,18 @@ struct Result {
     std::vector<Action> actions;
     std::vector<float> policy;
     WinProbability value;
+};
+
+struct Checkpoint {
+    int simulations;
+    Action prior, selected;
+    std::optional<double> prior_q, selected_q;
+    int evals = 0;  // cumulative non-root NN evaluations answered so far
+    std::optional<float> gain() const {
+        if (prior.bits == selected.bits) return 0.f;
+        if (prior_q && selected_q) return float(*selected_q - *prior_q);
+        return std::nullopt;
+    }
 };
 
 class CombatSearch {

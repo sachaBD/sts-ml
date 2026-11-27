@@ -26,6 +26,8 @@ def cpp(table, indent=''):
     for key, value in table.items():
         if isinstance(value, dict) and set(value) == {'id', 'features'}:
             lines.append(f'{indent}inline constexpr Kind {key}{{{value["id"]}, {value["features"]}}};')
+        elif isinstance(value, list) and value and all(isinstance(v, int) for v in value):
+            lines.append(f'{indent}inline constexpr int {key}[]{{{", ".join(map(str, value))}}};')
         elif isinstance(value, list):
             indices = {**{name: i for i, name in enumerate(value)}, 'count': len(value)}
             lines += [f'{indent}namespace {key} {{', *cpp(indices, indent + '    '), f'{indent}}}  // namespace {key}']

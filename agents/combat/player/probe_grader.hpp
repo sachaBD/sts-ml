@@ -8,6 +8,14 @@
 #include <vector>
 
 namespace stsrl::player {
+// Maps wave-boundary probe checkpoints onto fixed cumulative search-eval budgets.
+// Each slot takes the last completed boundary with evals <= budget (carrying forward on early finish);
+// slots strictly above eval_cap (when randomly capped) are masked as nullopt.
+std::vector<std::optional<search::Checkpoint>> resolve_checkpoints(
+    std::span<const search::Checkpoint> trace,
+    std::span<const int> budgets,
+    std::optional<int> eval_cap = std::nullopt);
+
 struct GradeSettings {
     int particles = 8;
     int horizon_turns = 1;  // evaluate at fight end or once state.turn >= root.turn + horizon_turns

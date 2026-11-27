@@ -36,7 +36,11 @@ SEARCH_COUNTS = ('searches', 'full_searches', 'network_requests', 'reused_reques
 
 def collection_stats(results):
     finished = sorted(r['finished_unix'] for r in results)
-    return dict(capped=sum(r['capped'] for r in results),
+    thinking = [r['thinking'] for r in results if 'thinking' in r]
+    stats = dict(probe_evals=sum(r['evals'] for r in thinking),
+                 probed_decisions=sum(len(r['probes']) for r in thinking),
+                 probe_coverage=[sum(counts) for counts in zip(*(r['coverage'] for r in thinking))]) if thinking else {}
+    return dict(**stats, capped=sum(r['capped'] for r in results),
                 tail95_seconds=finished[-1] - finished[int(.95 * (len(finished) - 1))] if finished else None,
                 **{k: sum(r[k] for r in results) for k in SEARCH_COUNTS})
 
@@ -184,7 +188,8 @@ class ExpertIteration:
         batch = Batch({name: self.tests[name] for name in names}, id_field='fight_id') if combined else None
         begin = time.time()
         results = self.play(f'evaluation {", ".join(names)} iteration {it}', self.control.iteration(it),
-                            batch.jobs if combined else self.tests[names[0]], stage_dir, evaluation_search(sets[0].search))
+                            batch.jobs if combined else self.tests[names[0]], stage_dir,
+                            evaluation_search(sets[0].search), evaluation=True)
         by_set = batch.split(results) if combined else {names[0]: results}
         for name in names:
             rows = by_set.get(name, [])
@@ -200,10 +205,10 @@ class ExpertIteration:
         if combined or self.config.training.prune_replay:
             delete_samples(stage_dir)
 
-    def play(self, stage, models, games, directory, search):
+    def play(self, stage, models, games, directory, search, *, evaluation=False):
         self.control.status(stage=stage, phase='play', done=0, total=len(games), directory=str(directory))
         return play(self.inputs / 'nn_play', models, games, directory, dict(search=search, workers=self.config.workers),
-                    progress=lambda done, pid: self.control.status(stage=stage, phase='play', done=done,
+                    evaluation=evaluation, progress=lambda done, pid: self.control.status(stage=stage, phase='play', done=done,
                                                                    total=len(games), child_pid=pid,
                                                                    directory=str(directory)))
 

@@ -3,7 +3,7 @@ import torch
 from torch import nn
 
 from agents.combat.nn.layout import LAYOUT
-from agents.combat.nn.model import CombatModel
+from agents.combat.nn.model import CombatModel, ThinkingHead, win_probability
 from agents.combat.nn.tokens import ID_CAPACITY, MASKED_LOGIT, ROW, WIDTH, TokenRows
 
 INVENTORY_V1 = LAYOUT.inventory_v1  # layout.toml's [inventory_v1], which inventory/encoding.cpp writes
@@ -41,6 +41,7 @@ class InventoryModel(CombatModel):
         self.norm = nn.LayerNorm(dim)
         self._init_context_readout()
         self.policy = nn.Linear(dim, 1)
+        self.thinking = ThinkingHead(dim)
 
     def example_tokens(self, batch=2, length=3):
         tokens = torch.zeros(batch, length, WIDTH)
@@ -62,7 +63,7 @@ class InventoryModel(CombatModel):
         return (self.kind(kind) + self.id(namespace * ID_CAPACITY + rows.id)
                 + self.id2(rows.id2) + self.numeric(numeric))
 
-    def heads(self, tokens):
+    def readouts(self, tokens):
         rows = TokenRows(tokens)
         embedded = self._embed(tokens)
         # Attach effects to their owners before actions read their sources/targets. Otherwise two
@@ -81,5 +82,7 @@ class InventoryModel(CombatModel):
         # An entity replay or incorrectly selected native encoder must not silently train this model.
         compatible = (tokens[:, 0, 0] == CONTEXT) & (tokens[:, 0, 2] == VERSION)
         context = torch.where(compatible[:, None], context, torch.full_like(context, float('nan')))
-        logits = self.policy(hidden).squeeze(-1).float().masked_fill(~rows.is_kind(ACTION), MASKED_LOGIT)
-        return context, logits
+        legal = rows.is_kind(ACTION)
+        logits = self.policy(hidden).squeeze(-1).float().masked_fill(~legal, MASKED_LOGIT)
+        thinking = self.thinking(hidden[:, 0], win_probability(context, self.spec), logits, legal).float()
+        return context, logits, thinking.masked_fill(~compatible[:, None], float('nan'))

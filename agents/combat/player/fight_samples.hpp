@@ -8,7 +8,8 @@ namespace stsrl::player {
 // Owns one fight's replay rows, not the decision of which roots to keep.
 class FightSamples {
 public:
-    void record(const sts::BattleContext&, std::vector<search::Action>, std::vector<float> policy);
+    using Gains = std::array<float, nn::layout::sample::thinking_rounds>;
+    void record(const sts::BattleContext&, std::vector<search::Action>, std::vector<float> policy, Gains);
     void write(std::ostream&, std::span<const Vitals> turn_starts, const sts::BattleContext& end) const;
     std::size_t size() const { return samples_.size(); }
 
@@ -18,6 +19,7 @@ private:
         std::vector<search::Action> actions;
         std::vector<float> policy;
         Vitals vitals;
+        Gains gains;
     };
     static void write_sample(std::ostream&, const Sample&, std::span<const Vitals>, const sts::BattleContext&);
     std::vector<Sample> samples_;

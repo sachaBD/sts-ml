@@ -3,7 +3,7 @@ from dataclasses import asdict
 
 import torch
 
-from agents.combat.nn.model import build_model
+from agents.combat.nn.model import THINKING_ROUNDS, build_model
 from agents.combat.nn.training.replay import TARGETS
 from agents.combat.nn.training.train import losses, score, train
 
@@ -25,7 +25,7 @@ class Learner:
         self.net.train()
         policy = torch.zeros(tokens.shape[:2])
         policy[:, 1:] = 1 / (tokens.shape[1] - 1)  # uniform over example_tokens' legal actions
-        self.losses(self.net, tokens, policy, torch.ones(len(tokens), len(TARGETS)), self.device).sum().backward()
+        self.losses(self.net, tokens, policy, torch.ones(len(tokens), len(TARGETS) + THINKING_ROUNDS), self.device).sum().backward()
         self.optimizer.zero_grad(set_to_none=True)
 
     def fit(self, replay, steps, batch, log=print, *, value_batch=0, on_counters=None, lr=None):
@@ -49,8 +49,24 @@ class Learner:
         checkpoint = torch.load(path, map_location='cpu', weights_only=True)
         if checkpoint['spec'] != asdict(self.net.spec):
             raise ValueError(f'{path}: architecture {checkpoint["spec"]} differs from {self.net.spec}')
-        self.net.load_state_dict(checkpoint['net'])
-        self.optimizer.load_state_dict(checkpoint['optimizer'])
+        weights = checkpoint['net']
+        optimizer = checkpoint['optimizer']
+        thinking_keys = [k for k in self.net.state_dict() if k.startswith('thinking.')]
+        saved_thinking = [k for k in weights if k.startswith('thinking.')]
+        if saved_thinking != thinking_keys:
+            # Thinking parameters are last. Preserve Adam moments for every existing parameter.
+            weights = {**{k: v for k, v in weights.items() if not k.startswith('thinking.')},
+                       **{k: v for k, v in self.net.state_dict().items() if k.startswith('thinking.')}}
+            saved, = optimizer['param_groups']
+            current, = self.optimizer.state_dict()['param_groups']
+            keep = len(current['params']) - len(thinking_keys)
+            if saved['params'][:keep] != current['params'][:keep] or len(saved['params']) != keep + len(saved_thinking):
+                raise ValueError(f'{path}: unsupported legacy optimizer parameter layout')
+            for param_id in saved['params'][keep:]:
+                optimizer['state'].pop(param_id, None)
+            saved['params'] = current['params']
+        self.net.load_state_dict(weights)
+        self.optimizer.load_state_dict(optimizer)
         torch.set_rng_state(checkpoint['rng'])
         if checkpoint['cuda_rng'] and self.device.startswith('cuda'):
             torch.cuda.set_rng_state_all(checkpoint['cuda_rng'])

@@ -155,3 +155,21 @@ To resume by hand: stop any orphan `nn_play`, move the partial `iterNNN` aside, 
 the experiment.
 
 The reserved final fights (`[evaluation].final_fights`) are copied with the run and never played by it.
+
+### ThinkingHead supervision
+
+ThinkingHead learns from side probes during self-play. Probes do not change the moves
+played, and evaluation fights do not collect them. Iteration summaries report probe
+evaluation spend and label coverage.
+
+To compare predictions
+against the search teacher on new decks (not against realized win gain):
+
+```sh
+.venv/bin/python -m apps.gumbel_nn_combat_expert_iteration.tools.thinking_report \
+    MODEL.pt --train TRAIN/samples-0.bin --heldout HELDOUT/samples-0.bin
+```
+
+Use held-out **self-play** sample files. The report bins by predicted gain separately
+per budget and reports teacher means, row/fight/deck counts, and 95% bootstrap intervals
+with whole decks (and all their fights) resampled together within each bin.

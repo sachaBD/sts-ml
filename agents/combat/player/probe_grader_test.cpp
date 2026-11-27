@@ -127,3 +127,28 @@ TEST(ProbeGrader, TerminalVictoryScoresOneAndPreservesNegativeGain) {
     EXPECT_FLOAT_EQ(*pos.gain(*strike), 0.75f);
     EXPECT_FLOAT_EQ(*neg.gain(end_turn), -0.75f);
 }
+
+TEST(ResolveCheckpoints, MapsEvalBudgetsCarriesForwardAndMasksAboveCap) {
+    const auto a = legal_actions(stsrl::scenarios::jaw_worm(7));
+    ASSERT_GE(a.size(), 3u);
+    using Round = Checkpoint;
+    const std::array budgets{8, 24, 64, 160};
+    // Wave 1 costs 12 (> 8), wave 2 costs 24, search finishes early at 40 (< 64 and < 160).
+    const std::array trace{
+        Round{0, a[0], a[0], {}, {}, 0},
+        Round{12, a[0], a[1], {}, {}, 12},
+        Round{24, a[0], a[2], {}, {}, 24},
+        Round{40, a[0], a[1], {}, {}, 40},
+    };
+    const auto full = resolve_checkpoints(trace, budgets);
+    ASSERT_EQ(full.size(), 4u);
+    EXPECT_EQ(full[0]->selected, a[0]);  // no wave finished within 8 -> prior
+    EXPECT_EQ(full[1]->selected, a[2]);  // last boundary <= 24
+    EXPECT_EQ(full[2]->selected, a[1]);  // early finish carried forward to 64
+    EXPECT_EQ(full[3]->selected, a[1]);  // early finish carried forward to 160
+
+    // Random cap at 32 masks slots > 32 while keeping <= 32 populated.
+    const auto capped = resolve_checkpoints(trace, budgets, 32);
+    EXPECT_TRUE(capped[0] && capped[1]);
+    EXPECT_FALSE(capped[2] || capped[3]);
+}

@@ -59,7 +59,7 @@ def gpu_environment():
     return dict(os.environ, LD_LIBRARY_PATH=':'.join(map(str, libs)) + ':' + os.environ.get('LD_LIBRARY_PATH', ''))
 
 
-def play(binary, models, fights, directory, settings, *, progress=lambda done, pid: None, sample_devices=True):
+def play(binary, models, fights, directory, settings, *, progress=lambda done, pid: None, sample_devices=True, evaluation=False):
     """Plays `fights` with nn_play `binary`, the exported model directory `models` and `settings`; writes the
     settings (play.toml), samples, results and logs to `directory`. Results are journaled as fights finish;
     progress(done, pid) follows them."""
@@ -72,6 +72,8 @@ def play(binary, models, fights, directory, settings, *, progress=lambda done, p
     (directory / 'play.toml').write_text(tomli_w.dumps(settings))
     command = [str(binary), str(directory / 'play.toml'), str(models), str(samples),
                '--telemetry', str(directory / 'telemetry.jsonl')]
+    if evaluation:
+        command.append('--evaluation')
     env = gpu_environment()
     results = []
     with DeviceSampler(directory / 'gpu.csv', enabled=sample_devices), starts.open() as source, \
