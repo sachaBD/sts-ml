@@ -23,6 +23,8 @@ struct Query {
 struct Evaluation {
     WinProbability value;
     std::vector<float> logits;
+    std::vector<float> thinking{};
+    bool cached = false;
 };
 
 struct Result {

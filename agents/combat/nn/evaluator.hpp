@@ -10,7 +10,7 @@ class NetworkEvaluator {
 public:
     explicit NetworkEvaluator(Encoding encoding) : encoding_{encoding} {}
     infra::Tokens request(const search::Query& query) const { return encode(query.state, query.actions, encoding_); }
-    static search::Evaluation answer(const infra::Prediction& prediction) { return {prediction.value, prediction.logits}; }
+    static search::Evaluation answer(const infra::Prediction& prediction) { return {prediction.value, prediction.logits, prediction.thinking}; }
 
 private:
     Encoding encoding_;

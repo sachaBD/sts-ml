@@ -24,6 +24,9 @@ public:
         const auto shape = type.GetTensorTypeAndShapeInfo().GetShape();
         if (shape.size() != 3 || shape[2] <= 0) throw std::invalid_argument{"cpu backend: input must be [batch, tokens, width]"};
         width_ = int(shape[2]);
+        for (std::size_t i = 0; i < session_.GetOutputCount(); ++i)
+            if (std::string{session_.GetOutputNameAllocated(i, Ort::AllocatorWithDefaultOptions{}).get()} == "thinking")
+                has_thinking_ = true;
     }
 
     std::string name() const override { return "cpu"; }
@@ -64,15 +67,26 @@ private:
         const auto memory = Ort::MemoryInfo::CreateCpu(OrtArenaAllocator, OrtMemTypeDefault);
         auto tensor = Ort::Value::CreateTensor<float>(memory, input.data(), input.size(), shape.data(), shape.size());
         constexpr std::array<const char*, 1> inputs{"tokens"};
-        constexpr std::array<const char*, 2> outputs{"value", "logits"};
-        auto result = session_.Run(Ort::RunOptions{nullptr}, inputs.data(), &tensor, 1, outputs.data(), 2);
+        constexpr std::array<const char*, 3> outputs{"value", "logits", "thinking"};
+        auto result = session_.Run(Ort::RunOptions{nullptr}, inputs.data(), &tensor, 1, outputs.data(), has_thinking_ ? 3 : 2);
         const float* value = result[0].GetTensorData<float>();
         const float* logits = result[1].GetTensorData<float>();
+        std::size_t rounds = 0;
+        if (has_thinking_) {
+            const auto dims = result[2].GetTensorTypeAndShapeInfo().GetShape();
+            if (dims.size() != 2 || dims[0] != std::int64_t(rows.size()))
+                throw std::invalid_argument{"thinking must be [batch, rounds]"};
+            rounds = dims[1];
+        }
         std::vector<Prediction> out;
         out.reserve(rows.size());
         for (std::size_t b = 0; b < rows.size(); ++b) {
             const float* row = logits + b * longest;
             out.push_back({value[b], {row + rows[b]->count - rows[b]->actions, row + rows[b]->count}});
+            if (rounds) {
+                const float* gains = result[2].GetTensorData<float>() + b * rounds;
+                out.back().thinking.assign(gains, gains + rounds);
+            }
         }
         return out;
     }
@@ -81,6 +95,7 @@ private:
     Ort::Session session_{nullptr};  // Run is safe to call concurrently, so lanes share it
     const int lanes_, batch_;
     int width_ = 0;
+    bool has_thinking_ = false;
 };
 }  // namespace
 

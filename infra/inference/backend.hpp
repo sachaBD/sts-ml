@@ -17,6 +17,7 @@ struct Tokens {
 struct Prediction {
     float value;
     std::vector<float> logits;  // one per legal action
+    std::vector<float> thinking{};
 };
 
 // The Actor owns both views, unchanged, until the reply.

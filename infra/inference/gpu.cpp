@@ -49,7 +49,7 @@ std::string timing_cache() {
 struct Engine {
     Ort::Session session{nullptr};
     Ort::IoBinding binding{nullptr};
-    int batch = 0, tokens = 0, width = 0;
+    int batch = 0, tokens = 0, width = 0, rounds = 0;
 
     Engine(Ort::Env& env, const std::filesystem::path& path, cudaStream_t stream) {
         const auto cache = (path.parent_path() / "tensorrt").string(), timing = timing_cache();
@@ -75,16 +75,27 @@ struct Engine {
             shape[0] <= 0 || shape[1] <= 0 || shape[2] <= 0 || shape[0] > std::numeric_limits<int>::max())
             throw std::invalid_argument{"gpu backend: " + path.string() + " is not a fixed-shape fp16 [batch, tokens, width] model"};
         batch = int(shape[0]); tokens = int(shape[1]); width = int(shape[2]);
+        for (std::size_t i = 0; i < session.GetOutputCount(); ++i) {
+            if (std::string{session.GetOutputNameAllocated(i, Ort::AllocatorWithDefaultOptions{}).get()} != "thinking") continue;
+            const auto dims = session.GetOutputTypeInfo(i).GetTensorTypeAndShapeInfo().GetShape();
+            if (dims.size() != 2 || dims[0] != batch || dims[1] < 1)
+                throw std::invalid_argument{"gpu backend: thinking must be [batch, rounds]"};
+            rounds = int(dims[1]);
+        }
         binding = Ort::IoBinding{session};
     }
 
-    void bind(std::uint16_t* in, float* value, float* logits) {
+    void bind(std::uint16_t* in, float* value, float* logits, float* thinking) {
         const Ort::MemoryInfo gpu{"Cuda", OrtDeviceAllocator, 0, OrtMemTypeDefault};
         const std::array<std::int64_t, 3> in_shape{batch, tokens, width};
         const std::array<std::int64_t, 2> logits_shape{batch, tokens};
         const std::array<std::int64_t, 1> value_shape{batch};
         binding.BindInput("tokens", Ort::Value::CreateTensor(gpu, in, std::size_t(batch) * tokens * width * sizeof(std::uint16_t),
                                                            in_shape.data(), 3, ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT16));
+        if (rounds) {
+            const std::array<std::int64_t, 2> shape{batch, rounds};
+            binding.BindOutput("thinking", Ort::Value::CreateTensor<float>(gpu, thinking, std::size_t(batch) * rounds, shape.data(), 2));
+        }
         binding.BindOutput("value", Ort::Value::CreateTensor<float>(gpu, value, batch, value_shape.data(), 1));
         binding.BindOutput("logits", Ort::Value::CreateTensor<float>(gpu, logits, std::size_t(batch) * tokens, logits_shape.data(), 2));
     }
@@ -96,6 +107,8 @@ struct Lane {
     std::vector<std::unique_ptr<Engine>> engines;  // ascending batch size
     std::uint16_t *host_in = nullptr, *in = nullptr;  // fp16 bits
     float *host_value = nullptr, *host_logits = nullptr, *value = nullptr, *logits = nullptr;
+
+    float *thinking = nullptr, *host_thinking = nullptr;
 
     Lane(Ort::Env& env, const std::vector<std::filesystem::path>& fixed) {
         check(cudaStreamCreateWithFlags(&stream, cudaStreamNonBlocking));
@@ -111,6 +124,10 @@ struct Lane {
 
     void allocate(int batch, int tokens, int width) {
         const std::size_t cells = std::size_t(batch) * tokens;
+        if (const auto rounds = engines.front()->rounds) {
+            check(cudaMallocHost(&host_thinking, std::size_t(batch) * rounds * sizeof(float)));
+            check(cudaMalloc(&thinking, std::size_t(batch) * rounds * sizeof(float)));
+        }
         check(cudaMallocHost(&host_in, cells * width * sizeof(std::uint16_t)));
         check(cudaMallocHost(&host_value, batch * sizeof(float)));
         check(cudaMallocHost(&host_logits, cells * sizeof(float)));
@@ -122,7 +139,7 @@ struct Lane {
         for (int i = 0; i < batch; ++i) host_in[std::size_t(i) * tokens * width] = std::bit_cast<std::uint16_t>(__float2half(1.f));
         check(cudaMemcpy(in, host_in, cells * width * sizeof(std::uint16_t), cudaMemcpyHostToDevice));
         for (auto& engine : engines) {
-            engine->bind(in, value, logits);
+            engine->bind(in, value, logits, thinking);
             // Capture graphs before starting threads: concurrent first calls cause CUDA capture errors.
             for (int i = 0; i < 3; ++i) engine->session.Run(Ort::RunOptions{}, engine->binding);
             check(cudaStreamSynchronize(stream));
@@ -132,6 +149,8 @@ struct Lane {
     ~Lane() {
         if (stream) cudaStreamSynchronize(stream);
         engines.clear();  // sessions and captured graphs before the buffers they borrow
+        if (host_thinking) cudaFreeHost(host_thinking);
+        if (thinking) cudaFree(thinking);
         cudaFreeHost(host_in); cudaFreeHost(host_value); cudaFreeHost(host_logits);
         cudaFree(in); cudaFree(value); cudaFree(logits);
         if (stream) cudaStreamDestroy(stream);
@@ -152,6 +171,7 @@ public:
         for (std::size_t i = 0; i < engines.size(); ++i) {
             const auto& e = *engines[i];
             if (e.tokens != tokens_ || e.width != width_) throw std::invalid_argument{"gpu backend: fixed models differ in token shape"};
+            if (e.rounds != engines.front()->rounds) throw std::invalid_argument{"gpu backend: fixed models differ in thinking shape"};
             if (i && e.batch == engines[i - 1]->batch) throw std::invalid_argument{"gpu backend: duplicate batch size"};
         }
         batch_ = engines.back()->batch;
@@ -207,6 +227,7 @@ private:
         check(cudaStreamSynchronize(lane.stream));
         engine.session.Run(Ort::RunOptions{}, engine.binding);
         check(cudaStreamSynchronize(lane.stream));
+        if (engine.rounds) check(cudaMemcpyAsync(lane.host_thinking, lane.thinking, std::size_t(n) * engine.rounds * sizeof(float), cudaMemcpyDeviceToHost, lane.stream));
         check(cudaMemcpyAsync(lane.host_value, lane.value, n * sizeof(float), cudaMemcpyDeviceToHost, lane.stream));
         check(cudaMemcpyAsync(lane.host_logits, lane.logits, std::size_t(n) * tokens_ * sizeof(float), cudaMemcpyDeviceToHost, lane.stream));
         check(cudaStreamSynchronize(lane.stream));
@@ -214,6 +235,10 @@ private:
             const auto& tokens = *inputs[k].tokens;
             const float* logits = lane.host_logits + std::size_t(k) * tokens_;
             out[k] = {lane.host_value[k], {logits + tokens.count - tokens.actions, logits + tokens.count}};
+            if (engine.rounds) {
+                const float* gains = lane.host_thinking + std::size_t(k) * engine.rounds;
+                out[k].thinking.assign(gains, gains + engine.rounds);
+            }
         }
     }
 
