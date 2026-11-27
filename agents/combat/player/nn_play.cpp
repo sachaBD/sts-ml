@@ -20,12 +20,14 @@ int main(int argc, char** argv) try {
                  "and prints one result line to stdout. PLAY is its settings file (play_config.hpp). MODELS is an exported "
                  "model directory (network.hpp). Each input goes to the smallest GPU deployment that fits it, else the CPU.", "nn_play"};
     std::filesystem::path play, models, samples, telemetry_path;
-    bool check = false;
+    bool check = false, evaluation = false, cpu_only = false;
     app.add_option("PLAY", play, "settings file")->required();
     app.add_option("MODELS", models, "exported model directory");
     app.add_option("SAMPLES", samples, "sample file to append to");
     app.add_option("--telemetry", telemetry_path, "actor, queue and lane counters as JSON lines, about once a second");
     app.add_flag("--check", check, "validate PLAY and exit");
+    app.add_flag("--evaluation", evaluation, "play evaluation fights rather than collect self-play supervision");
+    app.add_flag("--cpu-only", cpu_only, "use the exported CPU model for all requests");
     CLI11_PARSE(app, argc, argv);
     auto [search, budget, workers] = stsrl::player::read_play_config(play);
     if (check) return 0;
@@ -35,7 +37,7 @@ int main(int argc, char** argv) try {
     workers.on_counters = [&](const stsrl::infra::Counters& counters) { telemetry.write(counters); };
 
     const auto setup_begin = Clock::now();
-    const auto network = stsrl::nn::load_network(models);
+    const auto network = stsrl::nn::load_network(models, cpu_only ? stsrl::nn::Backends::cpu : stsrl::nn::Backends::all);
     std::vector<stsrl::infra::Backend*> backends;
     for (const auto& backend : network.backends) backends.push_back(backend.get());
     std::cerr << "timing: evaluator setup " << std::chrono::duration<double>(Clock::now() - setup_begin).count() << " s\n";
@@ -45,7 +47,9 @@ int main(int argc, char** argv) try {
     const auto count = fights.size();
     auto greedy = search;  // cheap searches only move the fight on, so they exploit
     greedy.gumbel_scale = 0;
+    using Stage = stsrl::player::Episodes::Stage;
     stsrl::player::Episodes episodes{std::move(fights), search.factory(), greedy.factory(), budget,
+                                     evaluation ? Stage::evaluation : Stage::self_play,
                                      stsrl::nn::NetworkEvaluator{network.encoding}, samples, std::cout};
 
     const auto play_begin = Clock::now();

@@ -1,9 +1,11 @@
 #include "agents/combat/player/episodes.hpp"
 #include "agents/combat/player/decision.hpp"
 #include "agents/combat/player/targets.hpp"
+#include "agents/combat/search/gumbel/gumbel.hpp"
 #include "environments/combat/fight_start.hpp"
 #include "environments/combat/state_codec.hpp"
 #include <chrono>
+#include <limits>
 #include <optional>
 #include <span>
 #include <stdexcept>
@@ -13,12 +15,24 @@ namespace {
 using Json = nlohmann::json;
 using Clock = std::chrono::steady_clock;
 constexpr int sample_format = nn::layout::sample::format;
+constexpr int thinking_rounds = nn::layout::sample::thinking_rounds;
+constexpr double probe_probability = 0.0625;
+constexpr search::Gumbel::Settings probe_settings{.simulations = 256, .considered_actions = 16, .particles = 16,
+                                                  .spend_even_budget = true};
+using Gains = std::array<float, thinking_rounds>;
+
+Json checkpoint(const search::Gumbel::Round& r) {
+    return {{"simulations", r.simulations}, {"prior", r.prior.bits}, {"selected", r.selected.bits},
+            {"prior_q", r.prior_q ? Json(*r.prior_q) : Json(nullptr)},
+            {"selected_q", r.selected_q ? Json(*r.selected_q) : Json(nullptr)}};
+}
 
 struct Sample {
     std::string state;
     std::vector<search::Action> actions;
     std::vector<float> policy;
     Vitals vitals;
+    Gains gains;
 };
 
 void write(std::ofstream& out, const Sample& sample, std::span<const Vitals> turn_starts, const sts::BattleContext& end) {
@@ -27,6 +41,7 @@ void write(std::ofstream& out, const Sample& sample, std::span<const Vitals> tur
                                 std::uint32_t(sample.actions.size())};
     out.write(reinterpret_cast<const char*>(header), sizeof header);
     out.write(reinterpret_cast<const char*>(target.data()), sizeof target);
+    out.write(reinterpret_cast<const char*>(sample.gains.data()), sizeof sample.gains);
     out.write(sample.state.data(), std::streamsize(sample.state.size()));
     for (const auto action : sample.actions)
         out.write(reinterpret_cast<const char*>(&action.bits), sizeof action.bits);
@@ -37,9 +52,17 @@ void write(std::ofstream& out, const Sample& sample, std::span<const Vitals> tur
 struct Episodes::Game {
     Json record;  // its fights-file line
     Fight fight;
-    std::optional<Decision> decision;
+    std::optional<Decision> decision, probe;
+    std::vector<search::Gumbel::Round> rounds;
+    Json traces = Json::array();
+    Gains gains;
+    std::array<int, thinking_rounds> coverage{};
+    std::size_t probe_evals = 0;
+    bool probed = false;
+
+    Decision& active() { return probe ? *probe : *decision; }
     Answers answers;  // the last decision's, for the next
-    std::vector<Sample> decisions;  // state, improved policy and vitals per full search
+    std::vector<Sample> decisions;  // full-search roots and probe-only roots
     bool full = false;  // whether the decision in progress is a full search
     std::size_t searches = 0, full_searches = 0, network_requests = 0, reused_requests = 0;
     Clock::time_point begin = Clock::now();
@@ -51,11 +74,28 @@ struct Episodes::Game {
     // Play on until the search needs the network (its requests) or the game is over (none).
     std::span<const infra::Tokens> advance(const Episodes& episodes) {
         for (;;) {
+            if (probe) {
+                if (const auto requests = probe->pending(); !requests.empty()) return requests;
+                Json checkpoints = Json::array();
+                for (std::size_t i = 0; i < rounds.size(); ++i) {
+                    if (const auto gain = rounds[i].gain()) {
+                        gains.at(i) = *gain;
+                        ++coverage.at(i);
+                    }
+                    checkpoints.push_back(checkpoint(rounds[i]));
+                }
+                probe_evals += probe->sent();
+                traces.push_back({{"step", fight.steps()}, {"sample", decisions.size()},
+                                  {"evals", probe->sent()}, {"rounds", std::move(checkpoints)}});
+                probe.reset();
+            }
             if (decision) {
                 if (const auto requests = decision->pending(); !requests.empty()) return requests;
                 auto r = decision->result();
-                if (full) {
-                    Sample sample{{}, std::move(r.actions), std::move(r.policy), vitals(fight.state())};
+                if (full || probed) {
+                    // Cheap roots retain only probe supervision, not a cheap policy or extra value target.
+                    if (!full) r.policy.assign(r.actions.size(), 0.f);
+                    Sample sample{{}, std::move(r.actions), std::move(r.policy), vitals(fight.state()), gains};
                     combat::pack(fight.state(), sample.state);
                     decisions.push_back(std::move(sample));
                 }
@@ -69,6 +109,14 @@ struct Episodes::Game {
             }
             if (fight.over()) return {};
             auto random = fight.decision_random();
+            std::mt19937_64 probe_random{fight.decision_random(Fight::RandomStream::thinking_probe)};
+            probed = episodes.stage_ == Stage::self_play && std::bernoulli_distribution(probe_probability)(probe_random);
+            gains.fill(std::numeric_limits<float>::quiet_NaN());
+            rounds.clear();
+            if (probed) {
+                probe.emplace(std::make_unique<search::Gumbel>(fight.state(), probe_settings, probe_random(),
+                    [this](const search::Gumbel::Round& round) { rounds.push_back(round); }), episodes.network_);
+            }
             const auto budget = episodes.budget_({fight.after_chance()}, random);
             full = budget.full;
             const auto& search = full ? episodes.full_search_ : episodes.cheap_search_;
@@ -84,7 +132,7 @@ public:
     std::span<const infra::Tokens> advance() override {
         return game_.advance(episodes_);
     }
-    void evaluated(std::span<const infra::Prediction> predictions) override { game_.decision->evaluated(predictions); }
+    void evaluated(std::span<const infra::Prediction> predictions) override { game_.active().evaluated(predictions); }
     void finish() override { episodes_.finish(game_); }
     std::string label() const override { return game_.record.at("fight_id").get<std::string>(); }
 
@@ -94,10 +142,10 @@ private:
 };
 
 Episodes::Episodes(std::vector<Json> fights, search::SearchFactory full_search, search::SearchFactory cheap_search,
-                   BudgetRule budget, nn::NetworkEvaluator network, const std::filesystem::path& samples,
+                   BudgetRule budget, Stage stage, nn::NetworkEvaluator network, const std::filesystem::path& samples,
                    std::ostream& results)
     : fights_(std::move(fights)), full_search_{std::move(full_search)}, cheap_search_{std::move(cheap_search)},  // fights_{...} would nest them in one json array
-      budget_{budget}, network_{network},
+      budget_{budget}, stage_{stage}, network_{network},
       samples_{samples, std::ios::binary | std::ios::app | std::ios::ate}, sample_file_{samples.filename().string()},
       results_{results} {
     if (!samples_) throw std::runtime_error{"cannot write samples " + samples.string()};
@@ -119,13 +167,22 @@ void Episodes::finish(const Game& g) {
     const auto end = static_cast<std::streamoff>(samples_.tellp());
     if (!samples_ || end < begin) throw std::runtime_error{"failed to write game samples"};
     const double finished = std::chrono::duration<double>(std::chrono::system_clock::now().time_since_epoch()).count();
-    results_ << Json{{"fight_id", g.record.at("fight_id")}, {"won", state.outcome == sts::Outcome::PLAYER_VICTORY},
+    Json record{{"fight_id", g.record.at("fight_id")}, {"won", state.outcome == sts::Outcome::PLAYER_VICTORY},
                      {"hp", state.player.curHp}, {"decisions", g.decisions.size()}, {"searches", g.searches},
                      {"full_searches", g.full_searches}, {"network_requests", g.network_requests},
                      {"reused_requests", g.reused_requests}, {"seconds", seconds},
                      {"turns", state.turn}, {"steps", g.fight.steps()}, {"capped", state.outcome == sts::Outcome::UNDECIDED},
                      {"finished_unix", finished}, {"sample_format", sample_format},
-                     {"sample_range", {{"file", sample_file_}, {"begin", begin}, {"end", end}}}}.dump() << std::endl;
+                     {"sample_range", {{"file", sample_file_}, {"begin", begin}, {"end", end}}}};
+    if (stage_ == Stage::self_play)
+        record["thinking"] = {{"evals", g.probe_evals}, {"coverage", g.coverage}, {"probes", g.traces},
+            {"settings", {{"probability", probe_probability}, {"simulations", probe_settings.simulations},
+                {"particles", probe_settings.particles}, {"considered_actions", probe_settings.considered_actions},
+                {"wave", probe_settings.wave}, {"world_draw", probe_settings.world_draw},
+                {"gumbel_scale", probe_settings.gumbel_scale}, {"sieve_gain", probe_settings.sieve_gain},
+                {"value_scale", probe_settings.value_scale}, {"maxvisit_init", probe_settings.maxvisit_init},
+                {"spend_even_budget", probe_settings.spend_even_budget}, {"rollout_mix", 0}}}};
+    results_ << record.dump() << std::endl;
     if (!samples_ || !results_) throw std::runtime_error{"failed to write game samples/results"};
     ++completed_;
     decisions_ += g.searches;

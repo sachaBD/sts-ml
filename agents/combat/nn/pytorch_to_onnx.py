@@ -61,8 +61,7 @@ class HalfInput(nn.Module):
 
     def forward(self, tokens):
         with torch.autocast('cuda', torch.float16, enabled=self.mixed_precision):
-            value, logits = self.net(tokens.float())
-        return value.float(), logits.float()
+            return self.net.predict(tokens.float())
 
 
 class ModelExporter:
@@ -79,8 +78,8 @@ class ModelExporter:
         snapshot = deepcopy(net).cpu().eval()
         try:
             self.cache.write(snapshot, directory / CPU_MODEL, CPU_MODEL, lambda: torch.onnx.export(
-                snapshot, (snapshot.example_tokens(),), str(directory / CPU_MODEL), dynamo=True,
-                input_names=['tokens'], output_names=['value', 'logits'],
+                HalfInput(snapshot, False).eval(), (snapshot.example_tokens(),), str(directory / CPU_MODEL), dynamo=True,
+                input_names=['tokens'], output_names=['value', 'logits', 'thinking'],
                 dynamic_shapes={'tokens': {0: torch.export.Dim('batch'), 1: torch.export.Dim('tokens')}}))
             snapshot.to('cuda' if self.mixed_precision else 'cpu')
             for deployment in self.deployments:
@@ -100,7 +99,7 @@ class ModelExporter:
         device = next(net.parameters()).device
         example = net.example_tokens(batch, tokens).to(device=device, dtype=torch.float16)
         torch.onnx.export(HalfInput(net, self.mixed_precision).eval(), (example,), str(path), dynamo=True,
-                          input_names=['tokens'], output_names=['value', 'logits'])
+                          input_names=['tokens'], output_names=['value', 'logits', 'thinking'])
 
 
 def template(path, weights):

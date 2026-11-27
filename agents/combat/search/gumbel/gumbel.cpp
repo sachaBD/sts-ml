@@ -6,6 +6,7 @@
 #include <iostream>
 #include <numeric>
 #include <random>
+#include <ranges>
 #include <span>
 #include <stdexcept>
 #include <syncstream>
@@ -166,19 +167,36 @@ using Selection = ImprovedPolicy;  // the selection rule the search uses
 
 // mctx seq_halving.get_sequence_of_considered_visits, stopping before a partial pass so every round
 // visits its considered actions equally.
-std::vector<int> halving_schedule(int m, int simulations) {
+std::vector<int> halving_schedule(int m, int simulations, bool spend_even_budget = false) {
     if (simulations <= 0) return {};
     m = std::min(m, std::max(1, simulations / 2));
     std::vector<int> out;
     if (m <= 1) { for (int i = 0; i < simulations; ++i) out.push_back(i); return out; }
     const int log2m = int(std::ceil(std::log2(double(m))));
-    std::vector<int> visits(m, 0);
-    for (int considered = m; int(out.size()) + considered <= simulations; considered = std::max(2, considered / 2)) {
-        const int extra = std::max(1, int(double(simulations) / (log2m * considered)));
-        for (int r = 0; r < extra && int(out.size()) + considered <= simulations; ++r) {
-            for (int i = 0; i < considered; ++i) out.push_back(visits[i]);
-            for (int i = 0; i < considered; ++i) ++visits[i];
+    struct Allocation { int width, passes; };
+    std::vector<Allocation> rounds;
+    int left = simulations;
+    for (int width = m; left >= width; width = std::max(2, width / 2)) {
+        const int passes = std::min(left / width, std::max(1, simulations / (log2m * width)));
+        if (!rounds.empty() && rounds.back().width == width) rounds.back().passes += passes;
+        else rounds.push_back({width, passes});
+        left -= width * passes;
+    }
+    if (spend_even_budget && left) {
+        // A partial pass cannot have a checkpoint. Give the final pair the remainder;
+        // if it is odd, reassign one odd-width pass to make it even.
+        if (left % 2) {
+            const auto odd = std::ranges::find_if(rounds | std::views::reverse, [](auto round) { return round.width % 2; });
+            left += odd->width;
+            --odd->passes;
         }
+        if (rounds.back().width == 2) rounds.back().passes += left / 2;
+        else rounds.push_back({2, left / 2});
+    }
+    std::vector<int> visits(m, 0);
+    for (const auto [width, passes] : rounds) {
+        for (int pass = 0; pass < passes; ++pass)
+            for (int i = 0; i < width; ++i) out.push_back(visits[i]++);
     }
     return out;
 }
@@ -197,6 +215,8 @@ struct Gumbel::Impl {
     struct Leaf { Node* node; sts::BattleContext state; std::vector<Action> actions; };
 
     Settings s;
+    OnRound on_round;
+    std::size_t wave_width = 0;
     std::uint64_t fight_seed;
     std::mt19937_64 rng;
     Particles particles;
@@ -214,15 +234,18 @@ struct Gumbel::Impl {
     std::vector<Query> queries;
     std::vector<Path> backups;
 
-    Impl(const sts::BattleContext& observed, const Settings& settings, std::uint64_t seed)
-        : s{settings}, fight_seed{observed.seed}, rng{seed},
+    Impl(const sts::BattleContext& observed, const Settings& settings, std::uint64_t seed, OnRound callback)
+        : s{settings}, on_round{std::move(callback)}, fight_seed{observed.seed}, rng{seed},
           // Keep sampling stable within a turn to improve answer reuse.
           particles{observed, settings.particles,
                     observed.seed ^ (std::uint64_t(observed.turn) << 32) ^ (settings.world_draw * 0x9E3779B97F4A7C15ull)},
           actions{combat::legal_actions(observed)},
           root{*(nodes[combat::observation_key(observed)] = std::make_unique<Node>())},
           stage_visits(actions.size(), 0),
-          leaves{{&root, observed, actions}}, queries{{leaves[0].state, leaves[0].actions}} {}
+          leaves{{&root, observed, actions}}, queries{{leaves[0].state, leaves[0].actions}} {
+        if (s.spend_even_budget && (s.simulations % 2 || s.sieve_gain > 0))
+            throw std::invalid_argument{"gumbel: exact even budget requires even simulations and no sieve"};
+    }
 
     void flush() {
         for (const auto& path : backups) {
@@ -268,12 +291,14 @@ struct Gumbel::Impl {
             for (std::size_t i = 0; i < actions.size(); ++i) gumbel.push_back(s.gumbel_scale * g(rng));
             const bool skip = s.sieve_gain > 0 && (actions.size() <= 1 || std::min(root.value, 1.0 - root.value) < 5e-4);
             stage_budget = s.sieve_gain > 0 && !skip ? std::min(s.simulations, 16) : s.simulations;
-            if (!skip) schedule = halving_schedule(std::min<int>(s.considered_actions, int(actions.size())), stage_budget);
+            if (!skip) schedule = halving_schedule(std::min<int>(s.considered_actions, int(actions.size())), stage_budget, s.spend_even_budget);
         }
         leaves.clear();
         queries.clear();
         do {
             flush();
+            if (on_round && wave_width && (simulation == int(schedule.size()) || pass_width() != wave_width))
+                checkpoint();
             if (simulation == int(schedule.size())) maybe_escalate();
             if (simulation < int(schedule.size())) next_wave();
         } while (leaves.empty() && !backups.empty());
@@ -305,7 +330,7 @@ struct Gumbel::Impl {
 
     // Passes of one round, so late rounds with few actions still fill a wave.
     void next_wave() {
-        const auto width = pass_width();
+        const auto width = wave_width = pass_width();
         const auto edges = ranked(schedule[simulation], width);
         for (std::size_t size = 0; size + width <= std::max<std::size_t>(width, s.wave); size += width) {
             if (simulation == int(schedule.size()) || pass_width() != width) return;
@@ -420,6 +445,17 @@ struct Gumbel::Impl {
         return edges;
     }
 
+    void checkpoint() const {
+        // The same stop rule as result(); stable ties use root action order, including for the prior.
+        const auto prior = std::size_t(std::ranges::max_element(root.logits) - root.logits.begin());
+        const auto selected = ranked(max_stage_visits(), 1).front();
+        const auto estimate = [&](std::size_t edge) -> std::optional<double> {
+            if (visits(root, edge)) return q(root, edge);
+            return std::nullopt;
+        };
+        on_round({simulation, actions[prior], actions[selected], estimate(prior), estimate(selected)});
+    }
+
     Graph graph() const {
         if (!leaves.empty()) throw std::logic_error{"gumbel: graph requires a completed search"};
         std::unordered_map<const Node*, std::uint64_t> observations;
@@ -467,8 +503,8 @@ struct Gumbel::Impl {
     }
 };
 
-Gumbel::Gumbel(const sts::BattleContext& observed, const Settings& settings, std::uint64_t seed)
-    : impl_{std::make_unique<Impl>(observed, settings, seed)} {}
+Gumbel::Gumbel(const sts::BattleContext& observed, const Settings& settings, std::uint64_t seed, OnRound on_round)
+    : impl_{std::make_unique<Impl>(observed, settings, seed, std::move(on_round))} {}
 Gumbel::~Gumbel() = default;
 
 std::span<const Query> Gumbel::pending() const { return impl_->queries; }

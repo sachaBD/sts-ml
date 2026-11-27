@@ -145,3 +145,29 @@ To resume by hand: stop any orphan `nn_play`, move the partial `iterNNN` aside, 
 the experiment.
 
 The reserved final fights (`[evaluation].final_fights`) are copied with the run and never played by it.
+
+### ThinkingHead supervision
+
+Self-play samples each player decision with probability 1/16, including cheap decisions.
+A sampled root gets one evaluation-mode Gumbel probe: 256 total simulations over 16
+worlds, on a separate RNG stream. The fight never plays the probe's recommendation.
+At each completed halving width, after backup and before the next width starts, the
+probe reads the move it would commit if stopped there. Both that readout and the
+original argmax prior break ties in legal action order. If they differ, the target is
+`Q(selected) - Q(prior)` from that prefix; if either edge is unvisited the target is
+masked. Agreement is exactly zero. Missing rounds and unprobed decisions are masked.
+Cheap probe roots supervise only ThinkingHead. Evaluation fights do not collect probes.
+
+The shared trunk exports signed `thinking` predictions alongside `value` and `logits`.
+`results.jsonl` records probe settings, checkpoint traces, actual NN evals, and label
+coverage; iteration summaries log aggregate spend and coverage. To compare predictions
+against the search teacher on new decks (not against realized win gain):
+
+```sh
+.venv/bin/python -m apps.gumbel_nn_combat_expert_iteration.tools.thinking_report \
+    MODEL.pt --train TRAIN/samples-0.bin --heldout HELDOUT/samples-0.bin
+```
+
+Use held-out **self-play** sample files. The report bins by predicted gain separately
+per round and reports teacher means, row/fight/deck counts, and 95% bootstrap intervals
+with whole decks (and all their fights) resampled together within each bin.

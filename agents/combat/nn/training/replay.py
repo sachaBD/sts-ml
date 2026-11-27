@@ -14,9 +14,13 @@ from infra.workers.reader import Reader
 
 SAMPLE_FORMAT = LAYOUT.sample.format
 TOKEN_FORMAT = 3
+STATE_FORMAT = 4
+THINKING_ROUNDS = LAYOUT.sample.thinking_rounds
 TARGETS = tuple(LAYOUT.sample.targets)
 HEADER = struct.Struct('<iii' + 'f' * len(TARGETS))
 STATE_HEADER = struct.Struct('<III' + 'f' * len(TARGETS))
+HEADERS = {TOKEN_FORMAT: HEADER, STATE_FORMAT: STATE_HEADER,
+           SAMPLE_FORMAT: struct.Struct('<III' + 'f' * (len(TARGETS) + THINKING_ROUNDS))}
 
 
 def games(path):
@@ -30,7 +34,7 @@ def record_format(path):
     formats = {game.get('sample_format') for game in games(path)}
     if not formats:
         return SAMPLE_FORMAT
-    if len(formats) != 1 or not formats <= {TOKEN_FORMAT, SAMPLE_FORMAT}:
+    if len(formats) != 1 or not formats <= HEADERS.keys():
         raise ValueError(f'{path}: unsupported or mixed sample formats {formats}')
     return formats.pop()
 
@@ -44,14 +48,14 @@ def index(path):
             return {name: stored[name] for name in stored.files}
     raw = np.memmap(path, dtype=np.uint8, mode='r') if path.stat().st_size else b''
     groups, at = {}, 0
-    header = STATE_HEADER if format_ == SAMPLE_FORMAT else HEADER
+    header = HEADERS[format_]
     for game in games(path):
         deck = game['fight_id'].split(':')[-2]
         offsets = groups.setdefault(deck, [])
         for _ in range(game['decisions']):
             if at + header.size > len(raw):
                 raise ValueError(f'{path}: truncated sample header')
-            if format_ == SAMPLE_FORMAT:
+            if format_ != TOKEN_FORMAT:
                 _version, state_bytes, actions, won, *_ = header.unpack_from(raw, at)
                 valid = state_bytes > 0 and actions > 0
                 body_size = state_bytes + 8 * actions
@@ -82,7 +86,7 @@ class Replay:
         self.paths = paths
         self.formats = [record_format(path) for path in paths]
         self.encoding = encoding
-        if SAMPLE_FORMAT in self.formats and encoding is None:
+        if any(f != TOKEN_FORMAT for f in self.formats) and encoding is None:
             raise ValueError('state replay requires an encoding')
         self.max_rows = max_rows
         self.combats = None
@@ -122,7 +126,7 @@ class Replay:
         self._resident = {}
         try:
             rows = [row.tolist() for group in self.groups.values() for row in group
-                    if self.formats[int(row[0])] == SAMPLE_FORMAT]
+                    if self.formats[int(row[0])] != TOKEN_FORMAT]
             self._resident = {(file, offset): raw for (file, offset, _), raw
                               in zip(rows, self.reader.read(rows))}
         except BaseException:
@@ -191,7 +195,17 @@ class Replay:
         if (not len(combats) or combats[0, 0] != 0 or combats[-1, 1] != len(rows)
                 or np.any(combats[1:, 0] != combats[:-1, 1])):
             raise ValueError('combat ranges must partition replay records')
-        self.combats = combats
+        # Probe-only roots have zero policy mass. Keep them out of the one-state-per-fight value draw.
+        keep = np.ones(len(self.combat_rows), dtype=bool)
+        for i, (file, offset, _) in enumerate(self.combat_rows.tolist()):
+            if self.formats[file] == SAMPLE_FORMAT:
+                raw = self._resident[file, offset]
+                _, _, actions = struct.unpack_from('<III', raw)
+                keep[i] = np.frombuffer(raw, dtype=np.float32, count=actions, offset=len(raw) - 4 * actions).any()
+        starts = np.concatenate(([0], np.cumsum(keep)))
+        combats = starts[combats]
+        self.combats = combats[combats[:, 0] < combats[:, 1]]
+        self.combat_rows = self.combat_rows[keep]
 
     @property
     def combat_count(self):
@@ -209,18 +223,41 @@ class Replay:
         positions = [rng.randrange(int(begin), int(end)) for begin, end in self.combats[selected]]
         return self._read(self.combat_rows[positions])
 
+    def probe_fights(self):
+        """Each fight's probed roots in trace order (requires untruncated replay)."""
+        if self.max_rows:
+            raise ValueError('probe diagnostics require all replay rows')
+        for file, path in enumerate(self.paths):
+            for game in games(path):
+                probes = game.get('thinking', {}).get('probes', [])
+                if not probes:
+                    continue
+                deck = game['fight_id'].split(':')[-2]
+                span = game['sample_range']
+                rows = self.groups[deck]
+                lo, hi = np.searchsorted(rows[:, 0], [file, file + 1])
+                rows = rows[lo:hi]
+                lo, hi = np.searchsorted(rows[:, 1], [span['begin'], span['end']])
+                rows = rows[lo:hi]
+                if len(rows) != game['decisions']:
+                    raise ValueError(f'{path}: invalid probe fight range')
+                records = self._read(rows[[p['sample'] for p in probes]])
+                yield deck, game['fight_id'], records, probes
+
     def _read(self, picked):
         rows = picked.tolist()
         requests = [row for row in rows if self.formats[row[0]] == TOKEN_FORMAT]
         legacy = iter(self.reader.read(requests)) if requests else iter(())
         records, pending_states = [], []
         for file, offset, _ in rows:
-            if self.formats[file] == SAMPLE_FORMAT:
+            format_ = self.formats[file]
+            if format_ != TOKEN_FORMAT:
                 raw = self._resident[file, offset]
-                version, state_bytes, actions, *targets = STATE_HEADER.unpack_from(raw)
+                header = HEADERS[format_]
+                version, state_bytes, actions, *targets = header.unpack_from(raw)
                 if version != encoding_bridge.state_codec_version():
                     raise ValueError('unsupported state codec version')
-                at = STATE_HEADER.size
+                at = header.size
                 order = np.frombuffer(raw, dtype=np.uint32, count=actions, offset=at + state_bytes).tolist()
                 pending_states.append((len(records), raw[at:at + state_bytes], order))
                 tokens = None
@@ -250,11 +287,11 @@ class Replay:
         longest = max(len(t) for t, _, _ in records)
         tokens = np.zeros((size, longest, width), dtype=np.float32)
         policy = np.zeros((size, longest), dtype=np.float32)
-        targets = np.empty((size, len(TARGETS)), dtype=np.float32)
+        targets = np.full((size, len(TARGETS) + THINKING_ROUNDS), np.nan, dtype=np.float32)
         for i, (t, p, y) in enumerate(records):
             tokens[i, :len(t)] = t
             policy[i, len(t) - len(p):len(t)] = p
-            targets[i] = y
+            targets[i, :len(y)] = y
         return torch.from_numpy(tokens), torch.from_numpy(policy), torch.from_numpy(targets)
 
     def batch(self, size):

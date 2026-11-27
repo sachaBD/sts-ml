@@ -37,8 +37,8 @@ class ExportedDirectory(unittest.TestCase):
             for file, tokens in evaluated:
                 session = onnxruntime.InferenceSession(str(directory / file), providers=['CPUExecutionProvider'])
                 with torch.no_grad():
-                    expected = net(tokens.float())
-                for actual, value in zip(session.run(None, {'tokens': tokens.numpy()}), expected):
+                    expected = net.predict(tokens.float())
+                for actual, value in zip(session.run(None, {'tokens': tokens.numpy()}), expected, strict=True):
                     np.testing.assert_allclose(actual, value.numpy(), rtol=1e-4, atol=1e-4)
 
 

@@ -99,13 +99,13 @@ class ExpertIterationInvariants(unittest.TestCase):
     def export(self, net, directory):
         (directory / 'network.toml').touch()
 
-    def play(self, binary, models, fights, directory, settings, *, progress):
+    def play(self, binary, models, fights, directory, settings, *, progress, evaluation=False):
         results = [dict(fight_id=f['fight_id'], won=i % 2 == 0, capped=False, finished_unix=1.0,
                         sample_range=dict(file='samples-0.bin', begin=i, end=i + 1),
                         searches=4, full_searches=2, network_requests=30, reused_requests=10)
                    for i, f in enumerate(fights)]
         self.plays.append(dict(models=models, directory=directory, search=settings['search'], fights=fights,
-                               results=results))
+                               results=results, evaluation=evaluation))
         directory.mkdir(parents=True)
         (directory / 'samples-0.bin').write_bytes(bytes(i % 256 for i in range(len(fights))))
         return results
@@ -211,6 +211,7 @@ class ExpertIterationInvariants(unittest.TestCase):
         with patch.object(expert_iteration, 'play', side_effect=out_of_order):
             control = self.run_loop(config=config)
         [call] = self.evaluations()
+        self.assertTrue(call['evaluation'])
         self.assertEqual(len({f['fight_id'] for f in call['fights']}), 3)
         for name, expected_bytes, wins in [('validation', bytes([0]), 1), ('retention', bytes([2, 1]), 1)]:
             directory = control.directory / 'test/iter000' / name

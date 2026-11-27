@@ -40,5 +40,28 @@ class CheckpointTests(unittest.TestCase):
             torch.testing.assert_close(resumed.net.eval()(tokens), expected, rtol=0, atol=0)
 
 
+    def test_legacy_checkpoint_preserves_policy_value_and_existing_optimizer_moments(self):
+        torch.set_num_threads(1)
+        with tempfile.TemporaryDirectory() as temporary:
+            source = Learner(SPEC, lr=1e-3, device='cpu')
+            tokens = source.net.example_tokens()
+            train_once(source, tokens)
+            path = Path(temporary) / 'legacy.pt'
+            source.save(path)
+            checkpoint = torch.load(path, weights_only=True)
+            for key in ('thinking.weight', 'thinking.bias'):
+                del checkpoint['net'][key]
+            group, = checkpoint['optimizer']['param_groups']
+            for key in group['params'][-2:]:
+                checkpoint['optimizer']['state'].pop(key, None)
+            group['params'] = group['params'][:-2]
+            torch.save(checkpoint, path)
+            restored = Learner(SPEC, lr=1e-3, device='cpu', seed=7)
+            restored.load(path)
+            torch.testing.assert_close(restored.net.eval()(tokens), source.net.eval()(tokens), rtol=0, atol=0)
+            torch.testing.assert_close(restored.optimizer.state_dict()['state'], checkpoint['optimizer']['state'])
+            train_once(restored, tokens)
+
+
 if __name__ == '__main__':
     unittest.main()
