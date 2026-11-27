@@ -671,3 +671,58 @@ TEST(GumbelSieve, RespectsBudgetCapAndProducesValidPolicy) {
     EXPECT_NEAR(std::accumulate(r.policy.begin(), r.policy.end(), 0.0), 1.0, 1e-5);
     EXPECT_NE(std::ranges::find(r.actions, r.action), r.actions.end());
 }
+
+TEST(Gumbel, RoundCheckpointSeesOnlyBackedUpPrefix) {
+    const auto state = stsrl::scenarios::jaw_worm(7);
+    auto s = settings();
+    s.considered_actions = 4;
+    s.wave = 13;  // waves cannot run across the transition to a smaller width
+    ASSERT_GE(legal_actions(state).size(), 4u);
+    Gumbel* live = nullptr;
+    std::vector<int> checkpoints;
+    Gumbel search{state, s, 1, [&](const Gumbel::Round& r) {
+        checkpoints.push_back(r.simulations);
+        EXPECT_EQ(r.selected, live->result().action);
+        EXPECT_EQ(r.prior, legal_actions(state).front());  // tied prior logits: first legal action
+        const auto graph = live->graph();
+        const auto& edges = std::ranges::find(graph.nodes, graph.root, &Gumbel::Graph::Node::observation)->edges;
+        EXPECT_EQ(r.simulations, std::accumulate(edges.begin(), edges.end(), 0,
+            [](int sum, const auto& edge) { return sum + edge.visits; }));
+        auto estimate = [&](Action action) {
+            return std::ranges::find(edges, stsrl::combat::action_key(state, action), &Gumbel::Graph::Edge::action)->q;
+        };
+        EXPECT_EQ(r.prior_q, estimate(r.prior));
+        EXPECT_EQ(r.selected_q, estimate(r.selected));
+    }};
+    live = &search;
+    EXPECT_TRUE(checkpoints.empty());
+    run(search, flat);
+    EXPECT_EQ(checkpoints, (std::vector<int>{s.simulations / 2, s.simulations}));
+}
+
+TEST(Gumbel, EvenProbeBudgetSpendsFullBudgetWithAnOddOpeningWidth) {
+    auto s = settings();
+    s.simulations = 256;
+    s.particles = 16;
+    s.considered_actions = 3;
+    s.spend_even_budget = true;
+    std::vector<int> checkpoints;
+    Gumbel search{stsrl::scenarios::jaw_worm(7), s, 1,
+        [&](const Gumbel::Round& r) { checkpoints.push_back(r.simulations); }};
+    run(search, flat);
+    ASSERT_EQ(checkpoints.size(), 2u);
+    EXPECT_EQ(checkpoints.front() % 3, 0);
+    EXPECT_EQ(checkpoints.back(), s.simulations);
+}
+
+TEST(Gumbel, GainsKeepSignsAndRecomputeForRepeatedRecommendations) {
+    const auto actions = legal_actions(stsrl::scenarios::jaw_worm(7));
+    ASSERT_GE(actions.size(), 2u);
+    const auto prior = actions[0], selected = actions[1];
+    using Round = Gumbel::Round;
+    EXPECT_EQ((Round{16, prior, prior, {}, {}}.gain()), 0.f);
+    EXPECT_FALSE((Round{16, prior, selected, {}, .25}.gain()));
+    EXPECT_FALSE((Round{16, prior, selected, .5, {}}.gain()));
+    EXPECT_EQ((Round{16, prior, selected, .5, .25}.gain()), -.25f);
+    EXPECT_EQ((Round{32, prior, selected, .5, .625}.gain()), .125f);
+}

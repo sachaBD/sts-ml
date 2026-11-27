@@ -3,11 +3,12 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
+from unittest.mock import patch
 
 import numpy as np
 import torch
 
-from agents.combat.nn.training.replay import HEADER, TOKEN_FORMAT as SAMPLE_FORMAT, TARGETS, Replay, index
+from agents.combat.nn.training.replay import HEADER, HEADERS, SAMPLE_FORMAT as THINKING_FORMAT, TOKEN_FORMAT as SAMPLE_FORMAT, TARGETS, Replay, index
 
 
 WIDTH = 5  # replay knows no encoding: any token width is a valid record
@@ -81,10 +82,32 @@ class ReplayTests(unittest.TestCase):
             results.write_text(results.read_text().replace(f'"sample_format": {SAMPLE_FORMAT}', '"sample_format": 2'))
             with self.assertRaisesRegex(ValueError, 'sample format'): index(path)
 
+    def test_probe_only_roots_are_not_combat_balanced_value_samples(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / 'samples-0.bin'
+            header = HEADERS[THINKING_FORMAT]
+            with path.open('wb') as stream:
+                for gain, policy in [(-.25, 0.), (float('nan'), 1.)]:
+                    stream.write(header.pack(1, 1, 1, *[1.] * len(TARGETS), gain, *[float('nan')] * 3))
+                    stream.write(b'x' + np.uint32(0).tobytes() + np.float32(policy).tobytes())
+            game = dict(fight_id='test:1:deck:0', won=True, decisions=2, sample_format=THINKING_FORMAT,
+                        sample_range=dict(file=path.name, begin=0, end=path.stat().st_size),
+                        thinking=dict(probes=[dict(sample=0)]))
+            path.with_name('results.jsonl').write_text(json.dumps(game) + '\n')
+            with patch('agents.combat.nn.encoding_bridge.state_codec_version', return_value=1), \
+                    patch('agents.combat.nn.encoding_bridge.encode', return_value=[bytes(68 * 4)]), \
+                    Replay([path], encoding='entity') as replay:
+                [(tokens, policy, targets)] = replay.sample_combats(1)
+                self.assertEqual(policy[0], 1.)
+                self.assertTrue(np.isnan(targets[len(TARGETS):]).all())
+                _, _, [(_, policy, targets)], _ = next(replay.probe_fights())
+                self.assertEqual(policy[0], 0.)
+                self.assertEqual(targets[len(TARGETS)], -.25)
+
     def test_large_values_and_ids_survive_loading(self):
         t = np.zeros((3, WIDTH), dtype=np.float32)
         t[0, :4] = [1, 511, 0, 95144.78125]; t[-2:, 0] = 6
-        tokens, _, _ = Replay.collate([(t, np.array([.5, .5], np.float32), 1)])
+        tokens, _, _ = Replay.collate([(t, np.array([.5, .5], np.float32), [1] * len(TARGETS))])
         self.assertTrue(torch.isfinite(tokens).all())
         self.assertEqual(tokens[0, 0, 1].item(), 511)  # BF16 transport would corrupt odd IDs >256
         self.assertEqual(tokens[0, 0, 3].item(), 95144.78125)

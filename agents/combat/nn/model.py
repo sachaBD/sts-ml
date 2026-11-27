@@ -5,11 +5,19 @@ from dataclasses import dataclass, field
 import torch
 from torch import Tensor, nn
 
+from agents.combat.nn.layout import LAYOUT
+
 
 # Outcome bins on one margin axis: losses by enemy HP left (most first), then wins by player HP (least first).
 LOSS_BINS = WIN_BINS = 10
 # Training-only predictions after the value logits when spec.auxiliary; layout.toml [sample].targets names.
 AUXILIARY = ('hp_lost', 'enemy_hp_lost', 'turns_remaining')
+THINKING_ROUNDS = LAYOUT.sample.thinking_rounds
+
+
+class ThinkingHead(nn.Linear):
+    def __init__(self, dim):
+        super().__init__(dim, THINKING_ROUNDS)
 
 
 @dataclass(frozen=True)
@@ -61,12 +69,16 @@ class CombatModel(nn.Module, ABC):
         super().__init__()
         self.spec = spec
 
-    def _init_context_readout(self):
-        # Called after the trunk to preserve checkpoint parameter order and seeded initialization.
-        self.value = nn.Linear(self.spec.dim, context_width(self.spec))
+    def _init_readouts(self):
+        # Keep ThinkingHead last so legacy optimizer state still maps to value and policy.
+        dim = self.spec.dim
+        self.value = nn.Linear(dim, context_width(self.spec))
+        self.policy = nn.Linear(dim, 1)
+        self.thinking = ThinkingHead(dim)
 
-    def _context_readout(self, hidden: Tensor) -> Tensor:
-        return self.value(hidden[:, 0]).float()
+    def _context_readout(self, hidden: Tensor) -> tuple[Tensor, Tensor]:
+        context = hidden[:, 0]
+        return self.value(context).float(), self.thinking(context).float()
 
     @abstractmethod
     def example_tokens(self, batch=2, length=3) -> Tensor:
@@ -75,12 +87,21 @@ class CombatModel(nn.Module, ABC):
         raise NotImplementedError
 
     def forward(self, tokens: Tensor) -> tuple[Tensor, Tensor]:
-        context, logits = self.heads(tokens)
-        return win_probability(context, self.spec), logits
+        value, logits, _ = self.predict(tokens)
+        return value, logits
+
+    def predict(self, tokens: Tensor) -> tuple[Tensor, Tensor, Tensor]:
+        """Win probability, action logits and signed gains from one trunk pass."""
+        context, logits, thinking = self.readouts(tokens)
+        return win_probability(context, self.spec), logits, thinking
+
+    def heads(self, tokens: Tensor) -> tuple[Tensor, Tensor]:
+        context, logits, _ = self.readouts(tokens)
+        return context, logits
 
     @abstractmethod
-    def heads(self, tokens: Tensor) -> tuple[Tensor, Tensor]:
-        """Context readout [B, context_width(spec)] (value logits, then AUXILIARY) and action logits [B,T]."""
+    def readouts(self, tokens: Tensor) -> tuple[Tensor, Tensor, Tensor]:
+        """Value/auxiliary context, action logits, and thinking gains."""
         raise NotImplementedError
 
 

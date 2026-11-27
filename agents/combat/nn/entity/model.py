@@ -27,26 +27,25 @@ class EntityModel(CombatModel):
         layer = nn.TransformerEncoderLayer(dim, heads, 4 * dim, dropout=0.0, batch_first=True, norm_first=True)
         self.encoder = nn.TransformerEncoder(layer, layers, enable_nested_tensor=False)
         self.norm = nn.LayerNorm(dim)
-        self._init_context_readout()
-        self.policy = nn.Linear(dim, 1)
+        self._init_readouts()
 
     def example_tokens(self, batch=2, length=3):
         tokens = torch.zeros(batch, length, WIDTH)
         tokens[:, 0, 0], tokens[:, 1:, 0] = TokenKind.CONTEXT, TokenKind.ACTION
         return tokens
 
-    def heads(self, tokens):
+    def readouts(self, tokens):
         # Attend over the longest retained row rather than the padded length: identical predictions, and
         # ~4x fewer encoder positions on real replay (pooling leaves ~16 of ~66). Export uses predict directly.
         _, keep = self._group_masks(EntityRows(tokens))
         return self._heads(tokens, int(keep.sum(dim=1).max()))
 
-    def forward(self, tokens: Tensor) -> tuple[Tensor, Tensor]:
+    def predict(self, tokens: Tensor) -> tuple[Tensor, Tensor, Tensor]:
         # Exported for fixed shapes: every row keeps a slot, so no shape depends on the data.
-        context, logits = self._heads(tokens, tokens.shape[1])
-        return win_probability(context, self.spec), logits
+        context, logits, thinking = self._heads(tokens, tokens.shape[1])
+        return win_probability(context, self.spec), logits, thinking
 
-    def _heads(self, tokens: Tensor, capacity: int) -> tuple[Tensor, Tensor]:
+    def _heads(self, tokens: Tensor, capacity: int) -> tuple[Tensor, Tensor, Tensor]:
         rows = EntityRows(tokens)
         groups, keep = self._group_masks(rows)
         embedded = self._embed(rows)
@@ -88,12 +87,12 @@ class EntityModel(CombatModel):
         sequence = torch.cat([retained[:, :1], pooled, retained[:, 1:]], dim=1)
         return self.norm(self.encoder(sequence, src_key_padding_mask=padding))
 
-    def _readout(self, rows: EntityRows, hidden: Tensor, index: Tensor) -> tuple[Tensor, Tensor]:
+    def _readout(self, rows: EntityRows, hidden: Tensor, index: Tensor) -> tuple[Tensor, Tensor, Tensor]:
         """Value head at context; action scores returned to wire positions."""
-        value = self._context_readout(hidden)
+        value, thinking = self._context_readout(hidden)
         pooled_count = self.group.shape[0]
         retained = torch.cat([hidden[:, :1], hidden[:, 1 + pooled_count:]], dim=1)
         scores = self.policy(retained).squeeze(-1).float()
         logits = torch.full_like(rows.kind, MASKED_LOGIT).scatter(1, index, scores)
-        return value, logits.masked_fill(~rows.is_kind(TokenKind.ACTION), MASKED_LOGIT)
+        return value, logits.masked_fill(~rows.is_kind(TokenKind.ACTION), MASKED_LOGIT), thinking
 

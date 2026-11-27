@@ -17,6 +17,8 @@ Vitals vitals(const sts::BattleContext&);
 // our next turn.
 using Targets = std::array<float, nn::layout::sample::targets::count>;
 
+using ThinkingTargets = std::array<float, nn::layout::sample::thinking_rounds>;
+
 // Records the state's vitals when it is the first input of a turn not yet recorded; call at every input.
 void observe(std::vector<Vitals>& turn_starts, const sts::BattleContext&);
 

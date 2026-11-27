@@ -3,8 +3,9 @@
 #include <ostream>
 
 namespace stsrl::player {
-void FightSamples::record(const sts::BattleContext& state, std::vector<search::Action> actions, std::vector<float> policy) {
-    Sample sample{{}, std::move(actions), std::move(policy), vitals(state)};
+void FightSamples::record(const sts::BattleContext& state, std::vector<search::Action> actions, std::vector<float> policy,
+                          ThinkingTargets gains) {
+    Sample sample{{}, std::move(actions), std::move(policy), vitals(state), gains};
     combat::pack(state, sample.state);
     samples_.push_back(std::move(sample));
 }
@@ -20,6 +21,7 @@ void FightSamples::write_sample(std::ostream& out, const Sample& sample, std::sp
                                 std::uint32_t(sample.actions.size())};
     out.write(reinterpret_cast<const char*>(header), sizeof header);
     out.write(reinterpret_cast<const char*>(target.data()), sizeof target);
+    out.write(reinterpret_cast<const char*>(sample.gains.data()), sizeof sample.gains);
     out.write(sample.state.data(), std::streamsize(sample.state.size()));
     for (const auto action : sample.actions)
         out.write(reinterpret_cast<const char*>(&action.bits), sizeof action.bits);

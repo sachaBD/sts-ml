@@ -19,6 +19,7 @@ public:
         double value_scale = 0.1, maxvisit_init = 50;  // mctx qtransform_completed_by_mix_value
         std::uint64_t world_draw = 0;  // which particle worlds are sampled; a turn's searches share a draw
         bool record_worlds = false;  // record per-world visit counts on each graph link (off in self-play)
+        bool spend_even_budget = false;  // redistribute a partial final pass without unequal visits
         double sieve_gain = 0;  // above 0: 4x stages from 16 sims up to simulations, continuing iff VoS >= sieve_gain * delta / 1000
     };
 
@@ -61,7 +62,18 @@ public:
     void simulate(std::span<const Pick>);  // requires pending().empty(); `world` indexes the draw's stream
     sts::BattleContext state(std::span<const std::size_t> path, int world) const;
 
-    Gumbel(const sts::BattleContext& observed, const Settings&, std::uint64_t seed);
+    struct Round {
+        int simulations;
+        Action prior, selected;
+        std::optional<double> prior_q, selected_q;
+        std::optional<float> gain() const {
+            if (prior.bits == selected.bits) return 0.f;
+            if (prior_q && selected_q) return float(*selected_q - *prior_q);
+            return std::nullopt;
+        }
+    };
+    using OnRound = std::function<void(const Round&)>;
+    Gumbel(const sts::BattleContext& observed, const Settings&, std::uint64_t seed, OnRound = {});
     ~Gumbel() override;
     std::span<const Query> pending() const override;
     void evaluated(std::span<const Evaluation>) override;

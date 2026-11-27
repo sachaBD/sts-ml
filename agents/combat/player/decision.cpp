@@ -31,7 +31,11 @@ void Fight::play_forced() {
     }
 }
 
-std::mt19937_64 Fight::decision_random() const {
+std::mt19937_64 Fight::decision_random(RandomStream stream) const {
+    if (stream != RandomStream::play) {
+        std::seed_seq seeds{std::uint32_t(seed_), std::uint32_t(seed_ >> 32), std::uint32_t(steps_), std::uint32_t(stream)};
+        return std::mt19937_64{seeds};
+    }
     std::seed_seq seeds{std::uint32_t(seed_), std::uint32_t(seed_ >> 32), std::uint32_t(steps_)};
     return std::mt19937_64{seeds};
 }
