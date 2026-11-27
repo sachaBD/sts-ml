@@ -69,6 +69,17 @@ class CombatModel(nn.Module, ABC):
         super().__init__()
         self.spec = spec
 
+    def _init_readouts(self):
+        # Keep ThinkingHead last so legacy optimizer state still maps to value and policy.
+        dim = self.spec.dim
+        self.value = nn.Linear(dim, context_width(self.spec))
+        self.policy = nn.Linear(dim, 1)
+        self.thinking = ThinkingHead(dim)
+
+    def _context_readout(self, hidden: Tensor) -> tuple[Tensor, Tensor]:
+        context = hidden[:, 0]
+        return self.value(context).float(), self.thinking(context).float()
+
     @abstractmethod
     def example_tokens(self, batch=2, length=3) -> Tensor:
         """A CPU input in this model's encoding for tracing and warm-up: a context row, then `length - 1` legal

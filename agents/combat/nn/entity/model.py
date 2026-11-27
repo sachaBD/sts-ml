@@ -2,7 +2,7 @@
 import torch
 from torch import Tensor, nn
 
-from agents.combat.nn.model import CombatModel, ThinkingHead, context_width, win_probability
+from agents.combat.nn.model import CombatModel, win_probability
 from agents.combat.nn.entity.encoding import CardZone, EntityRows, KIND_CAPACITY, TokenKind
 from agents.combat.nn.tokens import ID_CAPACITY, MASKED_LOGIT, ROW, WIDTH
 
@@ -27,9 +27,7 @@ class EntityModel(CombatModel):
         layer = nn.TransformerEncoderLayer(dim, heads, 4 * dim, dropout=0.0, batch_first=True, norm_first=True)
         self.encoder = nn.TransformerEncoder(layer, layers, enable_nested_tensor=False)
         self.norm = nn.LayerNorm(dim)
-        self.value = nn.Linear(dim, context_width(spec))
-        self.policy = nn.Linear(dim, 1)
-        self.thinking = ThinkingHead(dim)
+        self._init_readouts()
 
     def example_tokens(self, batch=2, length=3):
         tokens = torch.zeros(batch, length, WIDTH)
@@ -91,10 +89,10 @@ class EntityModel(CombatModel):
 
     def _readout(self, rows: EntityRows, hidden: Tensor, index: Tensor) -> tuple[Tensor, Tensor, Tensor]:
         """Value head at context; action scores returned to wire positions."""
-        value = self.value(hidden[:, 0]).float()
+        value, thinking = self._context_readout(hidden)
         pooled_count = self.group.shape[0]
         retained = torch.cat([hidden[:, :1], hidden[:, 1 + pooled_count:]], dim=1)
         scores = self.policy(retained).squeeze(-1).float()
         logits = torch.full_like(rows.kind, MASKED_LOGIT).scatter(1, index, scores)
-        return value, logits.masked_fill(~rows.is_kind(TokenKind.ACTION), MASKED_LOGIT), self.thinking(hidden[:, 0]).float()
+        return value, logits.masked_fill(~rows.is_kind(TokenKind.ACTION), MASKED_LOGIT), thinking
 
