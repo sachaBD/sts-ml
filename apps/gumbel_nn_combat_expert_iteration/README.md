@@ -23,6 +23,16 @@ watch -n 10 "$APP" status "$RUN"            # --json for agents
 The preset runs until stopped. Stop finishes the current iteration and its scheduled evaluation, then exits
 cleanly; allow several minutes. Ctrl-C/kill can leave partial output.
 
+## Search implementation
+
+Gumbel remains the default. To select Sift-Sieve, replace the self-play `[search]`
+settings with `algorithm = "sift-sieve"`, or do the same in a set's
+`[evaluation.sets.search]` table. Sift-Sieve evaluates only the root, samples
+from the policy prior in self-play, and chooses its argmax in evaluation.
+Its policy target is the prior itself, not a search-improved policy.
+Standalone `nn_play` defaults to sampling for Sift-Sieve; set
+`root_choice = "argmax"` for deterministic play.
+
 ## Evaluation sets
 
 Each set explicitly owns its fights, search, and schedule; nothing is inherited from self-play.

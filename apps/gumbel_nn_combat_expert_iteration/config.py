@@ -60,13 +60,22 @@ def self_play_search(search, it):
     settings = {k: v for k, v in search.items() if k != 'rollout_mix_decay'}
     if decay := search.get('rollout_mix_decay', 0):
         settings['rollout_mix'] = search['rollout_mix'] * max(0.0, 1 - it / decay)
-    return settings
+    return _with_root_choice(settings, 'sample')
+
+
+def _with_root_choice(search, choice):
+    return {**search, 'root_choice': choice} if search.get('algorithm') == 'sift-sieve' else search
+
+
+def evaluation_search(search):
+    return _with_root_choice(search, 'argmax')
 
 
 def nn_play_settings(config):
     """Each nn_play settings table the run plays with, by name. rollout_mix only falls, so self-play's is iteration 0's."""
     return {'search': dict(search=self_play_search(config.search, 0), workers=config.workers),
-            **{f'evaluation set {s.name}': dict(search=s.search, workers=config.workers) for s in config.evaluation.sets}}
+            **{f'evaluation set {s.name}': dict(search=evaluation_search(s.search), workers=config.workers)
+               for s in config.evaluation.sets}}
 
 
 @dataclass(frozen=True, kw_only=True)
