@@ -1,6 +1,6 @@
 # Gumbel NN combat expert iteration
 
-Expert iteration on Champ decks: Gumbel self-play, train on the replay window, export, evaluate.
+Expert iteration on Champ decks: self-play, train on the replay window, export, evaluate.
 Settings are defined and checked in [config.py](config.py); inputs are built once with [tools/make_fights.py](tools/make_fights.py). One-off tools live in [tools/](tools/).
 
 ## Run, monitor, stop
@@ -22,6 +22,13 @@ watch -n 10 "$APP" status "$RUN"            # --json for agents
 
 The preset runs until stopped. Stop finishes the current iteration and its scheduled evaluation, then exits
 cleanly; allow several minutes. Ctrl-C/kill can leave partial output.
+
+## Self-play moves
+
+The presets sample from the network's policy prior: `[search].sims = 0` and
+`gumbel_scale = 1.0` (Gumbel-max sampling from the softmax of the legal action logits).
+With zero search simulations, the policy loss fits the collecting model's prior rather
+than a search-improved policy. For this setup, prefer a trained starting policy.
 
 ## Evaluation sets
 

@@ -196,6 +196,36 @@ TEST(Gumbel, ZeroSimulationsPlaysTheNetworkAlone) {
     EXPECT_EQ(r.value, network->value);
 }
 
+TEST(Gumbel, UnitNoiseWithZeroSimulationsSamplesThePrior) {
+    const auto root = stsrl::scenarios::jaw_worm(7);
+    auto s = settings(1);
+    s.simulations = 0;
+    s.particles = 1;
+    const auto actions = legal_actions(root);
+    std::vector<int> selected(actions.size());
+    std::vector<float> prior;
+    constexpr int draws = 4096;
+    for (int seed = 0; seed < draws; ++seed) {
+        Gumbel search{root, s, std::uint64_t(seed)};
+        int queries = 0;
+        const auto result = run(search, [&](const Query& q) {
+            ++queries;
+            auto e = flat(q);
+            e.logits.front() = 1;  // nonuniform prior
+            return e;
+        });
+        ASSERT_EQ(queries, 1);
+        const auto chosen = std::ranges::find(actions, result.action);
+        ASSERT_NE(chosen, actions.end());
+        ++selected[chosen - actions.begin()];
+        prior = result.policy;
+    }
+    for (std::size_t i = 0; i < prior.size(); ++i) {
+        const double p = prior[i], stddev = std::sqrt(draws * p * (1 - p));
+        EXPECT_NEAR(selected[i], draws * p, 6 * stddev);
+    }
+}
+
 TEST(Gumbel, ASingleLegalMoveGetsProbabilityOne) {
     auto root = stsrl::scenarios::jaw_worm(7);
     root.player.energy = 0;
