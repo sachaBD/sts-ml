@@ -1,5 +1,6 @@
 #include "agents/combat/player/episodes.hpp"
 #include "agents/combat/player/decision.hpp"
+#include "agents/combat/player/probe_grader.hpp"
 #include "agents/combat/player/targets.hpp"
 #include "agents/combat/search/gumbel/gumbel.hpp"
 #include "environments/combat/fight_start.hpp"
@@ -19,12 +20,19 @@ constexpr int thinking_rounds = nn::layout::sample::thinking_rounds;
 constexpr double probe_probability = 0.0625;
 constexpr search::Gumbel::Settings probe_settings{.simulations = 256, .considered_actions = 16, .particles = 16,
                                                   .spend_even_budget = true};
+constexpr GradeSettings grade_settings{.particles = 8, .horizon_turns = 1};
 using Gains = std::array<float, thinking_rounds>;
 
-Json checkpoint(const search::Gumbel::Round& r) {
+std::uint64_t probe_particle_stream(const sts::BattleContext& observed) {
+    return observed.seed ^ (std::uint64_t(observed.turn) << 32) ^
+           (probe_settings.world_draw * 0x9E3779B97F4A7C15ull);
+}
+
+Json checkpoint(const search::Gumbel::Round& r, std::optional<float> gain) {
     return {{"simulations", r.simulations}, {"prior", r.prior.bits}, {"selected", r.selected.bits},
             {"prior_q", r.prior_q ? Json(*r.prior_q) : Json(nullptr)},
-            {"selected_q", r.selected_q ? Json(*r.selected_q) : Json(nullptr)}};
+            {"selected_q", r.selected_q ? Json(*r.selected_q) : Json(nullptr)},
+            {"gain", gain ? Json(*gain) : Json(nullptr)}};
 }
 
 struct Sample {
@@ -53,14 +61,47 @@ struct Episodes::Game {
     Json record;  // its fights-file line
     Fight fight;
     std::optional<Decision> decision, probe;
+    std::optional<ProbeGrader> grader;
+    std::vector<infra::Tokens> grade_requests;
     std::vector<search::Gumbel::Round> rounds;
     Json traces = Json::array();
     Gains gains;
     std::array<int, thinking_rounds> coverage{};
-    std::size_t probe_evals = 0;
+    std::size_t probe_evals = 0, grade_evals = 0, root_probe_evals = 0, root_grade_evals = 0;
     bool probed = false;
 
-    Decision& active() { return probe ? *probe : *decision; }
+    void evaluated(std::span<const infra::Prediction> predictions) {
+        if (probe) { probe->evaluated(predictions); return; }
+        if (!grader) { decision->evaluated(predictions); return; }
+        if (predictions.size() != grade_requests.size())
+            throw std::invalid_argument{"grade: one prediction per request"};
+        root_grade_evals += predictions.size();
+        std::vector<search::Evaluation> evaluations;
+        evaluations.reserve(predictions.size());
+        for (const auto& p : predictions) evaluations.push_back(nn::NetworkEvaluator::answer(p));
+        grader->evaluated(evaluations);
+    }
+
+    void finish_probe(const ProbeGrader* finished_grader) {
+        Json checkpoints = Json::array();
+        for (std::size_t i = 0; i < rounds.size(); ++i) {
+            const auto gain = rounds[i].selected.bits == rounds[i].prior.bits
+                ? std::optional<float>{0.0f}
+                : (finished_grader ? finished_grader->gain(rounds[i].selected) : std::nullopt);
+            if (gain) {
+                gains.at(i) = *gain;
+                ++coverage.at(i);
+            }
+            checkpoints.push_back(checkpoint(rounds[i], gain));
+        }
+        grade_evals += root_grade_evals;
+        probe_evals += root_probe_evals + root_grade_evals;
+        traces.push_back({{"step", fight.steps()}, {"sample", decisions.size()},
+                          {"evals", root_probe_evals + root_grade_evals},
+                          {"probe_evals", root_probe_evals}, {"grade_evals", root_grade_evals},
+                          {"rounds", std::move(checkpoints)}});
+    }
+
     Answers answers;  // the last decision's, for the next
     std::vector<Sample> decisions;  // full-search roots and probe-only roots
     bool full = false;  // whether the decision in progress is a full search
@@ -76,18 +117,27 @@ struct Episodes::Game {
         for (;;) {
             if (probe) {
                 if (const auto requests = probe->pending(); !requests.empty()) return requests;
-                Json checkpoints = Json::array();
-                for (std::size_t i = 0; i < rounds.size(); ++i) {
-                    if (const auto gain = rounds[i].gain()) {
-                        gains.at(i) = *gain;
-                        ++coverage.at(i);
-                    }
-                    checkpoints.push_back(checkpoint(rounds[i]));
-                }
-                probe_evals += probe->sent();
-                traces.push_back({{"step", fight.steps()}, {"sample", decisions.size()},
-                                  {"evals", probe->sent()}, {"rounds", std::move(checkpoints)}});
+                root_probe_evals = probe->sent();
+                root_grade_evals = 0;
                 probe.reset();
+                std::vector<search::Action> candidates;
+                for (const auto& r : rounds)
+                    if (r.selected.bits != r.prior.bits) candidates.push_back(r.selected);
+                if (candidates.empty()) {
+                    finish_probe(nullptr);
+                } else {
+                    auto grade_random = fight.decision_random(Fight::RandomStream::thinking_grade);
+                    auto stream = grade_random();
+                    if (stream == probe_particle_stream(fight.state())) stream = grade_random();
+                    grader.emplace(fight.state(), rounds.front().prior, candidates, stream, grade_settings);
+                }
+            }
+            if (grader) {
+                grade_requests.clear();
+                for (const auto& q : grader->pending()) grade_requests.push_back(episodes.network_.request(q));
+                if (!grade_requests.empty()) return grade_requests;
+                finish_probe(&*grader);
+                grader.reset();
             }
             if (decision) {
                 if (const auto requests = decision->pending(); !requests.empty()) return requests;
@@ -132,7 +182,7 @@ public:
     std::span<const infra::Tokens> advance() override {
         return game_.advance(episodes_);
     }
-    void evaluated(std::span<const infra::Prediction> predictions) override { game_.active().evaluated(predictions); }
+    void evaluated(std::span<const infra::Prediction> predictions) override { game_.evaluated(predictions); }
     void finish() override { episodes_.finish(game_); }
     std::string label() const override { return game_.record.at("fight_id").get<std::string>(); }
 
@@ -175,13 +225,17 @@ void Episodes::finish(const Game& g) {
                      {"finished_unix", finished}, {"sample_format", sample_format},
                      {"sample_range", {{"file", sample_file_}, {"begin", begin}, {"end", end}}}};
     if (stage_ == Stage::self_play)
-        record["thinking"] = {{"evals", g.probe_evals}, {"coverage", g.coverage}, {"probes", g.traces},
+        record["thinking"] = {{"evals", g.probe_evals}, {"grade_evals", g.grade_evals},
+            {"coverage", g.coverage}, {"probes", g.traces},
             {"settings", {{"probability", probe_probability}, {"simulations", probe_settings.simulations},
                 {"particles", probe_settings.particles}, {"considered_actions", probe_settings.considered_actions},
                 {"wave", probe_settings.wave}, {"world_draw", probe_settings.world_draw},
                 {"gumbel_scale", probe_settings.gumbel_scale}, {"sieve_gain", probe_settings.sieve_gain},
                 {"value_scale", probe_settings.value_scale}, {"maxvisit_init", probe_settings.maxvisit_init},
-                {"spend_even_budget", probe_settings.spend_even_budget}, {"rollout_mix", 0}}}};
+                {"spend_even_budget", probe_settings.spend_even_budget}, {"rollout_mix", 0},
+                {"grade_particles", grade_settings.particles},
+                {"grade_horizon_turns", grade_settings.horizon_turns},
+                {"grade_max_steps", grade_settings.max_steps}}}};
     results_ << record.dump() << std::endl;
     if (!samples_ || !results_) throw std::runtime_error{"failed to write game samples/results"};
     ++completed_;

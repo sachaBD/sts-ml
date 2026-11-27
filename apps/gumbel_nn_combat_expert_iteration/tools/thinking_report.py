@@ -16,6 +16,9 @@ def checkpoint_targets(probe):
     for i, r in enumerate(probe['rounds']):
         if r['prior'] == r['selected']:
             target[i] = 0
+        elif 'gain' in r:
+            if r['gain'] is not None:
+                target[i] = r['gain']
         elif r['prior_q'] is not None and r['selected_q'] is not None:
             target[i] = r['selected_q'] - r['prior_q']
     return target
@@ -71,7 +74,7 @@ def report(model, replay):
     if example is None:
         raise ValueError('no labelled probe rounds in held-out replay')
     rng = np.random.default_rng(229)
-    return dict(metric='Gumbel root backed-up Q difference (teacher proxy, not realized win gain)',
+    return dict(metric='Shared-particle out-of-sample greedy-prior plunge gain (teacher proxy, not realized win gain)',
                 rounds=[bins(rows, rng) for rows in rounds], example=example)
 
 

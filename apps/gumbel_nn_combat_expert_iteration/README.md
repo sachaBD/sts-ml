@@ -160,10 +160,13 @@ A sampled root gets one evaluation-mode Gumbel probe: 256 total simulations over
 worlds, on a separate RNG stream. The fight never plays the probe's recommendation.
 At each completed halving width, after backup and before the next width starts, the
 probe reads the move it would commit if stopped there. Both that readout and the
-original argmax prior break ties in legal action order. If they differ, the target is
-`Q(selected) - Q(prior)` from that prefix; if either edge is unvisited the target is
-masked. Agreement is exactly zero. Missing rounds and unprobed decisions are masked.
-Cheap probe roots supervise only ThinkingHead. Evaluation fights do not collect probes.
+original argmax prior break ties in legal action order. Agreement (`selected == prior`)
+records exact `0.0` with zero grading evals. Distinct non-prior commits are graded
+against the prior on 8 fresh shared particles (from an independent RNG stream disjoint
+from the probe's particle stream) using a 1-turn greedy-prior plunge with identical
+`observation_key` states deduplicated; each commit's signed `mean(score(c) - score(prior))`
+is reused across every checkpoint that selected it. Missing rounds and unprobed decisions
+are masked. Cheap probe roots supervise only ThinkingHead. Evaluation fights do not collect probes.
 
 The shared trunk exports signed `thinking` predictions alongside `value` and `logits`.
 `results.jsonl` records probe settings, checkpoint traces, actual NN evals, and label
