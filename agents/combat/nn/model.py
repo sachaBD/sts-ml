@@ -6,6 +6,7 @@ import torch
 from torch import Tensor, nn
 
 from agents.combat.nn.layout import LAYOUT
+from agents.combat.nn.tokens import MASKED_LOGIT
 
 
 # Outcome bins on one margin axis: losses by enemy HP left (most first), then wins by player HP (least first).
@@ -15,9 +16,37 @@ AUXILIARY = ('hp_lost', 'enemy_hp_lost', 'turns_remaining')
 THINKING_ROUNDS = LAYOUT.sample.thinking_rounds
 
 
-class ThinkingHead(nn.Linear):
+class ThinkingHead(nn.Module):
+    """2-layer MLP over context hidden state and exact masked policy/value summary scalars."""
+    SUMMARY_FEATURES = 6
+    HIDDEN = 64
+
     def __init__(self, dim):
-        super().__init__(dim, THINKING_ROUNDS)
+        super().__init__()
+        self.net = nn.Sequential(
+            nn.Linear(dim + self.SUMMARY_FEATURES, self.HIDDEN),
+            nn.GELU(),
+            nn.Linear(self.HIDDEN, THINKING_ROUNDS),
+        )
+        nn.init.zeros_(self.net[-1].weight)
+        nn.init.zeros_(self.net[-1].bias)
+
+    def forward(self, context_hidden: Tensor, value: Tensor, logits: Tensor, legal: Tensor) -> Tensor:
+        v = value.detach().float()
+        masked = logits.detach().float()
+        probs = masked.softmax(dim=-1)
+        log_probs = masked.log_softmax(dim=-1)
+        k = legal.sum(dim=-1)
+        top3 = nn.functional.pad(masked, (0, 2), value=MASKED_LOGIT).topk(3, dim=-1).values
+        summary = torch.stack([
+            v * (1.0 - v),
+            probs.max(dim=-1).values,
+            torch.where(k >= 2, top3[:, 0] - top3[:, 1], 0.0),
+            torch.where(k >= 3, top3[:, 0] - top3[:, 2], 0.0),
+            -(probs * log_probs.masked_fill(~legal, 0.0)).sum(dim=-1),
+            torch.log1p(k.float()),
+        ], dim=-1)
+        return self.net(torch.cat([context_hidden.float(), summary], dim=-1)).float()
 
 
 @dataclass(frozen=True)

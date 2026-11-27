@@ -51,13 +51,19 @@ class Learner:
             raise ValueError(f'{path}: architecture {checkpoint["spec"]} differs from {self.net.spec}')
         weights = checkpoint['net']
         optimizer = checkpoint['optimizer']
-        if not {'thinking.weight', 'thinking.bias'} & weights.keys():
+        thinking_keys = [k for k in self.net.state_dict() if k.startswith('thinking.')]
+        saved_thinking = [k for k in weights if k.startswith('thinking.')]
+        if saved_thinking != thinking_keys:
             # Thinking parameters are last. Preserve Adam moments for every existing parameter.
-            weights = {**weights, **{k: v for k, v in self.net.state_dict().items() if k.startswith('thinking.')}}
+            weights = {**{k: v for k, v in weights.items() if not k.startswith('thinking.')},
+                       **{k: v for k, v in self.net.state_dict().items() if k.startswith('thinking.')}}
             saved, = optimizer['param_groups']
             current, = self.optimizer.state_dict()['param_groups']
-            if saved['params'] != current['params'][:-2]:
+            keep = len(current['params']) - len(thinking_keys)
+            if saved['params'][:keep] != current['params'][:keep] or len(saved['params']) != keep + len(saved_thinking):
                 raise ValueError(f'{path}: unsupported legacy optimizer parameter layout')
+            for param_id in saved['params'][keep:]:
+                optimizer['state'].pop(param_id, None)
             saved['params'] = current['params']
         self.net.load_state_dict(weights)
         self.optimizer.load_state_dict(optimizer)
