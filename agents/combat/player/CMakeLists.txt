@@ -4,7 +4,7 @@ target_link_libraries(player_decision PUBLIC nn_tokens combat_search)
 target_compile_options(player_decision PRIVATE -Wall -Wextra -Wpedantic)
 
 # Fights as infra episodes, recording each finished one.
-add_library(player_episodes STATIC episodes.cpp)
+add_library(player_episodes STATIC episodes.cpp fight_samples.cpp)
 target_link_libraries(player_episodes PUBLIC player_decision infra_actors)
 target_compile_options(player_episodes PRIVATE -Wall -Wextra -Wpedantic)
 

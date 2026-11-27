@@ -1,8 +1,7 @@
 #include "agents/combat/player/episodes.hpp"
 #include "agents/combat/player/decision.hpp"
-#include "agents/combat/player/targets.hpp"
+#include "agents/combat/player/fight_samples.hpp"
 #include "environments/combat/fight_start.hpp"
-#include "environments/combat/state_codec.hpp"
 #include <chrono>
 #include <optional>
 #include <span>
@@ -13,25 +12,6 @@ namespace {
 using Json = nlohmann::json;
 using Clock = std::chrono::steady_clock;
 constexpr int sample_format = nn::layout::sample::format;
-
-struct Sample {
-    std::string state;
-    std::vector<search::Action> actions;
-    std::vector<float> policy;
-    Vitals vitals;
-};
-
-void write(std::ofstream& out, const Sample& sample, std::span<const Vitals> turn_starts, const sts::BattleContext& end) {
-    const auto target = targets(sample.vitals, turn_starts, end);
-    const std::uint32_t header[]{combat::state_codec_version, std::uint32_t(sample.state.size()),
-                                std::uint32_t(sample.actions.size())};
-    out.write(reinterpret_cast<const char*>(header), sizeof header);
-    out.write(reinterpret_cast<const char*>(target.data()), sizeof target);
-    out.write(sample.state.data(), std::streamsize(sample.state.size()));
-    for (const auto action : sample.actions)
-        out.write(reinterpret_cast<const char*>(&action.bits), sizeof action.bits);
-    out.write(reinterpret_cast<const char*>(sample.policy.data()), std::streamsize(sample.policy.size() * sizeof(float)));
-}
 }  // namespace
 
 struct Episodes::Game {
@@ -39,7 +19,7 @@ struct Episodes::Game {
     Fight fight;
     std::optional<Decision> decision;
     Answers answers;  // the last decision's, for the next
-    std::vector<Sample> decisions;  // state, improved policy and vitals per full search
+    FightSamples samples;
     bool full = false;  // whether the decision in progress is a full search
     std::size_t searches = 0, full_searches = 0, network_requests = 0, reused_requests = 0;
     Clock::time_point begin = Clock::now();
@@ -54,11 +34,7 @@ struct Episodes::Game {
             if (decision) {
                 if (const auto requests = decision->pending(); !requests.empty()) return requests;
                 auto r = decision->result();
-                if (full) {
-                    Sample sample{{}, std::move(r.actions), std::move(r.policy), vitals(fight.state())};
-                    combat::pack(fight.state(), sample.state);
-                    decisions.push_back(std::move(sample));
-                }
+                if (full) samples.record(fight.state(), std::move(r.actions), std::move(r.policy));
                 ++searches;
                 full_searches += full;
                 network_requests += decision->sent();
@@ -114,13 +90,13 @@ void Episodes::finish(const Game& g) {
     std::lock_guard lock{output_};
     const auto begin = static_cast<std::streamoff>(samples_.tellp());
     if (begin < 0) throw std::runtime_error{"failed to locate game samples"};
-    for (const auto& sample : g.decisions) write(samples_, sample, g.fight.turn_starts(), state);
+    g.samples.write(samples_, g.fight.turn_starts(), state);
     samples_.flush();
     const auto end = static_cast<std::streamoff>(samples_.tellp());
     if (!samples_ || end < begin) throw std::runtime_error{"failed to write game samples"};
     const double finished = std::chrono::duration<double>(std::chrono::system_clock::now().time_since_epoch()).count();
     results_ << Json{{"fight_id", g.record.at("fight_id")}, {"won", state.outcome == sts::Outcome::PLAYER_VICTORY},
-                     {"hp", state.player.curHp}, {"decisions", g.decisions.size()}, {"searches", g.searches},
+                     {"hp", state.player.curHp}, {"decisions", g.samples.size()}, {"searches", g.searches},
                      {"full_searches", g.full_searches}, {"network_requests", g.network_requests},
                      {"reused_requests", g.reused_requests}, {"seconds", seconds},
                      {"turns", state.turn}, {"steps", g.fight.steps()}, {"capped", state.outcome == sts::Outcome::UNDECIDED},
