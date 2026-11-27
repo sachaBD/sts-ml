@@ -1,8 +1,8 @@
 # inventory_v1 model on the full Champ corpus (best run so far: ~74% validation). New runs need a new [run].id.
 [run]
-id = "champ-full-corpus-v2-inventory48-wide128-outcome-aux-cold"
+id = "champ-full-corpus-v2-inventory48-wide128-prior-outcome-aux-cold"
 worker = "build/main/agents/combat/player/nn_play"
-seed_namespace = "champ-full-corpus-v2-inventory48-wide128-64s"
+seed_namespace = "champ-full-corpus-v2-inventory48-wide128-prior"
 iterations = 0 # until stopped; finish the active update
 recovery_retries = 2
 min_free_gib = 10
@@ -18,11 +18,10 @@ potions = true
 excluded_potions = ["ELIXIR_POTION", "GAMBLERS_BREW"]
 
 [search]
-sims = 64
-particles = 8
+sims = 0
+particles = 1
 gumbel_scale = 1.0
 rollout_mix = 0.0
-rollout_mix_decay = 0
 
 [training]
 steps = 500
