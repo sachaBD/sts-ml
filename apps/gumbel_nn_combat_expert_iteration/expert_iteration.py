@@ -22,6 +22,7 @@ from .files import read_jsonl
 from agents.combat.nn.training.telemetry import write as write_training
 
 from .config import experiment_changes, load, self_play_search
+from . import evaluation as evaluation_batch
 from .reporting import deck_of
 from .run_control import RunControl, delete_samples
 from .sampling import sampling_weights
@@ -169,18 +170,35 @@ class ExpertIteration:
 
     def evaluate(self, it):
         completed = {r['set'] for r in self.control.history() if r.get('test') == it}
-        for evaluation in self.config.evaluation.sets:
-            if not evaluation.due(it) or evaluation.name in completed:
-                continue
-            directory = self.control.directory / 'test' / f'iter{it:03d}' / evaluation.name
-            self.control.archive(directory)
-            begin = time.time()
-            results = self.play(f'evaluation {evaluation.name} iteration {it}', self.control.iteration(it),
-                                self.tests[evaluation.name], directory, evaluation.search)
-            self.control.log(test=it, set=evaluation.name, games=len(results), wins=sum(r['won'] for r in results),
-                             seconds=round(time.time() - begin), **collection_stats(results))
-            if self.config.training.prune_replay:
-                delete_samples(directory)
+        pending = [s for s in self.config.evaluation.sets if s.due(it) and s.name not in completed]
+        directory = self.control.directory / 'test' / f'iter{it:03d}'
+        for batch in evaluation_batch.groups(pending):
+            self.evaluate_batch(it, directory, batch)
+
+    def evaluate_batch(self, it, directory, sets):
+        names = [s.name for s in sets]
+        combined = len(sets) > 1
+        # The batch owns live telemetry; the set directories own their published results.
+        stage_dir = ((directory.parent / 'batches' / directory.name) if combined else directory) / names[0]
+        self.control.archive(stage_dir)
+        batch = evaluation_batch.Batch(sets, self.tests) if combined else None
+        begin = time.time()
+        results = self.play(f'evaluation {", ".join(names)} iteration {it}', self.control.iteration(it),
+                            batch.fights if combined else self.tests[names[0]], stage_dir, sets[0].search)
+        by_set = batch.split(results) if combined else {names[0]: results}
+        for name in names:
+            rows = by_set.get(name, [])
+            if combined:
+                set_dir = directory / name
+                self.control.archive(set_dir)
+                evaluation_batch.publish(set_dir, self.tests[name], rows, stage_dir / 'samples-0.bin',
+                                         retain_samples=not self.config.training.prune_replay)
+            finish = max((r['finished_unix'] for r in rows), default=begin)
+            self.control.log(test=it, set=name, games=len(rows), wins=sum(r['won'] for r in rows),
+                             seconds=round(max(0, finish - begin)) if combined else round(time.time() - begin),
+                             **collection_stats(rows))
+        if combined or self.config.training.prune_replay:
+            delete_samples(stage_dir)
 
     def play(self, stage, models, games, directory, search):
         self.control.status(stage=stage, phase='play', done=0, total=len(games), directory=str(directory))

@@ -44,7 +44,9 @@ particles = 8
 `at` adds iterations; `every = 0` disables periodic evaluation. `[evaluation] sets = []` disables all sets.
 Schedules and ordering may change on resume; names, fights, and search settings may not.
 Inputs are frozen at `inputs/evaluation/NAME.jsonl`; results go to `training/test/iterNNN/NAME/`,
-with one completion log row per set. Recovery retries only uncommitted sets.
+with one completion log row per set. Due sets with identical search settings share one worker process;
+its live telemetry and raw results are under `training/test/batches/iterNNN/`. Recovery retries only
+uncommitted sets.
 
 ## Adaptive deck sampling
 
