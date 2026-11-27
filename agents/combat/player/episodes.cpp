@@ -111,6 +111,7 @@ struct Episodes::Game {
     std::vector<Sample> decisions;  // full-search roots and probe-only roots
     bool full = false;  // whether the decision in progress is a full search
     std::size_t searches = 0, full_searches = 0, network_requests = 0, reused_requests = 0;
+    std::size_t root_trials = 0, interior_trials = 0;
     Clock::time_point begin = Clock::now();
 
     explicit Game(Json r)
@@ -158,6 +159,8 @@ struct Episodes::Game {
                 ++searches;
                 full_searches += full;
                 network_requests += decision->sent();
+                root_trials += r.paired_root_trials;
+                interior_trials += r.paired_interior_trials;
                 reused_requests += decision->reused();
                 answers = std::move(*decision).answers();
                 decision.reset();
@@ -230,6 +233,10 @@ void Episodes::finish(const Game& g) {
                      {"turns", state.turn}, {"steps", g.fight.steps()}, {"capped", state.outcome == sts::Outcome::UNDECIDED},
                      {"finished_unix", finished}, {"sample_format", sample_format},
                      {"sample_range", {{"file", sample_file_}, {"begin", begin}, {"end", end}}}};
+    if (g.root_trials || g.interior_trials) {
+        record["paired_root_trials"] = g.root_trials;
+        record["paired_interior_trials"] = g.interior_trials;
+    }
     if (stage_ == Stage::self_play)
         record["thinking"] = {{"evals", g.probe_evals}, {"grade_evals", g.grade_evals},
             {"coverage", g.coverage}, {"probes", g.traces},

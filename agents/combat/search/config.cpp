@@ -1,16 +1,22 @@
 #include "agents/combat/search/config.hpp"
 #include "agents/combat/search/rollout_blend/rollout_blend.hpp"
+#include "agents/combat/search/filter/filter.hpp"
 #include <cmath>
 #include <stdexcept>
 
 namespace stsrl::search {
+namespace {
+bool is_filter(const std::string& name) {
+    return name == "filter" || name == "filter-root" || name == "filter-fixed";
+}
+}
 void SearchConfig::validate() const {
     if (sims < 0 || particles < 1 || considered_actions < 1 || !std::isfinite(gumbel_scale) || gumbel_scale < 0 ||
         !(rollout_mix >= 0 && rollout_mix <= 1) || !std::isfinite(sieve_gain) || sieve_gain < 0)
         throw std::invalid_argument{"search: nonnegative sims, gumbel scale and sieve gain, positive particles and considered actions, rollout mix in [0, 1]"};
-    if (algorithm != "gumbel" && algorithm != "horizon" && algorithm != "unified")
+    if (algorithm != "gumbel" && algorithm != "horizon" && algorithm != "unified" && !is_filter(algorithm))
         throw std::invalid_argument{"search: unknown algorithm " + algorithm};
-    if (algorithm == "unified" && (gumbel_scale != 0 || rollout_mix != 0))
+    if ((algorithm == "unified" || is_filter(algorithm)) && (gumbel_scale != 0 || rollout_mix != 0))
         throw std::invalid_argument{"unified: deterministic play only; set gumbel_scale and rollout_mix to zero"};
     if (horizon.init_contenders < 2 || horizon.init_worlds < 1 || horizon.wave_worlds < 1 ||
         horizon.max_plunge_choices < 1 || horizon.horizon_turns < 1 ||
@@ -42,6 +48,14 @@ GumbelSearch SearchConfig::create(const sts::BattleContext& state, int simulatio
 
 SearchFactory SearchConfig::factory() const {
     validate();
+    if (is_filter(algorithm)) {
+        return [config = *this](const auto& state, int cap, std::mt19937_64&) {
+            const auto mode = config.algorithm == "filter-root" ? FilterMode::root_only :
+                              config.algorithm == "filter-fixed" ? FilterMode::fixed_uncertainty : FilterMode::full;
+            return filter_search(state, cap, config.particles, config.horizon.lambda, mode,
+                state.seed ^ (std::uint64_t(state.turn) << 32) ^ (config.world_draw * 0x9E3779B97F4A7C15ull));
+        };
+    }
     if (algorithm == "horizon" || algorithm == "unified") {
         return [config = *this](const sts::BattleContext& state, int simulations, std::mt19937_64& random)
             -> std::unique_ptr<CombatSearch> {

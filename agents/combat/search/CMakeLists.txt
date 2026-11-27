@@ -1,6 +1,7 @@
 # Combat searches know the simulator and nothing else: no network, inference, threads or files.
 add_library(combat_search STATIC
     gumbel/gumbel.cpp
+    filter/filter.cpp
     horizon/horizon.cpp
     rollout_blend/rollout_blend.cpp
     config.cpp)
@@ -16,3 +17,7 @@ add_executable(horizon_test horizon/horizon_test.cpp)
 target_link_libraries(horizon_test PRIVATE combat_search combat_scenarios GTest::gtest_main)
 target_compile_options(horizon_test PRIVATE -Wall -Wextra -Wpedantic)
 gtest_discover_tests(horizon_test PROPERTIES TIMEOUT 60)
+
+add_executable(filter_test filter/filter_test.cpp)
+target_link_libraries(filter_test PRIVATE combat_search combat_scenarios GTest::gtest_main)
+gtest_discover_tests(filter_test PROPERTIES TIMEOUT 60)

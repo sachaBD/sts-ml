@@ -32,6 +32,7 @@ struct Result {
     std::vector<Action> actions;
     std::vector<float> policy;
     WinProbability value;
+    int paired_root_trials = 0, paired_interior_trials = 0;
 };
 
 struct Checkpoint {

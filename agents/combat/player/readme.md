@@ -31,3 +31,12 @@ Failures abort collection; they never become losses. Archive an interrupted stag
 replay. Each fight's samples and result line are written under one lock, and the result records the samples'
 byte range, so replay finds fights without inferring boundaries from order. The two files are not
 crash-atomic: trailing sample bytes alone do not prove a finished fight.
+
+`algorithm = "filter"` is a separate deterministic allocator using the same four Horizon targets.
+It prices shared-world comparisons against the prior, plunging greedily to the next turn (or a
+terminal). It can also test the policy's second action at the first interior public decision.
+A scalar normal update estimates each paired difference; expected improvement in the root choice
+prices a further observation. `sims` caps **new non-root NN requests** in this mode, and `particles`
+bounds distinct worlds per comparison. `filter-root` disables interior comparisons; `filter-fixed`
+keeps updating mean scores but freezes uncertainty for purchase pricing. These are ablations,
+not additional deployment dials. This version does not retrain the heads or implement stochastic play.
