@@ -3,7 +3,7 @@ import torch
 from torch import nn
 
 from agents.combat.nn.layout import LAYOUT
-from agents.combat.nn.model import CombatModel, context_width
+from agents.combat.nn.model import CombatModel
 from agents.combat.nn.tokens import ID_CAPACITY, MASKED_LOGIT, ROW, WIDTH, TokenRows
 
 INVENTORY_V1 = LAYOUT.inventory_v1  # layout.toml's [inventory_v1], which inventory/encoding.cpp writes
@@ -39,7 +39,7 @@ class InventoryModel(CombatModel):
                                            batch_first=True, norm_first=True)
         self.encoder = nn.TransformerEncoder(layer, spec.layers, enable_nested_tensor=False)
         self.norm = nn.LayerNorm(dim)
-        self.value = nn.Linear(dim, context_width(spec))
+        self._init_context_readout()
         self.policy = nn.Linear(dim, 1)
 
     def example_tokens(self, batch=2, length=3):
@@ -77,7 +77,7 @@ class InventoryModel(CombatModel):
             linked = entities.gather(1, index[..., None].expand_as(entities))
             x = x + projection(linked) * (reference > 0)[..., None]
         hidden = self.norm(self.encoder(x, src_key_padding_mask=~rows.valid))
-        context = self.value(hidden[:, 0]).float()
+        context = self._context_readout(hidden)
         # An entity replay or incorrectly selected native encoder must not silently train this model.
         compatible = (tokens[:, 0, 0] == CONTEXT) & (tokens[:, 0, 2] == VERSION)
         context = torch.where(compatible[:, None], context, torch.full_like(context, float('nan')))

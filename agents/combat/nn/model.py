@@ -61,6 +61,13 @@ class CombatModel(nn.Module, ABC):
         super().__init__()
         self.spec = spec
 
+    def _init_context_readout(self):
+        # Called after the trunk to preserve checkpoint parameter order and seeded initialization.
+        self.value = nn.Linear(self.spec.dim, context_width(self.spec))
+
+    def _context_readout(self, hidden: Tensor) -> Tensor:
+        return self.value(hidden[:, 0]).float()
+
     @abstractmethod
     def example_tokens(self, batch=2, length=3) -> Tensor:
         """A CPU input in this model's encoding for tracing and warm-up: a context row, then `length - 1` legal
