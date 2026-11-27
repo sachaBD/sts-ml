@@ -1,5 +1,6 @@
 // Replay fight starts from stdin with the frozen CPU checkpoint; emit one inspection record per decision.
 // With STEP, play the recorded settings up to that decision, search it with the given settings, emit it, and stop.
+// EXPLORE > 0 draws that decision's move from the search policy with SEED; 0 plays the leader.
 #include "agents/combat/nn/network.hpp"
 #include "agents/combat/player/decision.hpp"
 #include "agents/combat/search/filter/filter.hpp"
@@ -15,6 +16,8 @@ struct Settings {
     int cap = 160, worlds = 16;
     double price = .0005;
     search::FilterMode mode = search::FilterMode::full;
+    double explore = 0;
+    std::uint64_t seed = 0;
 };
 search::FilterMode parse_mode(const std::string& s) {
     if (s == "full") return search::FilterMode::full;
@@ -24,13 +27,14 @@ search::FilterMode parse_mode(const std::string& s) {
 }
 }
 int main(int argc, char** argv) try {
-    if (argc != 2 && argc != 7)
-        throw std::invalid_argument{"usage: filter_replay MODEL_DIR [STEP CAP WORLDS PRICE MODE] < starts.jsonl"};
+    if (argc != 2 && argc != 9)
+        throw std::invalid_argument{"usage: filter_replay MODEL_DIR [STEP CAP WORLDS PRICE MODE EXPLORE SEED] < starts.jsonl"};
     std::optional<int> target;
     Settings variant;
-    if (argc == 7) {
+    if (argc == 9) {
         target = std::stoi(argv[2]);
-        variant = {std::stoi(argv[3]), std::stoi(argv[4]), std::stod(argv[5]), parse_mode(argv[6])};
+        variant = {std::stoi(argv[3]), std::stoi(argv[4]), std::stod(argv[5]), parse_mode(argv[6]), std::stod(argv[7]),
+                   std::stoull(argv[8])};
     }
     auto net = nn::load_network(argv[1], nn::Backends::cpu);
     nn::NetworkEvaluator evaluator{net.encoding};
@@ -45,7 +49,7 @@ int main(int argc, char** argv) try {
             const Settings use = target && step == *target ? variant : Settings{};
             search::FilterTrace trace;
             const auto stream = state.seed ^ (std::uint64_t(state.turn) << 32);
-            player::Decision decision{search::filter_search(state,use.cap,use.worlds,use.price,use.mode,stream,&trace),evaluator,std::move(previous)};
+            player::Decision decision{search::filter_search(state,use.cap,use.worlds,use.price,use.mode,stream,&trace,use.explore,use.seed),evaluator,std::move(previous)};
             while (!decision.pending().empty()) {
                 std::vector<infra::Input> inputs;
                 for (const auto& tokens : decision.pending()) inputs.push_back({&tokens,{}});

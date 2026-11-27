@@ -4,7 +4,7 @@ import json, re
 
 here = Path(__file__).resolve().parent
 BUDGETS = [8, 24, 64, 160]
-RECORDED = {'price': 0.0005, 'cap': 160, 'worlds': 16, 'mode': 'full'}
+RECORDED = {'price': 0.0005, 'cap': 160, 'worlds': 16, 'mode': 'full', 'explore': 0, 'seed': 0}
 
 
 def title(s):
@@ -49,14 +49,15 @@ def decision(r, settings=RECORDED):
                                           'before', 'after', 'sd0', 'sd1', 'scores')}
                       | {'line': line, 'ref_line': [clean(x) for x in t['reference_line']]})
     final = trials[-1]['scores'] if trials else s0
-    assert max(range(len(final)), key=final.__getitem__) == chosen
+    leader = max(range(len(final)), key=final.__getitem__)
+    assert settings['explore'] > 0 or leader == chosen
     assert all(b['spent'] <= t['spent'] for b, t in zip(trials, trials[1:]))
     return {
         'fight': r['fight'], 'step': r['step'], 'turn': v['turn'] + 1, 'settings': settings,
         'player': v['player'], 'hand': [card(c) for c in v['hand']], 'potions': v['potions'],
         'draw': len(v['draw']), 'discard': len(v['discard']),
         'enemies': [enemy(i, m) for i, m in enumerate(v['monsters']) if m['alive']],
-        'moves': names, 'prior': prior, 'chosen': chosen, 'scores': s0,
+        'moves': names, 'prior': prior, 'chosen': chosen, 'leader': leader, 'scores': s0,
         'opening': r['opening'], 'value': r['value'], 'root_cached': r['root_cached'],
         'reserve': r['reserve'], 'spent': r['spent'], 'stop': r['stop'], 'last_rate': r['last_rate'],
         'next': {'turn': r['next_turn'] + 1, 'hp': r['next_hp'], 'energy': r['next_energy']},

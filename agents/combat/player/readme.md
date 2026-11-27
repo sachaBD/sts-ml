@@ -39,4 +39,6 @@ A scalar normal update estimates each paired difference; expected improvement in
 prices a further observation. `sims` caps **new non-root NN requests** in this mode, and `particles`
 bounds distinct worlds per comparison. `filter-root` disables interior comparisons; `filter-fixed`
 keeps updating mean scores but freezes uncertainty for purchase pricing. These are ablations,
-not additional deployment dials. This version does not retrain the heads or implement stochastic play.
+not additional deployment dials. `gumbel_scale = 1` samples the played move from the search policy
+(self-play); `0` plays the leader (evaluation). Lookahead lines stay greedy either way. This version does not
+retrain the heads.

@@ -107,3 +107,27 @@ TEST(Filter, InspectionRecordsCompletedTrialsWithoutChangingSearch) {
     search::FilterTrace trace;
     EXPECT_EQ(replay(nullptr), replay(&trace));
 }
+TEST(Filter, ExploreSamplesThePlayedMoveFromThePolicyAndZeroPlaysTheLeader) {
+    auto state = scenarios::jaw_worm(19);
+    auto play = [&](double explore, std::uint64_t seed) {
+        auto tree = search::filter_search(state, 0, 8, 0., search::FilterMode::full, 17, nullptr, explore, seed);
+        return search::run(*tree, [](const search::Query& q) {
+            std::vector<float> logits;
+            for (std::size_t i = 0; i < q.actions.size(); ++i) logits.push_back(-.7f * float(i));
+            return search::Evaluation{.5f, logits, {.01, .06, .07, .08}};
+        });
+    };
+    const auto first = play(0, 0);
+    const int n = int(first.actions.size());
+    ASSERT_GE(n, 2);
+    double z = 0;
+    for (int i = 0; i < n; ++i) z += std::exp(-.7 * i);
+    std::vector<int> counts(n);
+    constexpr int draws = 4000;
+    for (std::uint64_t seed = 0; seed < draws; ++seed) {
+        const auto r = play(1, seed);
+        ++counts[std::ranges::find(r.actions, r.action) - r.actions.begin()];
+        EXPECT_EQ(play(0, seed).action, first.actions[0]);
+    }
+    for (int i = 0; i < n; ++i) EXPECT_NEAR(double(counts[i]) / draws, std::exp(-.7 * i) / z, .03) << i;
+}

@@ -3,7 +3,9 @@
 #include "environments/combat/public.hpp"
 #include <array>
 #include <map>
+#include <limits>
 #include <numeric>
+#include <random>
 #include <stdexcept>
 #include <sstream>
 #include <unordered_map>
@@ -69,7 +71,8 @@ class Filter final : public CombatSearch {
     double price;
     FilterMode mode;
     FilterTrace* trace;
-    Key stream, root;
+    double explore;
+    Key explore_seed, stream, root;
     std::vector<State> worlds;
     std::vector<Action> actions;
     std::unordered_map<Key, Node> cache;
@@ -272,8 +275,10 @@ class Filter final : public CombatSearch {
     }
 
 public:
-    Filter(const State& state, int limit, int nw, double p, FilterMode mode, Key seed, FilterTrace* trace)
-        : start(state), cap(limit), world_count(nw), price(p), mode(mode), trace(trace), stream(seed),
+    Filter(const State& state, int limit, int nw, double p, FilterMode mode, Key seed, FilterTrace* trace,
+           double explore, Key explore_seed)
+        : start(state), cap(limit), world_count(nw), price(p), mode(mode), trace(trace), explore(explore),
+          explore_seed(explore_seed), stream(seed),
           root(combat::observation_key(state)), actions(combat::legal_actions(state)) {
         requests.push_back({state, actions, root});
         queries.push_back({requests[0].state, requests[0].actions});
@@ -308,13 +313,25 @@ public:
         }
         for (auto& x : pi)
             x /= z;
-        return {actions[a],  actions,        pi, float(std::clamp(cache.at(root).value + s[a], 0., 1.)),
-                root_trials, interior_trials};
+        int play = a;
+        if (explore > 0) {
+            std::mt19937_64 random{explore_seed};
+            std::extreme_value_distribution<double> gumbel;
+            double best = -std::numeric_limits<double>::infinity();
+            for (int i = 0; i < int(pi.size()); ++i)
+                if (const double key = std::log(double(pi[i])) + explore * gumbel(random); key > best) {
+                    best = key;
+                    play = i;
+                }
+        }
+        return {actions[play], actions,        pi, float(std::clamp(cache.at(root).value + s[a], 0., 1.)),
+                root_trials,   interior_trials};
     }
 };
 }
 std::unique_ptr<CombatSearch> filter_search(const State& state, int cap, int worlds, double price, FilterMode mode,
-                                            std::uint64_t stream, FilterTrace* trace) {
-    return std::make_unique<Filter>(state, cap, worlds, price, mode, stream, trace);
+                                            std::uint64_t stream, FilterTrace* trace, double explore,
+                                            std::uint64_t explore_seed) {
+    return std::make_unique<Filter>(state, cap, worlds, price, mode, stream, trace, explore, explore_seed);
 }
 }

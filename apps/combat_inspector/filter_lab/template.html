@@ -114,6 +114,8 @@ details summary{cursor:pointer;font-weight:600}
       <label>price λ <input id="sPrice" type="number" step="0.0001" min="0" value="0.0005"></label>
       <label>cap <input id="sCap" type="number" step="1" min="0" max="2000" value="160"></label>
       <label>worlds <input id="sWorlds" type="number" step="1" min="1" max="64" value="16"></label>
+      <label title="Self-play draws the played move from the search policy; validation plays the leader"><input type="checkbox" id="sSample" checked style="width:auto"> sample move (self-play)</label>
+      <label>seed <input id="sSeed" type="number" step="1" min="0" value="1"></label>
       <label>mode <select id="sMode"><option value="full">full</option><option value="root_only">root only (no follow-up tests)</option><option value="fixed_uncertainty">fixed uncertainty</option></select></label>
       <button id="run" class="primary">Run</button>
       <span id="runStatus" class="muted small"></span>
@@ -206,8 +208,8 @@ function fillDecisions(keep){
 }
 function load(){rec=DATA.fights[fi].decisions[di];variant=null;view='rec';$('runStatus').textContent='';show()}
 function show(){dec=view==='var'&&variant?variant:rec;PRICE=dec.settings.price;M=build(dec);step=0;stopPlay();renderGame();renderCompare();render()}
-const setTxt=x=>`λ ${x.price}, cap ${x.cap}, ${x.worlds} worlds, ${x.mode.replace('_',' ')}`;
-const sumTxt=x=>`plays <b>${esc(x.moves[x.chosen])}</b> · ${x.trials.length} purchases · ${x.spent} evals`;
+const setTxt=x=>`λ ${x.price}, cap ${x.cap}, ${x.worlds} worlds, ${x.mode.replace('_',' ')}, ${x.explore>0?`sampled (seed ${x.seed})`:'argmax'}`;
+const sumTxt=x=>`plays <b>${esc(x.moves[x.chosen])}</b>${x.chosen!==x.leader?` (sampled; leader ${esc(x.moves[x.leader])})`:''} · ${x.trials.length} purchases · ${x.spent} evals`;
 function renderCompare(){
   const c=$('compare');
   if(!variant){c.innerHTML=`<span class="cmp muted">Recorded (${setTxt(rec.settings)}): ${sumTxt(rec)}</span>`;return}
@@ -216,7 +218,7 @@ function renderCompare(){
   c.querySelectorAll('.seg button').forEach(b=>b.onclick=()=>{view=b.dataset.v;show()});
 }
 async function runVariant(){
-  const q=new URLSearchParams({fight:rec.fight,step:rec.step,price:$('sPrice').value,cap:$('sCap').value,worlds:$('sWorlds').value,mode:$('sMode').value});
+  const q=new URLSearchParams({fight:rec.fight,step:rec.step,price:$('sPrice').value,cap:$('sCap').value,worlds:$('sWorlds').value,mode:$('sMode').value,explore:$('sSample').checked?1:0,seed:$('sSeed').value||0});
   $('run').disabled=true;$('runStatus').textContent='running…';
   try{const r=await fetch('/api/run?'+q);const j=await r.json();if(!r.ok)throw Error(j.error||r.statusText);
     variant=j;view='var';$('runStatus').textContent=`done in ${j.ms} ms`;show()}
@@ -334,8 +336,9 @@ function render(){
   }else if(step===last){
     s.className='story';
     const why={price:`Best remaining purchase worth ${rateTxt(d.last_rate)} pp/eval, below the ${priceTxt()} price, and the reserve is spent.`,'opening declined':'The forecasts didn’t justify searching.','no remaining comparison':'Every comparison has been made.','request cap':'Hit the eval cap.'}[d.stop]||d.stop;
-    const changed=d.chosen!==d.prior;
-    s.innerHTML=`<div class="kind">Stop · play the leader</div><h3>Play <span class="star">${esc(d.moves[d.chosen])}</span></h3>
+    const changed=d.chosen!==d.prior,fin=T.length?T[T.length-1].scores:d.scores,top=Math.max(...fin),ex=fin.map(x=>Math.exp(30*(x-top))),zz=ex.reduce((a,b)=>a+b,0);
+    const sampled=d.settings.explore>0,pPlay=(100*ex[d.chosen]/zz).toFixed(1);
+    s.innerHTML=`<div class="kind">Stop · ${sampled?'sample the move from the search policy':'play the leader'}</div><h3>Play <span class="star">${esc(d.moves[d.chosen])}</span>${sampled?` <span class="muted small">(drawn with p = ${pPlay}%, seed ${d.settings.seed}${d.chosen!==d.leader?`; the leader was ${esc(d.moves[d.leader])}`:'; it is also the leader'})</span>`:''}</h3>
       <div class="facts">${fact('why stop',why)}${T.length?fact('spent',`${T.length} purchases · ${d.spent} new evals`):''}${fact('next',`turn ${d.next.turn}, ${d.next.hp} HP`)}</div>
       <div class="pill ${changed?'flip':''}">${changed?`Search overruled the policy (it wanted ${esc(P)})`:'Search kept the policy’s move'}</div>`;
   }else{

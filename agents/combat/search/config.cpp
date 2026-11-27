@@ -16,8 +16,10 @@ void SearchConfig::validate() const {
         throw std::invalid_argument{"search: nonnegative sims, gumbel scale and sieve gain, positive particles and considered actions, rollout mix in [0, 1]"};
     if (algorithm != "gumbel" && algorithm != "horizon" && algorithm != "unified" && !is_filter(algorithm))
         throw std::invalid_argument{"search: unknown algorithm " + algorithm};
-    if ((algorithm == "unified" || is_filter(algorithm)) && (gumbel_scale != 0 || rollout_mix != 0))
+    if (algorithm == "unified" && (gumbel_scale != 0 || rollout_mix != 0))
         throw std::invalid_argument{"unified: deterministic play only; set gumbel_scale and rollout_mix to zero"};
+    if (is_filter(algorithm) && rollout_mix != 0)
+        throw std::invalid_argument{"filter: set rollout_mix to zero"};
     if (horizon.init_contenders < 2 || horizon.init_worlds < 1 || horizon.wave_worlds < 1 ||
         horizon.max_plunge_choices < 1 || horizon.horizon_turns < 1 ||
         !std::isfinite(horizon.c_puct) || horizon.c_puct < 0 ||
@@ -49,11 +51,13 @@ GumbelSearch SearchConfig::create(const sts::BattleContext& state, int simulatio
 SearchFactory SearchConfig::factory() const {
     validate();
     if (is_filter(algorithm)) {
-        return [config = *this](const auto& state, int cap, std::mt19937_64&) {
+        return [config = *this](const auto& state, int cap, std::mt19937_64& random) {
             const auto mode = config.algorithm == "filter-root" ? FilterMode::root_only :
                               config.algorithm == "filter-fixed" ? FilterMode::fixed_uncertainty : FilterMode::full;
+            const std::uint64_t explore_seed = config.gumbel_scale > 0 ? random() : 0;
             return filter_search(state, cap, config.particles, config.horizon.lambda, mode,
-                state.seed ^ (std::uint64_t(state.turn) << 32) ^ (config.world_draw * 0x9E3779B97F4A7C15ull));
+                state.seed ^ (std::uint64_t(state.turn) << 32) ^ (config.world_draw * 0x9E3779B97F4A7C15ull), nullptr,
+                config.gumbel_scale, explore_seed);
         };
     }
     if (algorithm == "horizon" || algorithm == "unified") {

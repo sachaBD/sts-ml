@@ -24,11 +24,15 @@ class Lab:
 
     def run(self, q):
         fight, step = q['fight'], int(q['step'])
-        s = {'price': float(q['price']), 'cap': int(q['cap']), 'worlds': int(q['worlds']), 'mode': q['mode']}
-        if fight not in self.starts or s['mode'] not in MODES or not (0 <= s['cap'] <= 2000 and 1 <= s['worlds'] <= 64 and s['price'] >= 0):
+        s = {'price': float(q['price']), 'cap': int(q['cap']), 'worlds': int(q['worlds']), 'mode': q['mode'],
+             'explore': float(q['explore']), 'seed': int(q['seed'])}
+        if fight not in self.starts or s['mode'] not in MODES or not (
+                0 <= s['cap'] <= 2000 and 1 <= s['worlds'] <= 64 and s['price'] >= 0 and 0 <= s['explore'] <= 10
+                and 0 <= s['seed'] < 2**64):
             raise ValueError('bad parameters')
         t = time.perf_counter()
-        args = [str(REPLAY), str(self.model), str(step), str(s['cap']), str(s['worlds']), repr(s['price']), s['mode']]
+        args = [str(REPLAY), str(self.model), str(step), str(s['cap']), str(s['worlds']), repr(s['price']), s['mode'],
+                repr(s['explore']), str(s['seed'])]
         out = subprocess.run(args, input=self.starts[fight] + '\n', capture_output=True, text=True, timeout=120, check=True).stdout
         d = page.decision(json.loads(out), s)
         d['ms'] = round(1000 * (time.perf_counter() - t))
