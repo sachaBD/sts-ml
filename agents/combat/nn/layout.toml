@@ -68,5 +68,6 @@ end_turn = 5
 
 [sample]  # player/episodes.cpp writes it, training/replay.py reads it
 format = 5  # bump when the record's bytes change
-thinking_rounds = 4  # at most four widths when halving up to 16 actions
+thinking_rounds = 4  # number of ThinkingHead budget checkpoints
+thinking_budgets = [8, 24, 64, 160]  # cumulative search NN evals beyond the root eval
 targets = ["won", "hp", "enemy_hp", "hp_lost", "enemy_hp_lost", "turns_remaining"]  # record order (player/targets.cpp)

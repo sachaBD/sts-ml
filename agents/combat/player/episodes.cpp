@@ -17,9 +17,11 @@ using Json = nlohmann::json;
 using Clock = std::chrono::steady_clock;
 constexpr int sample_format = nn::layout::sample::format;
 constexpr int thinking_rounds = nn::layout::sample::thinking_rounds;
+constexpr auto& thinking_budgets = nn::layout::sample::thinking_budgets;
+static_assert(std::size(thinking_budgets) == thinking_rounds);
 constexpr double probe_probability = 0.0625;
 constexpr search::Gumbel::Settings probe_settings{.simulations = 256, .considered_actions = 16, .particles = 16,
-                                                  .spend_even_budget = true};
+                                                  .spend_even_budget = true, .wave_checkpoints = true};
 constexpr GradeSettings grade_settings{.particles = 8, .horizon_turns = 1};
 using Gains = std::array<float, thinking_rounds>;
 
@@ -28,8 +30,9 @@ std::uint64_t probe_particle_stream(const sts::BattleContext& observed) {
            (probe_settings.world_draw * 0x9E3779B97F4A7C15ull);
 }
 
-Json checkpoint(const search::Gumbel::Round& r, std::optional<float> gain) {
-    return {{"simulations", r.simulations}, {"prior", r.prior.bits}, {"selected", r.selected.bits},
+Json checkpoint(int budget, const search::Gumbel::Round& r, std::optional<float> gain) {
+    return {{"budget", budget}, {"evals", r.evals}, {"simulations", r.simulations},
+            {"prior", r.prior.bits}, {"selected", r.selected.bits},
             {"prior_q", r.prior_q ? Json(*r.prior_q) : Json(nullptr)},
             {"selected_q", r.selected_q ? Json(*r.selected_q) : Json(nullptr)},
             {"gain", gain ? Json(*gain) : Json(nullptr)}};
@@ -64,6 +67,7 @@ struct Episodes::Game {
     std::optional<ProbeGrader> grader;
     std::vector<infra::Tokens> grade_requests;
     std::vector<search::Gumbel::Round> rounds;
+    std::vector<std::optional<search::Gumbel::Round>> resolved;
     Json traces = Json::array();
     Gains gains;
     std::array<int, thinking_rounds> coverage{};
@@ -84,15 +88,17 @@ struct Episodes::Game {
 
     void finish_probe(const ProbeGrader* finished_grader) {
         Json checkpoints = Json::array();
-        for (std::size_t i = 0; i < rounds.size(); ++i) {
-            const auto gain = rounds[i].selected.bits == rounds[i].prior.bits
+        for (std::size_t i = 0; i < resolved.size(); ++i) {
+            if (!resolved[i]) continue;
+            const auto& r = *resolved[i];
+            const auto gain = r.selected.bits == r.prior.bits
                 ? std::optional<float>{0.0f}
-                : (finished_grader ? finished_grader->gain(rounds[i].selected) : std::nullopt);
+                : (finished_grader ? finished_grader->gain(r.selected) : std::nullopt);
             if (gain) {
                 gains.at(i) = *gain;
                 ++coverage.at(i);
             }
-            checkpoints.push_back(checkpoint(rounds[i], gain));
+            checkpoints.push_back(checkpoint(thinking_budgets[i], r, gain));
         }
         grade_evals += root_grade_evals;
         probe_evals += root_probe_evals + root_grade_evals;
@@ -120,9 +126,10 @@ struct Episodes::Game {
                 root_probe_evals = probe->sent();
                 root_grade_evals = 0;
                 probe.reset();
+                resolved = resolve_checkpoints(rounds, thinking_budgets);
                 std::vector<search::Action> candidates;
-                for (const auto& r : rounds)
-                    if (r.selected.bits != r.prior.bits) candidates.push_back(r.selected);
+                for (const auto& slot : resolved)
+                    if (slot && slot->selected.bits != slot->prior.bits) candidates.push_back(slot->selected);
                 if (candidates.empty()) {
                     finish_probe(nullptr);
                 } else {
@@ -233,6 +240,7 @@ void Episodes::finish(const Game& g) {
                 {"gumbel_scale", probe_settings.gumbel_scale}, {"sieve_gain", probe_settings.sieve_gain},
                 {"value_scale", probe_settings.value_scale}, {"maxvisit_init", probe_settings.maxvisit_init},
                 {"spend_even_budget", probe_settings.spend_even_budget}, {"rollout_mix", 0},
+                {"checkpoints", std::vector<int>(std::begin(thinking_budgets), std::end(thinking_budgets))},
                 {"grade_particles", grade_settings.particles},
                 {"grade_horizon_turns", grade_settings.horizon_turns},
                 {"grade_max_steps", grade_settings.max_steps}}}};

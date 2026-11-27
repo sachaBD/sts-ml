@@ -228,6 +228,7 @@ struct Gumbel::Impl {
     std::vector<int> stage_visits;  // root edge visits in the current sieve stage (= visits when sieving is off)
     int stage_budget = 0;
     int simulation = 0;
+    int search_evals = 0;  // non-root NN evaluations answered so far
 
     // One Sequential Halving pass, backed up only once fully answered, so answers cannot steer it.
     std::vector<Leaf> leaves;
@@ -285,19 +286,23 @@ struct Gumbel::Impl {
 
     void evaluated(std::span<const Evaluation> e) {
         if (leaves.empty() || e.size() != leaves.size()) throw std::invalid_argument{"gumbel: one evaluation per pending query"};
+        const bool is_root = leaves.front().node == &root;
         for (std::size_t i = 0; i < e.size(); ++i) expand(leaves[i], e[i]);
-        if (leaves.front().node == &root) {
+        if (is_root) {
             std::extreme_value_distribution<double> g;
             for (std::size_t i = 0; i < actions.size(); ++i) gumbel.push_back(s.gumbel_scale * g(rng));
             const bool skip = s.sieve_gain > 0 && (actions.size() <= 1 || std::min(root.value, 1.0 - root.value) < 5e-4);
             stage_budget = s.sieve_gain > 0 && !skip ? std::min(s.simulations, 16) : s.simulations;
             if (!skip) schedule = halving_schedule(std::min<int>(s.considered_actions, int(actions.size())), stage_budget, s.spend_even_budget);
+            if (on_round && s.wave_checkpoints) checkpoint();
+        } else {
+            search_evals += int(e.size());
         }
         leaves.clear();
         queries.clear();
         do {
             flush();
-            if (on_round && wave_width && (simulation == int(schedule.size()) || pass_width() != wave_width))
+            if (on_round && wave_width && (s.wave_checkpoints || simulation == int(schedule.size()) || pass_width() != wave_width))
                 checkpoint();
             if (simulation == int(schedule.size())) maybe_escalate();
             if (simulation < int(schedule.size())) next_wave();
@@ -448,12 +453,12 @@ struct Gumbel::Impl {
     void checkpoint() const {
         // The same stop rule as result(); stable ties use root action order, including for the prior.
         const auto prior = std::size_t(std::ranges::max_element(root.logits) - root.logits.begin());
-        const auto selected = ranked(max_stage_visits(), 1).front();
+        const auto selected = simulation ? ranked(max_stage_visits(), 1).front() : prior;
         const auto estimate = [&](std::size_t edge) -> std::optional<double> {
             if (visits(root, edge)) return q(root, edge);
             return std::nullopt;
         };
-        on_round({simulation, actions[prior], actions[selected], estimate(prior), estimate(selected)});
+        on_round({simulation, actions[prior], actions[selected], estimate(prior), estimate(selected), search_evals});
     }
 
     Graph graph() const {

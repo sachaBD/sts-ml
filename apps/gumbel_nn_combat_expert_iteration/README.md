@@ -158,15 +158,17 @@ The reserved final fights (`[evaluation].final_fights`) are copied with the run 
 Self-play samples each player decision with probability 1/16, including cheap decisions.
 A sampled root gets one evaluation-mode Gumbel probe: 256 total simulations over 16
 worlds, on a separate RNG stream. The fight never plays the probe's recommendation.
-At each completed halving width, after backup and before the next width starts, the
-probe reads the move it would commit if stopped there. Both that readout and the
-original argmax prior break ties in legal action order. Agreement (`selected == prior`)
-records exact `0.0` with zero grading evals. Distinct non-prior commits are graded
-against the prior on 8 fresh shared particles (from an independent RNG stream disjoint
-from the probe's particle stream) using a 1-turn greedy-prior plunge with identical
-`observation_key` states deduplicated; each commit's signed `mean(score(c) - score(prior))`
-is reused across every checkpoint that selected it. Missing rounds and unprobed decisions
-are masked. Cheap probe roots supervise only ThinkingHead. Evaluation fights do not collect probes.
+At root (`evals = 0`) and each completed search wave, the probe records its cumulative
+non-root NN evaluations and the move it would commit if stopped there (breaking ties in
+legal action order, matching the argmax prior). The 4 `ThinkingHead` slots correspond to
+fixed search-eval budgets `[8, 24, 64, 160]`, each taking the commit at the last completed
+wave with `evals <= budget` (carrying forward the final commit if the probe finishes early).
+Agreement (`selected == prior`) records exact `0.0` with zero grading evals. Distinct
+non-prior commits are graded against the prior on 8 fresh shared particles (from an
+independent RNG stream disjoint from the probe's particle stream) using a 1-turn
+greedy-prior plunge with identical `observation_key` states deduplicated; each commit's
+signed `mean(score(c) - score(prior))` is reused across every budget slot that selected it.
+Unprobed decisions are masked. Cheap probe roots supervise only ThinkingHead. Evaluation fights do not collect probes.
 
 The shared trunk exports signed `thinking` predictions alongside `value` and `logits`.
 `results.jsonl` records probe settings, checkpoint traces, actual NN evals, and label
