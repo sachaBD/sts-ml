@@ -16,3 +16,8 @@ if(TARGET infra_inference)
     target_link_libraries(combat_lab PRIVATE combat_inspection nn_network CLI11::CLI11)
     target_compile_options(combat_lab PRIVATE -Wall -Wextra -Wpedantic)
 endif()
+
+if(TARGET infra_inference)
+    add_executable(filter_replay filter_replay.cpp)
+    target_link_libraries(filter_replay PRIVATE player_decision nn_network)
+endif()

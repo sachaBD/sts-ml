@@ -43,3 +43,7 @@ source /path/to/emsdk/emsdk_env.sh
 make pages-wasm
 node apps/combat_inspector/wasm/test_wasm.mjs
 ```
+
+`filter_replay` replays fight starts with the filter search and prints one trace record per decision; given a step and
+settings, it re-searches only that decision. `filter_lab/` serves those traces as a step-through page that can re-run a
+decision with other settings (usage in `filter_lab/server.py`).
