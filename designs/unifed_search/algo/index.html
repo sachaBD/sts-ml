@@ -1,0 +1,1085 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Sift-DAG: Visual Guide to Unified Combat Search</title>
+<style>
+  :root {
+    --bg: #0d1117;
+    --panel: #161b22;
+    --panel-2: #1c2330;
+    --border: #2d3748;
+    --text: #e6edf3;
+    --muted: #8b949e;
+    --accent: #58a6ff;
+    --green: #3fb950;
+    --amber: #d29922;
+    --red: #f85149;
+    --purple: #bc8cff;
+    --cyan: #39c5cf;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, sans-serif;
+    line-height: 1.55;
+  }
+  .wrap {
+    max-width: 1120px;
+    margin: 0 auto;
+    padding: 36px 24px 80px;
+  }
+  header {
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 24px;
+    margin-bottom: 32px;
+  }
+  .eyebrow {
+    color: var(--accent);
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+  }
+  h1 {
+    margin: 8px 0 12px;
+    font-size: 32px;
+    line-height: 1.2;
+    letter-spacing: -0.02em;
+  }
+  .subtitle {
+    color: var(--muted);
+    font-size: 17px;
+    max-width: 860px;
+    margin: 0 0 20px;
+  }
+  .badges {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+  .badge {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    padding: 5px 13px;
+    font-size: 13px;
+    color: var(--text);
+  }
+  .badge b { color: var(--accent); }
+  section {
+    margin-bottom: 44px;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 26px 28px;
+  }
+  .step-tag {
+    display: inline-block;
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    padding: 3px 9px;
+    border-radius: 6px;
+    background: rgba(88, 166, 255, 0.14);
+    color: var(--accent);
+    margin-bottom: 8px;
+  }
+  .step-tag.purple {
+    background: rgba(188, 140, 255, 0.16);
+    color: var(--purple);
+  }
+  h2 {
+    margin: 0 0 10px;
+    font-size: 22px;
+    letter-spacing: -0.01em;
+  }
+  h3 {
+    margin: 18px 0 8px;
+    font-size: 16px;
+    color: var(--text);
+  }
+  p { margin: 8px 0 12px; color: #c9d1d9; }
+  ul {
+    margin: 8px 0 14px;
+    padding-left: 20px;
+    color: #c9d1d9;
+  }
+  li { margin-bottom: 6px; }
+  li b { color: var(--text); }
+  code {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 0.9em;
+    background: rgba(255,255,255,0.07);
+    padding: 2px 6px;
+    border-radius: 5px;
+    color: #f0f6fc;
+  }
+  .svg-box {
+    background: #0b0f14;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 14px;
+    margin: 16px 0;
+    overflow-x: auto;
+  }
+  svg {
+    display: block;
+    width: 100%;
+    height: auto;
+  }
+  .grid-2 {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 18px;
+  }
+  @media (max-width: 820px) {
+    .grid-2 { grid-template-columns: 1fr; }
+  }
+  .card {
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 16px 18px;
+  }
+  .callout {
+    border-left: 3px solid var(--accent);
+    background: rgba(88, 166, 255, 0.08);
+    padding: 12px 16px;
+    border-radius: 0 8px 8px 0;
+    margin-top: 14px;
+    font-size: 14px;
+  }
+  .callout.amber {
+    border-left-color: var(--amber);
+    background: rgba(210, 153, 34, 0.09);
+  }
+  .callout.green {
+    border-left-color: var(--green);
+    background: rgba(63, 185, 80, 0.09);
+  }
+  .callout.purple {
+    border-left-color: var(--purple);
+    background: rgba(188, 140, 255, 0.09);
+  }
+
+  .controls {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 14px;
+    align-items: center;
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 14px 16px;
+    margin-bottom: 14px;
+  }
+  .btn-group {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+  button {
+    background: #21262d;
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 7px;
+    padding: 7px 12px;
+    font-size: 13px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+  }
+  button:hover { border-color: var(--accent); }
+  button.active {
+    background: rgba(88, 166, 255, 0.2);
+    border-color: var(--accent);
+    color: #fff;
+    font-weight: 600;
+  }
+  .slider-wrap {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+    color: var(--muted);
+  }
+  input[type="range"] {
+    accent-color: var(--accent);
+    width: 150px;
+  }
+  .status-pill {
+    margin-left: auto;
+    padding: 6px 12px;
+    border-radius: 8px;
+    font-size: 13px;
+    font-weight: 700;
+  }
+  .pill-stop { background: rgba(63, 185, 80, 0.18); color: var(--green); border: 1px solid rgba(63,185,80,0.4); }
+  .pill-go   { background: rgba(88, 166, 255, 0.18); color: var(--accent); border: 1px solid rgba(88,166,255,0.4); }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 14px;
+    margin-top: 12px;
+  }
+  th, td {
+    text-align: left;
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--border);
+    vertical-align: top;
+  }
+  th { color: var(--muted); font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em; }
+  .tag-dial { color: var(--green); font-weight: 700; }
+  .tag-prior { color: var(--accent); font-weight: 600; }
+  .tag-shape { color: var(--purple); font-weight: 600; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="eyebrow">Slay the Spire Combat RL · Visual Design Guide</div>
+    <h1><code>Sift-DAG</code>: Unified Value-of-Information Combat Search</h1>
+    <p class="subtitle">
+      A first-principles walkthrough of how one classical search loop over a public-observation graph and shared particles handles evaluation play, self-play exploration, and training supervision.
+    </p>
+    <div class="badges">
+      <span class="badge"><b>1</b> Search Loop</span>
+      <span class="badge"><b>0</b> Auxiliary Gate Models</span>
+      <span class="badge"><b>2</b> Mode Dials (<code>λ</code>, <code>gumbel_scale</code>)</span>
+      <span class="badge"><b>4</b> Fixed Algorithm Constants</span>
+    </div>
+  </header>
+
+  <!-- VOCABULARY -->
+  <section>
+    <span class="step-tag">Part 0 · Vocabulary</span>
+    <h2>Plain-English Glossary</h2>
+    <table>
+      <thead>
+        <tr>
+          <th style="width:240px;">Term</th>
+          <th>Meaning</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><b>Eval</b></td>
+          <td>One neural-network forward pass on one state (returns <code>value</code>, <code>logits</code>, and <code>thinking</code>). A batch of 32 states counts as 32 evals.</td>
+        </tr>
+        <tr>
+          <td><b>Particle</b></td>
+          <td>One concrete sample of hidden state (shuffled draw-pile order) and future RNG stream consistent with what the player can currently see (<code>combat::particles(...)</code>).</td>
+        </tr>
+        <tr>
+          <td><b>Shared / Paired Particles</b></td>
+          <td>Testing competing moves on the <b>exact same particle indices</b> (<code>particles[0]</code>, <code>particles[1]</code>, …). Lucky/unlucky draws hit both moves together and cancel out in <code>Q_p(B) - Q_p(A)</code>.</td>
+        </tr>
+        <tr>
+          <td><b>Public DAG (Directed Acyclic Graph)</b></td>
+          <td>Search graph keyed by order-invariant public observation (<code>observation_key</code>), so different card sequences reaching the same visible state merge into a single shared node.</td>
+        </tr>
+        <tr>
+          <td><b>Transposition</b></td>
+          <td>Two move orders (e.g. <i>Strike → Defend</i> vs. <i>Defend → Strike</i>) arriving at the exact same public node.</td>
+        </tr>
+        <tr>
+          <td><b>Plunge</b></td>
+          <td>Fast-forwarding mid-turn choices using the network's greedy argmax prior (<code>logits</code>) until reaching the next turn start (<code>Turn+1</code>) or fight end.</td>
+        </tr>
+        <tr>
+          <td><b>VOI (Value of Information)</b></td>
+          <td>Expected gain in fight win probability of our <b>committed root move</b> from buying a specific block of extra evals (computed via Laplace/Exponential <b>Expected Improvement, EI</b>).</td>
+        </tr>
+        <tr>
+          <td><b>Aleatoric vs. Epistemic</b></td>
+          <td><b>Aleatoric</b> = draw/roll luck across particles (reduced by adding shared particles). <b>Epistemic</b> = blind spots from following a greedy plunge without branching mid-turn choices (reduced by branching nodes with high <code>thinking</code> or prior uncertainty).</td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+
+  <!-- CHAPTER 1: SPEC & DATA -->
+  <section>
+    <span class="step-tag">Part 1 · Raw Ingredients</span>
+    <h2>What 1 NN Evaluation Gives Us</h2>
+    <p>
+      Every time the GPU evaluates a combat state <code>s</code> with <code>K</code> deduplicated legal actions, a single trunk pass emits <b>three heads at once</b>. No extra forward pass is ever needed to gate or score a node.
+    </p>
+
+    <div class="svg-box">
+      <svg viewBox="0 0 960 250" xmlns="http://www.w3.org/2000/svg">
+        <defs>
+          <marker id="arr" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+            <path d="M 0 1 L 10 5 L 0 9 z" fill="#8b949e"/>
+          </marker>
+        </defs>
+        <rect x="20" y="26" width="230" height="198" rx="10" fill="#161b22" stroke="#30363d"/>
+        <text x="38" y="52" fill="#8b949e" font-size="12" font-weight="700">INPUT TOKENS [T × 68]</text>
+        <rect x="36" y="66" width="198" height="28" rx="5" fill="#1f2937" stroke="#58a6ff"/>
+        <text x="48" y="84" fill="#58a6ff" font-size="12" font-weight="600">Row 0: Context Token (CLS)</text>
+        <rect x="36" y="102" width="198" height="28" rx="5" fill="#1c2330" stroke="#30363d"/>
+        <text x="48" y="120" fill="#c9d1d9" font-size="12">Player, Monsters, Relics, Piles</text>
+        <rect x="36" y="138" width="198" height="28" rx="5" fill="#1f2937" stroke="#3fb950"/>
+        <text x="48" y="156" fill="#3fb950" font-size="12" font-weight="600">Action 0..K-1 Tokens</text>
+        <text x="38" y="194" fill="#8b949e" font-size="11">+ Simulator primitives:</text>
+        <text x="38" y="210" fill="#8b949e" font-size="11">obs_key(s), particles(s), isChance()</text>
+
+        <line x1="255" y1="125" x2="318" y2="125" stroke="#8b949e" stroke-width="2" marker-end="url(#arr)"/>
+
+        <rect x="325" y="58" width="205" height="134" rx="12" fill="#1b2432" stroke="#58a6ff" stroke-width="1.5"/>
+        <text x="427" y="98" text-anchor="middle" fill="#f0f6fc" font-size="15" font-weight="700">Shared Transformer</text>
+        <text x="427" y="120" text-anchor="middle" fill="#8b949e" font-size="12">inventory_v1 (192d × 4L × 6H)</text>
+        <text x="427" y="146" text-anchor="middle" fill="#58a6ff" font-size="12" font-weight="600">Cost = 1 NN Eval</text>
+        <text x="427" y="168" text-anchor="middle" fill="#8b949e" font-size="11">(0 evals if cached in DAG / Answers)</text>
+
+        <path d="M 530 90 L 605 52" stroke="#8b949e" stroke-width="2" fill="none" marker-end="url(#arr)"/>
+        <path d="M 530 125 L 605 125" stroke="#8b949e" stroke-width="2" fill="none" marker-end="url(#arr)"/>
+        <path d="M 530 160 L 605 196" stroke="#8b949e" stroke-width="2" fill="none" marker-end="url(#arr)"/>
+
+        <rect x="615" y="18" width="325" height="62" rx="9" fill="#161b22" stroke="#bc8cff"/>
+        <text x="631" y="42" fill="#bc8cff" font-size="13" font-weight="700">1. value ∈ [0, 1]</text>
+        <text x="631" y="62" fill="#c9d1d9" font-size="12">Win prob (sum of 10 win bins from 20-bin outcome head)</text>
+
+        <rect x="615" y="94" width="325" height="62" rx="9" fill="#161b22" stroke="#3fb950"/>
+        <text x="631" y="118" fill="#3fb950" font-size="13" font-weight="700">2. logits[0..K-1]</text>
+        <text x="631" y="138" fill="#c9d1d9" font-size="12">Action prior; argmax = 1-eval greedy move A</text>
+
+        <rect x="615" y="170" width="325" height="70" rx="9" fill="#161b22" stroke="#d29922"/>
+        <text x="631" y="193" fill="#d29922" font-size="13" font-weight="700">3. thinking[0..3]  (2-layer MLP + logit gaps)</text>
+        <text x="631" y="212" fill="#c9d1d9" font-size="12">Signed Δwin at fixed budgets c = [8, 24, 64, 160] evals</text>
+        <text x="631" y="229" fill="#8b949e" font-size="11">Expected gain from choosing search's move instead of prior A</text>
+      </svg>
+    </div>
+  </section>
+
+  <!-- CHAPTER 2: TWO UNCERTAINTIES -->
+  <section>
+    <span class="step-tag">Part 2 · The Core Insight</span>
+    <h2>Two Reasons a Move Can Beat the Current Leader</h2>
+    <p>
+       ~96% of Slay the Spire decisions don't change under deep search. In the ~4% where the prior move <code>A</code> <i>is</i> wrong, our estimate of challenger <code>e</code> vs. leader <code>â</code> is uncertain for <b>two orthogonal reasons</b>:
+    </p>
+
+    <div class="grid-2">
+      <div class="card">
+        <h3 style="margin-top:0; color: var(--cyan);">1. Aleatoric Uncertainty (Particle / Draw Noise)</h3>
+        <p style="font-size:14px;">
+          Playing <i>Pommel Strike</i> draws different hidden cards in Particle 0 vs. Particle 1.
+        </p>
+        <svg viewBox="0 0 420 155" xmlns="http://www.w3.org/2000/svg">
+          <rect x="8" y="10" width="404" height="135" rx="8" fill="#0b0f14" stroke="#2d3748"/>
+          <text x="24" y="34" fill="#39c5cf" font-size="12" font-weight="700">Shared / Paired Particles</text>
+          <text x="24" y="60" fill="#c9d1d9" font-size="12">Particle p₀ (easy draw):  Q(â)=0.84   Q(e)=0.81  → diff = -0.03</text>
+          <text x="24" y="84" fill="#c9d1d9" font-size="12">Particle p₁ (brick draw): Q(â)=0.42   Q(e)=0.38  → diff = -0.04</text>
+          <line x1="24" y1="98" x2="390" y2="98" stroke="#2d3748"/>
+          <text x="24" y="120" fill="#3fb950" font-size="12" font-weight="600">Raw SD = ±0.21 (noisy!), Paired diff SD = ±0.005 (tight!)</text>
+        </svg>
+        <ul style="font-size:13.5px; margin-bottom:0;">
+          <li><b>Fix:</b> evaluate contenders on <b>shared particles</b> (<code>PARTICLES</code> block) + subtract particle difficulty <code>β_p</code>.</li>
+          <li><b>Limit:</b> sampling 1,000 particles <i>never</i> fixes a systematically bad mid-turn continuation!</li>
+        </ul>
+      </div>
+
+      <div class="card">
+        <h3 style="margin-top:0; color: var(--amber);">2. Epistemic Uncertainty (Greedy Plunge Error)</h3>
+        <p style="font-size:14px;">
+          Challenger <code>e</code> (<i>Offering</i>) draws 5 cards into mid-turn state <code>u</code>, where the greedy prior blunders.
+        </p>
+        <svg viewBox="0 0 420 155" xmlns="http://www.w3.org/2000/svg">
+          <rect x="8" y="10" width="404" height="135" rx="8" fill="#0b0f14" stroke="#2d3748"/>
+          <circle cx="60" cy="75" r="20" fill="#1f2937" stroke="#58a6ff"/>
+          <text x="60" y="79" text-anchor="middle" fill="#fff" font-size="11">root</text>
+          <line x1="80" y1="75" x2="155" y2="75" stroke="#d29922" stroke-width="2"/>
+          <text x="117" y="66" text-anchor="middle" fill="#d29922" font-size="11">play e</text>
+          <rect x="155" y="50" width="96" height="50" rx="8" fill="#2b2111" stroke="#d29922" stroke-width="1.5"/>
+          <text x="203" y="71" text-anchor="middle" fill="#d29922" font-size="11" font-weight="700">state u</text>
+          <text x="203" y="88" text-anchor="middle" fill="#f0f6fc" font-size="11">τ(u) = +0.14!</text>
+          <line x1="251" y1="63" x2="325" y2="42" stroke="#8b949e" stroke-dasharray="4 3" stroke-width="1.5"/>
+          <text x="365" y="45" text-anchor="middle" fill="#8b949e" font-size="11">greedy: 0.61</text>
+          <line x1="251" y1="87" x2="325" y2="112" stroke="#3fb950" stroke-width="2.2"/>
+          <text x="365" y="116" text-anchor="middle" fill="#3fb950" font-size="12" font-weight="700">branch: 0.76!</text>
+        </svg>
+        <ul style="font-size:13.5px; margin-bottom:0;">
+          <li><b>Signal:</b> <code>τ(u)</code> predicts how much <code>V(u)</code> rises when <code>u</code> branches off its greedy prior.</li>
+          <li><b>Fix:</b> buy <code>BRANCH(e, u)</code>—spending interior evals only where branching can lift <code>e</code> past <code>â</code>.</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- CHAPTER 3: INTERACTIVE ENTRY & RESERVE -->
+  <section>
+    <span class="step-tag">Part 3 · Interactive Intuition</span>
+    <h2>Emergent <code>t = 0</code> Exit &amp; Self-Cancelling Setup Reserve</h2>
+    <p>
+      Treat the initial root forward pass (<code>1 eval</code>) as state <code>t = 0</code> of the graph. On the budget plane (horizontal = NN evals <code>c</code>, vertical = expected win-rate gain), compute price <code>λ</code> defines a ray of slope <code>λ</code> from current spend <code>n</code>. <b>Whenever all checkpoints sit below that ray, the loop stops immediately.</b>
+    </p>
+
+    <div class="controls">
+      <div class="btn-group" id="scenButtons">
+        <button class="active" data-scen="obvious">1. Obvious Prior (96% case)</button>
+        <button data-scen="setup">2. Deep Setup Trap (Wave 1 flat!)</button>
+        <button data-scen="found">3. Early Discovery (Wave 1 nailed it)</button>
+      </div>
+      <div class="slider-wrap">
+        <span>Compute price <code>λ</code>:</span>
+        <input type="range" id="lambdaSlider" min="2" max="40" value="12" />
+        <code id="lambdaLabel">1.2e-4 / eval</code>
+      </div>
+      <div id="decisionPill" class="status-pill pill-stop">STOP @ 1 eval</div>
+    </div>
+
+    <div class="svg-box">
+      <svg id="reservePlot" viewBox="0 0 900 300" xmlns="http://www.w3.org/2000/svg"></svg>
+    </div>
+    <p id="scenExplain" style="font-size:14px; color: var(--muted); margin-top:6px;"></p>
+  </section>
+
+  <!-- CHAPTER 4: DAG TRANSPOSITION CANCELLATION -->
+  <section>
+    <span class="step-tag">Part 4 · Inside the Public DAG</span>
+    <h2>Why Shared Transpositions Cost Zero Extra Thinking</h2>
+    <p>
+      In Slay the Spire, card-order permutations (<i>Strike → Defend</i> vs. <i>Defend → Strike</i>) merge into the exact same public <code>observation_key</code>. Differential reachability across particles <code>δ⁺_u(e) = max(0, ω_e(u) - ω_â(u))</code> prices this automatically:
+    </p>
+
+    <div class="svg-box">
+      <svg viewBox="0 0 940 245" xmlns="http://www.w3.org/2000/svg">
+        <rect x="14" y="14" width="440" height="216" rx="10" fill="#121720" stroke="#2d3748"/>
+        <text x="32" y="38" fill="#8b949e" font-size="12" font-weight="700">CASE A: CARD-ORDER TRANSPOSITION → SKIP!</text>
+        <circle cx="234" cy="70" r="20" fill="#1f2937" stroke="#58a6ff"/>
+        <text x="234" y="74" text-anchor="middle" fill="#fff" font-size="11" font-weight="700">root</text>
+
+        <path d="M 216 82 L 145 125 L 216 168" stroke="#3fb950" stroke-width="2" fill="none"/>
+        <text x="115" y="128" text-anchor="middle" fill="#3fb950" font-size="11">â: Strike→Defend</text>
+
+        <path d="M 252 82 L 323 125 L 252 168" stroke="#58a6ff" stroke-width="2" fill="none"/>
+        <text x="355" y="128" text-anchor="middle" fill="#58a6ff" font-size="11">e: Defend→Strike</text>
+
+        <rect x="166" y="160" width="136" height="52" rx="8" fill="#231c2e" stroke="#bc8cff" stroke-width="1.5"/>
+        <text x="234" y="181" text-anchor="middle" fill="#bc8cff" font-size="12" font-weight="700">u_shared (τ = +0.15)</text>
+        <text x="234" y="199" text-anchor="middle" fill="#f0f6fc" font-size="11">ω_â=1.0, ω_e=1.0 ⇒ δ⁺=0!</text>
+
+        <rect x="486" y="14" width="440" height="216" rx="10" fill="#121720" stroke="#2d3748"/>
+        <text x="504" y="38" fill="#3fb950" font-size="12" font-weight="700">CASE B: ASYMMETRIC SUBGRAPH → BRANCH!</text>
+        <circle cx="706" cy="70" r="20" fill="#1f2937" stroke="#58a6ff"/>
+        <text x="706" y="74" text-anchor="middle" fill="#fff" font-size="11" font-weight="700">root</text>
+
+        <line x1="688" y1="82" x2="595" y2="160" stroke="#3fb950" stroke-width="2"/>
+        <text x="612" y="118" text-anchor="middle" fill="#3fb950" font-size="11">â: Shrug (Q=0.68)</text>
+        <rect x="540" y="160" width="115" height="48" rx="8" fill="#161b22" stroke="#30363d"/>
+        <text x="597" y="182" text-anchor="middle" fill="#8b949e" font-size="11">Turn+1 leaf</text>
+        <text x="597" y="198" text-anchor="middle" fill="#8b949e" font-size="10">(no Turn-0 choice)</text>
+
+        <line x1="724" y1="82" x2="815" y2="160" stroke="#d29922" stroke-width="2.2"/>
+        <text x="798" y="118" text-anchor="middle" fill="#d29922" font-size="11">e: Battle Trance (Q=0.64)</text>
+        <rect x="748" y="160" width="146" height="52" rx="8" fill="#2b2111" stroke="#d29922" stroke-width="1.8"/>
+        <text x="821" y="181" text-anchor="middle" fill="#d29922" font-size="12" font-weight="700">u_hot (τ = +0.11)</text>
+        <text x="821" y="199" text-anchor="middle" fill="#f0f6fc" font-size="11">ω_e=1, ω_â=0 ⇒ VOI High!</text>
+      </svg>
+    </div>
+    <p style="font-size:14px;">
+      In <b>Case A</b>, improving <code>u_shared</code> lifts <code>Q(â)</code> and <code>Q(e)</code> by the exact same amount—it cannot flip the root move, so VOI is <code>0</code> (if the fight reaches <code>u_shared</code>, we get to think there on the next decision). In <b>Case B</b>, only challenger <code>e</code> visits <code>u_hot</code>, so upward revision <code>τ(u_hot)</code> directly narrows the <code>0.04</code> root gap.
+    </p>
+  </section>
+
+  <!-- CHAPTER 5: INTERACTIVE WALKTHROUGH -->
+  <section>
+    <span class="step-tag">Part 5 · Live Trace Walkthrough</span>
+    <h2>Watch One Tough Decision Unfold Step by Step</h2>
+    <p>
+      Step through a boss turn (Ironclad vs. Champ, 4 legal cards). At every step, the <b>same rule</b> scores all available candidate blocks by <code>VOI / Cost</code> against <code>λ = 1.2e-4</code>:
+    </p>
+
+    <div class="controls" id="walkControls">
+      <div class="btn-group">
+        <button class="active" data-wstep="0">t=0: Root Eval (1 eval)</button>
+        <button data-wstep="1">Wave 1: OPEN (9 evals)</button>
+        <button data-wstep="2">Wave 2: BRANCH u (15 evals)</button>
+        <button data-wstep="3">Wave 3: WIDEN e₂ (20 evals)</button>
+        <button data-wstep="4">Wave 4: PARTICLES (28 evals)</button>
+        <button data-wstep="5">Stop &amp; Commit!</button>
+      </div>
+    </div>
+
+    <div class="grid-2">
+      <div class="svg-box" style="margin:0;">
+        <svg id="walkDag" viewBox="0 0 480 310" xmlns="http://www.w3.org/2000/svg"></svg>
+      </div>
+      <div class="svg-box" style="margin:0;">
+        <svg id="walkBars" viewBox="0 0 440 310" xmlns="http://www.w3.org/2000/svg"></svg>
+      </div>
+    </div>
+    <div class="callout green" id="walkCaption" style="margin-top:14px;"></div>
+  </section>
+
+  <!-- CHAPTER 6: TRAINING & EXPLORATION FROM FIRST PRINCIPLES -->
+  <section>
+    <span class="step-tag purple">Part 6 · Training &amp; Exploration</span>
+    <h2>How One Algorithm Plays, Explores, and Trains Itself</h2>
+    <p>
+      An autonomous RL agent has to solve three jobs with one search engine: <b>play strongly</b> in evaluation, <b>generate diverse fights</b> in self-play, and <b>measure what deeper search gains</b> to train <code>ThinkingHead</code>. Two simple dials—compute price <code>λ</code> and root sampling noise <code>gumbel_scale</code>—configure all three:
+    </p>
+
+    <!-- 6A: Three Operating Modes SVG -->
+    <div class="svg-box">
+      <svg viewBox="0 0 960 285" xmlns="http://www.w3.org/2000/svg">
+        <defs>
+          <marker id="arrG" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+            <path d="M 0 1 L 10 5 L 0 9 z" fill="#3fb950"/>
+          </marker>
+          <marker id="arrB" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+            <path d="M 0 1 L 10 5 L 0 9 z" fill="#58a6ff"/>
+          </marker>
+          <marker id="arrP" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+            <path d="M 0 1 L 10 5 L 0 9 z" fill="#bc8cff"/>
+          </marker>
+        </defs>
+
+        <!-- Row 1: Evaluation -->
+        <rect x="16" y="14" width="928" height="76" rx="9" fill="#121a17" stroke="#2ea043" stroke-opacity="0.5"/>
+        <text x="32" y="36" fill="#3fb950" font-size="12" font-weight="700">1. EVALUATION  (λ &gt; 0,  gumbel_scale = 0)  →  Pure Strength per Eval</text>
+        <rect x="32" y="46" width="126" height="32" rx="6" fill="#1f2937" stroke="#58a6ff"/>
+        <text x="95" y="66" text-anchor="middle" fill="#fff" font-size="11">t=0 Root (1 eval)</text>
+        <line x1="158" y1="62" x2="198" y2="62" stroke="#3fb950" stroke-width="2" marker-end="url(#arrG)"/>
+        <rect x="202" y="46" width="240" height="32" rx="6" fill="#16241c" stroke="#3fb950"/>
+        <text x="322" y="66" text-anchor="middle" fill="#e6edf3" font-size="11">Waves while max(VOI/Cost) &gt; λ</text>
+        <line x1="442" y1="62" x2="482" y2="62" stroke="#3fb950" stroke-width="2" marker-end="url(#arrG)"/>
+        <rect x="486" y="46" width="250" height="32" rx="6" fill="#16241c" stroke="#3fb950"/>
+        <text x="611" y="66" text-anchor="middle" fill="#3fb950" font-size="11" font-weight="700">Play deterministic argmax(z_e)</text>
+        <text x="756" y="66" fill="#8b949e" font-size="11">(96% exit at 1 eval)</text>
+
+        <!-- Row 2: Self-Play -->
+        <rect x="16" y="102" width="928" height="76" rx="9" fill="#121924" stroke="#58a6ff" stroke-opacity="0.5"/>
+        <text x="32" y="124" fill="#58a6ff" font-size="12" font-weight="700">2. SELF-PLAY MAIN FIGHT  (λ &gt; 0,  gumbel_scale = 1)  →  Diverse Fight Trajectories</text>
+        <rect x="32" y="134" width="126" height="32" rx="6" fill="#1f2937" stroke="#58a6ff"/>
+        <text x="95" y="154" text-anchor="middle" fill="#fff" font-size="11">t=0 Root (1 eval)</text>
+        <line x1="158" y1="150" x2="198" y2="150" stroke="#58a6ff" stroke-width="2" marker-end="url(#arrB)"/>
+        <rect x="202" y="134" width="240" height="32" rx="6" fill="#162030" stroke="#58a6ff"/>
+        <text x="322" y="154" text-anchor="middle" fill="#e6edf3" font-size="11">Same search (or λ=∞ pure prior)</text>
+        <line x1="442" y1="150" x2="482" y2="150" stroke="#58a6ff" stroke-width="2" marker-end="url(#arrB)"/>
+        <rect x="486" y="134" width="268" height="32" rx="6" fill="#162030" stroke="#58a6ff"/>
+        <text x="620" y="154" text-anchor="middle" fill="#58a6ff" font-size="11" font-weight="700">Sample argmax(z_e + Gumbel_e)</text>
+        <text x="770" y="154" fill="#8b949e" font-size="11">(target = clean softmax z)</text>
+
+        <!-- Row 3: Probe -->
+        <rect x="16" y="190" width="928" height="82" rx="9" fill="#171422" stroke="#bc8cff" stroke-opacity="0.5"/>
+        <text x="32" y="212" fill="#bc8cff" font-size="12" font-weight="700">3. TRAINING PROBE on 1/16 of Roots  (λ = 0,  gumbel_scale = 0,  max_evals = 160)  →  Supervises ThinkingHead</text>
+        <rect x="32" y="224" width="126" height="34" rx="6" fill="#1f2937" stroke="#bc8cff"/>
+        <text x="95" y="245" text-anchor="middle" fill="#fff" font-size="11">Always enters</text>
+        <line x1="158" y1="241" x2="192" y2="241" stroke="#bc8cff" stroke-width="2" marker-end="url(#arrP)"/>
+        <rect x="196" y="224" width="388" height="34" rx="6" fill="#211c30" stroke="#bc8cff"/>
+        <text x="390" y="245" text-anchor="middle" fill="#e6edf3" font-size="11">Exact same block sequence → commits at [8, 24, 64, 160] evals</text>
+        <line x1="584" y1="241" x2="618" y2="241" stroke="#d29922" stroke-width="2" marker-end="url(#arrP)"/>
+        <rect x="622" y="222" width="304" height="38" rx="6" fill="#2b2111" stroke="#d29922"/>
+        <text x="774" y="245" text-anchor="middle" fill="#d29922" font-size="11" font-weight="700">If commit ≠ prior: grade on 8 fresh particles</text>
+      </svg>
+    </div>
+
+    <p style="font-size:14px;">
+      Because block selection (<code>argmax VOI / Cost</code>) does not depend on <code>λ</code>, <b>Evaluation at price <code>λ</code> stops on an exact prefix of the trajectory that the <code>λ = 0</code> Probe runs and grades</b>—so <code>ThinkingHead</code> always predicts the true payoff of our actual play search.
+    </p>
+
+    <!-- 6B: Two Complementary Exploration Signals -->
+    <h3>Two Distinct Exploration Signals (and Why We Need Both)</h3>
+    <p>
+      Self-training requires exploring in <b>two different places</b>: <i>inside</i> a search tree (so probes find combos the head hasn't learned yet) and <i>across</i> self-play fights (so fights visit diverse states). One is deterministic; the other is random:
+    </p>
+
+    <div class="grid-2">
+      <div class="card">
+        <h3 style="margin-top:0; color:var(--purple);">A. Inside a Search: Deterministic Floor <code>τ_floor(u)</code></h3>
+        <p style="font-size:13.5px;">
+          What if <code>ThinkingHead</code> is freshly initialized (<code>0</code> everywhere) or misses a novel mid-turn combo and predicts <code>thinking(u) ≤ 0</code>?
+        </p>
+        <p style="font-size:12.5px; background:#0b0f14; padding:8px 10px; border-radius:6px; border:1px solid var(--border);">
+          <code>τ₀(u) = max( max_k g_u[k], ½·s₀·√(v(1-v))·(1 - π[greedy]) )</code>
+        </p>
+        <svg viewBox="0 0 420 120" xmlns="http://www.w3.org/2000/svg">
+          <rect x="8" y="8" width="404" height="104" rx="8" fill="#0b0f14" stroke="#2d3748"/>
+          <circle cx="65" cy="60" r="18" fill="#1f2937" stroke="#bc8cff"/>
+          <text x="65" y="64" text-anchor="middle" fill="#fff" font-size="11">u</text>
+          <line x1="83" y1="52" x2="175" y2="32" stroke="#8b949e" stroke-dasharray="4 3"/>
+          <text x="275" y="36" fill="#8b949e" font-size="11">greedy card (π = 0.45)</text>
+          <line x1="83" y1="68" x2="175" y2="88" stroke="#bc8cff" stroke-width="2.2"/>
+          <text x="285" y="92" fill="#bc8cff" font-size="11" font-weight="700">τ_floor &gt; 0 forces probe to test alt!</text>
+        </svg>
+        <ul style="font-size:13px; margin-bottom:0;">
+          <li><b>Deterministic</b> (same state → same probe tree).</li>
+          <li><b>Only on interior nodes:</b> root <code>OPEN</code> uses pure <code>g_root[k]</code> when <code>λ &gt; 0</code>, so 50/50 card-order ties still exit at <b>1 eval</b> in play, while shared transpositions inside the DAG cancel via <code>δ⁺_u = 0</code>.</li>
+        </ul>
+      </div>
+
+      <div class="card">
+        <h3 style="margin-top:0; color:var(--accent);">B. Across Fights: Random Noise <code>gumbel_scale · G_e</code></h3>
+        <p style="font-size:13.5px;">
+          On the 15/16 non-probe moves in self-play, playing deterministic <code>argmax</code> would repeat identical games from the same start.
+        </p>
+        <p style="font-size:12.5px; background:#0b0f14; padding:8px 10px; border-radius:6px; border:1px solid var(--border);">
+          <code>z_e = ℓ_max + k₀(S(e) - V₀); &nbsp; play argmax(z_e + scale·G_e)</code>
+        </p>
+        <svg viewBox="0 0 420 120" xmlns="http://www.w3.org/2000/svg">
+          <rect x="8" y="8" width="404" height="104" rx="8" fill="#0b0f14" stroke="#2d3748"/>
+          <circle cx="65" cy="60" r="18" fill="#1f2937" stroke="#58a6ff"/>
+          <text x="65" y="64" text-anchor="middle" fill="#fff" font-size="11">root</text>
+          <line x1="83" y1="48" x2="180" y2="26" stroke="#3fb950" stroke-width="2"/>
+          <text x="285" y="30" fill="#3fb950" font-size="11">Fight #1 draws G → plays Shrug</text>
+          <line x1="83" y1="60" x2="180" y2="60" stroke="#58a6ff" stroke-width="2"/>
+          <text x="285" y="64" fill="#58a6ff" font-size="11">Fight #2 draws G → plays Bash</text>
+          <line x1="83" y1="72" x2="180" y2="94" stroke="#d29922" stroke-width="2"/>
+          <text x="285" y="98" fill="#d29922" font-size="11">Fight #3 draws G → plays Pommel</text>
+        </svg>
+        <ul style="font-size:13px; margin-bottom:0;">
+          <li><b>Random across fights</b> (<code>G_e ~ Gumbel(0, 1)</code>).</li>
+          <li><b>Exact at both extremes:</b> when <code>N_e = 0</code> (1-eval skip), <code>z_e ≡ logits[e]</code> (samples from raw prior); when searched, samples from improved <code>softmax(z)</code> while keeping <code>gumbel_scale = 0</code> in Evaluation &amp; Probes.</li>
+        </ul>
+      </div>
+    </div>
+
+    <!-- 6C: Interactive Blind-Spot Healing Across Training -->
+    <h3 style="margin-top:24px;">Interactive: How <code>τ_floor</code> Bootstraps &amp; Heals Blind Spots</h3>
+    <p>
+      Click through the three stages of training below to see how <code>PARTICLES</code> (cyan, shrinking as <code>1/√N</code>) and <code>BRANCH(u)</code> compete inside a <code>160</code>-eval probe vs. during Play:
+    </p>
+
+    <div class="controls" id="bootControls">
+      <div class="btn-group">
+        <button class="active" data-bmode="cold">1. Cold Network (thinking = 0)</button>
+        <button data-bmode="blind">2. Missed Combo Blind Spot (thinking ≤ 0)</button>
+        <button data-bmode="learned">3. Learned Combo (thinking = +0.11)</button>
+      </div>
+    </div>
+
+    <div class="svg-box">
+      <svg id="bootSvg" viewBox="0 0 920 275" xmlns="http://www.w3.org/2000/svg"></svg>
+    </div>
+    <div class="callout purple" id="bootExplain"></div>
+  </section>
+
+  <!-- CHAPTER 7: PARAMETER COUNT -->
+  <section>
+    <span class="step-tag">Part 7 · Parameter Summary</span>
+    <h2>Complete Parameter Table</h2>
+    <p>
+      <code>Sift-DAG</code> has <b>2 operating-mode dials</b> (compute price + self-play sampling temperature) and <b>4 fixed algorithm constants</b>:
+    </p>
+
+    <table>
+      <thead>
+        <tr>
+          <th>Category</th>
+          <th>Parameter</th>
+          <th>Default / Setting</th>
+          <th>Purpose</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td rowspan="2"><span class="tag-dial">1. Mode Dials (2)</span></td>
+          <td><code>lambda</code> (λ)</td>
+          <td><code>&gt; 0</code> in Play · <code>0.0</code> in Probe</td>
+          <td>Required win-rate gain per NN eval; governs both <code>t = 0</code> 1-eval exit and mid-search stopping.</td>
+        </tr>
+        <tr>
+          <td><code>gumbel_scale</code></td>
+          <td><code>1.0</code> Self-Play · <code>0.0</code> Eval &amp; Probe</td>
+          <td>Gumbel noise scale on root improved logits <code>z_e</code> for cross-fight trajectory exploration.</td>
+        </tr>
+        <tr>
+          <td rowspan="2"><span class="tag-prior">2. Belief Priors (2)</span></td>
+          <td><code>readout_k0</code></td>
+          <td><code>30.0</code></td>
+          <td>Prior-logit pseudo-visits in <code>S(e) = Q̂(e) + (ℓ_e - ℓ_max)/(k₀ + N_e)</code>.</td>
+        </tr>
+        <tr>
+          <td><code>prior_se</code> (s₀)</td>
+          <td><code>0.05</code></td>
+          <td>Sets both initial shared-particle diff scale and interior uncertainty floor <code>τ_floor(u)</code>.</td>
+        </tr>
+        <tr>
+          <td rowspan="2"><span class="tag-shape">3. Wave Shapes (2)</span></td>
+          <td><code>wave_particles</code></td>
+          <td><code>2–4</code></td>
+          <td>Shared particles batched together per GPU wave.</td>
+        </tr>
+        <tr>
+          <td><code>horizon_turns</code></td>
+          <td><code>2</code></td>
+          <td>Turn-boundary rollout depth (matched between search and probe grader).</td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+</div>
+
+<script>
+// ─── PART 3: INTERACTIVE ENTRY & RESERVE PLOT ───────────────────────────────
+const SCENARIOS = {
+  obvious: {
+    n: 0, deltaReal: 0.0, activeR: 4,
+    c: [8, 24, 64, 160],
+    g: [0.0003, 0.0008, 0.0014, 0.0019],
+    explain: "Obvious root move (e.g. lethal Strike or single viable block line): every checkpoint's predicted gain g[k] sits well below the λ·c cost ray from n=0. Loop exits at Step 0 → 1 total NN eval."
+  },
+  setup: {
+    n: 9, deltaReal: 0.0, activeR: 4,
+    c: [8, 24, 64, 160],
+    g: [-0.003, 0.002, 0.018, 0.025],
+    explain: "Deep setup combo after Wave 1 (n=9 evals spent, realized Δ=0 so far): shallow checkpoints look flat/negative, so a myopic 1-wave rule would quit! Because k=2 (+0.018 at c₂=64) rises above the λ·(c - n) ray from n=9, Reserve keeps local search alive."
+  },
+  found: {
+    n: 9, deltaReal: 0.024, activeR: 4,
+    c: [8, 24, 64, 160],
+    g: [-0.003, 0.002, 0.018, 0.025],
+    explain: "Same root curve, EXCEPT Wave 1 at n=9 already discovered a +0.024 move! Subtracting Δ_realized = 0.024 collapses remaining reserve (g[k] - Δ_realized) nearly to 0 — Sift-DAG stops as soon as PARTICLES confirms the lead!"
+  }
+};
+
+let curScen = 'obvious';
+const slider = document.getElementById('lambdaSlider');
+const lambdaLbl = document.getElementById('lambdaLabel');
+const pill = document.getElementById('decisionPill');
+const plot = document.getElementById('reservePlot');
+const explainEl = document.getElementById('scenExplain');
+
+function renderReservePlot() {
+  const s = SCENARIOS[curScen];
+  const lam = Number(slider.value) * 1e-5;
+  lambdaLbl.textContent = (lam * 1e4).toFixed(1) + 'e-4 / eval';
+
+  const W = 900, H = 300, padL = 72, padR = 36, padT = 28, padB = 46;
+  const xMax = 180, yMin = -0.008, yMax = 0.034;
+  const x = v => padL + ((v - 0) / xMax) * (W - padL - padR);
+  const y = v => H - padB - ((v - yMin) / (yMax - yMin)) * (H - padT - padB);
+
+  let bestRho = 0, bestK = -1;
+  for (let k = 0; k < s.activeR; k++) {
+    if (s.c[k] > s.n) {
+      const remGain = Math.max(0, s.g[k] - s.deltaReal);
+      const rho = remGain / (s.c[k] - s.n);
+      if (rho > bestRho) { bestRho = rho; bestK = k; }
+    }
+  }
+  const go = bestRho > lam;
+  if (go) {
+    pill.className = 'status-pill pill-go';
+    pill.textContent = s.n === 0 ? `ENTER SEARCH (k=${bestK} clears λ)` : `CONTINUE (Reserve k=${bestK} clears λ)`;
+  } else {
+    pill.className = 'status-pill pill-stop';
+    pill.textContent = s.n === 0 ? 'EMERGENT STOP @ 1 eval' : 'RESERVE ≈ 0 (local VOI decides)';
+  }
+  explainEl.textContent = s.explain;
+
+  let svg = '';
+  for (const gv of [-0.005, 0, 0.01, 0.02, 0.03]) {
+    const yy = y(gv);
+    svg += `<line x1="${padL}" y1="${yy}" x2="${W-padR}" y2="${yy}" stroke="${gv===0?'#484f58':'#1f2937'}" stroke-width="1"/>`;
+    svg += `<text x="${padL-10}" y="${yy+4}" text-anchor="end" fill="#8b949e" font-size="11">${(gv>=0?'+':'')+gv.toFixed(3)}</text>`;
+  }
+  for (const xv of [0, 8, 24, 64, 120, 160]) {
+    const xx = x(xv);
+    svg += `<line x1="${xx}" y1="${padT}" x2="${xx}" y2="${H-padB}" stroke="#19202b" stroke-width="1"/>`;
+    svg += `<text x="${xx}" y="${H-padB+18}" text-anchor="middle" fill="#8b949e" font-size="11">${xv}</text>`;
+  }
+  svg += `<text x="${(padL+W-padR)/2}" y="${H-8}" text-anchor="middle" fill="#8b949e" font-size="12">Cumulative Search NN Evals (c_k)</text>`;
+  svg += `<text x="18" y="${(padT+H-padB)/2}" transform="rotate(-90 18 ${(padT+H-padB)/2})" text-anchor="middle" fill="#8b949e" font-size="12">Remaining Gain (g[k] - Δ_realized)</text>`;
+
+  const xn = x(s.n), y0 = y(0);
+  svg += `<line x1="${xn}" y1="${padT}" x2="${xn}" y2="${H-padB}" stroke="#58a6ff" stroke-dasharray="4 4"/>`;
+  svg += `<text x="${xn+6}" y="${padT+14}" fill="#58a6ff" font-size="11" font-weight="600">current n = ${s.n}</text>`;
+
+  const xEnd = xMax;
+  const yRayEnd = lam * (xEnd - s.n);
+  svg += `<line x1="${xn}" y1="${y0}" x2="${x(xEnd)}" y2="${y(Math.min(yMax, yRayEnd))}" stroke="#f85149" stroke-width="2.2" stroke-dasharray="6 4"/>`;
+  svg += `<text x="${x(140)}" y="${Math.max(padT+14, y(Math.min(yMax, lam*(140-s.n))) - 8)}" fill="#f85149" font-size="12" font-weight="700">Cost ray: λ · (c - n)</text>`;
+
+  let pathD = '';
+  for (let k = 0; k < 4; k++) {
+    const rem = s.g[k] - s.deltaReal;
+    const px = x(s.c[k]), py = y(Math.max(yMin, Math.min(yMax, rem)));
+    pathD += (k === 0 ? `M ${px} ${py}` : ` L ${px} ${py}`);
+  }
+  svg += `<path d="${pathD}" fill="none" stroke="#d29922" stroke-width="2.2"/>`;
+
+  for (let k = 0; k < 4; k++) {
+    const rem = s.g[k] - s.deltaReal;
+    const clears = s.c[k] > s.n && Math.max(0, rem) / (s.c[k] - s.n) > lam;
+    const px = x(s.c[k]), py = y(Math.max(yMin, Math.min(yMax, rem)));
+    const fill = clears ? '#3fb950' : '#d29922';
+    svg += `<circle cx="${px}" cy="${py}" r="${clears ? 8 : 6}" fill="${fill}" stroke="#fff" stroke-width="1.5"/>`;
+    svg += `<text x="${px}" y="${py - 12}" text-anchor="middle" fill="#e6edf3" font-size="11" font-weight="600">c=${s.c[k]} (${rem>=0?'+':''}${rem.toFixed(3)})</text>`;
+  }
+
+  plot.innerHTML = svg;
+}
+
+document.getElementById('scenButtons').addEventListener('click', e => {
+  const btn = e.target.closest('button');
+  if (!btn) return;
+  curScen = btn.dataset.scen;
+  document.querySelectorAll('#scenButtons button').forEach(b => b.classList.toggle('active', b === btn));
+  renderReservePlot();
+});
+slider.addEventListener('input', renderReservePlot);
+renderReservePlot();
+
+// ─── PART 5: INTERACTIVE STEP-BY-STEP WALKTHROUGH ───────────────────────────
+const WALK_STEPS = [
+  {
+    evals: 1, leader: "e₀: Shrug It Off (prior A)",
+    caption: "<b>t = 0 (1 eval):</b> Root forward pass emits logits <code>[2.4, 2.1, 1.3, -1.8]</code> and <code>thinking = [-0.001, +0.006, +0.017, +0.022]</code>. Because <code>OPEN</code> at <code>c=64</code> has <code>VOI/Cost = 2.7e-4 &gt; λ (1.2e-4)</code>, search opens top-2 plausible contenders <code>e₀, e₁</code> (skipping <code>e₃</code> at -1.8 logit) on 2 shared particles.",
+    bars: [
+      { name: "OPEN (root c=64)", rho: 2.7, win: true },
+      { name: "PARTICLES (none visited)", rho: 0.0 },
+      { name: "BRANCH (no interior)", rho: 0.0 },
+      { name: "WIDEN (wait for Wave 1)", rho: 0.0 }
+    ],
+    stage: 0
+  },
+  {
+    evals: 9, leader: "e₀: Shrug (S = 0.66)",
+    caption: "<b>After Wave 1 (9 evals):</b> Paired plunges on 2 shared particles put <code>e₀: Shrug</code> ahead (<code>Q̂=0.66</code>) over <code>e₁: Battle Trance</code> (<code>Q̂=0.62</code>). A greedy plunge scores <code>e₁</code> lower—<b>but</b> <code>e₁</code> drew cards into mid-turn node <code>u₁</code> where <code>τ(u₁) = +0.11</code>! <code>BRANCH(e₁, u₁)</code> tops the board at <code>3.4e-4 / eval</code>.",
+    bars: [
+      { name: "BRANCH(e₁, u₁: τ=+0.11)", rho: 3.4, win: true },
+      { name: "Reserve (root c=64)", rho: 3.1 },
+      { name: "PARTICLES(e₀ vs e₁)", rho: 1.9 },
+      { name: "WIDEN(e₂: Pommel)", rho: 1.7 }
+    ],
+    stage: 1
+  },
+  {
+    evals: 15, leader: "e₁: Battle Trance! (S = 0.72)",
+    caption: "<b>After Wave 2 (15 evals):</b> Branching <code>u₁</code>'s 2nd action discovers a lethal Vulnerability + Heavy Blade setup! <code>Q̂(e₁)</code> jumps from <code>0.62 → 0.73</code>, flipping the root leader to <code>e₁</code>! Realized gain <code>Δ_realized = +0.07</code> immediately cancels the root Reserve to <code>0</code>. Next best: <code>WIDEN(e₂)</code> on the existing 2 shared particles (only 5 evals).",
+    bars: [
+      { name: "WIDEN(e₂ on p₀,p₁)", rho: 1.8, win: true },
+      { name: "PARTICLES(e₁ vs e₀)", rho: 1.6 },
+      { name: "BRANCH(u₁: τ decayed)", rho: 0.5 },
+      { name: "Reserve (cancelled!)", rho: 0.0 }
+    ],
+    stage: 2
+  },
+  {
+    evals: 20, leader: "e₁: Battle Trance (S = 0.72)",
+    caption: "<b>After Wave 3 (20 evals):</b> <code>e₂: Pommel Strike</code> runs on those same 2 particles (<code>Q̂ = 0.69</code>)—close behind <code>e₁</code> (<code>0.73</code>) with only 2 shared particles, so particle-sampling uncertainty <code>σ_part(e₁, e₂)</code> is still wide. <code>PARTICLES(e₁, e₂)</code> wins at <code>1.6e-4 &gt; λ</code> to verify the lead across more draws.",
+    bars: [
+      { name: "PARTICLES(e₁ vs e₂, +4p)", rho: 1.6, win: true },
+      { name: "PARTICLES(e₁ vs e₀, +4p)", rho: 0.9 },
+      { name: "BRANCH(e₂, u₂: τ=0.01)", rho: 0.4 },
+      { name: "WIDEN(e₃: logit -1.8)", rho: 0.1 }
+    ],
+    stage: 3
+  },
+  {
+    evals: 28, leader: "e₁: Battle Trance (S = 0.74)",
+    caption: "<b>After Wave 4 (28 evals):</b> 4 more shared particles (+ Turn+2 horizon check) confirm <code>e₁</code> leads <code>0.74 vs 0.68</code> across 6 paired particles; paired diff SE shrinks tight. Best remaining block drops to <code>0.7e-4 &lt; λ (1.2e-4)</code>.",
+    bars: [
+      { name: "PARTICLES(e₁ vs e₂, +4p)", rho: 0.7 },
+      { name: "BRANCH(remaining)", rho: 0.3 },
+      { name: "WIDEN(e₃)", rho: 0.1 },
+      { name: "Reserve", rho: 0.0 }
+    ],
+    stage: 4
+  },
+  {
+    evals: 28, leader: "COMMITTED → e₁: Battle Trance (+8% WR vs prior)",
+    caption: "<b>Global Stop (28 total evals):</b> Every candidate block sits below <code>λ</code>. In Evaluation (<code>gumbel_scale=0</code>), search commits <code>e₁: Battle Trance</code>; in Self-Play (<code>gumbel_scale=1</code>), it samples from improved <code>softmax(z)</code> heavily weighted toward <code>e₁</code>.",
+    bars: [
+      { name: "PARTICLES(e₁ vs e₂)", rho: 0.7 },
+      { name: "BRANCH(remaining)", rho: 0.3 },
+      { name: "WIDEN(e₃)", rho: 0.1 },
+      { name: "Reserve", rho: 0.0 }
+    ],
+    stage: 5
+  }
+];
+
+function renderWalk(idx) {
+  const st = WALK_STEPS[idx];
+  document.getElementById('walkCaption').innerHTML = st.caption;
+
+  const dag = document.getElementById('walkDag');
+  let d = `<text x="16" y="24" fill="#8b949e" font-size="12" font-weight="700">PUBLIC DAG · Evals spent: ${st.evals}</text>`;
+  d += `<text x="16" y="42" fill="#3fb950" font-size="12" font-weight="600">Leader: ${st.leader}</text>`;
+
+  d += `<rect x="185" y="56" width="110" height="40" rx="8" fill="#1f2937" stroke="#58a6ff" stroke-width="2"/>`;
+  d += `<text x="240" y="75" text-anchor="middle" fill="#fff" font-size="12" font-weight="700">root (K=4)</text>`;
+  d += `<text x="240" y="89" text-anchor="middle" fill="#d29922" font-size="10">g(64) = +0.017</text>`;
+
+  if (st.stage >= 1) {
+    const e0Col = st.stage === 1 ? '#3fb950' : '#8b949e';
+    d += `<line x1="210" y1="96" x2="90" y2="155" stroke="${e0Col}" stroke-width="2"/>`;
+    d += `<rect x="35" y="155" width="110" height="46" rx="7" fill="#161b22" stroke="${e0Col}"/>`;
+    d += `<text x="90" y="175" text-anchor="middle" fill="#e6edf3" font-size="11" font-weight="600">e₀: Shrug</text>`;
+    d += `<text x="90" y="191" text-anchor="middle" fill="#8b949e" font-size="10">Q̂ = 0.66 (2p)</text>`;
+
+    const e1Lead = st.stage >= 2;
+    const e1Col = e1Lead ? '#3fb950' : '#d29922';
+    d += `<line x1="240" y1="96" x2="240" y2="155" stroke="${e1Col}" stroke-width="2.4"/>`;
+    d += `<rect x="178" y="155" width="124" height="48" rx="7" fill="#2b2111" stroke="${e1Col}" stroke-width="1.8"/>`;
+    d += `<text x="240" y="175" text-anchor="middle" fill="#f0f6fc" font-size="11" font-weight="700">e₁ → node u₁</text>`;
+    d += `<text x="240" y="192" text-anchor="middle" fill="#d29922" font-size="10">${st.stage===1 ? 'τ(u₁)=+0.11 (greedy 0.62)' : 'branched! Q̂='+(st.stage>=4?'0.74 (6p)':'0.73 (2p)')}</text>`;
+
+    if (st.stage === 1) {
+      d += `<line x1="240" y1="203" x2="210" y2="255" stroke="#8b949e" stroke-dasharray="4 3"/>`;
+      d += `<text x="210" y="272" text-anchor="middle" fill="#8b949e" font-size="10">greedy: 0.62</text>`;
+    } else {
+      d += `<line x1="225" y1="203" x2="195" y2="255" stroke="#484f58" stroke-dasharray="3 3"/>`;
+      d += `<text x="190" y="272" text-anchor="middle" fill="#6e7681" font-size="10">greedy: 0.62</text>`;
+      d += `<line x1="255" y1="203" x2="285" y2="255" stroke="#3fb950" stroke-width="2.5"/>`;
+      d += `<rect x="238" y="255" width="98" height="36" rx="6" fill="#12261e" stroke="#3fb950"/>`;
+      d += `<text x="287" y="277" text-anchor="middle" fill="#3fb950" font-size="11" font-weight="700">combo: ${st.stage>=4?'0.74':'0.73'}!</text>`;
+    }
+  }
+
+  if (st.stage >= 3) {
+    d += `<line x1="275" y1="96" x2="392" y2="155" stroke="#58a6ff" stroke-width="2"/>`;
+    d += `<rect x="335" y="155" width="116" height="46" rx="7" fill="#161b22" stroke="#58a6ff"/>`;
+    d += `<text x="393" y="175" text-anchor="middle" fill="#e6edf3" font-size="11" font-weight="600">e₂: Pommel</text>`;
+    d += `<text x="393" y="191" text-anchor="middle" fill="#8b949e" font-size="10">Q̂ = ${st.stage>=4?'0.68 (6p)':'0.69 (2p)'}</text>`;
+  } else {
+    d += `<line x1="275" y1="96" x2="392" y2="155" stroke="#30363d" stroke-dasharray="4 4"/>`;
+    d += `<text x="392" y="172" text-anchor="middle" fill="#6e7681" font-size="11">e₂, e₃ unvisited</text>`;
+  }
+  dag.innerHTML = d;
+
+  const bars = document.getElementById('walkBars');
+  const lamX = 55 + (1.2 / 4.0) * 350;
+  let b = `<text x="16" y="24" fill="#8b949e" font-size="12" font-weight="700">CANDIDATE BLOCKS · VOI / Cost (×10⁻⁴ / eval)</text>`;
+  b += `<line x1="${lamX}" y1="48" x2="${lamX}" y2="275" stroke="#f85149" stroke-width="2" stroke-dasharray="5 4"/>`;
+  b += `<text x="${lamX}" y="42" text-anchor="middle" fill="#f85149" font-size="11" font-weight="700">λ = 1.2</text>`;
+
+  st.bars.forEach((item, i) => {
+    const yy = 66 + i * 52;
+    const w = Math.max(2, (item.rho / 4.0) * 350);
+    const col = item.win ? '#3fb950' : (item.rho > 1.2 ? '#58a6ff' : '#484f58');
+    b += `<text x="18" y="${yy - 6}" fill="#c9d1d9" font-size="12" font-weight="${item.win?'700':'400'}">${item.name}</text>`;
+    b += `<rect x="55" y="${yy}" width="${w}" height="20" rx="4" fill="${col}"/>`;
+    b += `<text x="${55 + w + 8}" y="${yy + 14}" fill="${item.win?'#3fb950':'#8b949e'}" font-size="11" font-weight="600">${item.rho.toFixed(1)}${item.win?'  ◄ BUY':''}</text>`;
+  });
+  if (st.stage >= 4) {
+    b += `<text x="220" y="295" text-anchor="middle" fill="#3fb950" font-size="12" font-weight="700">max(VOI / Cost) &lt; λ  ⇒  GLOBAL STOP!</text>`;
+  }
+  bars.innerHTML = b;
+}
+
+document.getElementById('walkControls').addEventListener('click', e => {
+  const btn = e.target.closest('button');
+  if (!btn) return;
+  document.querySelectorAll('#walkControls button').forEach(b => b.classList.toggle('active', b === btn));
+  renderWalk(Number(btn.dataset.wstep));
+});
+renderWalk(0);
+
+// ─── PART 6C: INTERACTIVE BLIND-SPOT & BOOTSTRAP VISUALIZER ─────────────────
+const BOOT_MODES = {
+  cold: {
+    headTau: 0.0,
+    floorTau: 0.011,
+    partCurve: [2.1, 1.3, 0.85, 0.55],
+    branchRho: 1.05,
+    crossoverWave: "Branches u around ~48 probe evals",
+    explain: "<b>Stage 1 — Cold Network (thinking = 0 everywhere):</b> During a <code>λ = 0</code> probe (up to 160 evals), <code>PARTICLES</code> starts high (cyan curve) and decays as <code>1/√N</code> as shared particles accumulate. Around ~48 evals, <code>PARTICLES</code> drops below <code>BRANCH(u)</code>'s deterministic prior floor <code>τ_floor</code> (purple line, <code>1.05e-4 &gt; 0</code>)—so the probe branches uncertain mid-turn state <code>u</code>, discovers the combo, and records the first positive label for <code>ThinkingHead</code>."
+  },
+  blind: {
+    headTau: 0.0,
+    floorTau: 0.009,
+    partCurve: [2.0, 1.2, 0.78, 0.50],
+    branchRho: 0.90,
+    crossoverWave: "Probe catches blind spot at ~56 evals",
+    explain: "<b>Stage 2 — Blind Spot on an Unseen Combo (thinking ≤ 0):</b> In <b>Evaluation/Play (red dashed line λ = 1.2)</b>, <code>τ_floor</code> (<code>0.9e-4</code>) sits safely <i>below</i> <code>λ</code>, so play stays cheap and fast. In <b>Training Probes (green line λ = 0)</b>, <code>0.9e-4 &gt; 0</code> still fires once particle uncertainty settles around ~56 evals—catching the missed move and teaching <code>ThinkingHead</code> on the next training update."
+  },
+  learned: {
+    headTau: 0.11,
+    floorTau: 0.009,
+    partCurve: [2.0, 1.2, 0.78, 0.50],
+    branchRho: 3.40,
+    crossoverWave: "Branches immediately on Wave 2 (~15 evals)",
+    explain: "<b>Stage 3 — Learned Combo (thinking(u) = +0.11):</b> Once <code>ThinkingHead</code> learns that <code>u</code> hides a tactical swing, <code>thinking(u)</code> dominates <code>τ_floor</code> (amber line, <code>3.4e-4 &gt;&gt; λ = 1.2e-4</code>). Now <b>both Play and Probe</b> jump straight to <code>BRANCH(u)</code> on Wave 2 (~15 evals instead of ~56 evals)!"
+  }
+};
+
+function renderBoot(modeKey) {
+  const m = BOOT_MODES[modeKey];
+  document.getElementById('bootExplain').innerHTML = m.explain;
+
+  const svg = document.getElementById('bootSvg');
+  let s = '';
+
+  s += `<rect x="16" y="16" width="300" height="243" rx="9" fill="#121720" stroke="#2d3748"/>`;
+  s += `<text x="32" y="40" fill="#8b949e" font-size="12" font-weight="700">INTERIOR NODE u · τ₀(u) = max(head, floor)</text>`;
+
+  const maxScale = 0.13;
+  const barBaseY = 205, barMaxH = 130;
+  const hHead = Math.max(3, (m.headTau / maxScale) * barMaxH);
+  const hFloor = Math.max(3, (m.floorTau / maxScale) * barMaxH);
+  const winHead = m.headTau >= m.floorTau && m.headTau > 0;
+
+  s += `<rect x="64" y="${barBaseY - hHead}" width="72" height="${hHead}" rx="5" fill="${winHead ? '#d29922' : '#30363d'}" stroke="${winHead ? '#fff' : '#484f58'}"/>`;
+  s += `<text x="100" y="${barBaseY - hHead - 8}" text-anchor="middle" fill="#d29922" font-size="11" font-weight="700">+${m.headTau.toFixed(3)}</text>`;
+  s += `<text x="100" y="${barBaseY + 18}" text-anchor="middle" fill="#c9d1d9" font-size="11">thinking(u)</text>`;
+
+  s += `<rect x="188" y="${barBaseY - hFloor}" width="72" height="${hFloor}" rx="5" fill="${!winHead ? '#bc8cff' : '#3b2e58'}" stroke="${!winHead ? '#fff' : '#bc8cff'}"/>`;
+  s += `<text x="224" y="${barBaseY - hFloor - 8}" text-anchor="middle" fill="#bc8cff" font-size="11" font-weight="700">+${m.floorTau.toFixed(3)}</text>`;
+  s += `<text x="224" y="${barBaseY + 18}" text-anchor="middle" fill="#c9d1d9" font-size="11">τ_floor (from s₀)</text>`;
+
+  s += `<text x="166" y="246" text-anchor="middle" fill="${winHead ? '#d29922' : '#bc8cff'}" font-size="12" font-weight="700">Active τ₀(u) = +${Math.max(m.headTau, m.floorTau).toFixed(3)}</text>`;
+
+  const rx = 336, rw = 568;
+  s += `<rect x="${rx}" y="16" width="${rw}" height="243" rx="9" fill="#121720" stroke="#2d3748"/>`;
+  s += `<text x="${rx+18}" y="40" fill="#8b949e" font-size="12" font-weight="700">VOI / Cost ACROSS WAVES (×10⁻⁴ / eval) · ${m.crossoverWave}</text>`;
+
+  const pL = rx + 56, pR = rx + rw - 28, pT = 58, pB = 218;
+  const xWave = i => pL + (i / 3) * (pR - pL);
+  const yRho = r => pB - (Math.min(3.8, r) / 3.8) * (pB - pT);
+
+  for (const rv of [0, 1.0, 2.0, 3.0]) {
+    const yy = yRho(rv);
+    s += `<line x1="${pL}" y1="${yy}" x2="${pR}" y2="${yy}" stroke="#1f2937"/>`;
+    s += `<text x="${pL-8}" y="${yy+4}" text-anchor="end" fill="#8b949e" font-size="10">${rv.toFixed(1)}</text>`;
+  }
+  const waveEvals = ["12 evals", "36 evals", "64 evals", "120 evals"];
+  waveEvals.forEach((lbl, i) => {
+    s += `<text x="${xWave(i)}" y="${pB+18}" text-anchor="middle" fill="#8b949e" font-size="11">${lbl}</text>`;
+  });
+
+  const yPlay = yRho(1.2);
+  s += `<line x1="${pL}" y1="${yPlay}" x2="${pR}" y2="${yPlay}" stroke="#f85149" stroke-dasharray="5 4" stroke-width="1.5"/>`;
+  s += `<text x="${pR-4}" y="${yPlay-6}" text-anchor="end" fill="#f85149" font-size="10" font-weight="700">Play stop: λ = 1.2</text>`;
+
+  const yProbe = yRho(0);
+  s += `<line x1="${pL}" y1="${yProbe}" x2="${pR}" y2="${yProbe}" stroke="#3fb950" stroke-width="1.8"/>`;
+  s += `<text x="${pR-4}" y="${yProbe-6}" text-anchor="end" fill="#3fb950" font-size="10" font-weight="700">Probe stop: λ = 0</text>`;
+
+  let pPath = '';
+  m.partCurve.forEach((v, i) => {
+    pPath += (i === 0 ? `M ${xWave(i)} ${yRho(v)}` : ` L ${xWave(i)} ${yRho(v)}`);
+  });
+  s += `<path d="${pPath}" fill="none" stroke="#39c5cf" stroke-width="2.4"/>`;
+  m.partCurve.forEach((v, i) => {
+    s += `<circle cx="${xWave(i)}" cy="${yRho(v)}" r="4.5" fill="#39c5cf"/>`;
+  });
+  s += `<text x="${xWave(0)+8}" y="${yRho(m.partCurve[0])-8}" fill="#39c5cf" font-size="11" font-weight="700">PARTICLES (shrinks 1/√N)</text>`;
+
+  const yBr = yRho(m.branchRho);
+  const brCol = winHead ? '#d29922' : '#bc8cff';
+  s += `<line x1="${pL}" y1="${yBr}" x2="${pR}" y2="${yBr}" stroke="${brCol}" stroke-width="2.6"/>`;
+  s += `<text x="${pL+8}" y="${yBr-8}" fill="${brCol}" font-size="11" font-weight="700">BRANCH(u) = ${m.branchRho.toFixed(2)}  (fires when &gt; PARTICLES &amp; &gt; λ)</text>`;
+
+  svg.innerHTML = s;
+}
+
+document.getElementById('bootControls').addEventListener('click', e => {
+  const btn = e.target.closest('button');
+  if (!btn) return;
+  document.querySelectorAll('#bootControls button').forEach(b => b.classList.toggle('active', b === btn));
+  renderBoot(btn.dataset.bmode);
+});
+renderBoot('cold');
+</script>
+</body>
+</html>
