@@ -12,6 +12,11 @@
 using namespace stsrl;
 using Json = nlohmann::json;
 namespace {
+Json key_strings(const std::vector<std::uint64_t>& keys) {
+    Json out = Json::array();
+    for (const auto k : keys) out.push_back(std::to_string(k));
+    return out;
+}
 struct Settings {
     int cap = 160, worlds = 16;
     double price = .0005;
@@ -61,12 +66,17 @@ int main(int argc, char** argv) try {
             Json trials = Json::array();
             for (const auto& t : trace.trials) trials.push_back({{"arm",t.arm},{"world",t.world},{"spent",t.spent},{"interior",t.interior},
                 {"rate",t.rate},{"candidate",t.candidate},{"reference",t.reference},{"before",t.mean_before},{"after",t.mean_after},
-                {"sd0",t.innovation_before},{"sd1",t.innovation_after},{"scores",t.scores},{"line",t.line},{"reference_line",t.reference_line}});
+                {"sd0",t.innovation_before},{"sd1",t.innovation_after},{"scores",t.scores},{"line",t.line},{"reference_line",t.reference_line},
+                {"keys",key_strings(t.keys)},{"reference_keys",key_strings(t.reference_keys)}});
+            Json nodes = Json::array();
+            for (const auto& n : trace.nodes) nodes.push_back({{"key",std::to_string(n.key)},{"value",n.value},{"logits",n.logits},
+                {"thinking",n.thinking},{"actions",n.actions},{"previous",n.previous}});
             fight.play(result.action);
             Json out{{"fight",row.at("fight_id")},{"step",step},{"view",view},{"chosen",result.action.bits},{"trials",trials},
                 {"opening",trace.opening.thinking},{"value",trace.opening.value},{"root_cached",trace.opening.cached},
                 {"scores",trace.initial_scores},{"reserve",trace.reserve},{"spent",trace.spent},{"stop",trace.stop},{"last_rate",trace.last_rate},
-                {"next_turn",fight.state().turn},{"next_hp",fight.state().player.curHp},{"next_energy",fight.state().player.energy}};
+                {"next_turn",fight.state().turn},{"next_hp",fight.state().player.curHp},{"next_energy",fight.state().player.energy},
+                {"root_key",std::to_string(trace.root)},{"nodes",nodes}};
             if (!target || step == *target) std::cout << out.dump() << '\n';
             if (target && step == *target) break;
         }

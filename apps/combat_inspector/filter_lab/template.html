@@ -88,6 +88,13 @@ kbd{font:.78rem ui-monospace,monospace;border:1px solid var(--line);border-botto
 #tree .new{animation:pop .45s ease-out}
 @keyframes pop{from{opacity:0;transform:translateX(-8px)}to{opacity:1;transform:none}}
 details summary{cursor:pointer;font-weight:600}
+.insp{border-top:1px solid var(--line);padding-top:8px;margin-top:8px}
+.pol{display:grid;gap:2px;margin:8px 0 4px;max-width:640px}
+.prow{display:grid;grid-template-columns:minmax(0,1fr) 160px 52px;gap:8px;align-items:center;font-size:.86rem}
+.prow .pl{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.prow .pb{height:8px;background:var(--chip);border-radius:4px;overflow:hidden}.prow .pb i{display:block;height:100%;background:var(--accent)}
+.prow .pp{text-align:right;font-variant-numeric:tabular-nums}
+.prow.played{font-weight:700}.prow.played .pb i{background:var(--root)}
 .gloss{display:grid;grid-template-columns:max-content 1fr;gap:6px 16px;margin-top:10px;font-size:.88rem}
 .gloss dt{font-weight:650}.gloss dd{margin:0;color:var(--soft)}
 @media (max-width:640px){.gloss{grid-template-columns:1fr}.gloss dd{margin-bottom:6px}}
@@ -147,6 +154,8 @@ details summary{cursor:pointer;font-weight:600}
     <div class="treebox" id="treebox"><svg id="tree"></svg></div>
   </div>
 
+  <div class="panel" id="inspector"></div>
+
   <div class="panel">
     <details>
       <summary>How it works (glossary)</summary>
@@ -177,7 +186,7 @@ const rateTxt=x=>{const v=x*100;if(v<=0)return '0';if(v<1e-4)return '≈0';retur
 const short=s=>s.replace(/Bronze Automaton/g,'Automaton').replace(/Bronze Orb/g,'Orb').replace(/The Champ/g,'Champ').replace(/^Drink /,'🧪 ');
 const argmax=a=>a.reduce((b,x,i)=>x>a[b]?i:b,0);
 const B=DATA.budgets;let PRICE=DATA.price;const priceTxt=()=>String(+(PRICE*100).toPrecision(3));
-let fi=0,di=0,step=0,timer=null,dec=null,M=null,rec=null,variant=null,view='rec';
+const REG=[];let SEL=null;const selId=n=>JSON.stringify([n.root||false,n.leaf?n.world:null,n.trail]);let fi=0,di=0,step=0,timer=null,dec=null,M=null,rec=null,variant=null,view='rec';
 
 /* ---------- reconstruction ---------- */
 function build(d){
@@ -207,7 +216,7 @@ function fillDecisions(keep){
   $('decision').value=di;
 }
 function load(){rec=DATA.fights[fi].decisions[di];variant=null;view='rec';$('runStatus').textContent='';show()}
-function show(){dec=view==='var'&&variant?variant:rec;PRICE=dec.settings.price;M=build(dec);step=0;stopPlay();renderGame();renderCompare();render()}
+function show(){SEL=null;dec=view==='var'&&variant?variant:rec;PRICE=dec.settings.price;M=build(dec);step=0;stopPlay();renderGame();renderCompare();render()}
 const setTxt=x=>`λ ${x.price}, cap ${x.cap}, ${x.worlds} worlds, ${x.mode.replace('_',' ')}, ${x.explore>0?`sampled (seed ${x.seed})`:'argmax'}`;
 const sumTxt=x=>`plays <b>${esc(x.moves[x.chosen])}</b>${x.chosen!==x.leader?` (sampled; leader ${esc(x.moves[x.leader])})`:''} · ${x.trials.length} purchases · ${x.spent} evals`;
 function renderCompare(){
@@ -239,22 +248,24 @@ function treeAt(k){ // samples after k trials
   const d=dec,S=[];
   d.trials.slice(0,k).forEach((t,j)=>{
     const n=j+1;
-    if(t.interior)S.push({arm:t.arm,world:t.world,path:t.line,dev:true,value:t.candidate,step:n});
+    if(t.interior)S.push({arm:t.arm,world:t.world,path:t.line,keys:t.keys,dev:true,value:t.candidate,step:n});
     else{
-      if(M.info[j].needRef)S.push({arm:d.prior,world:t.world,path:t.ref_line.length?t.ref_line:[d.moves[d.prior]],dev:false,value:t.reference,step:n});
-      S.push({arm:t.arm,world:t.world,path:t.line,dev:false,value:t.candidate,step:n});
+      if(M.info[j].needRef)S.push({arm:d.prior,world:t.world,path:t.ref_line,keys:t.ref_keys,dev:false,value:t.reference,step:n});
+      S.push({arm:t.arm,world:t.world,path:t.line,keys:t.keys,dev:false,value:t.candidate,step:n});
     }
   });
-  const arms=M.order.map(a=>({arm:a,label:d.moves[a],kids:[],depth:1,born:0,kind:'arm'}));
+  const arms=M.order.map(a=>({arm:a,label:d.moves[a],kids:[],depth:1,born:0,kind:'arm',ents:[],trail:[d.moves[a]]}));
+  const note=(n,s,j)=>{if(j<s.keys.length)n.ents.push({world:s.world,key:s.keys[j],next:s.path[j+1]||null})};
   for(const s of S){
-    let node=arms.find(x=>x.arm===s.arm);
+    let node=arms.find(x=>x.arm===s.arm);note(node,s,0);
     s.path.slice(1).forEach((lab,i)=>{
       const dev=s.dev&&i===0,key=lab+(dev?'#dev':'');
       let c=node.kids.find(x=>x.key===key);
-      if(!c){c={key,label:lab,kids:[],depth:node.depth+1,born:s.step,kind:dev?'dev':'greedy'};node.kids.push(c)}
-      node=c;
+      if(!c){c={key,label:lab,kids:[],depth:node.depth+1,born:s.step,kind:dev?'dev':'greedy',ents:[],trail:[...node.trail,lab]};node.kids.push(c)}
+      node=c;note(node,s,i+1);
     });
-    node.kids.push({leaf:true,world:s.world,value:s.value,born:s.step,depth:node.depth+1,dev:s.dev});
+    const lk=s.keys.length===s.path.length?s.keys[s.keys.length-1]:null;
+    node.kids.push({leaf:true,world:s.world,value:s.value,born:s.step,depth:node.depth+1,dev:s.dev,trail:[...node.trail,'next turn'],ents:lk?[{world:s.world,key:lk,next:null}]:[]});
   }
   return {arms,count:S.length};
 }
@@ -263,7 +274,8 @@ function drawTree(){
   const scores=k?d.trials[k-1].scores:d.scores,lead=argmax(scores),prev=step>0&&step<M.last?M.info[step-1].prev:null;
   const RH=26,X0=8,W0=74,X1=96,W1=300,CW=158,GAP=14,LW=90;
   const colX=dep=>dep===0?X0:dep===1?X1:X1+W1+GAP+(dep-2)*(CW+GAP);
-  let row=0,maxX=0;const out=[];
+  let row=0,maxX=0;const out=[];REG.length=0;
+  const reg=n=>{REG.push(n);return `data-n="${REG.length-1}" style="cursor:pointer"`};
   function place(n){
     if(n.leaf||!n.kids.length){n.y=row++*RH+RH/2+4;return n.y}
     const ys=n.kids.map(place);n.y=(ys[0]+ys[ys.length-1])/2;return n.y;
@@ -297,16 +309,41 @@ function drawTree(){
       g=`<rect x="${x}" y="${y-10}" width="${nw}" height="20" rx="4" fill="${dev?'var(--int-bg)':'var(--chip)'}" stroke="${fresh?'var(--ink)':dev?'var(--int)':'var(--line)'}" stroke-width="${fresh?2:1}"/>
         <text x="${x+7}" y="${y+4}" style="${dev?'fill:var(--int);font-weight:600':''}">${esc(lab)}</text><title>${esc(n.label)}${dev?' (runner-up)':''}</title>`;
     }
-    out.push(`<g class="${fresh?'new':''}">${g}</g>`);
+    out.push(`<g class="${fresh?'new':''}" ${reg(n)}>${g}</g>`);
     if(!n.leaf)n.kids.forEach(c=>draw(c,x+nw,y));
   }
-  out.push(`<rect x="${X0}" y="${rootY-16}" width="${W0}" height="32" rx="6" fill="var(--accent-bg)" stroke="var(--accent)"/><text x="${X0+W0/2}" y="${rootY-2}" text-anchor="middle" style="font-weight:700">Now</text><text x="${X0+W0/2}" y="${rootY+11}" text-anchor="middle" class="soft" style="font-size:10px">win ${pct(d.value)}</text>`);
+  out.push(`<g ${reg({trail:[],ents:[{world:null,key:d.root_key,next:null}],root:true})}><rect x="${X0}" y="${rootY-16}" width="${W0}" height="32" rx="6" fill="var(--accent-bg)" stroke="var(--accent)"/><text x="${X0+W0/2}" y="${rootY-2}" text-anchor="middle" style="font-weight:700">Now</text><text x="${X0+W0/2}" y="${rootY+11}" text-anchor="middle" class="soft" style="font-size:10px">win ${pct(d.value)}</text></g>`);
   arms.forEach(a=>draw(a,X0+W0,rootY));
   const Wd=maxX+10,svg=$('tree');
   svg.setAttribute('viewBox',`0 0 ${Wd} ${H}`);svg.setAttribute('width',Wd);svg.setAttribute('height',H);
   svg.innerHTML=out.join('');
+  svg.querySelectorAll('[data-n]').forEach(e=>e.onclick=()=>{SEL=REG[+e.dataset.n];inspect()});
+  if(SEL){const id=selId(SEL);SEL=REG.find(n=>selId(n)===id)||null}
+  inspect();
   $('treecount').textContent=count?`· ${count} simulated line${count>1?'s':''}`:'· nothing simulated yet';
   const hi=svg.querySelector('.new');if(hi){const bb=hi.getBBox(),box=$('treebox');if(bb.y<box.scrollTop||bb.y+bb.height>box.scrollTop+box.clientHeight)box.scrollTo({top:Math.max(0,bb.y-box.clientHeight/2),behavior:'smooth'})}
+}
+
+/* ---------- node inspector ---------- */
+function inspect(){
+  const box=$('inspector'),n=SEL;
+  if(!n){box.innerHTML='<p class="muted small">Click any node in the tree (or <b>Now</b>) to see the network’s value, policy and thinking forecasts there.</p>';return}
+  const groups=new Map();
+  for(const e of n.ents){if(!groups.has(e.key))groups.set(e.key,{key:e.key,worlds:[],next:new Set()});const g=groups.get(e.key);if(e.world!==null)g.worlds.push(e.world);if(e.next)g.next.add(e.next)}
+  let h=`<h3 style="margin:0 0 4px">${n.root?'Now (root position)':'After '+n.trail.map(x=>esc(short(x))).join(' → ')}</h3>`;
+  if(!groups.size)h+='<p class="muted small">Fight ended on this line: the leaf is the outcome, not a network evaluation.</p>';
+  for(const g of groups.values()){
+    const v=dec.nodes[g.key];if(!v)continue;
+    const order=v.policy.map((p,i)=>i).sort((a,b)=>v.policy[b]-v.policy[a]);
+    h+=`<div class="insp"><div class="facts">
+      ${g.worlds.length?fact('worlds',g.worlds.map(w=>'W'+(w+1)).join(', ')):''}
+      ${fact('value (win %)',`<b>${pct(v.value)}</b>`)}
+      ${fact('thinking: gain @ 8 / 24 / 64 / 160 evals',v.thinking.map(x=>spp(x)).join(' / ')+' pp')}
+      ${fact('source',v.previous?'cached from the previous decision':'evaluated in this search')}</div>
+      <div class="pol">${order.map(i=>{const played=g.next.has(v.actions[i]);return `<div class="prow${played?' played':''}"><span class="pl">${played?'▶ ':''}${esc(v.actions[i])}</span><span class="pb"><i style="width:${(100*v.policy[i]).toFixed(1)}%"></i></span><span class="pp">${(100*v.policy[i]).toFixed(1)}%</span></div>`}).join('')}</div>
+      <div class="muted small">key ${g.key}${g.next.size?' · ▶ = move this line played next':''}</div></div>`;
+  }
+  box.innerHTML=h;
 }
 
 /* ---------- story ---------- */

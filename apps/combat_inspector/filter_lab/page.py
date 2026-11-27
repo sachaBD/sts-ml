@@ -1,6 +1,6 @@
 """Turn filter_replay records into filter-lab decisions and render the page."""
 from pathlib import Path
-import json, re
+import json, math, re
 
 here = Path(__file__).resolve().parent
 BUDGETS = [8, 24, 64, 160]
@@ -35,6 +35,14 @@ def enemy(i, m):
     return e
 
 
+def node(n):
+    top = max(n['logits'])
+    e = [math.exp(x - top) for x in n['logits']]
+    z = sum(e)
+    return {'value': round(n['value'], 5), 'policy': [round(x / z, 4) for x in e], 'actions': [clean(a) for a in n['actions']],
+            'thinking': [round(x, 5) for x in n['thinking']], 'previous': n['previous']}
+
+
 def decision(r, settings=RECORDED):
     v = r['view']
     names = [clean(m['desc']) for m in v['legal']]
@@ -47,7 +55,8 @@ def decision(r, settings=RECORDED):
         assert line[0] == names[t['arm']]
         trials.append({k: t[k] for k in ('arm', 'world', 'spent', 'interior', 'rate', 'candidate', 'reference',
                                           'before', 'after', 'sd0', 'sd1', 'scores')}
-                      | {'line': line, 'ref_line': [clean(x) for x in t['reference_line']]})
+                      | {'line': line, 'ref_line': [clean(x) for x in t['reference_line']],
+                         'keys': t['keys'], 'ref_keys': t['reference_keys']})
     final = trials[-1]['scores'] if trials else s0
     leader = max(range(len(final)), key=final.__getitem__)
     assert settings['explore'] > 0 or leader == chosen
@@ -61,7 +70,7 @@ def decision(r, settings=RECORDED):
         'opening': r['opening'], 'value': r['value'], 'root_cached': r['root_cached'],
         'reserve': r['reserve'], 'spent': r['spent'], 'stop': r['stop'], 'last_rate': r['last_rate'],
         'next': {'turn': r['next_turn'] + 1, 'hp': r['next_hp'], 'energy': r['next_energy']},
-        'trials': trials}
+        'trials': trials, 'root_key': r['root_key'], 'nodes': {n['key']: node(n) for n in r['nodes']}}
 
 
 def page(records):

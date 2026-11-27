@@ -103,7 +103,8 @@ class Filter final : public CombatSearch {
         it->execute(state);
     }
     // Replaying through cached public observations avoids storing hidden state in a public node.
-    std::optional<Return> plunge(int a, int w, std::optional<Key> branch, std::vector<std::string>* line = nullptr) {
+    std::optional<Return> plunge(int a, int w, std::optional<Key> branch, std::vector<std::string>* line = nullptr,
+                                 std::vector<Key>* keys = nullptr) {
         State state = worlds[w];
         play_key(state, combat::legal_actions(state), cache.at(root).keys[a], line);
         std::optional<Key> first;
@@ -119,6 +120,8 @@ class Filter final : public CombatSearch {
             const auto* node = lookup(state, legal, key);
             if (!node)
                 return {};
+            if (keys)
+                keys->push_back(key);
             if (state.turn != start.turn || steps >= 64)
                 return Return{node->value, first};
             const bool first_choice = !first;
@@ -235,9 +238,11 @@ class Filter final : public CombatSearch {
             }
             const auto [a, w, key] = *trial;
             std::vector<std::string> line, reference_line;
-            auto y = plunge(a, w, key, trace ? &line : nullptr);
+            std::vector<Key> keys, reference_keys;
+            auto y = plunge(a, w, key, trace ? &line : nullptr, trace ? &keys : nullptr);
             const bool need_ref = !key && w == int(arms[prior].samples.size());
-            auto ref = need_ref ? plunge(prior, w, {}, trace ? &reference_line : nullptr) : std::optional<Return>{};
+            auto ref = need_ref ? plunge(prior, w, {}, trace ? &reference_line : nullptr, trace ? &reference_keys : nullptr)
+                                : std::optional<Return>{};
             if (!requests.empty()) {
                 if (spent >= cap) {
                     if (trace) trace->stop = "request cap";
@@ -265,7 +270,8 @@ class Filter final : public CombatSearch {
             if (trace) {
                 const double baseline = key ? arms[a].samples[w].value : arms[prior].samples[w].value;
                 trace->trials.push_back({a, w, spent, key.has_value(), trace->last_rate, y->value, baseline,
-                    before, gap.mean(), sd, gap.innovation(), scores(), std::move(line), std::move(reference_line)});
+                    before, gap.mean(), sd, gap.innovation(), scores(), std::move(line), std::move(reference_line),
+                    std::move(keys), std::move(reference_keys)});
             }
             trial.reset();
         }
@@ -282,6 +288,8 @@ public:
           root(combat::observation_key(state)), actions(combat::legal_actions(state)) {
         requests.push_back({state, actions, root});
         queries.push_back({requests[0].state, requests[0].actions});
+        if (trace)
+            trace->root = root;
     }
     std::span<const Query> pending() const override { return queries; }
     void evaluated(std::span<const Evaluation> eval) override {
@@ -289,7 +297,16 @@ public:
             throw std::logic_error{"filter: wrong evaluation count"};
         bool opening = arms.empty();
         for (std::size_t i = 0; i < eval.size(); ++i) {
-            cache.try_emplace(requests[i].key, queries[i], eval[i]);
+            if (cache.try_emplace(requests[i].key, queries[i], eval[i]).second && trace) {
+                std::vector<std::string> labels;
+                for (const auto& action : queries[i].actions) {
+                    std::ostringstream label;
+                    action.printDesc(label, queries[i].state);
+                    labels.push_back(label.str());
+                }
+                trace->nodes.push_back({requests[i].key, eval[i].value, eval[i].logits, eval[i].thinking,
+                                        std::move(labels), eval[i].cached});
+            }
             if (!opening && !eval[i].cached)
                 ++spent;
         }
