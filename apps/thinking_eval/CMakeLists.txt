@@ -1,0 +1,5 @@
+if(TARGET infra_inference)
+    add_executable(thinking_eval_collect collect.cpp)
+    target_link_libraries(thinking_eval_collect PRIVATE player_decision nn_network infra_actors CLI11::CLI11)
+    target_compile_options(thinking_eval_collect PRIVATE -Wall -Wextra -Wpedantic)
+endif()
