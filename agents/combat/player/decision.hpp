@@ -21,7 +21,7 @@ public:
     bool over() const;
     void play(search::Action);  // then every forced move
     // Depends on the fight and step alone, so a decision replays from its state without the ones before it.
-    enum class RandomStream { play, thinking_probe };
+    enum class RandomStream { play, thinking_probe, thinking_grade };
     std::mt19937_64 decision_random(RandomStream stream = RandomStream::play) const;
 
 private:
