@@ -236,41 +236,58 @@ TEST(Horizon, ProgressiveTwoTurnHorizonExecutesCleanly) {
     EXPECT_GT(seen.size(), 1u);
 }
 
-TEST(Horizon, WaveCheckpointsTrackNonRootEvalsAndLambdaIsAnExactPrefix) {
-    const auto start = scenarios::jaw_worm(53);
-    Horizon::Settings full_s;
-    full_s.simulations = 48;
-    full_s.particles = 8;
-    full_s.lambda = 0.0;
-
-    std::vector<Horizon::Wave> full_trace;
-    int full_queries = 0;
-    Horizon full{start, full_s, 11, [&](const Horizon::Wave& w) {
-        if (!full_trace.empty()) {
-            EXPECT_GE(w.evals, full_trace.back().evals);
-        }
-        full_trace.push_back(w);
+TEST(Horizon, CheckpointsCountOnlyAnsweredNonRootQueries) {
+    auto s = Horizon::Settings{};
+    s.simulations = 48;
+    s.lambda = 0;
+    int answered = 0;
+    std::optional<int> last_count;
+    Horizon search{scenarios::jaw_worm(53), s, 11, [&](const Horizon::Wave& wave) {
+        last_count = wave.evals;
+        EXPECT_GE(answered, 1);
+        EXPECT_EQ(wave.evals, answered - 1);
     }};
-    const auto full_result = run(full, [&](const Query& q) { ++full_queries; return deterministic_eval(q); });
-    ASSERT_GT(full_trace.size(), 2u);
-    EXPECT_EQ(full_trace.front().simulations, 0);
-    EXPECT_EQ(full_trace.front().evals, 0);
-    EXPECT_EQ(full_trace.front().selected, full_trace.front().prior);
-    EXPECT_EQ(full_trace.back().evals, full_queries - 1);  // excludes root eval
-    EXPECT_EQ(full_trace.back().selected, full_result.action);
+    run(search, [&](const Query& q) { ++answered; return deterministic_eval(q); });
+    EXPECT_GT(answered, 1) << "exercise non-root accounting";
+    EXPECT_EQ(last_count, answered - 1);
+}
 
-    // Any positive lambda stops at an exact prefix of the lambda = 0 wave trace.
-    Horizon::Settings priced_s = full_s;
-    priced_s.lambda = 0.01;
-    std::vector<Horizon::Wave> priced_trace;
-    Horizon priced{start, priced_s, 11, [&](const Horizon::Wave& w) { priced_trace.push_back(w); }};
-    const auto priced_result = run(priced, deterministic_eval);
-    ASSERT_GE(priced_trace.size(), 2u);
-    ASSERT_LE(priced_trace.size(), full_trace.size());
-    EXPECT_EQ(priced_trace.back().selected, priced_result.action);
-    for (std::size_t i = 0; i < priced_trace.size(); ++i) {
-        EXPECT_EQ(priced_trace[i].simulations, full_trace[i].simulations);
-        EXPECT_EQ(priced_trace[i].evals, full_trace[i].evals);
-        EXPECT_EQ(priced_trace[i].selected, full_trace[i].selected);
+TEST(Horizon, LastCheckpointRecommendsTheReturnedMove) {
+    for (const int budget : {0, 48}) {
+        SCOPED_TRACE(budget);
+        auto s = Horizon::Settings{};
+        s.simulations = budget;
+        std::optional<Horizon::Wave> last;
+        Horizon search{scenarios::jaw_worm(53), s, 11, [&](const Horizon::Wave& wave) { last = wave; }};
+        const auto result = run(search, deterministic_eval);
+        ASSERT_TRUE(last);
+        EXPECT_EQ(last->selected, result.action);
+    }
+}
+
+TEST(Horizon, ComputePriceCanStopSearchButCannotChangeEarlierCheckpoints) {
+    const auto start = scenarios::jaw_worm(53);
+    auto s = Horizon::Settings{};
+    s.simulations = 160;
+    const auto trace = [&](double price) {
+        s.lambda = price;
+        std::vector<Horizon::Wave> checkpoints;
+        Horizon search{start, s, 11, [&](const Horizon::Wave& wave) { checkpoints.push_back(wave); }};
+        run(search, deterministic_eval);
+        return checkpoints;
+    };
+    const auto full = trace(0), priced = trace(1);
+    ASSERT_FALSE(priced.empty());
+    ASSERT_LT(priced.size(), full.size()) << "exercise early stopping";
+    for (std::size_t i = 0; i < priced.size(); ++i) {
+        SCOPED_TRACE(i);
+        const auto& a = priced[i];
+        const auto& b = full[i];
+        EXPECT_EQ(a.simulations, b.simulations);
+        EXPECT_EQ(a.evals, b.evals);
+        EXPECT_EQ(a.prior, b.prior);
+        EXPECT_EQ(a.selected, b.selected);
+        EXPECT_EQ(a.prior_q, b.prior_q);
+        EXPECT_EQ(a.selected_q, b.selected_q);
     }
 }

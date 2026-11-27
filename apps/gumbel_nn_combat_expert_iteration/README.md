@@ -155,24 +155,11 @@ The reserved final fights (`[evaluation].final_fights`) are copied with the run 
 
 ### ThinkingHead supervision
 
-Self-play samples each player decision with probability 1/16, including cheap decisions.
-A sampled root gets one shared-particle `Horizon` probe (`lambda = 0.0`, 160 max
-simulations, 16 worlds) on a separate RNG stream. The fight never plays the probe's
-recommendation. At root (`evals = 0`) and each completed search wave, the probe records its cumulative
-non-root NN evaluations and the move it would commit if stopped there (breaking ties in
-legal action order, matching the argmax prior). The 4 `ThinkingHead` slots correspond to
-fixed search-eval budgets `[8, 24, 64, 160]`, each taking the commit at the last completed
-wave with `evals <= budget` (carrying forward the final commit if the probe finishes early).
-Agreement (`selected == prior`) records exact `0.0` with zero grading evals. Distinct
-non-prior commits are graded against the prior on 8 fresh shared particles (from an
-independent RNG stream disjoint from the probe's particle stream) using a 1-turn
-greedy-prior plunge with identical `observation_key` states deduplicated; each commit's
-signed `mean(score(c) - score(prior))` is reused across every budget slot that selected it.
-Unprobed decisions are masked. Cheap probe roots supervise only ThinkingHead. Evaluation fights do not collect probes.
+ThinkingHead learns from side probes during self-play. Probes do not change the moves
+played, and evaluation fights do not collect them. Iteration summaries report probe
+evaluation spend and label coverage.
 
-The shared trunk exports signed `thinking` predictions alongside `value` and `logits`.
-`results.jsonl` records probe settings, checkpoint traces, actual NN evals, and label
-coverage; iteration summaries log aggregate spend and coverage. To compare predictions
+To compare predictions
 against the search teacher on new decks (not against realized win gain):
 
 ```sh
@@ -181,5 +168,5 @@ against the search teacher on new decks (not against realized win gain):
 ```
 
 Use held-out **self-play** sample files. The report bins by predicted gain separately
-per round and reports teacher means, row/fight/deck counts, and 95% bootstrap intervals
+per budget and reports teacher means, row/fight/deck counts, and 95% bootstrap intervals
 with whole decks (and all their fights) resampled together within each bin.
