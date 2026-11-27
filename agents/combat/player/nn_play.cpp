@@ -27,7 +27,7 @@ int main(int argc, char** argv) try {
     app.add_option("--telemetry", telemetry_path, "actor, queue and lane counters as JSON lines, about once a second");
     app.add_flag("--check", check, "validate PLAY and exit");
     CLI11_PARSE(app, argc, argv);
-    auto [search, budget, workers] = stsrl::player::read_play_config(play);
+    auto [full_search, cheap_search, budget, workers] = stsrl::player::read_play_config(play);
     if (check) return 0;
     if (models.empty() || samples.empty() || telemetry_path.empty())
         throw std::invalid_argument{"MODELS, SAMPLES and --telemetry are required to play"};
@@ -43,9 +43,7 @@ int main(int argc, char** argv) try {
     for (std::string line; std::getline(std::cin, line);)
         if (!line.empty()) fights.push_back(Json::parse(line));
     const auto count = fights.size();
-    auto greedy = search;  // cheap searches only move the fight on, so they exploit
-    greedy.gumbel_scale = 0;
-    stsrl::player::Episodes episodes{std::move(fights), search.factory(), greedy.factory(), budget,
+    stsrl::player::Episodes episodes{std::move(fights), std::move(full_search), std::move(cheap_search), budget,
                                      stsrl::nn::NetworkEvaluator{network.encoding}, samples, std::cout};
 
     const auto play_begin = Clock::now();

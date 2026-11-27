@@ -173,6 +173,18 @@ class ExpertIterationInvariants(unittest.TestCase):
         for p in self.evaluations():
             self.assertEqual(p['fights'], [dict(fight_id='t', start={})])
 
+    def test_sift_sieve_samples_in_self_play_and_is_greedy_in_evaluation(self):
+        config = CONFIG
+        for section in ('search', 'evaluation.sets.search'):
+            begin = config.index(f'[{section}]')
+            end = config.find('\n[', begin)
+            if end == -1:
+                end = len(config)
+            config = config[:begin] + f'[{section}]\nalgorithm = "sift-sieve"\n' + config[end:]
+        self.run_loop(config=config)
+        self.assertEqual({p['search']['root_choice'] for p in self.self_play()}, {'sample'})
+        self.assertEqual({p['search']['root_choice'] for p in self.evaluations()}, {'argmax'})
+
     def test_evaluation_keeps_its_mix_while_self_play_decays(self):
         config = (CONFIG.replace('every = 0', 'every = 1')
                   .replace('rollout_mix = 0.5', 'rollout_mix = 0.5\nrollout_mix_decay = 2'))

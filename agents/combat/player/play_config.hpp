@@ -1,14 +1,14 @@
 #pragma once
 // nn_play's settings: PLAY.toml, which play.py writes for every play stage. Its tables and keys are the fields below.
 #include "agents/combat/player/budget.hpp"
-#include "agents/combat/search/config.hpp"
+#include "agents/combat/search/search.hpp"
 #include "infra/workers/actors.hpp"
 #include <filesystem>
 #include <string_view>
 
 namespace stsrl::player {
 struct PlayConfig {
-    search::SearchConfig search;  // [search]; optional sieve_gain (0 = off)
+    search::SearchFactory full_search, cheap_search;  // [search]
     // Full searches use [search].sims. Optional [search].cheap_sims and full_share (both or neither) make the
     // other decisions cheap; without them every search is full.
     BudgetRule budget;

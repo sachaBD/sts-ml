@@ -22,7 +22,7 @@ from agents.combat.nn.training.replay import Replay
 from .files import read_jsonl
 from agents.combat.nn.training.telemetry import write as write_training
 
-from .config import experiment_changes, load, self_play_search
+from .config import evaluation_search, experiment_changes, load, self_play_search
 from .reporting import deck_of
 from .run_control import RunControl, delete_samples
 from .sampling import sampling_weights
@@ -84,7 +84,7 @@ class ExpertIteration:
             played = time.time()
             states, loss = self.train(it)
             self.control.log(iteration=it, games=len(results), wins=sum(r['won'] for r in results), states=states, **loss,
-                             rollout_mix=self_play_search(self.config.search, it)['rollout_mix'],
+                             rollout_mix=self_play_search(self.config.search, it).get('rollout_mix', 0.0),
                              lr=self.config.training.lr_at(it),
                              play_seconds=round(played - begin), train_seconds=round(time.time() - played),
                              **collection_stats(results))
@@ -172,7 +172,7 @@ class ExpertIteration:
         completed = {r['set'] for r in self.control.history() if r.get('test') == it}
         pending = [s for s in self.config.evaluation.sets if s.due(it) and s.name not in completed]
         directory = self.control.directory / 'test' / f'iter{it:03d}'
-        for batch in group_by(pending, key=lambda s: s.search):
+        for batch in group_by(pending, key=lambda s: evaluation_search(s.search)):
             self.evaluate_batch(it, directory, batch)
 
     def evaluate_batch(self, it, directory, sets):
@@ -184,7 +184,7 @@ class ExpertIteration:
         batch = Batch({name: self.tests[name] for name in names}, id_field='fight_id') if combined else None
         begin = time.time()
         results = self.play(f'evaluation {", ".join(names)} iteration {it}', self.control.iteration(it),
-                            batch.jobs if combined else self.tests[names[0]], stage_dir, sets[0].search)
+                            batch.jobs if combined else self.tests[names[0]], stage_dir, evaluation_search(sets[0].search))
         by_set = batch.split(results) if combined else {names[0]: results}
         for name in names:
             rows = by_set.get(name, [])

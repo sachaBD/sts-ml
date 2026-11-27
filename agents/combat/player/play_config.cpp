@@ -1,4 +1,6 @@
 #include "agents/combat/player/play_config.hpp"
+#include "agents/combat/search/config.hpp"
+#include "agents/combat/search/sift_sieve/sift_sieve.hpp"
 #include <set>
 #include <stdexcept>
 #include <string>
@@ -46,15 +48,31 @@ private:
 PlayConfig parse(const toml::table& root) {
     PlayConfig c;
     Table search{root, "search"};
-    c.search.sims = search.get<int>("sims");
-    c.search.particles = search.get<int>("particles");
-    c.search.gumbel_scale = search.get<double>("gumbel_scale");
-    c.search.rollout_mix = search.get<double>("rollout_mix");
-    if (search.has("sieve_gain")) c.search.sieve_gain = search.get<double>("sieve_gain");
-    c.budget = {.full = c.search.sims, .cheap = c.search.sims, .full_share = 1};
-    if (search.has("cheap_sims") || search.has("full_share"))
-        c.budget = {.full = c.search.sims, .cheap = search.get<int>("cheap_sims"),
-                    .full_share = search.get<double>("full_share")};
+    const auto algorithm = search.has("algorithm") ? search.get<std::string>("algorithm") : "gumbel";
+    if (algorithm == "sift-sieve") {
+        const auto choice = search.has("root_choice") ? search.get<std::string>("root_choice") : "sample";
+        if (choice != "sample" && choice != "argmax")
+            throw std::invalid_argument{"[search].root_choice must be sample or argmax"};
+        c.full_search = c.cheap_search = search::sift_sieve(
+            choice == "sample" ? search::RootChoice::sample : search::RootChoice::argmax);
+        c.budget = {.full = 0, .cheap = 0, .full_share = 1};
+    } else if (algorithm == "gumbel") {
+        search::SearchConfig gumbel{};
+        gumbel.sims = search.get<int>("sims");
+        gumbel.particles = search.get<int>("particles");
+        gumbel.gumbel_scale = search.get<double>("gumbel_scale");
+        gumbel.rollout_mix = search.get<double>("rollout_mix");
+        if (search.has("sieve_gain")) gumbel.sieve_gain = search.get<double>("sieve_gain");
+        c.budget = {.full = gumbel.sims, .cheap = gumbel.sims, .full_share = 1};
+        if (search.has("cheap_sims") || search.has("full_share"))
+            c.budget = {.full = gumbel.sims, .cheap = search.get<int>("cheap_sims"),
+                        .full_share = search.get<double>("full_share")};
+        c.full_search = gumbel.factory();
+        gumbel.gumbel_scale = 0;  // cheap searches only move the fight on
+        c.cheap_search = gumbel.factory();
+    } else {
+        throw std::invalid_argument{"unknown [search].algorithm: " + algorithm};
+    }
     search.done();
     Table workers{root, "workers"};
     c.workers.actors = workers.get<int>("actors");
@@ -65,7 +83,6 @@ PlayConfig parse(const toml::table& root) {
     workers.done();
     for (const auto& [key, _] : root)
         if (key != "search" && key != "workers") throw std::invalid_argument{"unknown [" + std::string{key.str()} + "]"};
-    c.search.validate();
     c.budget.validate();
     c.workers.validate();
     return c;
