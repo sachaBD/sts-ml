@@ -101,12 +101,13 @@ class ExpertIterationInvariants(unittest.TestCase):
 
     def play(self, binary, models, fights, directory, settings, *, progress):
         results = [dict(fight_id=f['fight_id'], won=i % 2 == 0, capped=False, finished_unix=1.0,
+                        sample_range=dict(file='samples-0.bin', begin=i, end=i + 1),
                         searches=4, full_searches=2, network_requests=30, reused_requests=10)
                    for i, f in enumerate(fights)]
         self.plays.append(dict(models=models, directory=directory, search=settings['search'], fights=fights,
                                results=results))
         directory.mkdir(parents=True)
-        (directory / 'samples-0.bin').touch()
+        (directory / 'samples-0.bin').write_bytes(bytes(i % 256 for i in range(len(fights))))
         return results
 
     def replay(self, *args, **kwargs):
@@ -196,24 +197,50 @@ class ExpertIterationInvariants(unittest.TestCase):
         self.assertEqual([(r['test'], r['set']) for r in control.history() if 'test' in r],
                          [(0, 'validation'), (1, 'validation'), (2, 'validation'), (2, 'retention')])
 
+    def test_due_sets_with_matching_search_share_one_worker_and_keep_their_own_results(self):
+        original = [dict(fight_id='test:deck:validation:0', start={})]
+        for name, fights in [('validation', original), ('retention', original * 2)]:
+            (self.out / f'inputs/evaluation/{name}.jsonl').write_text(''.join(json.dumps(f) + '\n' for f in fights))
+        config = (CONFIG.replace('prune_replay = true', 'prune_replay = false')
+                  + EVALUATION.replace('name = "validation"', 'name = "retention"'))
+        worker = self.play
+
+        def out_of_order(*args, **kwargs):
+            return worker(*args, **kwargs)[::-1]  # simulate arbitrary completion order
+
+        with patch.object(expert_iteration, 'play', side_effect=out_of_order):
+            control = self.run_loop(config=config)
+        [call] = self.evaluations()
+        self.assertEqual(len({f['fight_id'] for f in call['fights']}), 3)
+        for name, expected_bytes, wins in [('validation', bytes([0]), 1), ('retention', bytes([2, 1]), 1)]:
+            directory = control.directory / 'test/iter000' / name
+            rows = [json.loads(line) for line in (directory / 'results.jsonl').read_text().splitlines()]
+            self.assertEqual([r['fight_id'] for r in rows], [original[0]['fight_id']] * len(expected_bytes))
+            self.assertEqual([r['sample_range']['begin'] for r in rows], list(range(len(rows))))
+            self.assertEqual((directory / 'samples-0.bin').read_bytes(), expected_bytes)
+            [summary] = [r for r in control.history() if r.get('set') == name]
+            self.assertEqual((summary['test'], summary['games'], summary['wins']), (0, len(rows), wins))
+        self.assertFalse((call['directory'] / 'samples-0.bin').exists())
+
     def test_recovery_retries_only_the_uncommitted_set(self):
         (self.out / 'inputs/evaluation/retention.jsonl').write_bytes(
             (self.out / 'inputs/evaluation/validation.jsonl').read_bytes())
         config = CONFIG + EVALUATION.replace('name = "validation"', 'name = "retention"')
+        publish = expert_iteration.publish_partition
 
-        def interrupted(*args, **kwargs):
-            directory = args[3]
+        def interrupted(directory, *args, **kwargs):
             if directory.name == 'retention':
                 directory.mkdir(parents=True)
-                (directory / 'worker.log').write_text('interrupted')
+                (directory / 'results.jsonl').write_text('interrupted')
                 raise RuntimeError('interrupted evaluation')
-            return self.play(*args, **kwargs)
+            return publish(directory, *args, **kwargs)
 
-        with patch.object(expert_iteration, 'play', side_effect=interrupted), \
+        with patch.object(expert_iteration, 'publish_partition', side_effect=interrupted), \
                 self.assertRaisesRegex(RuntimeError, 'interrupted evaluation'):
             self.run_loop(config=config)
         control = self.run_loop(resume_from=0, config=config)
-        archived = list((control.directory / 'test/iter000').glob('.retention-interrupted-*/worker.log'))
+        self.assertEqual([len(p['fights']) for p in self.evaluations()], [2, 1])
+        archived = list((control.directory / 'test/iter000').glob('.retention-interrupted-*/results.jsonl'))
         self.assertEqual(len(archived), 1)
         self.assertEqual(archived[0].read_text(), 'interrupted')
         self.assertEqual([(r['test'], r['set']) for r in control.history() if 'test' in r],

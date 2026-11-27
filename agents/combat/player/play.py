@@ -85,3 +85,29 @@ def play(binary, models, fights, directory, settings, *, progress=lambda done, p
     if len(results) != len(fights):
         raise RuntimeError(f'nn_play returned {len(results)} of {len(fights)} fights')
     return results
+
+
+def publish_partition(directory, fights, results, samples, *, retain_samples):
+    """Publish an ordinary per-set results journal with per-set byte offsets."""
+    directory.mkdir(parents=True)
+    (directory / 'starts.jsonl').write_text(''.join(json.dumps(f) + '\n' for f in fights))
+    # nn_play writes one sample file; read spans without loading the batch's replay into RAM.
+    offset = 0
+    if retain_samples:
+        with samples.open('rb') as source, (directory / samples.name).open('wb') as dest:
+            for row in results:
+                span = row['sample_range']
+                source.seek(span['begin'])
+                remaining = span['end'] - span['begin']
+                while remaining > 0:
+                    data = source.read(min(remaining, 1024 * 1024))
+                    if not data:
+                        raise ValueError(f'{samples}: truncated evaluation samples')
+                    dest.write(data)
+                    remaining -= len(data)
+    for row in results:
+        if span := row.get('sample_range'):
+            end = offset + span['end'] - span['begin']
+            row['sample_range'] = {**span, 'begin': offset, 'end': end}
+            offset = end
+    (directory / 'results.jsonl').write_text(''.join(json.dumps(r) + '\n' for r in results))
