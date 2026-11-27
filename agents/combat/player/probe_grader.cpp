@@ -14,6 +14,20 @@ void play_key(sts::BattleContext& state, std::uint64_t key) {
 }
 }  // namespace
 
+std::vector<std::optional<search::Gumbel::Round>> resolve_checkpoints(
+    std::span<const search::Gumbel::Round> trace, std::span<const int> budgets, std::optional<int> eval_cap) {
+    std::vector<std::optional<search::Gumbel::Round>> out(budgets.size());
+    if (trace.empty()) return out;
+    for (std::size_t k = 0; k < budgets.size(); ++k) {
+        if (eval_cap && budgets[k] > *eval_cap) continue;
+        const search::Gumbel::Round* chosen = &trace.front();
+        for (const auto& r : trace)
+            if (r.evals <= budgets[k]) chosen = &r;
+        out[k] = *chosen;
+    }
+    return out;
+}
+
 ProbeGrader::ProbeGrader(const sts::BattleContext& observed, search::Action prior,
                          std::span<const search::Action> candidates, std::uint64_t particle_stream,
                          GradeSettings settings)

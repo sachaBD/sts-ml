@@ -756,3 +756,28 @@ TEST(Gumbel, GainsKeepSignsAndRecomputeForRepeatedRecommendations) {
     EXPECT_EQ((Round{16, prior, selected, .5, .25}.gain()), -.25f);
     EXPECT_EQ((Round{32, prior, selected, .5, .625}.gain()), .125f);
 }
+
+TEST(Gumbel, WaveCheckpointsTrackNonRootEvalsFromZeroThroughEveryWave) {
+    const auto state = stsrl::scenarios::jaw_worm(7);
+    auto s = settings();
+    s.simulations = 64;
+    s.considered_actions = 4;
+    s.wave = 8;
+    s.wave_checkpoints = true;
+    Gumbel* live = nullptr;
+    std::vector<Gumbel::Round> trace;
+    Gumbel search{state, s, 1, [&](const Gumbel::Round& r) {
+        if (!trace.empty()) EXPECT_GE(r.evals, trace.back().evals);
+        if (r.simulations > 0) EXPECT_EQ(r.selected, live->result().action);
+        trace.push_back(r);
+    }};
+    live = &search;
+    int total_queries = 0;
+    run(search, [&](const Query& q) { ++total_queries; return flat(q); });
+    ASSERT_GT(trace.size(), 3u);
+    EXPECT_EQ(trace.front().simulations, 0);
+    EXPECT_EQ(trace.front().evals, 0);
+    EXPECT_EQ(trace.front().selected, trace.front().prior);
+    EXPECT_EQ(trace.back().simulations, s.simulations);
+    EXPECT_EQ(trace.back().evals, total_queries - 1);  // strictly excludes the root eval
+}

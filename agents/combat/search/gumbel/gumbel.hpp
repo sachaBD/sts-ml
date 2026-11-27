@@ -20,6 +20,7 @@ public:
         std::uint64_t world_draw = 0;  // which particle worlds are sampled; a turn's searches share a draw
         bool record_worlds = false;  // record per-world visit counts on each graph link (off in self-play)
         bool spend_even_budget = false;  // redistribute a partial final pass without unequal visits
+        bool wave_checkpoints = false;  // invoke OnRound at root (evals = 0) and every completed wave
         double sieve_gain = 0;  // above 0: 4x stages from 16 sims up to simulations, continuing iff VoS >= sieve_gain * delta / 1000
     };
 
@@ -66,6 +67,7 @@ public:
         int simulations;
         Action prior, selected;
         std::optional<double> prior_q, selected_q;
+        int evals = 0;  // cumulative non-root NN evaluations answered so far
         std::optional<float> gain() const {
             if (prior.bits == selected.bits) return 0.f;
             if (prior_q && selected_q) return float(*selected_q - *prior_q);
