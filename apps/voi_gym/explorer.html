@@ -28,7 +28,7 @@ ul{list-style:none;margin:0;padding:0}li ul{margin-left:11px;padding-left:12px;b
 <section class="panel" aria-labelledby="parameter-title">
   <h2 id="parameter-title">Parameters</h2>
   <form id="settings">
-    <label>Seed <input name="seed" type="number" min="0" max="4294967295" step="1" value="4" required></label>
+    <label id="gym-seed">Seed <input name="seed" type="number" min="0" max="4294967295" step="1" value="4" required></label>
     <label>Pair budget <input name="budget" type="number" min="0" max="64" step="1" value="4" required></label>
     <label>Policy shortlist <input name="shortlist" type="number" min="1" max="40" step="1" value="4" required></label>
     <label>Price / pair <input name="price" type="number" min="0" step="any" value="0.001" required></label>
@@ -36,7 +36,9 @@ ul{list-style:none;margin:0;padding:0}li ul{margin-left:11px;padding-left:12px;b
     <label>Initial SD cap <input name="initial_sd_cap" type="number" min="0" max="0.5" step="any" value="0.06" required></label>
     <label>Probe noise SD <input name="probe_sd" type="number" min="0.000001" max="1" step="any" value="0.08" required></label>
     <label>Uncertainty <select name="uncertainty"><option value="fixed">Fixed 1×</option><option value="adaptive">Adaptive 1× / 3×</option></select></label>
-    <button type="submit">Run</button>
+    <button type="submit" id="run">Run</button>
+    <button type="button" id="play-action" hidden>Play next action</button>
+    <button type="button" id="play-turn" hidden>Play to next turn</button>
   </form>
   <div id="recorded-parameters" class="picker" hidden></div>
 </section>
@@ -51,6 +53,7 @@ ul{list-style:none;margin:0;padding:0}li ul{margin-left:11px;padding-left:12px;b
   <button type="button" id="next" disabled>Next →</button>
   <output id="step" for="position"></output>
   <b id="commit"></b>
+  <span id="branch-status"></span>
   <b id="calls"></b>
   <span id="status" role="status"></span>
 </nav>
@@ -233,7 +236,6 @@ function render() {
   const {frames} = replay;
   combatState(replay.combat);
   const {state, rows, selected, observation} = frames[index];
-  $('recorded-parameters').hidden = !replay.native;
   if (replay.native) {
     const initial = frames[0].state;
     const parameters = [
@@ -241,7 +243,7 @@ function render() {
       ['Prior scale', state.prior_scale], ['Initial SD cap', pct(state.initial_sd_cap)], ['Probe noise SD', pct(state.probe_sd)],
       ['Uncertainty', initial.scales.map((scale, i) => `${scale}× (${pct(initial.weights[i])})`).join(' / ')]
     ];
-    $('recorded-parameters').innerHTML = '<b>Recorded</b>' + parameters.map(([label, value]) =>
+    $('recorded-parameters').innerHTML = `<b>${replay.live ? 'Live branch' : 'Recorded'}</b>` + parameters.map(([label, value]) =>
       `<span>${label}: <b>${escape(value)}</b></span>`).join('');
   }
   const prev = frames[index-1]?.state;
@@ -256,7 +258,10 @@ function render() {
   $('next').disabled = selected === null;
   $('step').textContent = `Step ${index} / ${frames.length-1} · Pairs ${state.spent} / ${state.budget}`;
   const reason = state.spent >= state.budget ? 'Budget exhausted' : 'No positive net gain';
-  $('commit').textContent = selected === null ? `${replay.native ? 'Played' : 'Play'}: ${state.move} · ${reason}` : '';
+  $('commit').textContent = selected === null ?
+    `${replay.native && (!replay.live || replay.terminal) ? 'Played' : 'Play'}: ${state.move} · ${reason}` : '';
+  $('branch-status').textContent = replay.terminal ? `Fight ended · ${replay.terminal.win ? 'Win' : replay.terminal.capped ? 'Limit' : 'Loss'}` :
+    replay.played?.length ? `Played: ${replay.played.join(' → ')}` : '';
   $('calls').textContent = replay.native ? `NN evals: ${state.q_calls} · Rollout actions: ${state.s_calls}` :
     `Q calls: ${state.q_calls} · S calls: ${state.s_calls}`;
   const excluded = replay.excluded ?? Object.keys(state.prior).filter(action => !state.actions.includes(action));
@@ -359,35 +364,76 @@ window.addEventListener('keydown', event => {
   if (event.key === 'ArrowLeft') move(index-1);
   if (event.key === 'ArrowRight') move(index+1);
 });
-let fights = [], request = 0;
-async function load(params) {
+let fights = [], request = 0, busy = false, loadedOrigin = null;
+const settings = () => new URLSearchParams(new FormData($('settings')));
+let gymSettings = settings();
+const selectedFight = () => $('fight').value === '' ? null : fights[Number($('fight').value)];
+function populate(params) {
+  for (const [key, value] of params) $('settings').elements.namedItem(key).value = value;
+}
+function updateControls() {
+  const fight = selectedFight();
+  const native = Boolean(fight);
+  const live = Boolean(fight?.live);
+  const ready = loadedOrigin === JSON.stringify(origin()) && replay?.native && !replay.terminal;
+  $('settings').hidden = native && !live;
+  $('gym-seed').hidden = native;
+  $('native-picker').hidden = !native;
+  $('recorded-parameters').hidden = !replay?.native || !native;
+  $('run').textContent = native ? 'Rerun decision' : 'Run';
+  $('run').disabled = busy || (native && !ready);
+  for (const key of ['play-action', 'play-turn']) {
+    $(key).hidden = !live;
+    $(key).disabled = busy || !ready;
+  }
+}
+async function load(url, options, key = null) {
   const id = ++request;
-  const run = $('settings').querySelector('button[type=submit]');
-  run.disabled = true;
+  busy = true;
+  updateControls();
   $('status').textContent = 'Loading…';
   try {
-    const response = await fetch('/api/replay?' + params);
+    const response = await fetch(url, options);
     const data = await response.json();
     if (id !== request) return;
     if (!response.ok) throw Error(data.error);
     replay = data;
-    move(0);
+    loadedOrigin = key;
+    if (data.native) {
+      const state = data.frames[0].state;
+      const keys = ['shortlist', 'budget', 'price', 'prior_scale', 'initial_sd_cap', 'probe_sd'];
+      populate([...keys.map(key => [key, state[key]]), ['uncertainty', state.scales.length > 1 ? 'adaptive' : 'fixed']]);
+    }
+    move(data.terminal ? data.frames.length-1 : 0);
     $('status').textContent = '';
   } catch (error) {
     if (id === request) $('status').textContent = error.message;
   } finally {
-    if (id === request) run.disabled = false;
+    if (id === request) { busy = false; updateControls(); }
   }
 }
-const loadGym = () => load(new URLSearchParams(new FormData($('settings'))));
-const loadDecision = () => load(new URLSearchParams({fight:$('fight').value, decision:$('decision').value}));
-$('settings').onsubmit = event => { event.preventDefault(); loadGym(); };
+const loadGym = () => load('/api/replay?' + settings());
+const origin = () => ({fight:$('fight').value, decision:$('decision').value});
+const loadDecision = () => {
+  loadedOrigin = null;
+  load('/api/replay?' + new URLSearchParams(origin()), undefined, JSON.stringify(origin()));
+};
+function runLive(operation) {
+  if (!$('settings').reportValidity()) return;
+  load('/api/live', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({...origin(), operation, history:replay.history ?? [], settings:Object.fromEntries(settings())})
+  }, JSON.stringify(origin()));
+}
+$('settings').onsubmit = event => {
+  event.preventDefault();
+  if (selectedFight()) runLive('rerun');
+  else { gymSettings = settings(); loadGym(); }
+};
+$('play-action').onclick = () => runLive('action');
+$('play-turn').onclick = () => runLive('turn');
 $('fight').onchange = () => {
-  const gym = $('fight').value === '';
-  $('settings').hidden = !gym;
-  $('recorded-parameters').hidden = gym;
-  $('native-picker').hidden = gym;
-  if (gym) { loadGym(); return; }
+  if (!selectedFight()) { populate(gymSettings); loadGym(); return; }
   const choices = fights[Number($('fight').value)].decisions;
   const select = $('decision');
   select.replaceChildren();

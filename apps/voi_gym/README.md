@@ -35,3 +35,13 @@ cache misses (including the root); rollout actions count every simulated action,
 including forced actions, but not actions taken in the actual fight. Recordings
 show the settings used at capture time. Pass `--help` to the recorder for
 shortlist, noise, prior, uncertainty, price, and budget options.
+
+## Live native replay
+
+Add `--bridge build/main/apps/voi_combat/voi_combat_bridge --model "$MODEL_DIR"
+--starts "$STARTS_JSONL"` to the explorer command, using the same model and
+starts as the recording. Rerun a selected decision or play to the next action
+or turn. Controls apply to the current branch; choosing a recorded decision
+again resets it. Each request restores the recorded command prefix and replays
+committed branch actions, so deeper positions may take longer. The displayed
+counters belong to the selected decision, not that reconstruction work.
