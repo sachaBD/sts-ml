@@ -15,6 +15,8 @@ make test         # native, Python and dashboard tests
 
 See [`apps/gumbel_nn_combat_expert_iteration/README.md`](apps/gumbel_nn_combat_expert_iteration/README.md).
 
+For the opt-in measurement-VOI experiment, start with the [card gym](apps/voi_gym/README.md) or [real-combat benchmark](apps/voi_combat/README.md).
+
 ## Layout
 
 - `apps/gumbel_nn_combat_expert_iteration/`: the training app and dashboard.
