@@ -1,5 +1,6 @@
 """Finite expectimax policies, linear Gaussian measurements, exact one-step VOI."""
 from dataclasses import dataclass
+from functools import partial
 from itertools import product
 from math import erfc, exp, inf, pi, sqrt
 
@@ -77,7 +78,7 @@ class Belief:
     In regime j, both latent covariance and measurement noise scale by s[j]^2.
     A large standardized residual is evidence for the less predictable regime.
     """
-    def __init__(self, means, cov, scales=(1., 3.), probabilities=(.9, .1)):
+    def __init__(self, means, cov, scales=(1.,), probabilities=(1.,)):
         self.mean = np.array(means, dtype=float)
         self.cov = np.array(cov, dtype=float)
         self.scales = np.array(scales, dtype=float)
@@ -99,11 +100,16 @@ class Belief:
         self.log_weights -= np.log(self.scales) + .5*(z/self.scales)**2
         self.log_weights -= np.logaddexp.reduce(self.log_weights)
 
-    def voi(self, m, reaches):
+    def gain_by_scale(self, m, reaches):
         _, _, shift = self.prediction(m)
         intercepts, slopes = reaches @ self.mean, reaches @ shift
-        return sum(float(w)*envelope_gain(intercepts, slopes*s)
-                   for w, s in zip(np.exp(self.log_weights), self.scales))
+        return [envelope_gain(intercepts, slopes*s) for s in self.scales]
+
+    def voi(self, m, reaches):
+        return sum(float(w)*gain for w, gain in zip(np.exp(self.log_weights), self.gain_by_scale(m, reaches)))
+
+
+adaptive_belief = partial(Belief, scales=(1., 3.), probabilities=(.9, .1))
 
 
 def rank_measurements(belief, reaches, measurements, price, remaining):

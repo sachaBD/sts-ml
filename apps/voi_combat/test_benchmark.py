@@ -14,12 +14,14 @@ class CombatAdapterTests(unittest.TestCase):
     def test_native_pair_matches_signed_linear_measurement(self):
         logits = np.array([-1., .5, 1., 2., -4.])
         d = CombatDecision({'value': .5, 'logits': logits})
-        m = d.select(0., 1)
-        a,b = d.pair(m)
-        self.assertEqual(logits.argmax(), b)
-        self.assertEqual(logits[a]-logits[b], m.h @ logits[d.actions])
-        d.belief.observe(m, 1.)
-        self.assertEqual(d.move(), a)
+        pairs = set()
+        for row in d.candidates(0., 1):
+            m = d.measurement(row['id'])
+            a, b = d.pair(m)
+            pairs.add(frozenset((a, b)))
+            self.assertEqual(logits[a]-logits[b], m.h @ logits[d.actions])
+        self.assertEqual(len(pairs), 6)
+        self.assertTrue(all(pair <= set(d.actions) and len(pair) == 2 for pair in pairs))
 
 
 if __name__ == '__main__':

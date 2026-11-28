@@ -2,7 +2,7 @@ import unittest
 
 import numpy as np
 
-from .model import Belief, Chance, Choice, Leaf, Measurement, envelope_gain, policies
+from .model import Belief, Chance, Choice, Leaf, Measurement, adaptive_belief, envelope_gain, policies
 
 
 class ModelTests(unittest.TestCase):
@@ -35,7 +35,7 @@ class ModelTests(unittest.TestCase):
     def test_upper_envelope_matches_sampled_reoptimization(self):
         rng = np.random.default_rng(123)
         reaches = np.array([[1,0,0], [0,.8,.2], [0,.4,.6], [0,0,1.]])
-        b = Belief([.55,.4,.45], [[.02,.01,0],[.01,.03,0],[0,0,.02]])
+        b = adaptive_belief([.55,.4,.45], [[.02,.01,0],[.01,.03,0],[0,0,.02]])
         m = Measurement('compare', np.array([1.,-1.,0.]), .01, 2)
         # Simulate latent returns then noisy probes, conditional on the regime.
         s = rng.choice(b.scales, size=100000, p=np.exp(b.log_weights))
@@ -47,7 +47,7 @@ class ModelTests(unittest.TestCase):
         self.assertAlmostEqual(b.voi(m, reaches), gains.mean(), delta=5*gains.std()/len(s)**.5)
 
     def test_surprising_jump_can_warrant_rechecking_new_leader(self):
-        adaptive = Belief([.35,.5], np.diag([.01,0.]))
+        adaptive = adaptive_belief([.35,.5], np.diag([.01,0.]))
         fixed = Belief(adaptive.mean, adaptive.cov, scales=(1.8**.5,), probabilities=(1.,))
         m = Measurement('challenger', np.array([1.,0.]), .01, 1)
         # Same prior predictive variance and same posterior means. Only the

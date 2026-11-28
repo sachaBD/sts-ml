@@ -1,0 +1,320 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Measurement VOI</title>
+<style>
+:root{color-scheme:light dark;--bg:#f6f7f9;--panel:#fff;--ink:#19212c;--muted:#555f70;--line:#d9dfe6;--active:#d9f1e6;--trace:#285dad}
+@media(prefers-color-scheme:dark){:root{--bg:#15181e;--panel:#1e232b;--ink:#edf0f4;--muted:#b4bfce;--line:#3b4656;--active:#213f36;--trace:#a8caff}}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.4 system-ui,sans-serif;font-variant-numeric:tabular-nums}
+main{max-width:1500px;margin:auto;padding:16px;display:grid;gap:12px}header,form,nav,.stats{display:flex;align-items:center;gap:8px 14px;flex-wrap:wrap}
+header{justify-content:space-between}h1,h2{margin:0;font-size:17px}h2{font-size:14px}label{display:inline-flex;align-items:center;gap:5px}
+input,select,button{font:inherit;color:inherit;background:var(--panel);border:1px solid var(--line);border-radius:5px;padding:4px 8px}input[type=number]{width:90px}input[type=range]{padding:0;width: min(190px,40vw);accent-color:var(--trace)}button:enabled{cursor:pointer}button:disabled{opacity:.5}
+.panel,nav,.stats{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:10px 12px}.stats{min-height:42px;color:var(--muted)}.stats b{color:var(--ink)}#status:not(:empty){padding:4px;color:var(--trace)}
+.grid{display:grid;grid-template-columns:minmax(0,1.04fr) minmax(0,1fr);gap:12px;align-items:start}.scroll{overflow-x:auto}table{width:100%;border-collapse:collapse;white-space:nowrap}th,td{text-align:right;border-bottom:1px solid var(--line);padding:4px 6px}th:nth-child(2),td:nth-child(2){text-align:left}th{font-size:12px;color:var(--muted)}tr:last-child td{border-bottom:0}.selected,.plan{background:var(--active);font-weight:650}.unaffordable{color:var(--muted)}.scouted{box-shadow:inset 3px 0 var(--trace)}
+ul{list-style:none;margin:0;padding:0}li ul{margin-left:11px;padding-left:12px;border-left:1px solid var(--line)}li ul>li>.node::before{content:'';position:absolute;left:-13px;width:12px;border-top:1px solid var(--line);top:50%}
+.node{display:flex;justify-content:space-between;gap:8px;padding:3px 6px;position:relative;border-radius:3px}.delta,.observation{color:var(--trace)}.tree-label,.move{display:grid;grid-template-columns:minmax(65px,1fr) minmax(65px,.6fr) minmax(160px,1.5fr);gap:6px;text-align:right}.tree-label{font-size:12px;color:var(--muted);padding:3px 6px 3px 30px}.move>b{text-align:left}.root-values{display:flex;gap:12px;flex-wrap:wrap}.rollout{font-size:12px;color:var(--muted)}
+.formula{border:0;background:none;padding:0;text-decoration:underline dotted;text-underline-offset:3px}.formula:hover,.formula:focus-visible{color:var(--trace)}
+#equations{position:fixed;inset:auto 0 0;width:min(850px,100%);max-width:none;max-height:55vh;margin:0 auto;border:1px solid var(--line);border-radius:10px 10px 0 0;background:var(--panel);color:var(--ink);padding:12px 18px;box-shadow:0 -6px 28px #0004}#equations header{position:sticky;top:0;background:var(--panel)}#math{display:grid;gap:10px;margin-top:8px}.math-step{margin:0}.math-step pre{white-space:pre-wrap;overflow-wrap:anywhere;margin:2px 0 0;color:var(--trace)}.math-symbol{font:inherit;color:inherit;border:0;background:none;padding:0;text-decoration:underline dotted;text-underline-offset:3px}.math-symbol:hover,.math-symbol:focus-visible{background:var(--active)}#symbol-help{font-size:13px;color:var(--muted);margin:4px 0 0}
+@media(max-width:940px){.grid{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<main>
+<header>
+  <h1>Measurement VOI <button type="button" id="help" aria-label="How to read this replay">?</button></h1>
+  <form id="settings">
+    <label>Seed <input name="seed" type="number" min="0" max="4294967295" step="1" value="4" required></label>
+    <label>Budget <input name="budget" type="number" min="0" max="64" step="1" value="4" required></label>
+    <label>Price / pair <input name="price" type="number" min="0" step="any" value="0.001" required></label>
+    <label>Prior scale <input name="prior_scale" type="number" min="0" max="1" step="any" value="0.03" required></label>
+    <label>Initial SD cap <input name="initial_sd_cap" type="number" min="0" max="0.5" step="any" value="0.06" required></label>
+    <label>Uncertainty <select name="uncertainty"><option value="fixed">Fixed 1×</option><option value="adaptive">Adaptive 1× / 3×</option></select></label>
+    <button type="submit">Run</button>
+  </form>
+</header>
+<nav aria-label="Replay">
+  <button type="button" id="back" disabled>← Back</button>
+  <input type="range" id="position" aria-label="Replay step" min="0" max="0" value="0" disabled>
+  <button type="button" id="next" disabled>Next →</button>
+  <output id="step" for="position"></output>
+  <b id="calls"></b>
+  <span id="status" role="status"></span>
+</nav>
+<section class="stats" id="observation" aria-label="Observation"></section>
+<div class="grid">
+  <section class="panel scroll" aria-labelledby="measurements">
+    <h2 id="measurements">Measurements</h2>
+    <table>
+      <thead><tr><th>#</th><th>Measurement</th><th>Predicted ± SD (pp)</th><th>Gain (pp)</th><th>Net (pp)</th><th>Budget</th></tr></thead>
+      <tbody id="candidates"></tbody>
+    </table>
+  </section>
+  <section class="panel scroll" aria-labelledby="decision-tree">
+    <h2 id="decision-tree">Decision tree</h2>
+    <div class="tree-label"><span></span><span>Policy prior</span><span>Estimated value ± SD</span></div>
+    <ul id="tree"></ul>
+  </section>
+</div>
+</main>
+<dialog id="equations" aria-labelledby="equation-title">
+  <header><h2 id="equation-title"></h2><form method="dialog"><button>Close</button></form></header>
+  <p id="explanation"></p>
+  <div id="math"></div>
+  <p id="symbol-help" role="status" hidden></p>
+</dialog>
+<script>
+const $ = id => document.getElementById(id);
+const pct = x => `${(100*x).toFixed(2)}%`;
+const pp = (x, digits = 4) => (100*x).toFixed(digits);
+const delta = (x, prev) => prev == null || pp(x-prev, 2) === '0.00' || pp(x-prev, 2) === '-0.00'
+  ? '' : `${x > prev ? '+' : ''}${pp(x-prev, 2)}`;
+const measurement = row => `${row.left} − ${row.right}`;
+let replay, index = 0, equations = [];
+const f = x => Number(x.toPrecision(5));
+const vector = xs => `[${xs.map(f).join(', ')}]`;
+const weighted = (weights, values) => weights.map((w, i) => `${f(w)} × ${f(values[i])}`).join(' + ');
+function formula(text, title, lines) {
+  const id = equations.push({title, lines})-1;
+  return `<button type="button" class="formula" data-formula="${id}" aria-label="${title}: ${text}">${text}</button>`;
+}
+const explanations = {
+  'Expected gain (pp)': 'Gain is how much better you expect your final choice to be, averaged over possible results, before paying for the probe. It is not the expected score of either rollout.',
+  'Net gain (pp)': 'The agent buys the affordable probe with the largest positive net gain. The price is per pair, not per Q or S call. If nothing beats zero, it stops and plays the move with the highest estimated value.',
+  'Predictive mean ± SD': 'Before running the pair, the agent predicts the difference between the two endpoint scores. This SD combines uncertainty about the moves with noise from sampling a world. It is not an error bar on the sample shown next to it.',
+  'Paired observation': 'Both rollouts start in the same sampled world. Subtracting their endpoint scores helps cancel what the world did to both moves. The result is one noisy comparison, not a new estimate of either move on its own.',
+  'Uncertainty scale weight': 'The belief model mixes two possibilities: ordinary noise (1×) and wider noise (3×). A result farther from the prediction tends to put more weight on the wider scale. The weights describe the model’s uncertainty, not the odds that a move wins.',
+  'Rollout endpoint value': 'This is the score of one path in one sampled world. At the next turn, Q estimates its value; a terminal path gets its outcome directly. The two endpoint values are subtracted before either is used to update the belief.',
+  'Change in value': 'This is how much the latest probe moved the estimate, not how much the move improved in the game.'
+};
+const symbols = {
+  C: 'Base covariance matrix for move values. Diagonal entries are variances; off-diagonal entries show how estimates move together.',
+  h: 'Coefficients for this probe: +1 for the first move, −1 for the second, 0 for other moves. hᵀ is the same coefficients written as a row.',
+  μ: 'Current estimated value of each move. μᵢ is the estimate for move i; μ′ is the updated estimate.',
+  'σ₀': 'Predicted standard deviation of the paired result in the 1× regime, before applying any scale multiplier.',
+  R: 'Base variance of the probe noise, separate from uncertainty about the move values.',
+  'sⱼ': 'Standard-deviation multiplier for regime j: 1× or 3×.',
+  w: 'Probability weight for each uncertainty regime. A prime (′) marks the updated weight.',
+  g: 'Expected improvement from this probe at one uncertainty scale, before cost.',
+  Z: 'A possible standardized surprise drawn from a standard normal distribution (mean 0, SD 1).',
+  z: 'The observed surprise: actual minus predicted, divided by the base predictive SD.',
+  y: 'Observed paired result: first endpoint value minus second endpoint value.',
+  i: 'Index of a candidate move.',
+  j: 'Index of an uncertainty regime.',
+  E: 'Average over possible probe results under the stated uncertainty regime.',
+  N: 'Normal distribution. N(0,1) has mean 0 and variance 1.',
+  Q: 'Deterministic toy evaluator. It returns a value v and policy priors p for a state s.',
+  s: 'The game state being evaluated.',
+  p: 'Policy prior: the evaluator’s starting preference for a move.',
+  v: 'Value returned by Q for the state.',
+  β: 'Prior scale. Controls how much a policy-prior gap changes the initial move value.',
+  V: 'Score assigned to this rollout endpoint.'
+};
+const symbolPattern = /(?<![\p{L}\p{N}_])(?:σ₀²?|sⱼ²?|p_leader|[μCwhgspβ]′?[ᵢⱼᵀ]*|[RZzyijENQvV])(?![\p{L}\p{N}_])/gu;
+function mathLine(text) {
+  const line = document.createElement('pre');
+  let end = 0;
+  for (const {0: token, index: start} of text.matchAll(symbolPattern)) {
+    const key = token.startsWith('σ₀') ? 'σ₀' : token.startsWith('sⱼ') ? 'sⱼ' : token[0];
+    if (!symbols[key]) continue;
+    line.append(text.slice(end, start));
+    const symbol = document.createElement('button');
+    symbol.type = 'button';
+    symbol.className = 'math-symbol';
+    symbol.textContent = token;
+    symbol.title = symbols[key];
+    symbol.setAttribute('aria-label', `${token}: ${symbols[key]}`);
+    const define = () => {
+      $('symbol-help').textContent = `${token} — ${symbols[key]}`;
+      $('symbol-help').hidden = false;
+    };
+    symbol.onfocus = symbol.onclick = define;
+    line.append(symbol);
+    end = start + token.length;
+  }
+  line.append(text.slice(end));
+  return line;
+}
+function explain(title, description, steps) {
+  $('equation-title').textContent = title;
+  $('explanation').textContent = description;
+  $('symbol-help').hidden = true;
+  $('math').replaceChildren(...steps.map(([caption, text]) => {
+    const step = document.createElement('div');
+    step.className = 'math-step';
+    step.append(caption, mathLine(text));
+    return step;
+  }));
+  $('equations').scrollTop = 0;
+  if (!$('equations').open) $('equations').show();
+}
+$('help').onclick = () => explain('How to read the replay',
+  'The agent is deciding what to play and whether another comparison is worth buying. At step 0, it has only the opening estimate from Q. Follow the highlighted table row, advance one step, then compare the sample with the prediction and watch the tree values change. The highlighted move is what the agent would play if it stopped now. Click any underlined number to see where it came from.', []);
+document.querySelector('main').addEventListener('click', event => {
+  const key = event.target.dataset.formula;
+  if (key == null) return;
+  const {title, lines} = equations[Number(key)];
+  const description = explanations[title] ?? (title.endsWith('belief SD')
+    ? 'This is uncertainty about the move’s underlying value, not how much a single rollout might vary. A probe reduces uncertainty in the comparison it measures.'
+    : index === 0
+      ? 'The first Q call anchors the leader at the root value. Other moves start below it according to their policy-prior gap.'
+      : 'The agent starts from the previous estimate, then moves it according to how far the paired result was from its prediction and how much the comparison tells it about this move.');
+  explain(title, description, lines);
+});
+$('equations').addEventListener('keydown', event => {
+  if (event.key === 'Escape') $('equations').close();
+});
+
+function priorMath(state, action) {
+  const leader = state.actions[0];
+  const initial = action == null ? state.actions : [action];
+  return ['Initialize move values from the root value and policy-prior gap. The prior scale is a heuristic, not a measured value gap.',
+    `μᵢ = Q(s).v + β × ln(pᵢ / p_leader)\n` + initial.map(a =>
+      `${a}: ${pct(state.root_value)} + [100 × ${f(state.prior_scale)} × ln(${f(state.prior[a])} / ${f(state.prior[leader])})] pp ≈ ${pct(state.root_q[a])}`
+    ).join('\n')];
+}
+
+function probeMath(row, state) {
+  return [
+    ['Define what the probe compares.', `h = +1 for ${row.left}, −1 for ${row.right}, 0 otherwise`],
+    ['Subtract the second move’s estimate from the first.',
+      `Predicted = hᵀ μ = ${f(state.root_q[row.left])} − ${f(state.root_q[row.right])} = ${f(row.predicted)}`],
+    ['Combine uncertainty in that difference with probe noise. Only the first term shrinks as the paired estimate gets more precise.',
+      `σ₀² = hᵀ C h + R = ${f(Math.max(0, row.base_sd ** 2 - row.noise_var))} + ${f(row.noise_var)};  σ₀ = ${f(row.base_sd)}`],
+    ...(state.scales.length > 1 ? [['Account for both uncertainty regimes.',
+      `Predictive SD = σ₀ √Σⱼ wⱼ sⱼ² = ${f(row.predictive_sd)}`]] : []),
+    ['Find how much a one-base-SD surprise would move each estimate.',
+      `C h / σ₀ = ${vector(row.shift)}  (${state.actions.join(', ')})`]
+  ];
+}
+
+function render() {
+  $('equations').close();
+  equations = [];
+  const {frames} = replay;
+  const {state, rows, selected, observation} = frames[index];
+  const prev = frames[index-1]?.state;
+  const observed = frames[index-1]?.rows.find(row => row.id === observation?.id);
+  const z = observation ? (observation.observation - observed.predicted) / observed.base_sd : null;
+  const adaptive = state.scales.length > 1;
+  const scaleVariance = weighted(state.weights, state.scales.map(s => s*s));
+  $('position').max = frames.length-1;
+  $('position').value = index;
+  $('position').disabled = frames.length === 1;
+  $('back').disabled = index === 0;
+  $('next').disabled = selected === null;
+  $('step').textContent = `Step ${index} / ${frames.length-1} · Pairs ${state.spent} / ${state.budget}`;
+  $('calls').textContent = `Q calls: ${state.q_calls} · S calls: ${state.s_calls}`;
+  $('observation').innerHTML = (observation ? `
+    <span class="observation"><b>Observed</b> ${measurement(observed)}</span>
+    <span>Predicted ${formula(`${pp(observed.predicted, 2)} ± ${pp(observed.predictive_sd, 2)} pp`, 'Predictive mean ± SD', probeMath(observed, prev))}</span>
+    <span>Sample ${formula(`${pp(observation.observation, 2)} pp`, 'Paired observation', [
+      ['Subtract the endpoint values from the two rollouts.',
+        `y = value(first move) − value(second move)\n  = ${f(observation.branches[0].value)} − ${f(observation.branches[1].value)} = ${f(observation.observation)}`],
+      ['Express the surprise in base standard deviations.', `z = (y − hᵀ μ) / σ₀ = ${f(z)}`]])}</span>` : '<span><b>Prior</b></span>') +
+    (adaptive ? state.scales : []).map((scale, j) => `<span>${scale}× ${formula(pct(state.weights[j]), 'Uncertainty scale weight', prev ? [
+      ['Reweight each regime by how likely it made the observed surprise.',
+        `w′ⱼ ∝ (wⱼ / sⱼ) exp(−½(z / sⱼ)²); normalize so Σⱼ w′ⱼ = 1\nz = ${f(z)}; scales = ${vector(state.scales)}\nw = ${vector(prev.weights)} → w′ = ${vector(state.weights)}`]
+    ] : [['Start with these two scales and weights.', `Scales = ${vector(state.scales)}; w = ${vector(state.weights)}`]])}</span>`).join('');
+
+  $('candidates').innerHTML = [...rows, {id:null, gain:0, net:0, affordable:true}]
+    .map((row, i) => {
+      const chosen = row.id === selected;
+      const prediction = row.id ? formula(`${pp(row.predicted, 2)} ± ${pp(row.predictive_sd, 2)}`,
+        'Predictive mean ± SD', probeMath(row, state)) : '—';
+      const gain = formula(pp(row.gain), 'Expected gain (pp)', row.id ? [
+        ...(prev ? [] : [priorMath(state)]),
+        ['Start from the current move estimates. Without the probe, pick the highest.',
+          `μ = ${vector(state.actions.map(a => state.root_q[a]))}  (${state.actions.join(', ')})`],
+        ['For each possible result, update the estimates and pick the best move. Average their updated values, then subtract the best estimate you have now.',
+          adaptive ? `gⱼ = E[maxᵢ(μᵢ + (C h / σ₀)ᵢ sⱼ Z)] − maxᵢ μᵢ,   Z ~ N(0,1)` :
+            `Gain = E[maxᵢ(μᵢ + (C h / σ₀)ᵢ Z)] − maxᵢ μᵢ,   Z ~ N(0,1)\n     = ${f(row.gain)} (${pp(row.gain)} pp)`],
+        ...(adaptive ? [['Average the gains from the 1× and 3× regimes using their current weights.',
+          `Gain = Σⱼ wⱼ gⱼ = ${weighted(state.weights, row.gains)} = ${f(row.gain)} (${pp(row.gain)} pp)`]] : []),
+        ...probeMath(row, state)
+      ] : [['Stopping buys no information.', 'Gain(stop) = 0']]);
+      const net = formula(pp(row.net), 'Net gain (pp)', row.id ? [
+        ['Subtract the price of buying this pair.',
+          `Net = gain − price × cost\n    = ${f(row.gain)} − ${f(state.price)} × ${row.cost} = ${f(row.net)} (${pp(row.net)} pp)`]
+      ] : [['Stopping costs nothing.', 'Net(stop) = 0']]);
+      return `<tr class="${chosen ? 'selected' : ''} ${row.id === observed?.id ? 'scouted' : ''} ${row.affordable ? '' : 'unaffordable'}">
+        <td>${i < rows.length ? i+1 : '—'}</td>
+        <td>${chosen ? '▶ ' : ''}${row.id ? measurement(row) : 'Stop / Play'}</td>
+        <td>${prediction}</td><td>${gain}</td><td>${net}</td><td>${row.affordable ? 'OK' : 'Over'}</td>
+      </tr>`;
+    }).join('');
+
+  const group = (head, children) => `<li>${head}${children ? `<ul>${children}</ul>` : ''}</li>`;
+  const moves = state.actions.map((action, i) => {
+    const value = state.root_q[action];
+    const paths = frames.slice(1, index+1).map(({observation: obs}, j) => {
+      const branch = obs.branches.find(b => b.move === action);
+      if (!branch) return '';
+      const path = [branch.path[0].action, branch.path[0].state, ...branch.path.slice(1).map(hop => hop.action), branch.path.at(-1).state];
+      return group(`<div class="node rollout ${j+1 === index ? 'scouted' : ''}">
+        <span>#${j+1} · ${path.join(' → ')}</span><span>${formula(pct(branch.value), 'Rollout endpoint value', [
+          ['Read the final score of this rollout.', `score = ${branch.score}`],
+          branch.path.at(-1).state === 'Terminal' ? ['Use the terminal outcome directly.', `V = 1[score ≥ 12] = ${f(branch.value)}`] :
+            ['Use the toy evaluator’s value at the next turn.', `V = Q(s).v = 1 / (1 + exp(−score / 7)) = ${f(branch.value)}`]])}</span></div>`);
+    }).join('');
+    const change = delta(value, prev?.root_q[action]);
+    const mean = formula(pct(value), `${action}: estimated value`, observed ? [
+      ['Apply the surprise in proportion to how much this probe tells us about the move.',
+        `μ′ᵢ = μᵢ + (C h / σ₀)ᵢ z\n    = ${f(prev.root_q[action])} + (${f(observed.shift[i])}) × (${f(z)}) = ${f(value)}`],
+      ...probeMath(observed, prev)
+    ] : [priorMath(state, action)]);
+    const sd = formula(pct(state.sd[action]), `${action}: belief SD`, [
+      prev ? ['Remove the base variance resolved by the latest probe.',
+        `C′ᵢᵢ = Cᵢᵢ − ((C h / σ₀)ᵢ)² = ${f(prev.covariance[i][i])} − (${f(observed.shift[i])})²`] :
+        ['Set the initial base variance from the root value.', `Initial Cᵢᵢ = min(${state.initial_sd_cap}, v, 1 − v)²; v = ${f(state.root_value)}`],
+      adaptive ? ['Weight the variance by the two regimes, then take its square root.',
+        `SDᵢ = √(Cᵢᵢ × Σⱼ wⱼ sⱼ²)\n    = √(${f(state.covariance[i][i])} × (${scaleVariance})) = ${f(state.sd[action])}`] :
+        ['Take the square root of the move’s variance.', `SDᵢ = √Cᵢᵢ = √${f(state.covariance[i][i])} = ${f(state.sd[action])}`]
+    ]);
+    return group(`<div class="node move ${action === state.move ? 'plan' : ''}"><b>${action}</b>
+      <span>${pct(state.prior[action])}</span>
+      <span>${mean} ± ${sd} ${change ? `<span class="delta">(${formula(`${change} pp`, 'Change in value', [
+        ['Subtract the previous estimate from the new one.', `Δ = 100 × (μ′ − μ) = 100 × (${f(value)} − ${f(prev.root_q[action])})`]])})</span>` : ''}</span></div>`, paths);
+  }).join('');
+  $('tree').innerHTML = group(`<div class="node"><b>Open</b><span class="root-values">
+    <span>Q value: <b>${pct(state.root_value)}</b></span>
+    <span>Prior scale: <b>${state.prior_scale}</b></span>
+    <span>Initial SD cap: <b>${pct(state.initial_sd_cap)}</b></span></span></div>`, moves);
+}
+
+function move(to) {
+  if (!replay) return;
+  index = Math.max(0, Math.min(to, replay.frames.length-1));
+  render();
+}
+$('back').onclick = () => move(index-1);
+$('next').onclick = () => move(index+1);
+$('position').oninput = event => move(Number(event.target.value));
+window.addEventListener('keydown', event => {
+  if (event.target.matches('input, button') || event.altKey || event.ctrlKey || event.metaKey) return;
+  if (event.key === 'ArrowLeft') move(index-1);
+  if (event.key === 'ArrowRight') move(index+1);
+});
+$('settings').onsubmit = async event => {
+  event.preventDefault();
+  const run = $('settings').querySelector('button');
+  run.disabled = true;
+  $('status').textContent = 'Loading…';
+  try {
+    const response = await fetch('/api/replay?' + new URLSearchParams(new FormData($('settings'))));
+    const data = await response.json();
+    if (!response.ok) throw Error(data.error);
+    replay = data;
+    move(0);
+    $('status').textContent = '';
+  } catch (error) {
+    $('status').textContent = error.message;
+  } finally {
+    run.disabled = false;
+  }
+};
+$('settings').requestSubmit();
+</script>
+</body>
+</html>

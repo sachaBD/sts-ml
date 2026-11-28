@@ -6,35 +6,9 @@ from itertools import islice
 from pathlib import Path
 import subprocess
 
-import numpy as np
-
 from agents.combat.player.play import gpu_environment
-from agents.combat.search.voi_gym.model import Belief, Measurement, buy, rank_measurements
-
-
-class CombatDecision:
-    def __init__(self, root):
-        logits = np.array(root['logits'])
-        self.actions = np.argsort(-logits, kind='stable')[:4]
-        v = root['value']
-        means = v + .03*(logits[self.actions] - logits[self.actions[0]])
-        self.reaches = np.eye(len(means))  # choose a root action, then fixed continuation
-        prior_sd = min(.06, v, 1-v)
-        self.belief = Belief(means, self.reaches * prior_sd**2)
-        self.probes = [Measurement(str(i), self.reaches[i]-self.reaches[0], .08**2, 1)
-                       for i in range(1, len(means))]
-
-    def select(self, price, remaining):
-        if not remaining:
-            return None
-        key = buy(rank_measurements(self.belief, self.reaches, self.probes, price, remaining))
-        return None if key is None else self.probes[int(key)-1]
-
-    def pair(self, m):
-        return [int(self.actions[int(m.name)]), int(self.actions[0])]
-
-    def move(self):
-        return int(self.actions[self.belief.mean.argmax()])
+from agents.combat.search.voi_gym.model import Belief, adaptive_belief
+from agents.combat.search.voi_gym.root import CombatDecision
 
 
 def exchange(proc, command):
@@ -46,11 +20,11 @@ def exchange(proc, command):
     return json.loads(line)
 
 
-def play(proc, start, price, cap):
+def play(proc, start, price, cap, belief_factory=Belief):
     state = exchange(proc, start)
     decisions = switches = probes = probe_requests = 0
     while 'win' not in state:
-        d = CombatDecision(state)
+        d = CombatDecision(state, belief_factory=belief_factory)
         remaining = cap if price is not None else 0
         while (m := d.select(price, remaining)) is not None:
             result = exchange(proc, {'pair': d.pair(m)})
@@ -72,12 +46,14 @@ def shard(task):
     env = gpu_environment() if args.gpu else None
     if args.gpu and Path('/usr/lib/wsl/lib').is_dir():
         env['LD_LIBRARY_PATH'] += ':/usr/lib/wsl/lib'
+    belief_factory = adaptive_belief if args.adaptive_scale else Belief
     command = [args.bridge, args.model] + (['--gpu'] if args.gpu else [])
     with subprocess.Popen(command, env=env, stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True) as proc:
         try:
             for row in starts:
-                arms = [play(proc, row['start'], p, args.cap) for p in [None, *args.prices]]
-                results.append(dict(fight_id=row['fight_id'], encounter=row['start']['encounter'], arms=arms))
+                arms = [play(proc, row['start'], p, args.cap, belief_factory) for p in [None, *args.prices]]
+                results.append(dict(fight_id=row['fight_id'], encounter=row['start']['encounter'],
+                                    adaptive_scale=args.adaptive_scale, arms=arms))
         finally:
             proc.stdin.close()
         if proc.wait():
@@ -93,6 +69,7 @@ def main():
     parser.add_argument('--cap', type=int, default=3, help='max paired probes per decision')
     parser.add_argument('--limit', type=int, default=None)
     parser.add_argument('--jobs', type=int, default=1)
+    parser.add_argument('--adaptive-scale', action='store_true')
     parser.add_argument('--gpu', action='store_true', help='TensorRT with CPU overflow; use the full checkpoint')
     args = parser.parse_args()
     if args.gpu and args.jobs != 1:

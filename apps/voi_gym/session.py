@@ -1,79 +1,102 @@
-"""In-process GUI backend. Public methods return JSON-compatible records."""
-from copy import deepcopy
+from dataclasses import replace
+from functools import cache
+from math import log
 
 import numpy as np
 
-from agents.combat.search.voi_gym.model import Belief, Chance, Choice, Leaf, Measurement, policies, rank_measurements, buy
-from environments.combat.card_duel import Duel, OPEN, INTENTS, RESPOND
+from agents.combat.search.voi_gym.evaluator import Q
+from agents.combat.search.voi_gym.model import Belief
+from agents.combat.search.voi_gym.root import CombatDecision, DEFAULT_INITIAL_SD_CAP, DEFAULT_PRIOR_SCALE
+from environments.combat.card_duel import Duel, INTENTS, OPEN, RESPOND, SHOCKS, S, actions, margin, value
 
 
 class Session:
-    def __init__(self, seed=0, budget=16, price=.001, *, adaptive=True):
+    def __init__(self, seed=0, budget=3, price=.006, *, belief_factory=Belief, prior_scale=DEFAULT_PRIOR_SCALE,
+                 initial_sd_cap=DEFAULT_INITIAL_SD_CAP):
         if budget < 0 or price < 0:
             raise ValueError('negative budget or price')
-        self.game = g = Duel(seed)
-        n = len(g.labels)
-        scales, weights = g.scales, g.scale_probabilities
-        if not adaptive:  # Moment-match the initial predictive variance.
-            scales, weights = [np.sqrt(np.dot(weights, np.square(scales)))], [1.]
-        self.belief = Belief(g.prior, np.eye(n)*g.prior_sd**2, scales, weights)
-        self.tree = Choice({a: Chance({i: (p, Choice({b: Leaf(g.labels.index((a, i, b))) for b in RESPOND}))
-                                    for i, p in zip(INTENTS, (g.attack_prob, 1-g.attack_prob))}) for a in OPEN})
-        plans, reaches = zip(*policies(self.tree, n))
-        self.plans, self.reaches = plans, np.stack(reaches)
-        self.measurements = {}
-        basis = np.eye(n)
-        for j, path in enumerate(g.labels):
-            name = '/'.join(path)
-            self.measurements[name] = Measurement(name, basis[j], g.scout_sd**2, 1)
-            # Compare responses in the same matchup with a shared scout draw.
-            # Per-endpoint noise correlation .75 -> difference variance = .5 R.
-            if path[-1] == RESPOND[1]:
-                key = name + ' minus Strike'
-                self.measurements[key] = Measurement(key, basis[j]-basis[j-1], .5*g.scout_sd**2, 2)
-        self.budget, self.price, self.spent = budget, price, 0
+        self.seed, self.budget, self.price = seed, budget, price
+        self.prior_scale = prior_scale
+        self.initial_sd_cap = initial_sd_cap
+        self.game = Duel(seed)
+        self.evaluate = cache(Q)
+        self.s_calls = 0
+        self.root_value, self.prior = self.evaluate(self.game.root)
+        v, p = self.root_value, self.prior
+        self.decision = CombatDecision(dict(value=v, logits=[log(probability) for probability in p]), belief_factory=belief_factory,
+                                       prior_scale=prior_scale, initial_sd_cap=initial_sd_cap)
         self.history = []
 
+    @property
+    def spent(self):
+        return len(self.history)
+
     def snapshot(self):
-        b = self.belief
-        values = self.reaches @ b.mean
-        i = int(values.argmax())
-        variance = (np.exp(b.log_weights) @ b.scales**2) * b.cov.diagonal()
-        return dict(seed=self.game.seed, price=self.price, spent=self.spent, budget=self.budget,
-                    plan=deepcopy(self.plans[i]), value=float(values[i]), scales=b.scales.tolist(),
-                    scale_probabilities=np.exp(b.log_weights).tolist(), attack_probability=self.game.attack_prob,
-                    leaves={'/'.join(p): float(v) for p, v in zip(self.game.labels, b.mean)},
-                    root_q={a: float(max(v for p,v in zip(self.plans, values) if a in p)) for a in OPEN},
-                    leaf_sd={'/'.join(p): float(sd) for p, sd in zip(self.game.labels, np.sqrt(variance))},
-                    history=deepcopy(self.history))
+        d = self.decision
+        b = d.belief
+        weights = np.exp(b.log_weights)
+        scale_variance = float(weights @ b.scales**2)
+        return dict(seed=self.seed, spent=self.spent, budget=self.budget, price=self.price,
+                    move=OPEN[d.move()], root_q={OPEN[a]: float(v) for a, v in zip(d.actions, b.mean)},
+                    actions=[OPEN[a] for a in d.actions],
+                    root_value=self.root_value, prior_scale=self.prior_scale, initial_sd_cap=self.initial_sd_cap,
+                    prior={a: p for a, p in zip(OPEN, self.prior)},
+                    scales=b.scales.tolist(), weights=weights.tolist(), covariance=b.cov.tolist(),
+                    sd={OPEN[a]: float(v) for a, v in zip(d.actions, np.sqrt(scale_variance*b.cov.diagonal()))},
+                    q_calls=self.evaluate.cache_info().misses, s_calls=self.s_calls)
 
     def candidates(self):
-        rows = rank_measurements(self.belief, self.reaches, self.measurements.values(),
-                                 self.price, self.budget - self.spent)
+        d = self.decision
+        b = d.belief
+        rows = d.candidates(self.price, self.budget-self.spent)
         for row in rows:
-            h = self.measurements[row['id']].h
-            row['terms'] = {'/'.join(p): float(w) for p, w in zip(self.game.labels, h) if w}
+            m = d.measurement(row['id'])
+            left, right = d.pair(m)
+            center, base_sd, shift = b.prediction(m)
+            mixture_sd = base_sd*np.sqrt(np.exp(b.log_weights) @ b.scales**2)
+            row.update(left=OPEN[left], right=OPEN[right], predicted=center, base_sd=base_sd,
+                       predictive_sd=float(mixture_sd), noise_var=m.noise_var,
+                       shift=shift.tolist(), gains=b.gain_by_scale(m, d.reaches))
         return rows
 
-    def step(self, candidate_id=None):
-        if candidate_id is None:
-            candidate_id = buy(self.candidates())
-            if candidate_id is None:
-                return None
-        m = self.measurements[candidate_id]
-        if self.spent+m.cost > self.budget:
-            raise ValueError('measurement exceeds remaining budget')
-        y = self.game.scout(m, sum(r['id'] == candidate_id for r in self.history))
-        predicted, sd, _ = self.belief.prediction(m)
-        predictive_sd = sd*np.sqrt(np.exp(self.belief.log_weights) @ self.belief.scales**2)
-        self.belief.observe(m, y)
-        self.spent += m.cost
-        row = dict(id=m.name, observation=y, predicted=predicted, predictive_sd=float(predictive_sd), spent=self.spent)
+    def rollout(self, s, action):
+        path = []
+        while True:
+            self.s_calls += 1
+            s = S(s, action)
+            path.append(dict(action=action, state=s.intent if s.phase == 'Respond' else s.phase))
+            if s.phase == 'Terminal':
+                return value(s.score), path, s.score
+            if s.phase == 'Next turn':
+                return self.evaluate(s)[0], path, s.score
+            legal = actions(s)
+            if len(legal) == 1:
+                action, = legal
+            else:
+                _, p = self.evaluate(replace(s, world=None))
+                action = max(zip(legal, p), key=lambda row: row[1])[0]
+
+    def step(self):
+        d = self.decision
+        m = d.select(self.price, self.budget-self.spent)
+        if m is None:
+            return None
+        world = self.game.sample()
+        branches = []
+        for a in d.pair(m):
+            endpoint, path, score = self.rollout(world, OPEN[a])
+            branches.append(dict(move=OPEN[a], value=endpoint, path=path, score=score))
+        y = branches[0]['value'] - branches[1]['value']
+        predicted = d.belief.prediction(m)[0]
+        d.belief.observe(m, y)
+        row = dict(id=m.name, observation=y, predicted=predicted, branches=branches)
         self.history.append(row)
-        return row.copy()
+        return row
 
     def grade(self):
-        """Oracle-only evaluation, never consulted by selection. No sampling of win/loss needed."""
-        truth = self.reaches @ self.game.truth
-        return dict(no_search=float(truth[(self.reaches @ self.game.prior).argmax()]),
-                    search=float(truth[(self.reaches @ self.belief.mean).argmax()]), oracle=float(truth.max()))
+        attack = self.game.root.attack_probability
+        truth = [sum(p * value(max(margin(a, i, r) for r in RESPOND) + h + self.game.matchup[j]) / len(SHOCKS)
+                     for i, p in zip(INTENTS, (attack, 1-attack)) for h in SHOCKS)
+                 for j, a in enumerate(OPEN)]
+        d = self.decision
+        return dict(no_search=truth[d.actions[0]], search=truth[d.move()], oracle=max(truth))

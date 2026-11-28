@@ -1,36 +1,66 @@
-"""Two plays: open, see enemy intent, respond, then resolve a noisy final duel."""
+"""A tiny combat state machine: opener, response, resolve, then score the next turn."""
+from dataclasses import dataclass, replace
 from math import exp
 
 import numpy as np
 
 OPEN = ('Strike', 'Bash', 'Defend')
-INTENTS = ('attack', 'brace')
 RESPOND = ('Strike', 'Defend')
+INTENTS = ('attack', 'brace')
+SHOCKS = (-2, 0, 2)
+
+
+@dataclass(frozen=True)
+class World:
+    intent: str
+    shock: int
+    matchup: tuple[int, ...]
+
+
+@dataclass(frozen=True)
+class State:
+    attack_probability: float
+    phase: str = 'Open'
+    opener: str = ''
+    intent: str = ''
+    response: str = ''
+    score: int = 0
+    world: World | None = None
+
+
+def actions(s):
+    return {'Open': OPEN, 'Respond': RESPOND, 'Resolve': ('Resolve',)}.get(s.phase, ())
+
+
+def margin(opener, intent, response):
+    damage = {'Strike': 4, 'Bash': 2, 'Defend': 0}[opener]
+    damage += max(0, 4*(1+(opener == 'Bash'))*(response == 'Strike') - 3*(intent == 'brace'))
+    incoming = max(0, (9 if intent == 'attack' else 2) - 5*((opener == 'Defend') + (response == 'Defend')))
+    return damage-incoming
+
+
+def value(score):
+    return 0. if score <= -12 else 1. if score >= 12 else 1/(1+exp(-score/7))
+
+
+def S(s, action):
+    if action not in actions(s) or s.world is None:
+        raise ValueError('invalid simulated action')
+    if s.phase == 'Open':
+        return replace(s, phase='Respond', opener=action, intent=s.world.intent)
+    if s.phase == 'Respond':
+        return replace(s, phase='Resolve', response=action)
+    score = margin(s.opener, s.intent, s.response) + s.world.shock + s.world.matchup[OPEN.index(s.opener)]
+    return State(s.attack_probability, phase='Terminal' if abs(score) >= 12 else 'Next turn', score=score)
 
 
 class Duel:
     def __init__(self, seed):
         rng = np.random.default_rng(seed)
-        self.attack_prob = float(rng.uniform(.25, .75))
-        self.labels = [(a, i, b) for a in OPEN for i in INTENTS for b in RESPOND]
-        # Strike deals 4; Bash deals 2 and doubles the follow-up strike.
-        # Defend blocks 5; a braced enemy blocks 3 on the second play.
-        def nominal(a, i, b):
-            damage = {'Strike': 4, 'Bash': 2, 'Defend': 0}[a]
-            damage += max(0, 4*(1+(a == 'Bash'))*(b == 'Strike') - 3*(i == 'brace'))
-            incoming = max(0, (9 if i == 'attack' else 2) - 5*((a == 'Defend') + (b == 'Defend')))
-            return 1/(1+exp(-(damage-incoming)/7))
-        self.prior = np.array([nominal(*path) for path in self.labels])
-        self.prior_sd = .09
-        self.scout_sd = .12
-        self.scales, self.scale_probabilities = [1., 3.], [.9, .1]
-        self.scale = rng.choice(self.scales, p=self.scale_probabilities)
-        # Fixed hidden matchup effects. Clipping makes truth a probability, while
-        # the search deliberately uses an unbounded Gaussian approximation.
-        self.truth = np.clip(self.prior + rng.normal(0, self.scale*self.prior_sd, len(self.labels)), 0, 1)
-        self.seed = seed
+        self.root = State(float(rng.uniform(.25, .75)))
+        self.matchup = tuple(map(int, rng.integers(-3, 4, len(OPEN))))
+        self.random = rng
 
-    def scout(self, m, repetition):
-        # Per-measurement streams: comparing allocators doesn't reshuffle their evidence.
-        rng = np.random.default_rng([self.seed, 938, repetition, *map(int, m.h+1)])
-        return float(m.h @ self.truth + rng.normal(0, self.scale*np.sqrt(m.noise_var)))
+    def sample(self):
+        intent = 'attack' if self.random.random() < self.root.attack_probability else 'brace'
+        return replace(self.root, world=World(intent, int(self.random.choice(SHOCKS)), self.matchup))
