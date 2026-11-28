@@ -12,11 +12,6 @@
 using namespace stsrl;
 using Json = nlohmann::json;
 namespace {
-Json key_strings(const std::vector<std::uint64_t>& keys) {
-    Json out = Json::array();
-    for (const auto k : keys) out.push_back(std::to_string(k));
-    return out;
-}
 struct Settings {
     int cap = 160, worlds = 16;
     double price = .0005;
@@ -45,7 +40,7 @@ int main(int argc, char** argv) try {
     nn::NetworkEvaluator evaluator{net.encoding};
     for (std::string line; std::getline(std::cin, line);) {
         const auto row = Json::parse(line);
-        player::Fight fight{combat::start_battle(row.at("start")),row.at("start").at("seed").get<std::uint64_t>()};
+        player::Fight fight{combat::start_battle(row.at("start")), row.at("start").at("seed").get<std::uint64_t>()};
         player::Answers previous;
         while (!fight.over()) {
             const auto& state = fight.state();
@@ -54,31 +49,45 @@ int main(int argc, char** argv) try {
             const Settings use = target && step == *target ? variant : Settings{};
             search::FilterTrace trace;
             const auto stream = state.seed ^ (std::uint64_t(state.turn) << 32);
-            player::Decision decision{search::filter_search(state,use.cap,use.worlds,use.price,use.mode,stream,&trace,use.explore,use.seed),evaluator,std::move(previous)};
+            player::Decision decision{search::filter_search(state, use.cap, use.worlds, use.price, use.mode, stream,
+                                                            &trace, use.explore, use.seed),
+                                      evaluator, std::move(previous)};
             while (!decision.pending().empty()) {
                 std::vector<infra::Input> inputs;
-                for (const auto& tokens : decision.pending()) inputs.push_back({&tokens,{}});
+                for (const auto& tokens : decision.pending()) inputs.push_back({&tokens, {}});
                 decision.evaluated(net.backends.back()->evaluate(inputs));
             }
             const auto result = decision.result();
             previous = std::move(decision).answers();
             auto view = combat::view(state);
-            Json trials = Json::array();
-            for (const auto& t : trace.trials) trials.push_back({{"arm",t.arm},{"world",t.world},{"spent",t.spent},{"interior",t.interior},
-                {"rate",t.rate},{"candidate",t.candidate},{"reference",t.reference},{"before",t.mean_before},{"after",t.mean_after},
-                {"sd0",t.innovation_before},{"sd1",t.innovation_after},{"scores",t.scores},{"line",t.line},{"reference_line",t.reference_line},
-                {"keys",key_strings(t.keys)},{"reference_keys",key_strings(t.reference_keys)}});
             Json nodes = Json::array();
-            for (const auto& n : trace.nodes) nodes.push_back({{"key",std::to_string(n.key)},{"value",n.value},{"logits",n.logits},
-                {"thinking",n.thinking},{"actions",n.actions},{"previous",n.previous}});
+            for (const auto& n : trace.nodes) {
+                nodes.push_back({{"id", n.id}, {"parent", n.parent}, {"parent_edge", n.parent_edge},
+                                 {"world", n.world}, {"born", n.born}, {"turn", n.turn},
+                                 {"key", std::to_string(n.key)}, {"terminal", n.terminal}, {"cycle", n.cycle},
+                                 {"cached", n.cached}, {"nn_value", n.nn_value}, {"prior_sd", n.prior_sd},
+                                 {"logits", n.logits}, {"thinking", n.thinking}, {"actions", n.actions},
+                                 {"edge_chance", n.edge_chance}});
+            }
+            Json steps = Json::array();
+            for (const auto& s : trace.steps) {
+                steps.push_back({{"parent", s.parent}, {"edge", s.edge}, {"world", s.world}, {"child", s.child},
+                                 {"spent", s.spent}, {"world_sample", s.world_sample}, {"voi", s.voi},
+                                 {"weight", s.weight}, {"gap", s.gap}, {"innovation", s.innovation},
+                                 {"root_q", s.root_q}});
+            }
             fight.play(result.action);
-            Json out{{"fight",row.at("fight_id")},{"step",step},{"view",view},{"chosen",result.action.bits},{"trials",trials},
-                {"opening",trace.opening.thinking},{"value",trace.opening.value},{"root_cached",trace.opening.cached},
-                {"scores",trace.initial_scores},{"reserve",trace.reserve},{"spent",trace.spent},{"stop",trace.stop},{"last_rate",trace.last_rate},
-                {"next_turn",fight.state().turn},{"next_hp",fight.state().player.curHp},{"next_energy",fight.state().player.energy},
-                {"root_key",std::to_string(trace.root)},{"nodes",nodes}};
+            Json out{{"fight", row.at("fight_id")}, {"step", step}, {"view", view}, {"chosen", result.action.bits},
+                     {"opening", trace.opening.thinking}, {"value", trace.opening.value},
+                     {"root_cached", trace.opening.cached}, {"initial_q", trace.initial_q}, {"spent", trace.spent},
+                     {"stop", trace.stop}, {"last_voi", trace.last_voi}, {"nodes", nodes}, {"steps", steps},
+                     {"next_turn", fight.state().turn}, {"next_hp", fight.state().player.curHp},
+                     {"next_energy", fight.state().player.energy}};
             if (!target || step == *target) std::cout << out.dump() << '\n';
             if (target && step == *target) break;
         }
     }
-} catch (const std::exception& e) {std::cerr << e.what() << '\n';return 1;}
+} catch (const std::exception& e) {
+    std::cerr << e.what() << '\n';
+    return 1;
+}

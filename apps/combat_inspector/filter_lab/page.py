@@ -36,41 +36,62 @@ def enemy(i, m):
 
 
 def node(n):
-    top = max(n['logits'])
-    e = [math.exp(x - top) for x in n['logits']]
-    z = sum(e)
-    return {'value': round(n['value'], 5), 'policy': [round(x / z, 4) for x in e], 'actions': [clean(a) for a in n['actions']],
-            'thinking': [round(x, 5) for x in n['thinking']], 'previous': n['previous']}
+    logits = n['logits']
+    if logits:
+        top = max(logits)
+        e = [math.exp(x - top) for x in logits]
+        z = sum(e)
+        policy = [round(x / z, 4) for x in e]
+    else:
+        policy = []
+    return {
+        'id': n['id'], 'parent': n['parent'], 'parent_edge': n['parent_edge'], 'world': n['world'],
+        'born': n['born'], 'turn': n['turn'] + 1, 'key': n['key'],
+        'terminal': n['terminal'], 'cycle': n['cycle'], 'cached': n['cached'],
+        'nn_value': round(n['nn_value'], 5), 'prior_sd': round(n['prior_sd'], 5),
+        'logits': [round(x, 4) for x in logits], 'policy': policy,
+        'thinking': [round(x, 5) for x in n['thinking']],
+        'actions': [clean(a) for a in n['actions']],
+        'edge_chance': n['edge_chance'],
+    }
+
+
+def step_rec(s):
+    return {
+        'parent': s['parent'], 'edge': s['edge'], 'world': s['world'], 'child': s['child'],
+        'spent': s['spent'], 'world_sample': s['world_sample'],
+        'voi': round(s['voi'], 6), 'weight': round(s['weight'], 5),
+        'gap': round(s['gap'], 5), 'innovation': round(s['innovation'], 5),
+        'root_q': [round(x, 5) for x in s['root_q']],
+    }
 
 
 def decision(r, settings=RECORDED):
     v = r['view']
     names = [clean(m['desc']) for m in v['legal']]
-    s0 = r['scores']
-    prior = max(range(len(s0)), key=s0.__getitem__)
+    nodes = [node(n) for n in r['nodes']]
+    steps = [step_rec(s) for s in r['steps']]
+    q0 = [round(x, 5) for x in r['initial_q']]
+    root_logits = nodes[0]['logits']
+    prior = max(range(len(root_logits)), key=root_logits.__getitem__)
     chosen = next(i for i, m in enumerate(v['legal']) if m['bits'] == r['chosen'])
-    trials = []
-    for t in r['trials']:
-        line = [clean(x) for x in t['line']]
-        assert line[0] == names[t['arm']]
-        trials.append({k: t[k] for k in ('arm', 'world', 'spent', 'interior', 'rate', 'candidate', 'reference',
-                                          'before', 'after', 'sd0', 'sd1', 'scores')}
-                      | {'line': line, 'ref_line': [clean(x) for x in t['reference_line']],
-                         'keys': t['keys'], 'ref_keys': t['reference_keys']})
-    final = trials[-1]['scores'] if trials else s0
-    leader = max(range(len(final)), key=final.__getitem__)
+    final_q = steps[-1]['root_q'] if steps else q0
+    raw_final_q = r['steps'][-1]['root_q'] if r['steps'] else r['initial_q']
+    leader = max(range(len(raw_final_q)), key=lambda i: (raw_final_q[i], root_logits[i]))
     assert settings['explore'] > 0 or leader == chosen
-    assert all(b['spent'] <= t['spent'] for b, t in zip(trials, trials[1:]))
+    assert all(b['spent'] <= t['spent'] for b, t in zip(steps, steps[1:]))
+    max_turn = max(n['turn'] for n in nodes)
     return {
-        'fight': r['fight'], 'step': r['step'], 'turn': v['turn'] + 1, 'settings': settings,
+        'fight': r['fight'], 'step': r['step'], 'turn': v['turn'] + 1, 'max_turn': max_turn, 'settings': settings,
         'player': v['player'], 'hand': [card(c) for c in v['hand']], 'potions': v['potions'],
         'draw': len(v['draw']), 'discard': len(v['discard']),
         'enemies': [enemy(i, m) for i, m in enumerate(v['monsters']) if m['alive']],
-        'moves': names, 'prior': prior, 'chosen': chosen, 'leader': leader, 'scores': s0,
-        'opening': r['opening'], 'value': r['value'], 'root_cached': r['root_cached'],
-        'reserve': r['reserve'], 'spent': r['spent'], 'stop': r['stop'], 'last_rate': r['last_rate'],
+        'moves': names, 'prior': prior, 'chosen': chosen, 'leader': leader, 'initial_q': q0,
+        'opening': [round(x, 5) for x in r['opening']], 'value': round(r['value'], 5), 'root_cached': r['root_cached'],
+        'spent': r['spent'], 'stop': r['stop'], 'last_voi': round(r['last_voi'], 6),
         'next': {'turn': r['next_turn'] + 1, 'hp': r['next_hp'], 'energy': r['next_energy']},
-        'trials': trials, 'root_key': r['root_key'], 'nodes': {n['key']: node(n) for n in r['nodes']}}
+        'nodes': nodes, 'steps': steps,
+    }
 
 
 def page(records):

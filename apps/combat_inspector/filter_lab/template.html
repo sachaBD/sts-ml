@@ -8,19 +8,19 @@
 :root{
   --bg:#f4f5f2;--panel:#fff;--ink:#1c2526;--soft:#5b6a6c;--faint:#9aa6a6;--line:#dfe4e1;--chip:#eef1ee;
   --root:#0f766e;--root-bg:#dcf0ec;--int:#b45309;--int-bg:#fbeedd;--good:#15803d;--bad:#b91c1c;--star:#a16207;
-  --accent:#1d4ed8;--accent-bg:#e7edfb;
+  --accent:#1d4ed8;--accent-bg:#e7edfb;--turn:#6d28d9;--turn-bg:#ede9fe;
 }
 @media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
   --bg:#111516;--panel:#1a2022;--ink:#e6ecea;--soft:#a3b1b0;--faint:#5f6d6d;--line:#2c3638;--chip:#232b2d;
   --root:#2dd4bf;--root-bg:#123330;--int:#f59e0b;--int-bg:#3a2a12;--good:#4ade80;--bad:#f87171;--star:#facc15;
-  --accent:#93b4ff;--accent-bg:#1d2a46;}}
+  --accent:#93b4ff;--accent-bg:#1d2a46;--turn:#c4b5fd;--turn-bg:#2e1f4d;}}
 :root[data-theme="dark"]{
   --bg:#111516;--panel:#1a2022;--ink:#e6ecea;--soft:#a3b1b0;--faint:#5f6d6d;--line:#2c3638;--chip:#232b2d;
   --root:#2dd4bf;--root-bg:#123330;--int:#f59e0b;--int-bg:#3a2a12;--good:#4ade80;--bad:#f87171;--star:#facc15;
-  --accent:#93b4ff;--accent-bg:#1d2a46;}
+  --accent:#93b4ff;--accent-bg:#1d2a46;--turn:#c4b5fd;--turn-bg:#2e1f4d;}
 *{box-sizing:border-box}
 body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif}
-.wrap{max-width:1240px;margin:0 auto;padding:18px 16px 60px;display:flex;flex-direction:column;gap:12px}
+.wrap{max-width:1320px;margin:0 auto;padding:18px 16px 60px;display:flex;flex-direction:column;gap:12px}
 h1{font-size:1.45rem;margin:0}
 .sub{color:var(--soft);margin:2px 0 0}
 .panel{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:12px 16px}
@@ -32,10 +32,9 @@ select{max-width:100%}
 kbd{font:.78rem ui-monospace,monospace;border:1px solid var(--line);border-bottom-width:2px;border-radius:4px;padding:0 4px}
 
 .picker{display:flex;flex-wrap:wrap;gap:8px 12px;align-items:center}
-.picker select#decision{flex:1 1 300px}
+.picker select#decision{flex:1 1 320px}
 .picker label{color:var(--soft);font-size:.85rem}
 
-/* compact game strip */
 .game{display:flex;flex-wrap:wrap;gap:6px 18px;align-items:center;font-size:.88rem}
 .game .grp{display:flex;flex-wrap:wrap;gap:4px;align-items:center}
 .game .lbl{color:var(--soft);font-size:.78rem;text-transform:uppercase;letter-spacing:.05em;margin-right:2px}
@@ -44,7 +43,6 @@ kbd{font:.78rem ui-monospace,monospace;border:1px solid var(--line);border-botto
 .foe{padding:1px 7px;border-radius:5px;background:var(--chip)}
 .foe b{font-weight:600}
 
-/* settings */
 .settings{display:flex;flex-direction:column;gap:8px}
 .srow{display:flex;flex-wrap:wrap;gap:8px 14px;align-items:center;font-size:.88rem}
 .srow .lbl{color:var(--soft);font-size:.78rem;text-transform:uppercase;letter-spacing:.05em}
@@ -54,19 +52,18 @@ kbd{font:.78rem ui-monospace,monospace;border:1px solid var(--line);border-botto
 .seg button{border:0;border-radius:0;padding:4px 10px}
 .seg button.on{background:var(--ink);color:var(--panel)}
 .cmp{font-size:.86rem}
-/* stepper */
+
 .controls{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
 .timeline{display:flex;flex-wrap:wrap;gap:3px;align-items:center;margin-left:6px}
 .tl{position:relative;min-width:24px;height:24px;padding:0 5px;border-radius:5px;background:var(--chip);font-size:.72rem;display:grid;place-items:center;cursor:pointer;color:var(--soft)}
-.tl.root{background:var(--root-bg);color:var(--root)}.tl.int{background:var(--int-bg);color:var(--int)}
+.tl.root{background:var(--root-bg);color:var(--root)}.tl.world{background:var(--int-bg);color:var(--int)}.tl.deep{background:var(--turn-bg);color:var(--turn)}
 .tl.cur{outline:2px solid var(--ink);outline-offset:1px;color:var(--ink);font-weight:700}
 .tl.flip::after{content:"";position:absolute;top:-3px;right:-3px;width:8px;height:8px;border-radius:50%;background:var(--star);border:1px solid var(--panel)}
-.tl-sep{width:2px;height:24px;background:var(--ink);opacity:.45;margin:0 2px}
 
 .story{margin-top:12px;border-left:4px solid var(--accent);padding:2px 0 2px 12px}
-.story.root{border-color:var(--root)}.story.int{border-color:var(--int)}
+.story.root{border-color:var(--root)}.story.world{border-color:var(--int)}.story.deep{border-color:var(--turn)}
 .kind{font-size:.72rem;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--accent)}
-.story.root .kind{color:var(--root)}.story.int .kind{color:var(--int)}
+.story.root .kind{color:var(--root)}.story.world .kind{color:var(--int)}.story.deep .kind{color:var(--turn)}
 .story h3{margin:2px 0 6px;font-size:1.08rem}
 .facts{display:flex;flex-wrap:wrap;gap:6px 22px;font-size:.9rem}
 .facts>div{min-width:0}
@@ -77,7 +74,6 @@ kbd{font:.78rem ui-monospace,monospace;border:1px solid var(--line);border-botto
 .star{color:var(--star)}
 .ok{color:var(--good);font-weight:600}.no{color:var(--bad);font-weight:600}
 
-/* tree */
 .treehead{display:flex;flex-wrap:wrap;justify-content:space-between;gap:6px 16px;align-items:baseline;margin-bottom:6px}
 .treehead h2{margin:0;font-size:1rem}
 .legend{display:flex;flex-wrap:wrap;gap:4px 14px;font-size:.78rem;color:var(--soft)}
@@ -85,15 +81,17 @@ kbd{font:.78rem ui-monospace,monospace;border:1px solid var(--line);border-botto
 .treebox{overflow:auto;max-height:78vh;border-top:1px solid var(--line);padding-top:6px}
 #tree text{font:12px system-ui,sans-serif;fill:var(--ink)}
 #tree .soft{fill:var(--soft)}
-#tree .new{animation:pop .45s ease-out}
+#tree .new{animation:pop .4s ease-out}
 @keyframes pop{from{opacity:0;transform:translateX(-8px)}to{opacity:1;transform:none}}
+
 details summary{cursor:pointer;font-weight:600}
 .insp{border-top:1px solid var(--line);padding-top:8px;margin-top:8px}
-.pol{display:grid;gap:2px;margin:8px 0 4px;max-width:640px}
-.prow{display:grid;grid-template-columns:minmax(0,1fr) 160px 52px;gap:8px;align-items:center;font-size:.86rem}
+.pol{display:grid;gap:2px;margin:8px 0 4px;max-width:780px}
+.prow{display:grid;grid-template-columns:minmax(0,1fr) 130px 52px 66px 96px;gap:8px;align-items:center;font-size:.85rem}
+.prow.hdr{color:var(--soft);font-size:.76rem;text-transform:uppercase;letter-spacing:.04em;padding-bottom:3px;border-bottom:1px solid var(--line)}
 .prow .pl{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .prow .pb{height:8px;background:var(--chip);border-radius:4px;overflow:hidden}.prow .pb i{display:block;height:100%;background:var(--accent)}
-.prow .pp{text-align:right;font-variant-numeric:tabular-nums}
+.prow .num{text-align:right;font-variant-numeric:tabular-nums}
 .prow.played{font-weight:700}.prow.played .pb i{background:var(--root)}
 .gloss{display:grid;grid-template-columns:max-content 1fr;gap:6px 16px;margin-top:10px;font-size:.88rem}
 .gloss dt{font-weight:650}.gloss dd{margin:0;color:var(--soft)}
@@ -103,14 +101,14 @@ details summary{cursor:pointer;font-weight:600}
 <body>
 <div class="wrap">
   <header>
-    <h1>Watch the filter search grow its tree</h1>
-    <p class="sub">Real recorded decisions (frozen iter003; recorded with price 0.05 pp per eval, cap 160, 16 worlds). Re-run any decision with other settings below. Step with <kbd>←</kbd> <kbd>→</kbd>. Each step is one purchase of simulated evidence.</p>
+    <h1>Recursive Kalman-VOI Search Lab</h1>
+    <p class="sub">One recursive tree with no turn or depth limit. Every step buys the single 1-eval expansion or chance world with the highest <b>VOI</b> (expected root win-rate gain). Stops as soon as best VOI ≤ price λ. Step with <kbd>←</kbd> <kbd>→</kbd>.</p>
   </header>
 
   <div class="panel picker">
     <select id="fight" aria-label="Fight"></select>
     <select id="decision" aria-label="Decision"></select>
-    <label><input type="checkbox" id="all"> show decisions where search didn't open</label>
+    <label><input type="checkbox" id="all"> show 1-eval decisions (no expansion)</label>
   </div>
 
   <div class="panel game" id="game"></div>
@@ -121,9 +119,9 @@ details summary{cursor:pointer;font-weight:600}
       <label>price λ <input id="sPrice" type="number" step="0.0001" min="0" value="0.0005"></label>
       <label>cap <input id="sCap" type="number" step="1" min="0" max="2000" value="160"></label>
       <label>worlds <input id="sWorlds" type="number" step="1" min="1" max="64" value="16"></label>
-      <label title="Self-play draws the played move from the search policy; validation plays the leader"><input type="checkbox" id="sSample" checked style="width:auto"> sample move (self-play)</label>
+      <label title="Self-play draws the played move from the search policy; validation plays the leader"><input type="checkbox" id="sSample" style="width:auto"> sample move (self-play)</label>
       <label>seed <input id="sSeed" type="number" step="1" min="0" value="1"></label>
-      <label>mode <select id="sMode"><option value="full">full</option><option value="root_only">root only (no follow-up tests)</option><option value="fixed_uncertainty">fixed uncertainty</option></select></label>
+      <label>mode <select id="sMode"><option value="full">full</option><option value="root_only">root only</option><option value="fixed_uncertainty">fixed uncertainty</option></select></label>
       <button id="run" class="primary">Run</button>
       <span id="runStatus" class="muted small"></span>
     </div>
@@ -144,10 +142,10 @@ details summary{cursor:pointer;font-weight:600}
     <div class="treehead">
       <h2>Search tree <span class="muted small" id="treecount"></span></h2>
       <div class="legend">
-        <span><i style="background:var(--root-bg);border:1px solid var(--root)"></i>root move: <span style="color:var(--accent)">policy %</span> (blue bar) · score = gap to prior, pp</span>
-        <span><i style="background:var(--chip);border:1px solid var(--faint)"></i>policy's top follow-up</span>
-        <span><i style="background:var(--int-bg);border:1px solid var(--int)"></i>runner-up follow-up (test)</span>
-        <span><i style="background:color-mix(in srgb,var(--good) 45%,var(--chip))"></i>leaf: win % at next turn, world W</span>
+        <span><i style="background:var(--root-bg);border:1px solid var(--root)"></i>root move: <span style="color:var(--accent)">policy %</span> · abs win % · rel gap · <span style="color:var(--int)">th</span></span>
+        <span><i style="background:var(--chip);border:1px solid var(--faint)"></i>expanded node: abs win % · <span style="color:var(--int)">th</span> (max thinking pp)</span>
+        <span><i style="background:var(--int-bg);border:1px solid var(--int)"></i>chance edge (Kalman across worlds)</span>
+        <span><i style="background:var(--turn-bg);border:1px solid var(--turn)"></i>next turn &amp; beyond (T2, T3, …)</span>
         <span><i style="border:2px solid var(--ink)"></i>added this step</span>
       </div>
     </div>
@@ -160,16 +158,12 @@ details summary{cursor:pointer;font-weight:600}
     <details>
       <summary>How it works (glossary)</summary>
       <dl class="gloss">
-        <dt>Prior move</dt><dd>The policy's top move. Every root move's score is its estimated win-chance gap to the prior, in percentage points (pp). The prior starts at 0 and only moves if follow-up credit applies to it. ★ marks the current leader.</dd>
-        <dt>Policy %</dt><dd>softmax of the policy logits: what the network would play with no search.</dd>
-        <dt>Starting scores</dt><dd>Before any evidence: (policy logit − prior's logit) ÷ 30.</dd>
-        <dt>Opening</dt><dd>A thinking head forecasts the gain from searching with 8 / 24 / 64 / 160 evals. If the best gain per eval beats the price, that budget becomes the reserve. Otherwise play the prior immediately.</dd>
-        <dt>Reserve</dt><dd>Until it's spent, the search buys the best purchase even below the price (the bar in the timeline marks where it runs out). After that, a purchase must beat 0.05 pp per eval.</dd>
-        <dt>World W</dt><dd>One sampled guess at hidden information (draw order etc.), up to 16. Comparisons are paired: both moves play on the same world, so luck cancels.</dd>
-        <dt>Line</dt><dd>A root move, then the policy's top choice at each decision until the next turn starts. The leaf is scored by the value head (0% or 100% if the fight ended). Each new position visited costs one eval, and cached positions are free.</dd>
-        <dt>Root comparison</dt><dd>Play move B and the prior on the same world. The difference is one observation of B's gap.</dd>
-        <dt>Follow-up test</dt><dd>Replay a saved line but take the runner-up at the first decision after the root move. If the runner-up looks better, root moves that reach that position get credit in proportion to how often they reach it.</dd>
-        <dt>Belief update</dt><dd>A scalar Kalman-style filter blends the starting score with the observed differences. A purchase is priced by how much the next observation could still move the belief, and so change which move leads.</dd>
+        <dt>VOI (Value of Information)</dt><dd>The expected win-rate gain of our final chosen root move if we expand a candidate node or sample another chance world. Computed in closed form from how much an observation could move the belief (innovation SD) and how large a move is needed to flip the root leader, with shared transpositions cancelled via reach weights. Stops as soon as best VOI ≤ price λ.</dd>
+        <dt>Abs win % (V / Q)</dt><dd>Every node's backed-up absolute win probability: exact 0% / 100% if terminal, otherwise max over its actions. Unexpanded actions start from a policy-informed Kalman prior anchored to the node's greedy Turn+1 rollout (μ₀ = anchor + 0.03 · Δlogit), preserving cumulative policy gaps along deterministic root prefixes.</dd>
+        <dt>Thinking head (th)</dt><dd>At every evaluated node, the NN predicts win-rate gain at 8 / 24 / 64 / 160 evals. Its maximum (shown as <b>th</b> on every node) sets the exact Gaussian epistemic prior SD √(2π)·max(thinking), floored at 0.5 pp · √(v(1−v)) and capped by distance to 0% / 100%.</dd>
+        <dt>Turn-boundary rollouts &amp; CRN</dt><dd>Each newly created in-turn node rolls out greedily to the Turn+1 boundary so moves are compared on the same horizon. Root-prefix chance edges share common random worlds W1, W2, … paired against the policy-prior line's control variate β_w = V_prior(W_w) − V_root, cancelling draw luck from W1 onward.</dd>
+        <dt>Kalman uncertainty</dt><dd>Chance edges run a scalar information-form Kalman filter across sampled worlds. Empirical scatter updates measurement noise, posterior mean, variance, and innovation SD; unpaired deep chance edges floor observation noise by Bernoulli draw variance 0.01·v(1−v).</dd>
+        <dt>No turn or depth limit</dt><dd>End turn is just a chance edge whose children are Turn+1 decision nodes. Expanding them naturally crosses into Turn+1, Turn+2, … whenever VOI beats price λ.</dd>
       </dl>
     </details>
   </div>
@@ -182,43 +176,65 @@ const $=id=>document.getElementById(id);
 const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const spp=x=>{const v=x*100;return (v>=0.005?'+':v<=-0.005?'−':'±')+Math.abs(v).toFixed(2)};
 const pct=x=>(x*100).toFixed(1)+'%';
-const rateTxt=x=>{const v=x*100;if(v<=0)return '0';if(v<1e-4)return '≈0';return v>=0.1?v.toFixed(2):v>=0.01?v.toFixed(3):v.toPrecision(2)};
+const voiTxt=x=>{const v=x*100;if(v<=0)return '0';if(v<1e-4)return '≈0';return v>=0.1?v.toFixed(2):v>=0.01?v.toFixed(3):v.toPrecision(2)};
 const short=s=>s.replace(/Bronze Automaton/g,'Automaton').replace(/Bronze Orb/g,'Orb').replace(/The Champ/g,'Champ').replace(/^Drink /,'🧪 ');
-const argmax=a=>a.reduce((b,x,i)=>x>a[b]?i:b,0);
+function leaderOf(q, ord, expanded){
+  let b=-1;
+  for(const i of ord)if((!expanded||expanded.has(i))&&(b<0||q[i]>q[b]))b=i;
+  return b>=0?b:ord[0];
+}
+const maxThink=n=>n.thinking&&n.thinking.length?Math.max(...n.thinking):null;
+const thBadge=n=>{if(n.terminal)return n.nn_value>=0.5?'WIN':'LOSS';const m=maxThink(n);if(m===null)return '';const v=m*100;return `th ${v>=0?'+':''}${v.toFixed(1)}`};
 const B=DATA.budgets;let PRICE=DATA.price;const priceTxt=()=>String(+(PRICE*100).toPrecision(3));
-const REG=[];let SEL=null;const selId=n=>JSON.stringify([n.root||false,n.leaf?n.world:null,n.trail]);let fi=0,di=0,step=0,timer=null,dec=null,M=null,rec=null,variant=null,view='rec';
+const REG=[];let SEL=null;
+let fi=0,di=0,step=0,timer=null,dec=null,M=null,rec=null,variant=null,view='rec';
 
-/* ---------- reconstruction ---------- */
+function kalman(prior, priorVar, ys, obsPriorVar){
+  if(priorVar<=0)return {n:ys.length,mean:prior,variance:0,noise:0,innovation:0,weight:0};
+  const n=ys.length;let avg=0,scatter=0;
+  for(let i=0;i<n;i++){const d=ys[i]-avg;avg+=d/(i+1);scatter+=d*(ys[i]-avg)}
+  const r0=obsPriorVar>0?obsPriorVar:priorVar;
+  const noise=(r0+scatter)/Math.max(1,n);
+  const variance=1/(1/priorVar+n/noise);
+  const mean=variance*(prior/priorVar+n*avg/noise);
+  const innovation=variance/Math.sqrt(variance+noise);
+  return {n,mean,variance,noise,innovation,weight:noise>0?variance/noise:0};
+}
+
 function build(d){
-  const T=d.trials,order=[...d.scores.keys()].sort((a,b)=>d.scores[b]-d.scores[a]||a-b);
-  const info=[],seenPrior=new Set(),saved={};let lanes=0,spent=0;
-  T.forEach((t,k)=>{
-    const needRef=!t.interior&&!seenPrior.has(t.world);
-    const laneCost=lanes?Math.max(1,spent/lanes):1,est=(t.interior?1:1+needRef)*laneCost;
-    const prev=k?T[k-1].scores:d.scores;
-    const greedy=t.interior?saved[t.arm+':'+t.world]:null;
-    if(!t.interior){if(needRef){seenPrior.add(t.world);saved[d.prior+':'+t.world]=t.ref_line}saved[t.arm+':'+t.world]=t.line}
-    info.push({needRef,est,gain:t.rate*est,cost:t.spent-spent,before:spent,prev,greedy,flip:argmax(prev)!==argmax(t.scores),reserveActive:spent<d.reserve});
-    lanes+=t.interior?1:1+needRef;spent=t.spent;
+  const root=d.nodes[0];
+  const order=[...root.logits.keys()].sort((a,b)=>root.logits[b]-root.logits[a]||a-b);
+  const info=[];let spent=0;
+  d.steps.forEach((s,k)=>{
+    const prevQ=k?d.steps[k-1].root_q:d.initial_q;
+    const prevLead=leaderOf(prevQ,order,null);
+    const nextLead=leaderOf(s.root_q,order,null);
+    const child=d.nodes[s.child];
+    info.push({prevQ,cost:s.spent-spent,flip:prevLead!==nextLead,nextTurn:child.turn>d.turn,lead:nextLead});
+    spent=s.spent;
   });
-  const rates=d.opening.map((g,i)=>B[i]<=d.settings.cap?g/B[i]:-Infinity);
-  const ex=d.scores.map(x=>Math.exp(30*x)),z=ex.reduce((a,b)=>a+b,0),pi=ex.map(x=>x/z);
-  return {order,info,rates,pi,best:Math.max(0,...rates),last:T.length+1};
+  return {order,info,pi:root.policy,last:d.steps.length+1};
 }
 
 /* ---------- picker ---------- */
-function list(){return DATA.fights[fi].decisions.map((d,i)=>[d,i]).filter(([d])=>$('all').checked||d.trials.length)}
+function list(){return DATA.fights[fi].decisions.map((d,i)=>[d,i]).filter(([d])=>$('all').checked||d.steps.length)}
 function fillFights(){$('fight').innerHTML=DATA.fights.map((f,i)=>`<option value="${i}">${esc(f.label)}</option>`).join('');$('fight').value=fi}
 function fillDecisions(keep){
   const L=list();
-  $('decision').innerHTML=L.map(([d,i])=>`<option value="${i}">Turn ${d.turn} · step ${d.step} · ${d.trials.length?`${d.trials.length} purchases, ${d.spent} evals${d.chosen!==d.prior?' · search changed the move':''}`:'search not opened'}</option>`).join('');
-  if(!keep||!L.some(([,i])=>i===di)){const p=L.find(([d])=>d.chosen!==d.prior&&d.trials.some(t=>t.interior)&&d.moves.length>=5)||L[0];di=p[1]}
+  $('decision').innerHTML=L.map(([d,i])=>{
+    const deep=d.max_turn>d.turn?` · reaches T${d.max_turn}`:'';
+    return `<option value="${i}">Turn ${d.turn} · step ${d.step} · ${d.steps.length?`${d.steps.length} steps, ${d.spent} evals${deep}${d.chosen!==d.prior?' · changed move':''}`:'1-eval exit'}</option>`;
+  }).join('');
+  if(!keep||!L.some(([,i])=>i===di)){
+    const p=L.find(([d])=>d.max_turn>d.turn&&d.steps.length>=4)||L.find(([d])=>d.chosen!==d.prior&&d.steps.length)||L[0];
+    di=p?p[1]:0;
+  }
   $('decision').value=di;
 }
 function load(){rec=DATA.fights[fi].decisions[di];variant=null;view='rec';$('runStatus').textContent='';show()}
 function show(){SEL=null;dec=view==='var'&&variant?variant:rec;PRICE=dec.settings.price;M=build(dec);step=0;stopPlay();renderGame();renderCompare();render()}
 const setTxt=x=>`λ ${x.price}, cap ${x.cap}, ${x.worlds} worlds, ${x.mode.replace('_',' ')}, ${x.explore>0?`sampled (seed ${x.seed})`:'argmax'}`;
-const sumTxt=x=>`plays <b>${esc(x.moves[x.chosen])}</b>${x.chosen!==x.leader?` (sampled; leader ${esc(x.moves[x.leader])})`:''} · ${x.trials.length} purchases · ${x.spent} evals`;
+const sumTxt=x=>`plays <b>${esc(x.moves[x.chosen])}</b>${x.chosen!==x.leader?` (sampled; leader ${esc(x.moves[x.leader])})`:''} · ${x.steps.length} steps · ${x.spent} evals${x.max_turn>x.turn?` · up to T${x.max_turn}`:''}`;
 function renderCompare(){
   const c=$('compare');
   if(!variant){c.innerHTML=`<span class="cmp muted">Recorded (${setTxt(rec.settings)}): ${sumTxt(rec)}</span>`;return}
@@ -243,105 +259,315 @@ function renderGame(){
   <div class="grp"><span class="lbl">Enemies</span>${d.enemies.map(e=>`<span class="foe"><b>${esc(short(e.name))}</b> ${e.hp}/${e.max}${e.block?` 🛡${e.block}`:''}${e.intent?` · <span class="muted">${esc(e.intent)}</span>`:''}</span>`).join('')}</div>`;
 }
 
-/* ---------- tree ---------- */
-function treeAt(k){ // samples after k trials
-  const d=dec,S=[];
-  d.trials.slice(0,k).forEach((t,j)=>{
-    const n=j+1;
-    if(t.interior)S.push({arm:t.arm,world:t.world,path:t.line,keys:t.keys,dev:true,value:t.candidate,step:n});
-    else{
-      if(M.info[j].needRef)S.push({arm:d.prior,world:t.world,path:t.ref_line,keys:t.ref_keys,dev:false,value:t.reference,step:n});
-      S.push({arm:t.arm,world:t.world,path:t.line,keys:t.keys,dev:false,value:t.candidate,step:n});
-    }
-  });
-  const arms=M.order.map(a=>({arm:a,label:d.moves[a],kids:[],depth:1,born:0,kind:'arm',ents:[],trail:[d.moves[a]]}));
-  const note=(n,s,j)=>{if(j<s.keys.length)n.ents.push({world:s.world,key:s.keys[j],next:s.path[j+1]||null})};
-  for(const s of S){
-    let node=arms.find(x=>x.arm===s.arm);note(node,s,0);
-    s.path.slice(1).forEach((lab,i)=>{
-      const dev=s.dev&&i===0,key=lab+(dev?'#dev':'');
-      let c=node.kids.find(x=>x.key===key);
-      if(!c){c={key,label:lab,kids:[],depth:node.depth+1,born:s.step,kind:dev?'dev':'greedy',ents:[],trail:[...node.trail,lab]};node.kids.push(c)}
-      node=c;note(node,s,i+1);
-    });
-    const lk=s.keys.length===s.path.length?s.keys[s.keys.length-1]:null;
-    node.kids.push({leaf:true,world:s.world,value:s.value,born:s.step,depth:node.depth+1,dev:s.dev,trail:[...node.trail,'next turn'],ents:lk?[{world:s.world,key:lk,next:null}]:[]});
-  }
-  return {arms,count:S.length};
+/* ---------- live tree state at step k ---------- */
+function orderOf(n){
+  return [...n.logits.keys()].sort((a,b)=>n.logits[b]-n.logits[a]||a-b);
 }
-function drawTree(){
-  const d=dec,k=Math.min(step,d.trials.length),{arms,count}=treeAt(k);
-  const scores=k?d.trials[k-1].scores:d.scores,lead=argmax(scores),prev=step>0&&step<M.last?M.info[step-1].prev:null;
-  const RH=26,X0=8,W0=74,X1=96,W1=300,CW=158,GAP=14,LW=90;
-  const colX=dep=>dep===0?X0:dep===1?X1:X1+W1+GAP+(dep-2)*(CW+GAP);
-  let row=0,maxX=0;const out=[];REG.length=0;
-  const reg=n=>{REG.push(n);return `data-n="${REG.length-1}" style="cursor:pointer"`};
-  function place(n){
-    if(n.leaf||!n.kids.length){n.y=row++*RH+RH/2+4;return n.y}
-    const ys=n.kids.map(place);n.y=(ys[0]+ys[ys.length-1])/2;return n.y;
+function stateAt(k){
+  const d=dec,S=d.steps.slice(0,k),N=d.nodes.length,r0=d.nodes[0];
+  const byEdge=new Map();
+  for(const s of S){
+    const key=s.parent+':'+s.edge;
+    if(!byEdge.has(key))byEdge.set(key,[]);
+    byEdge.get(key).push({id:s.child,world:s.world});
   }
-  arms.forEach(place);
-  const H=row*RH+10,rootY=(arms[0].y+arms[arms.length-1].y)/2;
-  const edge=(x1,y1,x2,y2,col,wid,dash)=>{const m=(x1+x2)/2;out.push(`<path d="M${x1} ${y1}C${m} ${y1} ${m} ${y2} ${x2} ${y2}" fill="none" stroke="${col}" stroke-width="${wid}" ${dash?'stroke-dasharray="3 3"':''}/>`)};
-  const isNew=b=>b===step&&step>0&&step<M.last;
-  function draw(n,px,py){
-    const x=colX(n.depth),y=n.y,nw=n.leaf?LW:n.depth===1?W1:CW,fresh=isNew(n.born);
-    maxX=Math.max(maxX,x+nw);
-    const ecol=n.leaf?'var(--faint)':n.kind==='dev'?'var(--int)':n.kind==='arm'?'var(--root)':'var(--faint)';
-    edge(px,py,x,y,ecol,fresh?2.5:1.3,n.kind==='arm'&&!n.kids.length);
-    let g='';
-    if(n.leaf){
-      const sh=Math.round(15+n.value*60);
-      g=`<rect x="${x}" y="${y-10}" width="${nw}" height="20" rx="10" fill="color-mix(in srgb,var(--good) ${sh}%,var(--chip))" stroke="${fresh?'var(--ink)':'none'}" stroke-width="2"/>
-        <text x="${x+8}" y="${y+4}" class="soft" style="font-size:11px">W${n.world+1}</text><text x="${x+nw-8}" y="${y+4}" text-anchor="end" style="font-weight:600">${pct(n.value)}</text>`;
-    }else if(n.kind==='arm'){
-      const tested=n.kids.length>0,s=scores[n.arm],dd=prev?s-prev[n.arm]:0,isLead=n.arm===lead,isPrior=n.arm===d.prior;
-      const changed=Math.abs(dd)>1e-9,cur=step>0&&step<M.last&&d.trials[step-1].arm===n.arm;
-      let lab=short(n.label);const maxc=isPrior?17:22;if(lab.length>maxc)lab=lab.slice(0,maxc-1)+'…';
-      g=`<rect x="${x}" y="${y-11}" width="${nw}" height="22" rx="5" fill="${tested?'var(--root-bg)':'var(--panel)'}" stroke="${cur?'var(--ink)':tested?'var(--root)':'var(--line)'}" stroke-width="${cur?2:1}" ${tested?'':'stroke-dasharray="3 2"'}/>
-        <text x="${x+7}" y="${y+4}" style="${tested?'':'fill:var(--soft)'}${isLead?';font-weight:700':''}">${isLead?'<tspan style="fill:var(--star)">★ </tspan>':''}${esc(lab)}${isPrior?'<tspan style="fill:var(--accent);font-size:10px;font-weight:700"> PRIOR</tspan>':''}</text>
-        <rect x="${x+1}" y="${y+8}" width="${Math.max(1,(nw-2)*M.pi[n.arm])}" height="3" rx="1.5" fill="var(--accent)" opacity=".7"/>
-        <text x="${x+nw-66}" y="${y+4}" text-anchor="end" style="font-size:11px;fill:var(--accent)">${(100*M.pi[n.arm]).toFixed(M.pi[n.arm]<.1?1:0)}%</text>
-        <text x="${x+nw-7}" y="${y+4}" text-anchor="end" style="font-weight:600;${changed?`fill:var(${dd>0?'--good':'--bad'})`:tested||isPrior?'':'fill:var(--soft)'}">${changed?(dd>0?'▲':'▼'):''}${isPrior&&Math.abs(s)<1e-12?'0':spp(s)}</text><title>${esc(n.label)}: policy ${(100*M.pi[n.arm]).toFixed(1)}% · score ${spp(s)} pp${changed?` (${spp(dd)} this step)`:''}</title>`;
-    }else{
-      let lab=short(n.label);if(lab.length>21)lab=lab.slice(0,20)+'…';
-      const dev=n.kind==='dev';
-      g=`<rect x="${x}" y="${y-10}" width="${nw}" height="20" rx="4" fill="${dev?'var(--int-bg)':'var(--chip)'}" stroke="${fresh?'var(--ink)':dev?'var(--int)':'var(--line)'}" stroke-width="${fresh?2:1}"/>
-        <text x="${x+7}" y="${y+4}" style="${dev?'fill:var(--int);font-weight:600':''}">${esc(lab)}</text><title>${esc(n.label)}${dev?' (runner-up)':''}</title>`;
+  // Cumulative deterministic root-prefix logit gap for each node
+  const pathLg=new Array(N).fill(0);
+  for(let i=1;i<N;i++){
+    const n=d.nodes[i];
+    if(n.born>k)continue;
+    const p=d.nodes[n.parent];
+    if(!p.edge_chance[n.parent_edge]&&p.world<0){
+      const top=Math.max(...p.logits);
+      pathLg[i]=pathLg[n.parent]+(p.logits[n.parent_edge]-top);
     }
-    out.push(`<g class="${fresh?'new':''}" ${reg(n)}>${g}</g>`);
-    if(!n.leaf)n.kids.forEach(c=>draw(c,x+nw,y));
   }
-  out.push(`<g ${reg({trail:[],ents:[{world:null,key:d.root_key,next:null}],root:true})}><rect x="${X0}" y="${rootY-16}" width="${W0}" height="32" rx="6" fill="var(--accent-bg)" stroke="var(--accent)"/><text x="${X0+W0/2}" y="${rootY-2}" text-anchor="middle" style="font-weight:700">Now</text><text x="${X0+W0/2}" y="${rootY+11}" text-anchor="middle" class="soft" style="font-size:10px">win ${pct(d.value)}</text></g>`);
+  // Find prior-line reference chance edge and CRN control variate beta[w]
+  function turn1BaselineNn(startId){
+    let cur=startId;
+    for(let h=0;h<32;h++){
+      const n=d.nodes[cur];
+      if(n.turn>r0.turn||n.terminal||n.cycle||!n.logits.length)return n.nn_value;
+      const g=orderOf(n)[0], ch=byEdge.get(cur+':'+g);
+      if(!ch||!ch.length)return n.nn_value;
+      cur=ch[0].id;
+    }
+    return d.nodes[cur].nn_value;
+  }
+  let ref=null, cur=0;
+  for(let h=0;h<32;h++){
+    const n=d.nodes[cur];
+    if(n.terminal||n.cycle||!n.logits.length||n.world>=0)break;
+    const g=orderOf(n)[0], ch=byEdge.get(cur+':'+g);
+    if(!ch||!ch.length)break;
+    if(n.edge_chance[g]){ref=[cur,g];break}
+    cur=ch[0].id;
+  }
+  const beta=ref?(byEdge.get(ref[0]+':'+ref[1])||[]).map(x=>turn1BaselineNn(x.id)-r0.nn_value):[];
+  const vals=new Array(N).fill(0), evals=new Array(N).fill(1), hasRK=new Array(N).fill(false);
+  const edgeInfo=new Map();
+  for(let i=N-1;i>=0;i--){
+    const n=d.nodes[i];
+    if(n.born>k)continue;
+    if(n.terminal||n.cycle||!n.logits.length){vals[i]=n.nn_value;evals[i]=1;hasRK[i]=false;continue}
+    const ord=orderOf(n), topL=n.logits[ord[0]], pv=n.prior_sd*n.prior_sd;
+    let best=-Infinity, bestRK=false, tot=1, anchor=n.nn_value;
+    for(const e of ord){
+      const greedyCont=i>0&&e===ord[0];
+      const isRef=ref&&ref[0]===i&&ref[1]===e;
+      const lg=n.logits[e]-topL, pm=anchor+0.03*lg;
+      const entries=byEdge.get(i+':'+e)||[], cids=entries.map(x=>x.id);
+      let q=pm, edgeRK=false, isCh=false, belief=kalman(pm,pv,[]);
+      if(cids.length){
+        isCh=!!n.edge_chance[e];
+        if(!isCh){
+          const cid=cids[0], c=d.nodes[cid];
+          tot+=evals[cid];
+          edgeRK=hasRK[cid];
+          if(c.terminal||greedyCont||hasRK[cid]){q=vals[cid]}
+          else{const w=evals[cid]/(1+evals[cid]);q=(1-w)*pm+w*vals[cid]}
+          belief=null;
+        }else{
+          const shared=n.world<0;
+          const ys=cids.map((cid,w)=>vals[cid]-(shared&&w<beta.length?beta[w]:0));
+          for(const u of new Set(cids))tot+=evals[u];
+          const prior=(shared&&(i===0||greedyCont))?r0.nn_value+0.03*(pathLg[i]+lg):pm;
+          const edgePv=shared?r0.prior_sd*r0.prior_sd:pv;
+          const drawVar=0.01*Math.max(0,n.nn_value*(1-n.nn_value));
+          const obsPv=shared?edgePv:Math.max(edgePv,drawVar);
+          const b=kalman(prior,edgePv,ys,obsPv);
+          if(greedyCont&&!shared&&n.turn===r0.turn){
+            q=ys.reduce((a,x)=>a+x,0)/ys.length;
+          }else{
+            q=b.mean;edgeRK=shared;
+          }
+          belief=isRef?{...b,innovation:0}:b;
+        }
+      }
+      edgeInfo.set(i+':'+e,{q,pm,chance:isCh,belief});
+      if(greedyCont&&cids.length)anchor=q;
+      if(q>best){best=q;bestRK=edgeRK}
+    }
+    vals[i]=best;evals[i]=tot;hasRK[i]=bestRK;
+  }
+  const rootQ=k?d.steps[k-1].root_q:d.initial_q;
+  return {vals,evals,rootQ,byEdge,edgeInfo,count:S.length};
+}
+
+function edgeSummary(edgeInfo, nid, edgeIdx){
+  return edgeInfo.get(nid+':'+edgeIdx)||{q:0,pm:0,chance:false,belief:null};
+}
+
+function groupWorlds(entries){
+  const m=new Map();
+  for(const {id,world} of entries){if(!m.has(id))m.set(id,[]);m.get(id).push(world)}
+  return [...m.entries()].map(([id,worlds])=>({id,worlds}));
+}
+function worldLabel(ws){return ws.length<=2?ws.map(w=>'W'+(w+1)).join(','):`W${ws[0]+1} ×${ws.length}`}
+
+function buildViewTree(k){
+  const d=dec,{vals,evals,rootQ,byEdge,edgeInfo,count}=stateAt(k);
+  function kidsOfNode(nid, depth){
+    const pn=d.nodes[nid], out=[];
+    if(!pn||pn.terminal||pn.cycle)return out;
+    const order=[...pn.logits.keys()].sort((a,b)=>pn.logits[b]-pn.logits[a]||a-b);
+    for(const e of order){
+      const entries=byEdge.get(nid+':'+e);
+      if(!entries||!entries.length)continue;
+      const cids=entries.map(x=>x.id);
+      const isCh=pn.edge_chance[e];
+      if(!isCh){
+        const cid=cids[0], cn=d.nodes[cid];
+        out.push({kind:'node',id:cid,parent:nid,edge:e,label:pn.actions[e],depth,born:cn.born,turn:cn.turn,parentTurn:pn.turn,kids:kidsOfNode(cid,depth+1)});
+      }else{
+        const sum=edgeSummary(edgeInfo,nid,e);
+        const wkids=groupWorlds(entries).map(({id:cid,worlds})=>{
+          const cn=d.nodes[cid];
+          return {kind:'world',id:cid,parent:nid,edge:e,world:worlds[0],worlds,label:worldLabel(worlds),depth:depth+1,born:cn.born,turn:cn.turn,parentTurn:pn.turn,kids:kidsOfNode(cid,depth+2)};
+        });
+        out.push({kind:'chance',parent:nid,edge:e,cids,belief:sum.belief,q:sum.q,label:pn.actions[e],depth,born:Math.min(...cids.map(i=>d.nodes[i].born)),kids:wkids});
+      }
+    }
+    return out;
+  }
+  const root=d.nodes[0];
+  const arms=M.order.map(a=>{
+    const entries=byEdge.get('0:'+a)||[], cids=entries.map(x=>x.id);
+    const isCh=cids.length>0&&root.edge_chance[a];
+    let kids=[], nodeId=null, belief=null;
+    if(cids.length){
+      if(!isCh){
+        nodeId=cids[0];
+        kids=kidsOfNode(nodeId,2);
+      }else{
+        belief=edgeSummary(edgeInfo,0,a).belief;
+        kids=groupWorlds(entries).map(({id:cid,worlds})=>{
+          const cn=d.nodes[cid];
+          return {kind:'world',id:cid,parent:0,edge:a,world:worlds[0],worlds,label:worldLabel(worlds),depth:2,born:cn.born,turn:cn.turn,parentTurn:root.turn,kids:kidsOfNode(cid,3)};
+        });
+      }
+    }
+    return {kind:'arm',arm:a,id:nodeId,cids,chance:isCh,belief,label:d.moves[a],depth:1,born:cids.length?Math.min(...cids.map(i=>d.nodes[i].born)):0,kids};
+  });
+  return {arms,vals,rootQ,byEdge,count};
+}
+
+function drawTree(){
+  const d=dec,k=Math.min(step,d.steps.length),T=buildViewTree(k);
+  const {arms,vals,rootQ,count}=T;
+  const lead=k?M.info[k-1].lead:d.prior, priorQ=rootQ[d.prior];
+  const prevQ=step>0&&step<M.last?M.info[step-1].prevQ:null;
+  const curStep=step>0&&step<M.last?d.steps[step-1]:null;
+  const RH=28,X0=8,W0=112,X1=136,W1=410,CW=242,WW=178,GAP=16;
+  const widthOf=n=>n.kind==='arm'?W1:n.kind==='world'?WW:CW;
+  let row=0,maxX=0;const out=[];REG.length=0;
+  const reg=obj=>{REG.push(obj);return `data-n="${REG.length-1}" style="cursor:pointer"`};
+  function place(n,x){
+    n.x=x;
+    if(!n.kids.length){n.y=row++*RH+RH/2+4;return n.y}
+    const nx=x+widthOf(n)+GAP;
+    const ys=n.kids.map(c=>place(c,nx));
+    n.y=(ys[0]+ys[ys.length-1])/2;return n.y;
+  }
+  arms.forEach(a=>place(a,X1));
+  const H=row*RH+12,rootY=(arms[0].y+arms[arms.length-1].y)/2;
+  const edge=(x1,y1,x2,y2,col,wid,dash)=>{const m=(x1+x2)/2;out.push(`<path d="M${x1} ${y1}C${m} ${y1} ${m} ${y2} ${x2} ${y2}" fill="none" stroke="${col}" stroke-width="${wid}" ${dash?'stroke-dasharray="3 3"':''}/>`)};
+  const isNew=id=>curStep&&id===curStep.child;
+
+  function draw(n,px,py){
+    const x=n.x,y=n.y,nw=widthOf(n);
+    maxX=Math.max(maxX,x+nw);
+    const fresh=n.id!==null&&n.id!==undefined&&isNew(n.id);
+    const isNextTurn=n.turn&&n.turn>d.turn;
+    const ecol=n.kind==='chance'?'var(--int)':isNextTurn?'var(--turn)':n.kind==='arm'?'var(--root)':'var(--faint)';
+    edge(px,py,x,y,ecol,fresh?2.5:1.3,n.kind==='arm'&&!n.cids.length);
+    let g='', selObj=null;
+    if(n.kind==='arm'){
+      const tested=n.cids.length>0, q=rootQ[n.arm], rel=q-priorQ, dd=prevQ?q-prevQ[n.arm]:0;
+      const isLead=n.arm===lead, isPrior=n.arm===d.prior, changed=Math.abs(dd)>1e-9;
+      const cn=n.id!==null?d.nodes[n.id]:null;
+      const th=cn?thBadge(cn):(n.chance?`${n.cids.length}W`:'');
+      const turnTag=cn&&cn.turn>d.turn?`T${cn.turn} `:'';
+      let lab=short(n.label);const maxc=isPrior?16:21;if(lab.length>maxc)lab=lab.slice(0,maxc-1)+'…';
+      const curArm=curStep&&curStep.parent===0&&curStep.edge===n.arm;
+      g=`<rect x="${x}" y="${y-12}" width="${nw}" height="24" rx="5" fill="${tested?(n.chance?'var(--int-bg)':'var(--root-bg)'):'var(--panel)'}" stroke="${curArm?'var(--ink)':tested?(n.chance?'var(--int)':'var(--root)'):'var(--line)'}" stroke-width="${curArm?2:1}" ${tested?'':'stroke-dasharray="3 2"'}/>
+        <text x="${x+7}" y="${y+4}" style="${tested?'':'fill:var(--soft)'}${isLead?';font-weight:700':''}">${isLead?'<tspan style="fill:var(--star)">★ </tspan>':''}${turnTag?`<tspan style="fill:var(--turn);font-size:10px;font-weight:700">${turnTag}</tspan>`:''}${esc(lab)}${isPrior?'<tspan style="fill:var(--accent);font-size:10px;font-weight:700"> PRIOR</tspan>':''}</text>
+        <rect x="${x+1}" y="${y+9}" width="${Math.max(1,(nw-2)*M.pi[n.arm])}" height="3" rx="1.5" fill="var(--accent)" opacity=".7"/>
+        <text x="${x+nw-176}" y="${y+4}" text-anchor="end" style="font-size:11px;fill:var(--accent)">${(100*M.pi[n.arm]).toFixed(M.pi[n.arm]<.1?1:0)}%</text>
+        <text x="${x+nw-122}" y="${y+4}" text-anchor="end" style="font-weight:600;${tested||isPrior?'':'fill:var(--soft)'}">${pct(q)}</text>
+        <text x="${x+nw-62}" y="${y+4}" text-anchor="end" style="font-size:11px;font-weight:600;${changed?`fill:var(${dd>0?'--good':'--bad'})`:'fill:var(--soft)'}">${changed?(dd>0?'▲':'▼'):''}${isPrior&&Math.abs(rel)<1e-12?'0':spp(rel)}</text>
+        <text x="${x+nw-7}" y="${y+4}" text-anchor="end" style="font-size:10.5px;font-weight:600;fill:${n.chance?'var(--int)':'var(--soft)'}">${esc(th)}</text>
+        <title>${esc(n.label)}: policy ${(100*M.pi[n.arm]).toFixed(1)}% · abs win ${pct(q)} · rel ${spp(rel)} pp${cn?` · NN ${pct(cn.nn_value)} · ${th}`:''}</title>`;
+      selObj=cn?{type:'node',id:cn.id,k}:{type:'edge',parent:0,edge:n.arm,k};
+    }else if(n.kind==='chance'){
+      const curCh=curStep&&curStep.parent===n.parent&&curStep.edge===n.edge;
+      let lab=short(n.label);if(lab.length>17)lab=lab.slice(0,16)+'…';
+      g=`<rect x="${x}" y="${y-11}" width="${nw}" height="22" rx="5" fill="var(--int-bg)" stroke="${curCh?'var(--ink)':'var(--int)'}" stroke-width="${curCh?2:1}" stroke-dasharray="4 2"/>
+        <text x="${x+7}" y="${y+4}" style="fill:var(--int);font-weight:600">${esc(lab)}</text>
+        <text x="${x+nw-54}" y="${y+4}" text-anchor="end" style="font-weight:600">${pct(n.q)}</text>
+        <text x="${x+nw-7}" y="${y+4}" text-anchor="end" style="font-size:10.5px;font-weight:600;fill:var(--int)">${n.cids.length}W ±${(100*n.belief.innovation).toFixed(1)}</text>
+        <title>${esc(n.label)} (chance): Kalman mean ${pct(n.q)} across ${n.cids.length} world(s) · innov ±${(100*n.belief.innovation).toFixed(2)} pp</title>`;
+      selObj={type:'edge',parent:n.parent,edge:n.edge,k};
+    }else if(n.kind==='world'){
+      const cn=d.nodes[n.id], v=vals[n.id], th=thBadge(cn);
+      const tBadge=cn.turn>d.turn?`T${cn.turn}`:'';
+      g=`<rect x="${x}" y="${y-11}" width="${nw}" height="22" rx="11" fill="${tBadge?'var(--turn-bg)':'var(--chip)'}" stroke="${fresh?'var(--ink)':tBadge?'var(--turn)':'var(--line)'}" stroke-width="${fresh?2:1}"/>
+        <text x="${x+9}" y="${y+4}" style="font-size:11px;font-weight:600;fill:${tBadge?'var(--turn)':'var(--soft)'}">${esc(n.label)}${tBadge?' · '+tBadge:''}</text>
+        <text x="${x+nw-56}" y="${y+4}" text-anchor="end" style="font-weight:600">${pct(v)}</text>
+        <text x="${x+nw-8}" y="${y+4}" text-anchor="end" style="font-size:10.5px;font-weight:600;fill:var(--int)">${esc(th)}</text>
+        <title>World ${cn.world+1}, Turn ${cn.turn}: backed-up ${pct(v)} · NN ${pct(cn.nn_value)} · ${th}${cn.cached?' · cached':''}</title>`;
+      selObj={type:'node',id:n.id,k};
+    }else{
+      const cn=d.nodes[n.id], v=vals[n.id], th=thBadge(cn);
+      const tBadge=cn.turn>d.turn?`T${cn.turn} `:'';
+      let lab=short(n.label);const maxc=tBadge?14:17;if(lab.length>maxc)lab=lab.slice(0,maxc-1)+'…';
+      g=`<rect x="${x}" y="${y-11}" width="${nw}" height="22" rx="4" fill="${tBadge?'var(--turn-bg)':'var(--chip)'}" stroke="${fresh?'var(--ink)':tBadge?'var(--turn)':'var(--line)'}" stroke-width="${fresh?2:1}"/>
+        <text x="${x+7}" y="${y+4}">${tBadge?`<tspan style="fill:var(--turn);font-size:10px;font-weight:700">${tBadge}</tspan>`:''}${esc(lab)}</text>
+        <text x="${x+nw-56}" y="${y+4}" text-anchor="end" style="font-weight:600">${pct(v)}</text>
+        <text x="${x+nw-7}" y="${y+4}" text-anchor="end" style="font-size:10.5px;font-weight:600;fill:var(--int)">${esc(th)}</text>
+        <title>${esc(n.label)} (Turn ${cn.turn}): backed-up ${pct(v)} · NN ${pct(cn.nn_value)} · ${th}${cn.cached?' · cached':''}</title>`;
+      selObj={type:'node',id:n.id,k};
+    }
+    out.push(`<g class="${fresh?'new':''}" ${reg(selObj)}>${g}</g>`);
+    n.kids.forEach(c=>draw(c,x+nw,y));
+  }
+
+  const r0=d.nodes[0], rVal=vals[0], rTh=thBadge(r0);
+  out.push(`<g ${reg({type:'node',id:0,k})}><rect x="${X0}" y="${rootY-20}" width="${W0}" height="40" rx="6" fill="var(--accent-bg)" stroke="var(--accent)"/>
+    <text x="${X0+W0/2}" y="${rootY-5}" text-anchor="middle" style="font-weight:700">Now · T${r0.turn}</text>
+    <text x="${X0+W0/2}" y="${rootY+8}" text-anchor="middle" style="font-size:11px;font-weight:600">${pct(rVal)}</text>
+    <text x="${X0+W0/2}" y="${rootY+18}" text-anchor="middle" style="font-size:10px;fill:var(--int);font-weight:600">${esc(rTh)}</text>
+    <title>Root (Turn ${r0.turn}): backed-up ${pct(rVal)} · NN ${pct(r0.nn_value)} · ${rTh}</title></g>`);
   arms.forEach(a=>draw(a,X0+W0,rootY));
-  const Wd=maxX+10,svg=$('tree');
+  const Wd=maxX+12,svg=$('tree');
   svg.setAttribute('viewBox',`0 0 ${Wd} ${H}`);svg.setAttribute('width',Wd);svg.setAttribute('height',H);
   svg.innerHTML=out.join('');
   svg.querySelectorAll('[data-n]').forEach(e=>e.onclick=()=>{SEL=REG[+e.dataset.n];inspect()});
-  if(SEL){const id=selId(SEL);SEL=REG.find(n=>selId(n)===id)||null}
+  if(SEL){SEL={...SEL,k}}
   inspect();
-  $('treecount').textContent=count?`· ${count} simulated line${count>1?'s':''}`:'· nothing simulated yet';
+  const maxT=Math.max(...d.nodes.filter(n=>n.born<=k).map(n=>n.turn));
+  $('treecount').textContent=count?`· ${count} expansion${count>1?'s':''}${maxT>d.turn?` · reached Turn ${maxT}`:''}`:'· root only (0 expansions yet)';
   const hi=svg.querySelector('.new');if(hi){const bb=hi.getBBox(),box=$('treebox');if(bb.y<box.scrollTop||bb.y+bb.height>box.scrollTop+box.clientHeight)box.scrollTo({top:Math.max(0,bb.y-box.clientHeight/2),behavior:'smooth'})}
 }
 
-/* ---------- node inspector ---------- */
+/* ---------- path helper ---------- */
+function trailOf(nid){
+  const d=dec, parts=[];
+  for(let cur=nid;cur>0;){
+    const n=d.nodes[cur], p=d.nodes[n.parent];
+    const w=p.edge_chance[n.parent_edge]?` (W${n.world+1})`:'';
+    parts.push(short(p.actions[n.parent_edge])+w);
+    cur=n.parent;
+  }
+  return parts.reverse();
+}
+
+/* ---------- node & Kalman inspector ---------- */
 function inspect(){
-  const box=$('inspector'),n=SEL;
-  if(!n){box.innerHTML='<p class="muted small">Click any node in the tree (or <b>Now</b>) to see the network’s value, policy and thinking forecasts there.</p>';return}
-  const groups=new Map();
-  for(const e of n.ents){if(!groups.has(e.key))groups.set(e.key,{key:e.key,worlds:[],next:new Set()});const g=groups.get(e.key);if(e.world!==null)g.worlds.push(e.world);if(e.next)g.next.add(e.next)}
-  let h=`<h3 style="margin:0 0 4px">${n.root?'Now (root position)':'After '+n.trail.map(x=>esc(short(x))).join(' → ')}</h3>`;
-  if(!groups.size)h+='<p class="muted small">Fight ended on this line: the leaf is the outcome, not a network evaluation.</p>';
-  for(const g of groups.values()){
-    const v=dec.nodes[g.key];if(!v)continue;
-    const order=v.policy.map((p,i)=>i).sort((a,b)=>v.policy[b]-v.policy[a]);
-    h+=`<div class="insp"><div class="facts">
-      ${g.worlds.length?fact('worlds',g.worlds.map(w=>'W'+(w+1)).join(', ')):''}
-      ${fact('value (win %)',`<b>${pct(v.value)}</b>`)}
-      ${fact('thinking: gain @ 8 / 24 / 64 / 160 evals',v.thinking.map(x=>spp(x)).join(' / ')+' pp')}
-      ${fact('source',v.previous?'cached from the previous decision':'evaluated in this search')}</div>
-      <div class="pol">${order.map(i=>{const played=g.next.has(v.actions[i]);return `<div class="prow${played?' played':''}"><span class="pl">${played?'▶ ':''}${esc(v.actions[i])}</span><span class="pb"><i style="width:${(100*v.policy[i]).toFixed(1)}%"></i></span><span class="pp">${(100*v.policy[i]).toFixed(1)}%</span></div>`}).join('')}</div>
-      <div class="muted small">key ${g.key}${g.next.size?' · ▶ = move this line played next':''}</div></div>`;
+  const box=$('inspector'), s=SEL;
+  if(!s){box.innerHTML='<p class="muted small">Click any node, root move, or chance edge in the tree to see its NN value, thinking head (8 / 24 / 64 / 160), Kalman uncertainty, and action table.</p>';return}
+  const d=dec, {vals,evals,byEdge,edgeInfo}=stateAt(s.k);
+  if(s.type==='edge'){
+    const p=d.nodes[s.parent], entries=byEdge.get(s.parent+':'+s.edge)||[], cids=entries.map(x=>x.id);
+    const sum=edgeSummary(edgeInfo,s.parent,s.edge), pm=sum.pm, b=sum.belief;
+    const prefix=s.parent===0?'Root':trailOf(s.parent).join(' → ');
+    let h=`<h3 style="margin:0 0 6px">${esc(prefix)} → ${esc(short(p.actions[s.edge]))} <span class="muted small">(${cids.length?(sum.chance?`chance edge · ${cids.length} world${cids.length>1?'s':''}`:'deterministic'):'unexpanded edge'})</span></h3>`;
+    h+=`<div class="facts">
+      ${fact('prior mean',pct(pm))}
+      ${fact('prior SD',`±${(100*p.prior_sd).toFixed(2)} pp`)}
+      ${fact('Kalman mean',`<b>${pct(sum.q)}</b>`)}
+      ${b?fact('noise SD',`±${(100*Math.sqrt(b.noise)).toFixed(2)} pp`):''}
+      ${b?fact('posterior SD',`±${(100*Math.sqrt(b.variance)).toFixed(2)} pp`):''}
+      ${b?fact('innovation SD',`±${(100*b.innovation).toFixed(2)} pp`):''}
+      ${b?fact('world weight',b.weight.toFixed(3)):''}</div>`;
+    if(entries.length){
+      h+=`<div class="insp"><div class="facts">${entries.map(({id:cid,world})=>{const cn=d.nodes[cid];return fact(`W${world+1} (T${cn.turn})`,`<b>${pct(vals[cid])}</b> <span class="muted small">(NN ${pct(cn.nn_value)}, ${esc(thBadge(cn))})</span>`)}).join('')}</div></div>`;
+    }
+    box.innerHTML=h;
+    return;
+  }
+  const n=d.nodes[s.id];
+  if(!n||n.born>s.k){box.innerHTML='<p class="muted small">Node not yet created at this step.</p>';return}
+  const v=vals[n.id], titleTxt=n.id===0?`Now (root · Turn ${n.turn})`:`After ${trailOf(n.id).join(' → ')} · Turn ${n.turn}`;
+  let h=`<h3 style="margin:0 0 6px">${esc(titleTxt)}</h3>
+    <div class="facts">
+      ${fact('backed-up win %',`<b>${pct(v)}</b>`)}
+      ${fact('NN value (win %)',`<b>${pct(n.nn_value)}</b>`)}
+      ${n.thinking.length?fact('thinking head @ 8 / 24 / 64 / 160',n.thinking.map(x=>spp(x)).join(' / ')+' pp'):''}
+      ${fact('epistemic prior SD',`±${(100*n.prior_sd).toFixed(2)} pp`)}
+      ${fact('source',n.terminal?'terminal outcome':n.cycle?'cycle (locked to NN value)':n.cached?'cached NN eval':'evaluated in this search')}</div>`;
+  if(n.actions.length){
+    const order=[...n.logits.keys()].sort((a,b)=>n.logits[b]-n.logits[a]||a-b);
+    h+=`<div class="insp"><div class="pol">
+      <div class="prow hdr"><span>Action</span><span>Policy</span><span class="num">Pol %</span><span class="num">Abs Win</span><span class="num">State</span></div>`;
+    for(const i of order){
+      const entries=byEdge.get(n.id+':'+i)||[], cids=entries.map(x=>x.id);
+      const sum=edgeSummary(edgeInfo,n.id,i);
+      const exp=cids.length>0;
+      const st=exp?(sum.chance?`chance ${cids.length}W`:`expanded`):'prior';
+      h+=`<div class="prow${exp?' played':''}"><span class="pl">${exp?'▶ ':''}${esc(n.actions[i])}</span><span class="pb"><i style="width:${(100*n.policy[i]).toFixed(1)}%"></i></span><span class="num">${(100*n.policy[i]).toFixed(1)}%</span><span class="num">${pct(sum.q)}</span><span class="num muted">${st}</span></div>`;
+    }
+    h+=`</div><div class="muted small">key ${n.key}</div></div>`;
   }
   box.innerHTML=h;
 }
@@ -349,55 +575,53 @@ function inspect(){
 /* ---------- story ---------- */
 function fact(k,v){return `<div><span class="k">${k}</span>${v}</div>`}
 function render(){
-  const d=dec,T=d.trials,last=M.last;
+  const d=dec,S=d.steps,last=M.last;
   $('back').disabled=step===0;$('fwd').disabled=step===last;
   let tl=`<span class="tl ${step===0?'cur':''}" data-s="0">Open</span>`;
-  T.forEach((t,k)=>{if(k>0&&M.info[k-1].reserveActive&&!M.info[k].reserveActive)tl+='<span class="tl-sep" title="reserve used up"></span>';
-    tl+=`<span class="tl ${t.interior?'int':'root'} ${M.info[k].flip?'flip':''} ${step===k+1?'cur':''}" data-s="${k+1}">${k+1}</span>`});
-  if(T.length&&M.info[T.length-1].reserveActive)tl+='<span class="tl-sep" title="reserve used up"></span>';
+  S.forEach((s,k)=>{
+    const cls=s.world_sample?'world':M.info[k].nextTurn?'deep':'root';
+    tl+=`<span class="tl ${cls} ${M.info[k].flip?'flip':''} ${step===k+1?'cur':''}" data-s="${k+1}">${k+1}</span>`;
+  });
   tl+=`<span class="tl ${step===last?'cur':''}" data-s="${last}">Play</span>`;
   $('timeline').innerHTML=tl;
   $('timeline').querySelectorAll('.tl').forEach(e=>e.onclick=()=>{stopPlay();step=+e.dataset.s;render()});
 
-  const s=$('story'),P=d.moves[d.prior];
+  const box=$('story'), P=d.moves[d.prior], r0=d.nodes[0];
   if(step===0){
-    s.className='story';
-    const opened=d.trials.length>0||(d.reserve>0&&M.best>PRICE&&d.moves.length>1);
-    s.innerHTML=`<div class="kind">Open · one network look at the position</div>
-      <h3>Policy favours <span class="star">${esc(P)}</span>. ${opened?`Search opens with a ${d.reserve}-eval reserve.`:'Not worth searching: play it.'}</h3>
+    box.className='story';
+    const opened=S.length>0;
+    box.innerHTML=`<div class="kind">Open · root evaluation (Turn ${r0.turn})</div>
+      <h3>Policy favours <span class="star">${esc(P)}</span> (${pct(d.value)} win). ${opened?`Best VOI beats price ${priceTxt()} pp — search expands.`:`Best VOI ≤ price ${priceTxt()} pp — play immediately (1 eval).`}</h3>
       <div class="facts">${fact('policy',M.order.slice(0,3).map(a=>`${esc(short(d.moves[a]))} <b>${(100*M.pi[a]).toFixed(0)}%</b>`).join(' · ')+(M.order.length>3?` · others ${(100*M.order.slice(3).reduce((t,a)=>t+M.pi[a],0)).toFixed(0)}%`:''))}
-      ${fact('win estimate',pct(d.value))}
-      ${fact('forecast gain per eval (pp)',B.map((b,i)=>{const r=M.rates[i];return `${b}: ${r===M.best&&opened?`<b>${rateTxt(r)}</b>`:rateTxt(r)}`}).join(' · '))}
-      ${fact('price',`${priceTxt()} pp/eval → <span class="${M.best>PRICE?'ok':'no'}">${M.best>PRICE?'best beats it':'nothing beats it'}</span>`)}</div>
-      <div class="pill">Root-move scores start from the policy logits. Press → to buy evidence.</div>`;
+      ${fact('NN win estimate',pct(d.value))}
+      ${fact('thinking @ 8 / 24 / 64 / 160',r0.thinking.map(x=>spp(x)).join(' / ')+' pp')}
+      ${fact('prior SD',`±${(100*r0.prior_sd).toFixed(2)} pp`)}
+      ${fact('price λ',`${priceTxt()} pp/eval`)}</div>
+      <div class="pill">Every move starts from NN value + logit prior. Press → to watch the highest-VOI purchase.</div>`;
   }else if(step===last){
-    s.className='story';
-    const why={price:`Best remaining purchase worth ${rateTxt(d.last_rate)} pp/eval, below the ${priceTxt()} price, and the reserve is spent.`,'opening declined':'The forecasts didn’t justify searching.','no remaining comparison':'Every comparison has been made.','request cap':'Hit the eval cap.'}[d.stop]||d.stop;
-    const changed=d.chosen!==d.prior,fin=T.length?T[T.length-1].scores:d.scores,top=Math.max(...fin),ex=fin.map(x=>Math.exp(30*(x-top))),zz=ex.reduce((a,b)=>a+b,0);
-    const sampled=d.settings.explore>0,pPlay=(100*ex[d.chosen]/zz).toFixed(1);
-    s.innerHTML=`<div class="kind">Stop · ${sampled?'sample the move from the search policy':'play the leader'}</div><h3>Play <span class="star">${esc(d.moves[d.chosen])}</span>${sampled?` <span class="muted small">(drawn with p = ${pPlay}%, seed ${d.settings.seed}${d.chosen!==d.leader?`; the leader was ${esc(d.moves[d.leader])}`:'; it is also the leader'})</span>`:''}</h3>
-      <div class="facts">${fact('why stop',why)}${T.length?fact('spent',`${T.length} purchases · ${d.spent} new evals`):''}${fact('next',`turn ${d.next.turn}, ${d.next.hp} HP`)}</div>
+    box.className='story';
+    const why={price:`Best remaining VOI anywhere in the tree is ${voiTxt(d.last_voi)} pp, at or below price ${priceTxt()} pp.`,'request cap':'Hit the eval cap.',cap:'Eval cap is 0.',exhausted:'Every reachable branch is terminal or fully sampled.','single action':'Only one legal move.'}[d.stop]||d.stop;
+    const changed=d.chosen!==d.prior, finQ=S.length?S[S.length-1].root_q:d.initial_q;
+    const sampled=d.settings.explore>0;
+    box.innerHTML=`<div class="kind">Stop · ${sampled?'sample move from search policy':'play the leader'}</div>
+      <h3>Play <span class="star">${esc(d.moves[d.chosen])}</span> (${pct(finQ[d.chosen])} win)${sampled?` <span class="muted small">(sampled, seed ${d.settings.seed}${d.chosen!==d.leader?`; leader ${esc(d.moves[d.leader])}`:''})</span>`:''}</h3>
+      <div class="facts">${fact('why stop',why)}${fact('spent',`${S.length} steps · ${d.spent} new evals`)}${fact('deepest turn',`Turn ${d.max_turn}`)}${fact('next',`Turn ${d.next.turn}, ${d.next.hp} HP`)}</div>
       <div class="pill ${changed?'flip':''}">${changed?`Search overruled the policy (it wanted ${esc(P)})`:'Search kept the policy’s move'}</div>`;
   }else{
-    const t=T[step-1],I=M.info[step-1],a=d.moves[t.arm],diff=t.candidate-t.reference,lead=argmax(t.scores);
-    s.className='story '+(t.interior?'int':'root');
-    const worth=`<span class="${t.rate>PRICE?'ok':'no'}">${rateTxt(t.rate)}</span> pp/eval ${I.reserveActive?'(reserve active: bought anyway)':`(beats price ${priceTxt()})`}`;
-    const diffTxt=`<b class="${diff>0?'up':diff<0?'down':''}">${spp(diff)} pp</b>`;
-    if(!t.interior){
-      s.innerHTML=`<div class="kind">Purchase ${step}/${T.length} · root comparison · world W${t.world+1}</div>
-        <h3>${esc(a)} vs <span class="star">${esc(P)}</span> on the same world</h3>
-        <div class="facts">${fact('result',`${pct(t.candidate)} vs ${pct(t.reference)} → ${diffTxt}`)}
-        ${fact(`belief: ${esc(short(a))} − prior`,`${spp(t.before)} → <b>${spp(t.after)}</b> pp`)}
-        ${fact('worth',worth)}${fact('cost',`+${I.cost} evals${I.cost===0?' (cached)':''} · ${t.spent} total`)}</div>`;
-    }else{
-      const g=I.greedy&&I.greedy[1];
-      s.innerHTML=`<div class="kind">Purchase ${step}/${T.length} · follow-up test · world W${t.world+1}</div>
-        <h3>After ${esc(a)}: try <span style="color:var(--int)">${esc(t.line[1])}</span>${g?` instead of ${esc(g)}`:' (runner-up)'}</h3>
-        <div class="facts">${fact('result',`${pct(t.candidate)} vs greedy ${pct(t.reference)} → ${diffTxt}${diff===0?' (same end position)':''}`)}
-        ${fact('belief: runner-up − greedy',`${spp(t.before)} → <b>${spp(t.after)}</b> pp${t.after>0?' → credit to moves reaching it':''}`)}
-        ${fact('worth',worth)}${fact('cost',`+${I.cost} evals${I.cost===0?' (cached)':''} · ${t.spent} total`)}</div>`;
-    }
-    s.innerHTML+=`<div class="pill ${I.flip?'flip':''}">${I.flip?`Leader changes → ${esc(d.moves[lead])}`:`Leader stays ${esc(d.moves[lead])}`}</div>`;
+    const s=S[step-1], I=M.info[step-1], pn=d.nodes[s.parent], cn=d.nodes[s.child];
+    const act=pn.actions[s.edge], lead=I.lead;
+    const kindCls=s.world_sample?'world':I.nextTurn?'deep':'root';
+    box.className='story '+kindCls;
+    const where=s.parent===0?'At root':`After ${trailOf(s.parent).join(' → ')}`;
+    const verb=s.world_sample?`Sample world W${cn.world+1} on ${esc(short(act))}`:`Expand ${esc(short(act))}${cn.turn>pn.turn?` → Turn ${cn.turn}`:''}`;
+    box.innerHTML=`<div class="kind">Step ${step}/${S.length} · ${s.world_sample?'chance world sample':I.nextTurn?`Turn ${cn.turn} lookahead`:'tree expansion'}</div>
+      <h3>${esc(where)}: ${verb}</h3>
+      <div class="facts">
+        ${fact('VOI (expected gain)',`<span class="${s.voi>PRICE?'ok':'no'}">${voiTxt(s.voi)} pp</span> <span class="muted small">(vs λ ${priceTxt()})</span>`)}
+        ${fact('VOI inputs',`W ${s.weight.toFixed(2)} · gap ${spp(s.gap).replace('+','')} pp · innov ±${(100*s.innovation).toFixed(2)} pp`)}
+        ${fact('new node',`NN <b>${pct(cn.nn_value)}</b> · ${esc(thBadge(cn))}${cn.terminal?' (terminal)':cn.cycle?' (cycle)':''}`)}
+        ${fact('cost',`+${I.cost} eval${I.cost===0?' (cached)':''} · ${s.spent} total`)}</div>
+      <div class="pill ${I.flip?'flip':''}">${I.flip?`Leader changes → ${esc(d.moves[lead])} (${pct(s.root_q[lead])})`:`Leader stays ${esc(d.moves[lead])} (${pct(s.root_q[lead])})`}</div>`;
   }
   drawTree();
 }
@@ -406,14 +630,14 @@ function render(){
 function go(n){step=Math.max(0,Math.min(M.last,n));render()}
 function stopPlay(){if(timer){clearInterval(timer);timer=null}$('play').textContent='▶'}
 $('fwd').onclick=()=>{stopPlay();go(step+1)};$('back').onclick=()=>{stopPlay();go(step-1)};
-$('play').onclick=()=>{if(timer){stopPlay();return}if(step===M.last)go(0);$('play').textContent='❚❚';timer=setInterval(()=>{if(step>=M.last){stopPlay();return}go(step+1)},1300)};
-document.addEventListener('keydown',e=>{if(e.target.tagName==='SELECT')return;
+$('play').onclick=()=>{if(timer){stopPlay();return}if(step===M.last)go(0);$('play').textContent='❚❚';timer=setInterval(()=>{if(step>=M.last){stopPlay();return}go(step+1)},1100)};
+document.addEventListener('keydown',e=>{if(e.target.tagName==='SELECT'||e.target.tagName==='INPUT')return;
   if(e.key==='ArrowRight'){stopPlay();go(step+1);e.preventDefault()}else if(e.key==='ArrowLeft'){stopPlay();go(step-1);e.preventDefault()}
   else if(e.key==='Home'){stopPlay();go(0)}else if(e.key==='End'){stopPlay();go(M.last)}else if(e.key===' '){$('play').click();e.preventDefault()}});
 $('fight').onchange=()=>{fi=+$('fight').value;fillDecisions(false);load()};
 $('decision').onchange=()=>{di=+$('decision').value;load();$('decision').blur()};
 $('all').onchange=()=>{fillDecisions(true);load()};
-fi=DATA.fights.reduce((b,f,i,a)=>f.decisions.filter(d=>d.trials.length).length>a[b].decisions.filter(d=>d.trials.length).length?i:b,0);
+fi=DATA.fights.reduce((b,f,i,a)=>f.decisions.filter(d=>d.steps.length).length>a[b].decisions.filter(d=>d.steps.length).length?i:b,0);
 fillFights();fillDecisions(false);load();
 })();
 </script>
