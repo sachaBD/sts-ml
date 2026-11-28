@@ -41,7 +41,7 @@ def record_decision(proc, root, price, budget):
         observation = dict(id=m.name, observation=result['difference'], predicted=predicted, branches=branches)
     shortlisted = set(decision.actions)
     excluded = [label for i, label in enumerate(labels) if i not in shortlisted]
-    return (dict(turn=root['turn'], step=root['step'], frames=frames, excluded=excluded),
+    return (dict(turn=root['turn'], step=root['step'], frames=frames, excluded=excluded, combat=root['combat']),
             decision.move(), q_calls)
 
 

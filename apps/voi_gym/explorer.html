@@ -11,7 +11,7 @@
 main{max-width:1500px;margin:auto;padding:16px;display:grid;gap:12px}header,form,nav,.stats{display:flex;align-items:center;gap:8px 14px;flex-wrap:wrap}
 header{justify-content:space-between}[hidden]{display:none!important}.picker{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.excluded{margin-top:8px;color:var(--muted)}h1,h2{margin:0;font-size:17px}h2{font-size:14px}label{display:inline-flex;align-items:center;gap:5px}
 input,select,button{font:inherit;color:inherit;background:var(--panel);border:1px solid var(--line);border-radius:5px;padding:4px 8px}input[type=number]{width:90px}input[type=range]{padding:0;width: min(190px,40vw);accent-color:var(--trace)}button:enabled{cursor:pointer}button:disabled{opacity:.5}
-.panel,nav,.stats{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:10px 12px}.stats{min-height:42px;color:var(--muted)}.stats b{color:var(--ink)}#status:not(:empty){padding:4px;color:var(--trace)}
+.panel,nav,.stats{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:10px 12px}.stats{min-height:42px;color:var(--muted)}.stats b{color:var(--ink)}.combat-line{display:flex;align-items:center;flex-wrap:wrap;gap:6px 10px}.combat-line+.combat-line{margin-top:5px}.combat-label{color:var(--muted);min-width:56px}.card-name,.enemy-state{border:1px solid var(--line);border-radius:5px;padding:1px 6px}#status:not(:empty){padding:4px;color:var(--trace)}
 .grid{display:grid;grid-template-columns:minmax(0,1.04fr) minmax(0,1fr);gap:12px;align-items:start}.scroll{overflow-x:auto}table{width:100%;border-collapse:collapse;white-space:nowrap}th,td{text-align:right;border-bottom:1px solid var(--line);padding:4px 6px}th:nth-child(2),td:nth-child(2){text-align:left}th{font-size:12px;color:var(--muted)}tr:last-child td{border-bottom:0}.selected,.plan{background:var(--active);font-weight:650}.unaffordable{color:var(--muted)}.scouted{box-shadow:inset 3px 0 var(--trace)}
 ul{list-style:none;margin:0;padding:0}li ul{margin-left:11px;padding-left:12px;border-left:1px solid var(--line)}li ul>li>.node::before{content:'';position:absolute;left:-13px;width:12px;border-top:1px solid var(--line);top:50%}
 .node{display:flex;justify-content:space-between;gap:8px;padding:3px 6px;position:relative;border-radius:3px}.delta,.observation{color:var(--trace)}.tree-label,.move{display:grid;grid-template-columns:minmax(65px,1fr) minmax(65px,.6fr) minmax(160px,1.5fr);gap:6px;text-align:right}.tree-label{font-size:12px;color:var(--muted);padding:3px 6px 3px 30px}.move>b{text-align:left}.root-values{display:flex;gap:12px;flex-wrap:wrap}.rollout{font-size:12px;color:var(--muted)}
@@ -38,6 +38,7 @@ ul{list-style:none;margin:0;padding:0}li ul{margin-left:11px;padding-left:12px;b
   <label>Fight <select id="fight"><option value="">Gym</option></select></label>
   <label id="native-picker" hidden>Turn / decision <select id="decision"></select></label>
 </section>
+<section id="combat-state" class="panel" aria-label="Combat state" hidden></section>
 <nav aria-label="Replay">
   <button type="button" id="back" disabled>← Back</button>
   <input type="range" id="position" aria-label="Replay step" min="0" max="0" value="0" disabled>
@@ -198,10 +199,33 @@ function probeMath(row, state) {
   ];
 }
 
+const humanName = key => key.toLowerCase().split('_').map(word => word.charAt(0).toUpperCase()+word.slice(1)).join(' ');
+function combatState(combat) {
+  const panel = $('combat-state');
+  panel.hidden = !combat;
+  if (!combat) return;
+  const {player, hand, monsters} = combat;
+  const statuses = Object.entries(player.statuses).map(([name, amount]) => `${humanName(name)} ${amount}`);
+  const enemies = monsters.filter(m => m.alive).map(m => {
+    const prefix = m.id.toUpperCase() + '_';
+    const move = m.intent?.startsWith(prefix) ? m.intent.slice(prefix.length) : m.intent;
+    const attack = m.intent_damage == null ? '' : ` ${m.intent_damage}${m.intent_hits > 1 ? ` × ${m.intent_hits}` : ''}`;
+    return `<span class="enemy-state"><b>${escape(humanName(m.id))}</b> ${m.hp}/${m.max_hp} HP${m.block ? ` · Block ${m.block}` : ''} · ${move ? escape(humanName(move)) : 'Unknown intent'}${attack}</span>`;
+  });
+  panel.innerHTML = `
+    <div class="combat-line"><span class="combat-label">Player</span><b>${player.hp}/${player.max_hp} HP</b>
+      <span>Energy ${player.energy}</span><span>Block ${player.block}</span>
+      ${statuses.map(status => `<span>${escape(status)}</span>`).join('')}</div>
+    <div class="combat-line"><span class="combat-label">Hand</span>
+      ${hand.length ? hand.map(c => `<span class="card-name">${escape(c.name)}${c.upgraded ? '+' : ''}</span>`).join('') : '—'}</div>
+    <div class="combat-line"><span class="combat-label">Enemies</span>${enemies.join('')}</div>`;
+}
+
 function render() {
   $('equations').close();
   equations = [];
   const {frames} = replay;
+  combatState(replay.combat);
   const {state, rows, selected, observation} = frames[index];
   const prev = frames[index-1]?.state;
   const observed = frames[index-1]?.rows.find(row => row.id === observation?.id);

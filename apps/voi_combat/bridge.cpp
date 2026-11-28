@@ -3,6 +3,7 @@
 #include "agents/combat/player/decision.hpp"
 #include "environments/combat/fight_start.hpp"
 #include "environments/combat/public.hpp"
+#include "environments/combat/view.hpp"
 #include "constants/MonsterEncounters.h"
 #include <algorithm>
 #include <array>
@@ -22,7 +23,58 @@ Json command() {
 }
 void reply(const Json& j) { std::cout << j.dump() << std::endl; }
 
+std::string card_name(const sts::CardInstance& card) {
+    return std::string(card.getName()) + (card.getUpgradeCount() ? "+" : "");
+}
+
 std::string describe(combat::Action action, const sts::BattleContext& state) {
+    using enum sts::search::ActionType;
+    switch (action.getActionType()) {
+    case CARD: {
+        const auto& card = state.cards.hand[action.getSourceIdx()];
+        auto label = card_name(card);
+        const auto& monsters = state.monsters;
+        if (card.requiresTarget() &&
+            std::count_if(monsters.arr.begin(), monsters.arr.begin() + monsters.monsterCount,
+                          [](const auto& monster) { return monster.isTargetable(); }) > 1) {
+            label += " → " + std::string(monsters.arr[action.getTargetIdx()].getName()) +
+                     " #" + std::to_string(action.getTargetIdx()+1);
+        }
+        return label;
+    }
+    case POTION: {
+        const auto potion = state.potions[action.getSourceIdx()];
+        return (action.getTargetIdx() > 5 ? "Discard " : "Drink ") + std::string(sts::getPotionName(potion));
+    }
+    case END_TURN: return "End turn";
+    case SINGLE_CARD_SELECT: {
+        const auto task = state.cardSelectInfo.cardSelectTask;
+        const auto i = action.getSelectIdx();
+        const auto cards = combat::cards_in(state, combat::selection_pile(state));
+        if (std::size_t(i) < cards.size()) return "Select " + card_name(cards[i]);
+        if (task == sts::CardSelectTask::DISCOVERY || task == sts::CardSelectTask::CODEX) {
+            if (std::size_t(i) < state.cardSelectInfo.cards.size())
+                return "Select " + std::string(sts::getCardName(state.cardSelectInfo.cards[i]));
+            return "Skip";
+        }
+        break;
+    }
+    case MULTI_CARD_SELECT: {
+        const auto cards = combat::cards_in(state, combat::selection_pile(state));
+        const auto indices = action.getSelectedIdxs();
+        if (!std::ranges::all_of(indices, [&](int i) { return std::size_t(i) < cards.size(); })) break;
+        std::string label;
+        for (int i : indices) {
+            if (label.empty()) label = "Select ";
+            else label += ", ";
+            label += card_name(cards[i]);
+        }
+        if (!label.empty()) return label;
+        if (action.getSelectedIdxs().empty()) return "Select none";
+        break;
+    }
+    default: break;
+    }
     std::ostringstream text;
     action.printDesc(text, state);
     return text.str();
@@ -92,7 +144,11 @@ int main(int argc, char** argv) try {
             Json root{{"logits", p.logits}, {"value", p.value}, {"step", fight.steps()}};
             if (trace) {
                 root["requests"] = scorer.requests - before_root;
+                auto shown = combat::view(s);
                 root["turn"] = s.turn;
+                root["combat"] = {{"player", std::move(shown["player"])},
+                                  {"monsters", std::move(shown["monsters"])},
+                                  {"hand", std::move(shown["hand"])}};
                 root["actions"] = Json::array();
                 for (auto action : actions) root["actions"].push_back(describe(action, s));
             }
