@@ -1,9 +1,9 @@
 # Measurement VOI gym
 
-No game engine, model weights, HTTP server, or build needed. From this worktree:
+No game engine, model weights, HTTP server, or build needed. From the repository root:
 
 ```sh
-PY=../../.venv/bin/python  # use .venv/bin/python in a regular checkout
+PY=.venv/bin/python
 $PY -m unittest agents.combat.search.voi_gym.test_model apps.voi_gym.test_session
 $PY -m apps.voi_gym --seeds 1024 --budget 16 --prices .005 .002 .0005
 ```

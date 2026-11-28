@@ -16,13 +16,14 @@ This is a shallow tree with **fixed** continuations, not a recursive search over
 
 ## Reproduce
 
-Build `voi_combat_bridge` in a normal configured CMake tree with inference enabled. From the experiment worktree on this machine:
+From the repository root with the Python environment and native inference dependencies set up. The frozen model and challenge starts below are local benchmark artifacts, not part of the checkout; substitute your own exported checkpoint and fight-start JSONL if needed.
 
 ```sh
-PY=../../.venv/bin/python
-D=../../runs/benchmark
-B=build/real/apps/voi_combat/voi_combat_bridge
-cmake --build build/real --target voi_combat_bridge -j6
+PY=.venv/bin/python
+D=runs/benchmark
+B=build/main/apps/voi_combat/voi_combat_bridge
+cmake -S . -B build/main -DCMAKE_BUILD_TYPE=Release
+cmake --build build/main --target voi_combat_bridge -j6
 $PY -m apps.voi_combat.benchmark --bridge "$B" --model "$D/unified-filter/cpu-model" \
     --starts "$D/filter-2400/cal.jsonl" --out runs/benchmark/replay/fights.jsonl \
     --jobs 8 --prices .015 .006 --cap 3
@@ -33,4 +34,4 @@ TensorRT smoke: substitute `--gpu --jobs 1 --limit 1 --model "$(cat "$D/unified-
 
 ### Calibration run
 
-Local artifacts: `runs/benchmark/voi-combat-v1/{fights.jsonl,summary.json,run.log,gpu-smoke.jsonl}` in this worktree. Frozen iter003; same 360 starts in every arm, 120 per boss; simulator `0300837`. Intervals are paired, boss-stratified percentile bootstraps over decks (4,000 resamples). No capped fights. This is a development comparison, not a fresh held-out estimate. The benchmark refuses to overwrite an existing journal.
+Frozen iter003; same 360 starts in every arm, 120 per boss; simulator `0300837`. Intervals are paired, boss-stratified percentile bootstraps over decks (4,000 resamples). No capped fights. This is a development comparison, not a fresh held-out estimate. The benchmark refuses to overwrite an existing journal.

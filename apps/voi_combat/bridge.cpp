@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <array>
 #include <iostream>
+#include <random>
 #include <stdexcept>
 
 using namespace stsrl;
@@ -61,7 +62,8 @@ int main(int argc, char** argv) try {
     auto net = nn::load_network(argv[1], gpu ? nn::Backends::all : nn::Backends::cpu);
     for (std::string line; std::getline(std::cin, line);) {
         const auto start = Json::parse(line);
-        player::Fight fight{combat::start_battle(start), start.at("seed").get<std::uint64_t>()};
+        const auto seed = start.at("seed").get<std::uint64_t>();
+        player::Fight fight{combat::start_battle(start), seed};
         Scorer scorer{net, {}};
         while (!fight.over()) {
             const auto& s = fight.state();
@@ -69,7 +71,8 @@ int main(int argc, char** argv) try {
             const auto p = scorer.eval(s, actions);
             reply({{"logits", p.logits}, {"value", p.value}, {"step", fight.steps()}});
             // Separate from the true fight RNG; each probe buys a fresh world shared only within its pair.
-            auto random = fight.decision_random(player::Fight::RandomStream::thinking_probe);
+            std::seed_seq probe_seed{std::uint32_t(seed), std::uint32_t(seed >> 32), std::uint32_t(fight.steps()), 1u};
+            std::mt19937_64 random{probe_seed};
             while (true) {
                 auto c = command();
                 if (c.contains("play")) { fight.play(actions.at(c.at("play").get<size_t>())); break; }
