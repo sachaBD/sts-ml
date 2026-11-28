@@ -4,7 +4,9 @@ from math import log
 
 from agents.combat.search.voi_gym.evaluator import Q
 from agents.combat.search.voi_gym.model import Belief
-from agents.combat.search.voi_gym.root import CombatDecision, DEFAULT_INITIAL_SD_CAP, DEFAULT_PRIOR_SCALE
+from agents.combat.search.voi_gym.root import (
+    CombatDecision, DEFAULT_INITIAL_SD_CAP, DEFAULT_PRIOR_SCALE, DEFAULT_PROBE_SD, DEFAULT_SHORTLIST,
+)
 from environments.combat.card_duel import Duel, INTENTS, OPEN, RESPOND, SHOCKS, S, actions, margin, value
 
 
@@ -13,7 +15,7 @@ from .decision_view import DecisionView
 
 class Session:
     def __init__(self, seed=0, budget=3, price=.006, *, belief_factory=Belief, prior_scale=DEFAULT_PRIOR_SCALE,
-                 initial_sd_cap=DEFAULT_INITIAL_SD_CAP):
+                 initial_sd_cap=DEFAULT_INITIAL_SD_CAP, shortlist=DEFAULT_SHORTLIST, probe_sd=DEFAULT_PROBE_SD):
         if budget < 0 or price < 0:
             raise ValueError('negative budget or price')
         self.seed, self.budget, self.price = seed, budget, price
@@ -22,7 +24,8 @@ class Session:
         self.s_calls = 0
         v, p = self.evaluate(self.game.root)
         self.decision = CombatDecision(dict(value=v, logits=[log(probability) for probability in p]), belief_factory=belief_factory,
-                                       prior_scale=prior_scale, initial_sd_cap=initial_sd_cap)
+                                       prior_scale=prior_scale, initial_sd_cap=initial_sd_cap,
+                                       shortlist=shortlist, probe_sd=probe_sd)
         self.view = DecisionView(self.decision, OPEN, v, p, budget, price, prior_scale, initial_sd_cap)
         self.history = []
 

@@ -24,16 +24,22 @@ ul{list-style:none;margin:0;padding:0}li ul{margin-left:11px;padding-left:12px;b
 <main>
 <header>
   <h1>Measurement VOI <button type="button" id="help" aria-label="How to read this replay">?</button></h1>
+</header>
+<section class="panel" aria-labelledby="parameter-title">
+  <h2 id="parameter-title">Parameters</h2>
   <form id="settings">
     <label>Seed <input name="seed" type="number" min="0" max="4294967295" step="1" value="4" required></label>
-    <label>Budget <input name="budget" type="number" min="0" max="64" step="1" value="4" required></label>
+    <label>Pair budget <input name="budget" type="number" min="0" max="64" step="1" value="4" required></label>
+    <label>Policy shortlist <input name="shortlist" type="number" min="1" max="40" step="1" value="4" required></label>
     <label>Price / pair <input name="price" type="number" min="0" step="any" value="0.001" required></label>
     <label>Prior scale <input name="prior_scale" type="number" min="0" max="1" step="any" value="0.03" required></label>
     <label>Initial SD cap <input name="initial_sd_cap" type="number" min="0" max="0.5" step="any" value="0.06" required></label>
+    <label>Probe noise SD <input name="probe_sd" type="number" min="0.000001" max="1" step="any" value="0.08" required></label>
     <label>Uncertainty <select name="uncertainty"><option value="fixed">Fixed 1×</option><option value="adaptive">Adaptive 1× / 3×</option></select></label>
     <button type="submit">Run</button>
   </form>
-</header>
+  <div id="recorded-parameters" class="picker" hidden></div>
+</section>
 <section class="picker" aria-label="Replay source">
   <label>Fight <select id="fight"><option value="">Gym</option></select></label>
   <label id="native-picker" hidden>Turn / decision <select id="decision"></select></label>
@@ -227,6 +233,17 @@ function render() {
   const {frames} = replay;
   combatState(replay.combat);
   const {state, rows, selected, observation} = frames[index];
+  $('recorded-parameters').hidden = !replay.native;
+  if (replay.native) {
+    const initial = frames[0].state;
+    const parameters = [
+      ['Policy shortlist', state.shortlist], ['Pair budget', state.budget], ['Price / pair', `${pp(state.price, 2)} pp`],
+      ['Prior scale', state.prior_scale], ['Initial SD cap', pct(state.initial_sd_cap)], ['Probe noise SD', pct(state.probe_sd)],
+      ['Uncertainty', initial.scales.map((scale, i) => `${scale}× (${pct(initial.weights[i])})`).join(' / ')]
+    ];
+    $('recorded-parameters').innerHTML = '<b>Recorded</b>' + parameters.map(([label, value]) =>
+      `<span>${label}: <b>${escape(value)}</b></span>`).join('');
+  }
   const prev = frames[index-1]?.state;
   const observed = frames[index-1]?.rows.find(row => row.id === observation?.id);
   const z = observation ? (observation.observation - observed.predicted) / observed.base_sd : null;
@@ -237,15 +254,14 @@ function render() {
   $('position').disabled = frames.length === 1;
   $('back').disabled = index === 0;
   $('next').disabled = selected === null;
-  $('step').textContent = `Step ${index} / ${frames.length-1} · Pairs ${state.spent} / ${state.budget}` +
-    (replay.native ? ` · Price ${pp(state.price, 2)} pp` : '');
+  $('step').textContent = `Step ${index} / ${frames.length-1} · Pairs ${state.spent} / ${state.budget}`;
   const reason = state.spent >= state.budget ? 'Budget exhausted' : 'No positive net gain';
   $('commit').textContent = selected === null ? `${replay.native ? 'Played' : 'Play'}: ${state.move} · ${reason}` : '';
   $('calls').textContent = replay.native ? `NN evals: ${state.q_calls} · Rollout actions: ${state.s_calls}` :
     `Q calls: ${state.q_calls} · S calls: ${state.s_calls}`;
-  const excluded = replay.excluded ?? [];
+  const excluded = replay.excluded ?? Object.keys(state.prior).filter(action => !state.actions.includes(action));
   $('excluded').hidden = !excluded.length;
-  $('excluded').querySelector('summary').textContent = `Outside shortlist (${excluded.length})`;
+  $('excluded').querySelector('summary').textContent = `Outside shortlist (${excluded.length}) · top ${state.shortlist} by policy`;
   $('excluded').querySelector('ul').innerHTML = excluded.map(a => `<li>${escape(a)}</li>`).join('');
   $('observation').innerHTML = (observation ? `
     <span class="observation"><b>Observed</b> ${measurement(observed)}</span>
@@ -369,6 +385,7 @@ $('settings').onsubmit = event => { event.preventDefault(); loadGym(); };
 $('fight').onchange = () => {
   const gym = $('fight').value === '';
   $('settings').hidden = !gym;
+  $('recorded-parameters').hidden = gym;
   $('native-picker').hidden = gym;
   if (gym) { loadGym(); return; }
   const choices = fights[Number($('fight').value)].decisions;

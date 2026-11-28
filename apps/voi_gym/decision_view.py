@@ -17,6 +17,7 @@ class DecisionView:
         weights = np.exp(b.log_weights)
         scale_variance = float(weights @ b.scales**2)
         return dict(spent=spent, budget=self.budget, price=self.price,
+                    shortlist=d.shortlist, probe_sd=d.probe_sd,
                     move=self.labels[d.move()], root_q={self.labels[a]: float(v) for a, v in zip(d.actions, b.mean)},
                     actions=[self.labels[a] for a in d.actions],
                     root_value=self.root_value, prior_scale=self.prior_scale, initial_sd_cap=self.initial_sd_cap,

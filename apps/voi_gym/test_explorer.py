@@ -64,3 +64,15 @@ class ExplorerTests(unittest.TestCase):
         self.assertEqual(mixed[0]['state']['scales'], [1., 3.])
         self.assertEqual(fixed[0]['state']['root_q'], mixed[0]['state']['root_q'])
         self.assertNotEqual(mixed[-1]['state']['weights'], mixed[0]['state']['weights'])
+
+    def test_shortlist_and_noise_are_effective_parameters(self):
+        frame = replay(4, 0, 0, shortlist=2, probe_sd=.12)['frames'][0]
+        s = frame['state']
+        self.assertEqual(s['actions'], sorted(s['prior'], key=s['prior'].get, reverse=True)[:2])
+        row, = frame['rows']
+        self.assertAlmostEqual(row['noise_var'], .12**2)
+        self.assertEqual(s['shortlist'], 2)
+        self.assertEqual(s['probe_sd'], .12)
+        only, = replay(4, 4, 0, shortlist=1)['frames']
+        self.assertEqual(only['rows'], [])
+        self.assertIsNone(only['selected'])

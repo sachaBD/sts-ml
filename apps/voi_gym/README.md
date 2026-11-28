@@ -33,4 +33,5 @@ $PY -m apps.voi_gym.explorer --host 0.0.0.0 --port 8006 --recordings runs/fight-
 Native counters are local to the selected decision. NN evaluations count
 cache misses (including the root); rollout actions count every simulated action,
 including forced actions, but not actions taken in the actual fight. Recordings
-use fixed 1× and have a frozen probe price and budget.
+show the settings used at capture time. Pass `--help` to the recorder for
+shortlist, noise, prior, uncertainty, price, and budget options.

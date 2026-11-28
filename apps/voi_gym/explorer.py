@@ -6,18 +6,22 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
 from agents.combat.search.voi_gym.model import Belief, adaptive_belief, buy
-from agents.combat.search.voi_gym.root import DEFAULT_INITIAL_SD_CAP, DEFAULT_PRIOR_SCALE
+from agents.combat.search.voi_gym.root import (
+    DEFAULT_INITIAL_SD_CAP, DEFAULT_PRIOR_SCALE, DEFAULT_PROBE_SD, DEFAULT_SHORTLIST,
+)
 
 from .session import Session
 
 
 def replay(seed, budget, price, prior_scale=DEFAULT_PRIOR_SCALE, initial_sd_cap=DEFAULT_INITIAL_SD_CAP,
-           *, belief_factory=Belief):
+           *, belief_factory=Belief, shortlist=DEFAULT_SHORTLIST, probe_sd=DEFAULT_PROBE_SD):
     if not (0 <= seed < 2**32 and 0 <= budget <= 64 and isfinite(price) and price >= 0
-            and 0 <= prior_scale <= 1 and 0 <= initial_sd_cap <= .5):
+            and 0 <= prior_scale <= 1 and 0 <= initial_sd_cap <= .5
+            and 1 <= shortlist <= 40 and 0 < probe_sd <= 1):
         raise ValueError('Invalid replay settings')
     session = Session(seed=seed, budget=budget, price=price, prior_scale=prior_scale,
-                      initial_sd_cap=initial_sd_cap, belief_factory=belief_factory)
+                      initial_sd_cap=initial_sd_cap, belief_factory=belief_factory,
+                      shortlist=shortlist, probe_sd=probe_sd)
     frames = []
     observation = None
     while True:
@@ -60,7 +64,8 @@ class Explorer(BaseHTTPRequestHandler):
                     decision = int(params.get('decision', ['0'])[0])
                     if fight < 0 or decision < 0:
                         raise ValueError('Invalid recording index')
-                    self.send_json(dict(native=True, **self.server.fights[fight]['decisions'][decision]))
+                    recording = self.server.fights[fight]['decisions'][decision]
+                    self.send_json(dict(native=True, **recording))
                     return
                 mode = params.get('uncertainty', ['fixed'])[0]
                 if mode not in ('fixed', 'adaptive'):
@@ -70,7 +75,9 @@ class Explorer(BaseHTTPRequestHandler):
                               float(params.get('price', ['.001'])[0]),
                               float(params.get('prior_scale', [DEFAULT_PRIOR_SCALE])[0]),
                               float(params.get('initial_sd_cap', [DEFAULT_INITIAL_SD_CAP])[0]),
-                              belief_factory=adaptive_belief if mode == 'adaptive' else Belief)
+                              belief_factory=adaptive_belief if mode == 'adaptive' else Belief,
+                              shortlist=int(params.get('shortlist', [DEFAULT_SHORTLIST])[0]),
+                              probe_sd=float(params.get('probe_sd', [DEFAULT_PROBE_SD])[0]))
                 self.send_json(data)
             except (ValueError, IndexError):
                 self.send_json(dict(error='Invalid replay settings'), status=400)
@@ -88,6 +95,12 @@ def main():
     if args.recordings:
         with args.recordings.open() as rows:
             fights = [json.loads(row) for row in rows]
+        # Recordings made before these knobs were exposed used the original constants.
+        for fight in fights:
+            for decision in fight['decisions']:
+                for frame in decision['frames']:
+                    frame['state'].setdefault('shortlist', 4)
+                    frame['state'].setdefault('probe_sd', .08)
     with ThreadingHTTPServer((args.host, args.port), Explorer) as server:
         server.fights = fights
         print(f'VOI explorer: http://{args.host}:{args.port}/', flush=True)
