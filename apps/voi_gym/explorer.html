@@ -78,7 +78,7 @@ const pp = (x, digits = 4) => (100*x).toFixed(digits);
 const delta = (x, prev) => prev == null || pp(x-prev, 2) === '0.00' || pp(x-prev, 2) === '-0.00'
   ? '' : `${x > prev ? '+' : ''}${pp(x-prev, 2)}`;
 const escape = text => String(text).replace(/[&<>"']/g, c => ({'&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;'}[c]));
-const measurement = row => `${escape(row.left)} − ${escape(row.right)}`;
+const measurement = row => `${escape(row.left)} vs ${escape(row.right)}`;
 let replay, index = 0, equations = [];
 const f = x => Number(x.toPrecision(5));
 const vector = xs => `[${xs.map(f).join(', ')}]`;
