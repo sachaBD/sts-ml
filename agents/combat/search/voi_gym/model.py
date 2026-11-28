@@ -104,3 +104,16 @@ class Belief:
         intercepts, slopes = reaches @ self.mean, reaches @ shift
         return sum(float(w)*envelope_gain(intercepts, slopes*s)
                    for w, s in zip(np.exp(self.log_weights), self.scales))
+
+
+def rank_measurements(belief, reaches, measurements, price, remaining):
+    rows = []
+    for m in measurements:
+        gain = belief.voi(m, reaches)
+        rows.append(dict(id=m.name, gain=gain, cost=m.cost, net=gain-price*m.cost,
+                         affordable=m.cost <= remaining))
+    return sorted(rows, key=lambda r: r['net'], reverse=True)
+
+
+def buy(rows):
+    return next((r['id'] for r in rows if r['affordable'] and r['net'] > 0), None)

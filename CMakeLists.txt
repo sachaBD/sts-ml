@@ -85,3 +85,4 @@ add_subdirectory(agents/combat/nn)
 add_subdirectory(agents/combat/player)
 
 add_subdirectory(apps/combat_inspector)
+add_subdirectory(apps/voi_combat)

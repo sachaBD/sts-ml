@@ -3,7 +3,7 @@ from copy import deepcopy
 
 import numpy as np
 
-from agents.combat.search.voi_gym.model import Belief, Chance, Choice, Leaf, Measurement, policies
+from agents.combat.search.voi_gym.model import Belief, Chance, Choice, Leaf, Measurement, policies, rank_measurements, buy
 from environments.combat.card_duel import Duel, OPEN, INTENTS, RESPOND
 
 
@@ -48,17 +48,16 @@ class Session:
                     history=deepcopy(self.history))
 
     def candidates(self):
-        rows = []
-        for m in self.measurements.values():
-            gain = self.belief.voi(m, self.reaches)
-            rows.append(dict(id=m.name, gain=gain, cost=m.cost, net=gain-self.price*m.cost,
-                             terms={'/'.join(p): float(w) for p, w in zip(self.game.labels, m.h) if w},
-                             affordable=self.spent+m.cost <= self.budget))
-        return sorted(rows, key=lambda r: r['net'], reverse=True)
+        rows = rank_measurements(self.belief, self.reaches, self.measurements.values(),
+                                 self.price, self.budget - self.spent)
+        for row in rows:
+            h = self.measurements[row['id']].h
+            row['terms'] = {'/'.join(p): float(w) for p, w in zip(self.game.labels, h) if w}
+        return rows
 
     def step(self, candidate_id=None):
         if candidate_id is None:
-            candidate_id = next((r['id'] for r in self.candidates() if r['affordable'] and r['net'] > 0), None)
+            candidate_id = buy(self.candidates())
             if candidate_id is None:
                 return None
         m = self.measurements[candidate_id]
