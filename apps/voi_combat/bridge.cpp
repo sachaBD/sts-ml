@@ -3,10 +3,12 @@
 #include "agents/combat/player/decision.hpp"
 #include "environments/combat/fight_start.hpp"
 #include "environments/combat/public.hpp"
+#include "constants/MonsterEncounters.h"
 #include <algorithm>
 #include <array>
 #include <iostream>
 #include <random>
+#include <sstream>
 #include <stdexcept>
 
 using namespace stsrl;
@@ -19,6 +21,12 @@ Json command() {
     return Json::parse(line);
 }
 void reply(const Json& j) { std::cout << j.dump() << std::endl; }
+
+std::string describe(combat::Action action, const sts::BattleContext& state) {
+    std::ostringstream text;
+    action.printDesc(text, state);
+    return text.str();
+}
 
 struct Scorer {
     nn::Network& net;
@@ -39,8 +47,12 @@ struct Scorer {
         return p;
     }
 
-    double rollout(const sts::BattleContext& world, std::uint64_t key, int elapsed) {
-        player::Fight f{world, 0};
+    double rollout(const sts::BattleContext& world, std::uint64_t key, int elapsed, Json* path, const char*& endpoint) {
+        player::Fight::ActionObserver observer;
+        if (path) observer = [path](const auto& state, auto action, bool forced) {
+            path->push_back({{"action", describe(action, state)}, {"forced", forced}});
+        };
+        player::Fight f{world, 0, std::move(observer)};
         auto actions = combat::legal_actions(f.state());
         auto move = std::ranges::find_if(actions, [&](auto a){ return combat::action_key(f.state(), a) == key; });
         if (move == actions.end()) throw std::runtime_error{"public move missing from particle"};
@@ -48,17 +60,24 @@ struct Scorer {
         while (!f.over() && elapsed + f.steps() < player::Fight::max_steps) {
             actions = combat::legal_actions(f.state());
             const auto p = eval(f.state(), actions);
-            if (f.state().turn != world.turn) return p.value;
+            if (f.state().turn != world.turn) { endpoint = "Next turn"; return p.value; }
             f.play(actions.at(std::ranges::max_element(p.logits) - p.logits.begin()));
         }
+        endpoint = f.state().outcome == sts::Outcome::UNDECIDED ? "Limit" : "Terminal";
         return double(f.state().outcome == sts::Outcome::PLAYER_VICTORY);
     }
 };
 }
 
 int main(int argc, char** argv) try {
-    const bool gpu = argc == 3 && std::string_view(argv[2]) == "--gpu";
-    if (!gpu && argc != 2) throw std::invalid_argument{"usage: voi_combat_bridge MODEL_DIR [--gpu]"};
+    bool gpu = false, trace = false;
+    if (argc < 2) throw std::invalid_argument{"usage: voi_combat_bridge MODEL_DIR [--gpu] [--trace]"};
+    for (int i = 2; i < argc; ++i) {
+        const std::string_view flag{argv[i]};
+        if (flag == "--gpu") gpu = true;
+        else if (flag == "--trace") trace = true;
+        else throw std::invalid_argument{"unknown bridge option"};
+    }
     auto net = nn::load_network(argv[1], gpu ? nn::Backends::all : nn::Backends::cpu);
     for (std::string line; std::getline(std::cin, line);) {
         const auto start = Json::parse(line);
@@ -68,8 +87,16 @@ int main(int argc, char** argv) try {
         while (!fight.over()) {
             const auto& s = fight.state();
             auto actions = combat::legal_actions(s);
+            const int before_root = scorer.requests;
             const auto p = scorer.eval(s, actions);
-            reply({{"logits", p.logits}, {"value", p.value}, {"step", fight.steps()}});
+            Json root{{"logits", p.logits}, {"value", p.value}, {"step", fight.steps()}};
+            if (trace) {
+                root["requests"] = scorer.requests - before_root;
+                root["turn"] = s.turn;
+                root["actions"] = Json::array();
+                for (auto action : actions) root["actions"].push_back(describe(action, s));
+            }
+            reply(root);
             // Separate from the true fight RNG; each probe buys a fresh world shared only within its pair.
             std::seed_seq probe_seed{std::uint32_t(seed), std::uint32_t(seed >> 32), std::uint32_t(fight.steps()), 1u};
             std::mt19937_64 random{probe_seed};
@@ -79,12 +106,25 @@ int main(int argc, char** argv) try {
                 auto pair = c.at("pair").get<std::array<size_t, 2>>();
                 const auto world = combat::particles(s, 1, random()).front();
                 const int before = scorer.requests;
-                const double a = scorer.rollout(world, combat::action_key(s, actions.at(pair[0])), fight.steps());
-                const double b = scorer.rollout(world, combat::action_key(s, actions.at(pair[1])), fight.steps());
-                reply({{"difference", a-b}, {"requests", scorer.requests-before}});
+                std::array<double, 2> values{};
+                Json branches = Json::array();
+                for (std::size_t i = 0; i < pair.size(); ++i) {
+                    Json path = Json::array();
+                    const char* endpoint;
+                    const int requests = scorer.requests;
+                    values[i] = scorer.rollout(world, combat::action_key(s, actions.at(pair[i])), fight.steps(),
+                                               trace ? &path : nullptr, endpoint);
+                    if (trace) branches.push_back({{"action", pair[i]}, {"value", values[i]}, {"path", std::move(path)},
+                                                   {"end", endpoint}, {"requests", scorer.requests-requests}});
+                }
+                Json result{{"difference", values[0]-values[1]}, {"requests", scorer.requests-before}};
+                if (trace) result["branches"] = std::move(branches);
+                reply(result);
             }
         }
-        reply({{"win", fight.state().outcome == sts::Outcome::PLAYER_VICTORY}, {"requests", scorer.requests},
-               {"gpu_requests", scorer.gpu_requests}, {"capped", fight.state().outcome == sts::Outcome::UNDECIDED}});
+        Json result{{"win", fight.state().outcome == sts::Outcome::PLAYER_VICTORY}, {"requests", scorer.requests},
+                    {"gpu_requests", scorer.gpu_requests}, {"capped", fight.state().outcome == sts::Outcome::UNDECIDED}};
+        if (trace) result["name"] = sts::monsterEncounterStrings[start.at("encounter").get<std::size_t>()];
+        reply(result);
     }
 } catch (const std::exception& e) { std::cerr << e.what() << '\n'; return 1; }

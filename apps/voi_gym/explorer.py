@@ -29,7 +29,16 @@ def replay(seed, budget, price, prior_scale=DEFAULT_PRIOR_SCALE, initial_sd_cap=
         observation = session.step()
 
 
+def catalog(fights):
+    return [dict(name=fight['name'], id=fight['id'], win=fight['win'],
+                 decisions=[dict(turn=d['turn'], step=d['step'], probes=len(d['frames'])-1)
+                            for d in fight['decisions']]) for fight in fights]
+
+
 class Explorer(BaseHTTPRequestHandler):
+    def send_json(self, data, status=200):
+        self.send(status, 'application/json', json.dumps(data, allow_nan=False).encode())
+
     def send(self, status, kind, body):
         self.send_response(status)
         self.send_header('Content-Type', kind)
@@ -41,9 +50,18 @@ class Explorer(BaseHTTPRequestHandler):
         url = urlsplit(self.path)
         if url.path == '/':
             self.send(200, 'text/html; charset=utf-8', Path(__file__).with_suffix('.html').read_bytes())
+        elif url.path == '/api/fights':
+            self.send_json(catalog(self.server.fights))
         elif url.path == '/api/replay':
             params = parse_qs(url.query, keep_blank_values=True)
             try:
+                if 'fight' in params:
+                    fight = int(params['fight'][0])
+                    decision = int(params.get('decision', ['0'])[0])
+                    if fight < 0 or decision < 0:
+                        raise ValueError('Invalid recording index')
+                    self.send_json(dict(native=True, **self.server.fights[fight]['decisions'][decision]))
+                    return
                 mode = params.get('uncertainty', ['fixed'])[0]
                 if mode not in ('fixed', 'adaptive'):
                     raise ValueError('Invalid uncertainty mode')
@@ -53,11 +71,9 @@ class Explorer(BaseHTTPRequestHandler):
                               float(params.get('prior_scale', [DEFAULT_PRIOR_SCALE])[0]),
                               float(params.get('initial_sd_cap', [DEFAULT_INITIAL_SD_CAP])[0]),
                               belief_factory=adaptive_belief if mode == 'adaptive' else Belief)
-                body = json.dumps(data, allow_nan=False).encode()
-            except ValueError:
-                self.send(400, 'application/json', b'{"error":"Invalid replay settings"}')
-            else:
-                self.send(200, 'application/json', body)
+                self.send_json(data)
+            except (ValueError, IndexError):
+                self.send_json(dict(error='Invalid replay settings'), status=400)
         else:
             self.send_error(404)
 
@@ -66,8 +82,14 @@ def main():
     parser = argparse.ArgumentParser(description='Serve the measurement VOI explorer')
     parser.add_argument('--host', default='127.0.0.1')
     parser.add_argument('--port', type=int, default=8006)
+    parser.add_argument('--recordings', type=Path)
     args = parser.parse_args()
+    fights = []
+    if args.recordings:
+        with args.recordings.open() as rows:
+            fights = [json.loads(row) for row in rows]
     with ThreadingHTTPServer((args.host, args.port), Explorer) as server:
+        server.fights = fights
         print(f'VOI explorer: http://{args.host}:{args.port}/', flush=True)
         server.serve_forever()
 

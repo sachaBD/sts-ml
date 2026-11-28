@@ -3,6 +3,7 @@
 #include "agents/combat/player/targets.hpp"
 #include "agents/combat/search/search.hpp"
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <random>
 #include <span>
@@ -13,7 +14,8 @@ class Fight {
 public:
     static constexpr int max_turns = 50, max_steps = 512;  // an undecided fight past either is lost
 
-    Fight(const sts::BattleContext& start, std::uint64_t seed);
+    using ActionObserver = std::function<void(const sts::BattleContext&, search::Action, bool forced)>;
+    Fight(const sts::BattleContext& start, std::uint64_t seed, ActionObserver observe_action = {});
     const sts::BattleContext& state() const { return state_; }
     int steps() const { return steps_; }  // forced moves included
     const std::vector<Vitals>& turn_starts() const { return turn_starts_; }
@@ -30,6 +32,7 @@ private:
     int steps_ = 0;
     bool after_chance_ = true;  // the fight begins by drawing a hand
     std::vector<Vitals> turn_starts_;
+    ActionObserver observe_action_;
 };
 
 // Predictions keyed by the exact request that produced them.

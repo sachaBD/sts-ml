@@ -18,3 +18,19 @@ including the forced resolve action. Sampling a world is not an `S` call.
 
 The default belief uses a fixed 1× scale. Select **Adaptive 1× / 3×** in the
 explorer or pass `--adaptive-scale` to opt into the original mixture.
+
+## Native fight recordings
+
+Build `voi_combat_bridge` and use a local exported CPU model and starts JSONL
+(see `apps/voi_combat/README.md`). Then record and serve them alongside the gym:
+
+```sh
+$PY -m apps.voi_gym.record_combat --bridge build/main/apps/voi_combat/voi_combat_bridge \
+  --model "$MODEL_DIR" --starts "$STARTS_JSONL" --out runs/fight-replays.jsonl --limit 3
+$PY -m apps.voi_gym.explorer --host 0.0.0.0 --port 8006 --recordings runs/fight-replays.jsonl
+```
+
+Native counters are local to the selected decision. NN evaluations count
+cache misses (including the root); rollout actions count every simulated action,
+including forced actions, but not actions taken in the actual fight. Recordings
+use fixed 1× and have a frozen probe price and budget.

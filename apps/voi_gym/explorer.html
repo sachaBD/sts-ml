@@ -9,7 +9,7 @@
 @media(prefers-color-scheme:dark){:root{--bg:#15181e;--panel:#1e232b;--ink:#edf0f4;--muted:#b4bfce;--line:#3b4656;--active:#213f36;--trace:#a8caff}}
 *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.4 system-ui,sans-serif;font-variant-numeric:tabular-nums}
 main{max-width:1500px;margin:auto;padding:16px;display:grid;gap:12px}header,form,nav,.stats{display:flex;align-items:center;gap:8px 14px;flex-wrap:wrap}
-header{justify-content:space-between}h1,h2{margin:0;font-size:17px}h2{font-size:14px}label{display:inline-flex;align-items:center;gap:5px}
+header{justify-content:space-between}[hidden]{display:none!important}.picker{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.excluded{margin-top:8px;color:var(--muted)}h1,h2{margin:0;font-size:17px}h2{font-size:14px}label{display:inline-flex;align-items:center;gap:5px}
 input,select,button{font:inherit;color:inherit;background:var(--panel);border:1px solid var(--line);border-radius:5px;padding:4px 8px}input[type=number]{width:90px}input[type=range]{padding:0;width: min(190px,40vw);accent-color:var(--trace)}button:enabled{cursor:pointer}button:disabled{opacity:.5}
 .panel,nav,.stats{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:10px 12px}.stats{min-height:42px;color:var(--muted)}.stats b{color:var(--ink)}#status:not(:empty){padding:4px;color:var(--trace)}
 .grid{display:grid;grid-template-columns:minmax(0,1.04fr) minmax(0,1fr);gap:12px;align-items:start}.scroll{overflow-x:auto}table{width:100%;border-collapse:collapse;white-space:nowrap}th,td{text-align:right;border-bottom:1px solid var(--line);padding:4px 6px}th:nth-child(2),td:nth-child(2){text-align:left}th{font-size:12px;color:var(--muted)}tr:last-child td{border-bottom:0}.selected,.plan{background:var(--active);font-weight:650}.unaffordable{color:var(--muted)}.scouted{box-shadow:inset 3px 0 var(--trace)}
@@ -34,11 +34,16 @@ ul{list-style:none;margin:0;padding:0}li ul{margin-left:11px;padding-left:12px;b
     <button type="submit">Run</button>
   </form>
 </header>
+<section class="picker" aria-label="Replay source">
+  <label>Fight <select id="fight"><option value="">Gym</option></select></label>
+  <label id="native-picker" hidden>Turn / decision <select id="decision"></select></label>
+</section>
 <nav aria-label="Replay">
   <button type="button" id="back" disabled>← Back</button>
   <input type="range" id="position" aria-label="Replay step" min="0" max="0" value="0" disabled>
   <button type="button" id="next" disabled>Next →</button>
   <output id="step" for="position"></output>
+  <b id="commit"></b>
   <b id="calls"></b>
   <span id="status" role="status"></span>
 </nav>
@@ -55,6 +60,7 @@ ul{list-style:none;margin:0;padding:0}li ul{margin-left:11px;padding-left:12px;b
     <h2 id="decision-tree">Decision tree</h2>
     <div class="tree-label"><span></span><span>Policy prior</span><span>Estimated value ± SD</span></div>
     <ul id="tree"></ul>
+    <details class="excluded" id="excluded" hidden><summary></summary><ul></ul></details>
   </section>
 </div>
 </main>
@@ -70,14 +76,15 @@ const pct = x => `${(100*x).toFixed(2)}%`;
 const pp = (x, digits = 4) => (100*x).toFixed(digits);
 const delta = (x, prev) => prev == null || pp(x-prev, 2) === '0.00' || pp(x-prev, 2) === '-0.00'
   ? '' : `${x > prev ? '+' : ''}${pp(x-prev, 2)}`;
-const measurement = row => `${row.left} − ${row.right}`;
+const escape = text => String(text).replace(/[&<>"']/g, c => ({'&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;'}[c]));
+const measurement = row => `${escape(row.left)} − ${escape(row.right)}`;
 let replay, index = 0, equations = [];
 const f = x => Number(x.toPrecision(5));
 const vector = xs => `[${xs.map(f).join(', ')}]`;
 const weighted = (weights, values) => weights.map((w, i) => `${f(w)} × ${f(values[i])}`).join(' + ');
 function formula(text, title, lines) {
   const id = equations.push({title, lines})-1;
-  return `<button type="button" class="formula" data-formula="${id}" aria-label="${title}: ${text}">${text}</button>`;
+  return `<button type="button" class="formula" data-formula="${id}" aria-label="${escape(title)}: ${escape(text)}">${escape(text)}</button>`;
 }
 const explanations = {
   'Expected gain (pp)': 'Gain is how much better you expect your final choice to be, averaged over possible results, before paying for the probe. It is not the expected score of either rollout.',
@@ -123,10 +130,12 @@ function mathLine(text) {
     symbol.type = 'button';
     symbol.className = 'math-symbol';
     symbol.textContent = token;
-    symbol.title = symbols[key];
-    symbol.setAttribute('aria-label', `${token}: ${symbols[key]}`);
+    const definition = key === 'Q' && replay?.native
+      ? 'The native combat network returns a value and action logits; the policy prior is their softmax.' : symbols[key];
+    symbol.title = definition;
+    symbol.setAttribute('aria-label', `${token}: ${definition}`);
     const define = () => {
-      $('symbol-help').textContent = `${token} — ${symbols[key]}`;
+      $('symbol-help').textContent = `${token} — ${definition}`;
       $('symbol-help').hidden = false;
     };
     symbol.onfocus = symbol.onclick = define;
@@ -158,7 +167,7 @@ document.querySelector('main').addEventListener('click', event => {
   const description = explanations[title] ?? (title.endsWith('belief SD')
     ? 'This is uncertainty about the move’s underlying value, not how much a single rollout might vary. A probe reduces uncertainty in the comparison it measures.'
     : index === 0
-      ? 'The first Q call anchors the leader at the root value. Other moves start below it according to their policy-prior gap.'
+      ? 'The root evaluation anchors the leader at its value. Other moves start below it according to their policy-prior gap.'
       : 'The agent starts from the previous estimate, then moves it according to how far the paired result was from its prediction and how much the comparison tells it about this move.');
   explain(title, description, lines);
 });
@@ -204,8 +213,16 @@ function render() {
   $('position').disabled = frames.length === 1;
   $('back').disabled = index === 0;
   $('next').disabled = selected === null;
-  $('step').textContent = `Step ${index} / ${frames.length-1} · Pairs ${state.spent} / ${state.budget}`;
-  $('calls').textContent = `Q calls: ${state.q_calls} · S calls: ${state.s_calls}`;
+  $('step').textContent = `Step ${index} / ${frames.length-1} · Pairs ${state.spent} / ${state.budget}` +
+    (replay.native ? ` · Price ${pp(state.price, 2)} pp` : '');
+  const reason = state.spent >= state.budget ? 'Budget exhausted' : 'No positive net gain';
+  $('commit').textContent = selected === null ? `${replay.native ? 'Played' : 'Play'}: ${state.move} · ${reason}` : '';
+  $('calls').textContent = replay.native ? `NN evals: ${state.q_calls} · Rollout actions: ${state.s_calls}` :
+    `Q calls: ${state.q_calls} · S calls: ${state.s_calls}`;
+  const excluded = replay.excluded ?? [];
+  $('excluded').hidden = !excluded.length;
+  $('excluded').querySelector('summary').textContent = `Outside shortlist (${excluded.length})`;
+  $('excluded').querySelector('ul').innerHTML = excluded.map(a => `<li>${escape(a)}</li>`).join('');
   $('observation').innerHTML = (observation ? `
     <span class="observation"><b>Observed</b> ${measurement(observed)}</span>
     <span>Predicted ${formula(`${pp(observed.predicted, 2)} ± ${pp(observed.predictive_sd, 2)} pp`, 'Predictive mean ± SD', probeMath(observed, prev))}</span>
@@ -251,12 +268,18 @@ function render() {
     const paths = frames.slice(1, index+1).map(({observation: obs}, j) => {
       const branch = obs.branches.find(b => b.move === action);
       if (!branch) return '';
-      const path = [branch.path[0].action, branch.path[0].state, ...branch.path.slice(1).map(hop => hop.action), branch.path.at(-1).state];
+      const path = replay.native ? [...branch.path.map(hop => hop.action + (hop.forced ? ' (forced)' : '')), branch.end] :
+        [branch.path[0].action, branch.path[0].state, ...branch.path.slice(1).map(hop => hop.action), branch.path.at(-1).state];
+      const detail = replay.native ? [
+        ['Read this rollout’s endpoint.', `${branch.end}: V = ${f(branch.value)}`],
+        ['Count uncached network evaluations and simulated actions.', `NN evals = ${branch.requests}\nRollout actions = ${branch.path.length}`]
+      ] : [
+        ['Read the final score of this rollout.', `score = ${branch.score}`],
+        branch.path.at(-1).state === 'Terminal' ? ['Use the terminal outcome directly.', `V = 1[score ≥ 12] = ${f(branch.value)}`] :
+          ['Use the toy evaluator’s value at the next turn.', `V = Q(s).v = 1 / (1 + exp(−score / 7)) = ${f(branch.value)}`]
+      ];
       return group(`<div class="node rollout ${j+1 === index ? 'scouted' : ''}">
-        <span>#${j+1} · ${path.join(' → ')}</span><span>${formula(pct(branch.value), 'Rollout endpoint value', [
-          ['Read the final score of this rollout.', `score = ${branch.score}`],
-          branch.path.at(-1).state === 'Terminal' ? ['Use the terminal outcome directly.', `V = 1[score ≥ 12] = ${f(branch.value)}`] :
-            ['Use the toy evaluator’s value at the next turn.', `V = Q(s).v = 1 / (1 + exp(−score / 7)) = ${f(branch.value)}`]])}</span></div>`);
+        <span>#${j+1} · ${escape(path.join(' → '))}</span><span>${formula(pct(branch.value), 'Rollout endpoint value', detail)}</span></div>`);
     }).join('');
     const change = delta(value, prev?.root_q[action]);
     const mean = formula(pct(value), `${action}: estimated value`, observed ? [
@@ -272,12 +295,12 @@ function render() {
         `SDᵢ = √(Cᵢᵢ × Σⱼ wⱼ sⱼ²)\n    = √(${f(state.covariance[i][i])} × (${scaleVariance})) = ${f(state.sd[action])}`] :
         ['Take the square root of the move’s variance.', `SDᵢ = √Cᵢᵢ = √${f(state.covariance[i][i])} = ${f(state.sd[action])}`]
     ]);
-    return group(`<div class="node move ${action === state.move ? 'plan' : ''}"><b>${action}</b>
+    return group(`<div class="node move ${action === state.move ? 'plan' : ''}"><b>${escape(action)}</b>
       <span>${pct(state.prior[action])}</span>
       <span>${mean} ± ${sd} ${change ? `<span class="delta">(${formula(`${change} pp`, 'Change in value', [
         ['Subtract the previous estimate from the new one.', `Δ = 100 × (μ′ − μ) = 100 × (${f(value)} − ${f(prev.root_q[action])})`]])})</span>` : ''}</span></div>`, paths);
   }).join('');
-  $('tree').innerHTML = group(`<div class="node"><b>Open</b><span class="root-values">
+  $('tree').innerHTML = group(`<div class="node"><b>${replay.native ? `Turn ${replay.turn+1} · Action ${replay.step+1}` : 'Open'}</b><span class="root-values">
     <span>Q value: <b>${pct(state.root_value)}</b></span>
     <span>Prior scale: <b>${state.prior_scale}</b></span>
     <span>Initial SD cap: <b>${pct(state.initial_sd_cap)}</b></span></span></div>`, moves);
@@ -296,25 +319,58 @@ window.addEventListener('keydown', event => {
   if (event.key === 'ArrowLeft') move(index-1);
   if (event.key === 'ArrowRight') move(index+1);
 });
-$('settings').onsubmit = async event => {
-  event.preventDefault();
-  const run = $('settings').querySelector('button');
+let fights = [], request = 0;
+async function load(params) {
+  const id = ++request;
+  const run = $('settings').querySelector('button[type=submit]');
   run.disabled = true;
   $('status').textContent = 'Loading…';
   try {
-    const response = await fetch('/api/replay?' + new URLSearchParams(new FormData($('settings'))));
+    const response = await fetch('/api/replay?' + params);
     const data = await response.json();
+    if (id !== request) return;
     if (!response.ok) throw Error(data.error);
     replay = data;
     move(0);
     $('status').textContent = '';
   } catch (error) {
-    $('status').textContent = error.message;
+    if (id === request) $('status').textContent = error.message;
   } finally {
-    run.disabled = false;
+    if (id === request) run.disabled = false;
   }
+}
+const loadGym = () => load(new URLSearchParams(new FormData($('settings'))));
+const loadDecision = () => load(new URLSearchParams({fight:$('fight').value, decision:$('decision').value}));
+$('settings').onsubmit = event => { event.preventDefault(); loadGym(); };
+$('fight').onchange = () => {
+  const gym = $('fight').value === '';
+  $('settings').hidden = !gym;
+  $('native-picker').hidden = gym;
+  if (gym) { loadGym(); return; }
+  const choices = fights[Number($('fight').value)].decisions;
+  const select = $('decision');
+  select.replaceChildren();
+  let turn, group;
+  for (const [i, d] of choices.entries()) {
+    if (group === undefined || turn !== d.turn) {
+      turn = d.turn;
+      group = document.createElement('optgroup');
+      group.label = `Turn ${turn+1}`;
+      select.append(group);
+    }
+    group.append(new Option(`T${turn+1} · Action ${d.step+1} · ${d.probes} probes`, i));
+  }
+  select.value = Math.max(0, choices.findIndex(d => d.probes > 0));
+  loadDecision();
 };
-$('settings').requestSubmit();
+$('decision').onchange = loadDecision;
+fetch('/api/fights').then(response => response.json()).then(data => {
+  fights = data;
+  for (const [i, fight] of fights.entries()) {
+    if (fight.decisions.length) $('fight').add(new Option(`${fight.name} · ${i+1}`, i));
+  }
+}).catch(() => { $('fight').title = 'Fight recordings unavailable'; });
+loadGym();
 </script>
 </body>
 </html>

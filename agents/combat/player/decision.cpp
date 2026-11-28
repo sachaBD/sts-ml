@@ -5,7 +5,8 @@
 #include <string_view>
 
 namespace stsrl::player {
-Fight::Fight(const sts::BattleContext& start, std::uint64_t seed) : state_{start}, seed_{seed} {
+Fight::Fight(const sts::BattleContext& start, std::uint64_t seed, ActionObserver observe_action)
+    : state_{start}, seed_{seed}, observe_action_{std::move(observe_action)} {
     observe(turn_starts_, state_);
     play_forced();
 }
@@ -15,6 +16,7 @@ bool Fight::over() const {
 }
 
 void Fight::play(search::Action action) {
+    if (observe_action_) observe_action_(state_, action, false);
     after_chance_ = action.execute(state_).isChance();
     ++steps_;
     observe(turn_starts_, state_);
@@ -25,6 +27,7 @@ void Fight::play_forced() {
     while (!over()) {
         const auto actions = combat::legal_actions(state_);
         if (actions.size() != 1) return;
+        if (observe_action_) observe_action_(state_, actions[0], true);
         after_chance_ |= actions[0].execute(state_).isChance();
         ++steps_;
         observe(turn_starts_, state_);
